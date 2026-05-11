@@ -10,33 +10,24 @@
  */
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
-import { persistSignal, getTrainingSignals } from './signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from './signal-reader';
+import { lookupAITaskSignalType } from '@/lib/intelligence/signal-registry';
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
-// OB-198: AI task → DS-021 §3 Role 4 semantic level (architect-disposed Option A).
-// Record<AITaskType, string> typing makes the map exhaustive — adding a new
-// AITaskType member without extending the map produces a tsc error.
-const AI_TASK_LEVEL_MAP: Record<AITaskType, string> = {
-  // classification: Level 1 — "what kind?"
-  file_classification:        'classification:ai_file_classification',
-  sheet_classification:       'classification:ai_sheet_classification',
-  document_analysis:          'classification:ai_document_analysis',
-  // comprehension: Level 2 — "how does it behave?"
-  field_mapping:              'comprehension:ai_field_mapping',
-  field_mapping_second_pass:  'comprehension:ai_field_mapping_second_pass',
-  import_field_mapping:       'comprehension:ai_import_field_mapping',
-  header_comprehension:       'comprehension:ai_header_comprehension',
-  plan_interpretation:        'comprehension:ai_plan_interpretation',
-  workbook_analysis:          'comprehension:ai_workbook_analysis',
-  entity_extraction:          'comprehension:ai_entity_extraction',
-  // convergence: Level 3 — "what connects to what?"
-  convergence_mapping:        'convergence:ai_convergence_mapping',
-  anomaly_detection:          'convergence:ai_anomaly_detection',
-  // lifecycle: platform output events
-  recommendation:             'lifecycle:ai_recommendation',
-  narration:                  'lifecycle:ai_narration',
-  dashboard_assessment:       'lifecycle:ai_dashboard_assessment',
-  natural_language_query:     'lifecycle:ai_natural_language_query',
-};
+// OB-199 Phase 2 (DS-023 §5.3 / F-AUD-006-005 closure): inline AI_TASK_LEVEL_MAP
+// deleted. The 16 AITaskType → signal_type mappings now live as registered
+// declarations in `signal-registry.ts` (search for `ai_` suffix tokens) and are
+// looked up via `lookupAITaskSignalType()`. This eliminates the parallel
+// identifier source AUD-006 §3.2 identified (zero overlap between
+// AI_TASK_LEVEL_MAP and the registry).
+//
+// Note for future maintainers: when adding an AITaskType in `./types.ts`, also
+// register its signal_type declaration in `signal-registry.ts` AND call
+// `registerAITaskMapping(aiTaskType, signalType)`. The lookup helper returns
+// `null` for unmapped task types; the caller below uses the AITaskType string
+// as a structural-failure fallback so the soft-warn surface in signal-persistence
+// fires and architect-channel attention is drawn.
 
 export class TrainingSignalService {
   private tenantId: string;
@@ -58,11 +49,15 @@ export class TrainingSignalService {
   ): string {
     const signalId = crypto.randomUUID();
 
-    // HF-055: Fire-and-forget persist to Supabase
-    // HF-161: Pass credentials explicitly (no dynamic imports)
-    persistSignal({
+    // OB-199 Phase 4: canonical writer (replaces signal-persistence.ts thin wrapper).
+    // Explicit .catch with structured error log per AUD-001 F-003 closure
+    // (fire-and-forget swallow eliminated; CanonicalWriteError surfaces with cause).
+    writeSignal({
       tenantId,
-      signalType: AI_TASK_LEVEL_MAP[response.task],
+      // OB-199 Phase 2: registry-derived identifier (replaces inline AI_TASK_LEVEL_MAP).
+      // Fallback to task string for unmapped AITaskTypes surfaces as
+      // CanonicalWriteError('unregistered_signal_type') per DS-023 §5.3.
+      signalType: lookupAITaskSignalType(response.task) ?? response.task,
       signalValue: {
         signalId,
         requestId: response.requestId,
@@ -80,8 +75,12 @@ export class TrainingSignalService {
         tokenUsage: response.tokenUsage,
         latencyMs: response.latencyMs,
       },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] captureAIResponse CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] captureAIResponse unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
 
     return signalId;
@@ -99,9 +98,8 @@ export class TrainingSignalService {
   ): void {
     const tid = tenantId || this.tenantId;
 
-    // HF-055: Persist user action as a new signal
-    // HF-161: Pass credentials explicitly
-    persistSignal({
+    // OB-199 Phase 4: canonical writer.
+    writeSignal({
       tenantId: tid,
       signalType: 'lifecycle:user_action',
       signalValue: {
@@ -112,8 +110,12 @@ export class TrainingSignalService {
       confidence: action === 'accepted' ? 0.95 : action === 'corrected' ? 0.99 : 0,
       source: action === 'corrected' ? 'user_corrected' : action === 'accepted' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] recordUserAction persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] recordUserAction CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] recordUserAction unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
   }
 
@@ -129,9 +131,8 @@ export class TrainingSignalService {
   ): void {
     const tid = tenantId || this.tenantId;
 
-    // HF-055: Persist outcome as a new signal
-    // HF-161: Pass credentials explicitly
-    persistSignal({
+    // OB-199 Phase 4: canonical writer. lifecycle:outcome registered Phase 2 retroactive.
+    writeSignal({
       tenantId: tid,
       signalType: 'lifecycle:outcome',
       signalValue: {
@@ -142,8 +143,12 @@ export class TrainingSignalService {
       confidence: wasCorrect ? 1.0 : 0.0,
       source: feedbackSource === 'user_explicit' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] recordOutcome persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] recordOutcome CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] recordOutcome unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
   }
 

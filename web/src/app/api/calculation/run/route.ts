@@ -34,7 +34,8 @@ import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
 // Closes Break #2 (entity binding gap) by populating committed_data.entity_id at
 // calc time for any rows where the import-time path didn't already resolve.
@@ -2109,23 +2110,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Persist training signals from consolidation (fire-and-forget)
+  // Persist training signals from consolidation (OB-199 Phase 4: canonical writer)
   if (signalBatch.length > 0) {
     for (const signal of signalBatch) {
-      persistSignal({
+      writeSignal({
         tenantId,
         signalType: (signal.signalType as string) ?? 'lifecycle:synaptic_consolidation',
         signalValue: (signal.signalValue as Record<string, unknown>) ?? {},
         source: 'ai_prediction',
         context: { trigger: 'synaptic_consolidation', batchId: undefined },
-      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-        console.warn('[CalcAPI] Synaptic signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+        if (err instanceof CanonicalWriteError) {
+          console.warn(`[CalcAPI] Synaptic signal CanonicalWriteError (${err.cause}): ${err.message}`);
+        } else {
+          console.warn('[CalcAPI] Synaptic signal unexpected error:', err instanceof Error ? err.message : String(err));
+        }
       });
     }
   }
 
-  // ── OB-77: Training signal — dual-path concordance (fire-and-forget) ──
-  persistSignal({
+  // ── OB-77 + OB-199 Phase 4: Training signal — dual-path concordance (canonical writer) ──
+  writeSignal({
     tenantId,
     signalType: 'convergence:dual_path_concordance',
     signalValue: {
@@ -2139,14 +2144,19 @@ export async function POST(request: NextRequest) {
       ruleSetId,
       periodId,
     },
+    // concordanceRate is in percentage (0–100); divide for Decision 30 v2 inclusive [0, 1].
     confidence: concordanceRate / 100,
     source: 'ai_prediction',
     context: {
       ruleSetName: ruleSet.name,
       trigger: 'calculation_run',
     },
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-    console.warn('[CalcAPI] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[CalcAPI] Dual-path concordance signal CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[CalcAPI] Dual-path concordance signal unexpected error:', err instanceof Error ? err.message : String(err));
+    }
   });
 
   // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──

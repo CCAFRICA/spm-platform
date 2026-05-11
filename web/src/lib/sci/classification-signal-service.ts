@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { ContentProfile } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
+import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
 // ============================================================
 // STRUCTURAL FINGERPRINT — Bucketed values for fuzzy matching
@@ -59,8 +60,26 @@ export function computeStructuralFingerprint(profile: ContentProfile): Structura
 }
 
 // ============================================================
-// SIGNAL WRITE — Called at execute/confirm time
-// Writes to DEDICATED COLUMNS on classification_signals (HF-092)
+// OB-199 Phase 4 supplement A (Row 8-sub-A disposition — AUD-007 closure):
+//
+// `writeClassificationSignal` RESTORED as a thin facade over the DS-023 §5.1
+// canonical writer. The facade re-establishes function-level enforcement of
+// the four SCI structural commitments that AUD-007 surfaced as eroded under
+// the inline migration:
+//
+//   1. signalType: 'classification:outcome'
+//   2. scope:     'tenant'
+//   3. source:    'user_corrected' when humanCorrectionFrom is non-null, else 'sci_agent'
+//   4. context:   { sciVersion: '2.0', phase: 'E', schema: 'HF-092' }
+//
+// DS-023 §5.1 single-entry-point preserved: the facade delegates to writeSignal;
+// it carries NO independent insert path. The dual-architecture defect closed in
+// Phase 4 remains closed — `canonical-signal-writer.ts` is still the singular
+// `.from('classification_signals').insert(...)` surface.
+//
+// `CanonicalWriteError` propagates from writeSignal to caller. Returns void
+// because callers exclusively consume `.catch` (per-module tag + cause
+// discriminator pattern at the 5 SCI sites; AUD-001 F-003 closure semantics).
 // ============================================================
 
 export interface ClassificationSignalPayload {
@@ -75,50 +94,36 @@ export interface ClassificationSignalPayload {
   vocabularyBindings: Record<string, string> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
-  calculationRunId?: string;  // OB-197 G11: NULL for ingestion writes; populated when invoked from a calculation run
+  calculationRunId?: string;
 }
 
 export async function writeClassificationSignal(
   payload: ClassificationSignalPayload,
   supabaseUrl: string,
   supabaseServiceKey: string,
-): Promise<string | null> {
-  try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const { data, error } = await supabase
-      .from('classification_signals')
-      .insert({
-        tenant_id: payload.tenantId,
-        signal_type: 'classification:outcome',
-        source_file_name: payload.sourceFileName,
-        sheet_name: payload.sheetName,
-        structural_fingerprint: payload.fingerprint,
-        classification: payload.classification,
-        confidence: payload.confidence,
-        decision_source: payload.decisionSource,
-        classification_trace: payload.classificationTrace,
-        vocabulary_bindings: payload.vocabularyBindings,
-        agent_scores: payload.agentScores,
-        human_correction_from: payload.humanCorrectionFrom,
-        scope: 'tenant',
-        source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
-        context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
-        calculation_run_id: payload.calculationRunId ?? null,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('[SCI Signal] Write failed:', error.message);
-      return null;
-    }
-
-    return data?.id ?? null;
-  } catch (err) {
-    console.error('[SCI Signal] Write exception (non-blocking):', err);
-    return null;
-  }
+): Promise<void> {
+  await writeSignal(
+    {
+      tenantId: payload.tenantId,
+      signalType: 'classification:outcome',
+      sourceFileName: payload.sourceFileName,
+      sheetName: payload.sheetName,
+      structuralFingerprint: payload.fingerprint as unknown as Record<string, unknown>,
+      classification: payload.classification,
+      confidence: payload.confidence,
+      decisionSource: payload.decisionSource,
+      classificationTrace: payload.classificationTrace as unknown as Record<string, unknown>,
+      vocabularyBindings: payload.vocabularyBindings,
+      agentScores: payload.agentScores,
+      humanCorrectionFrom: payload.humanCorrectionFrom,
+      scope: 'tenant',
+      source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
+      context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
+      calculationRunId: payload.calculationRunId ?? null,
+    },
+    supabaseUrl,
+    supabaseServiceKey,
+  );
 }
 
 // ============================================================

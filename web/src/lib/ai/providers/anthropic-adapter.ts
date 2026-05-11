@@ -28,6 +28,28 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 import { getOperationPrimitives, getRegistry } from '@/lib/calculation/primitive-registry';
 
+// OB-199 Phase 1 (DS-023 §5.4): single producer-side confidence normalization.
+// Walks the parsed AIResponse payload recursively and rescales any `confidence`
+// field with a numeric value > 1 to ratio form by dividing by 100. Values <= 1
+// pass through unchanged. No clamping at the producer; out-of-range values
+// after normalization surface structurally at the canonical writer per §5.2.
+// Exported for direct testing.
+export function normalizeConfidenceFieldsInPlace(node: unknown): void {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) normalizeConfidenceFieldsInPlace(item);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'confidence' && typeof value === 'number' && Number.isFinite(value) && value > 1) {
+      obj[key] = value / 100;
+    } else if (typeof value === 'object' && value !== null) {
+      normalizeConfidenceFieldsInPlace(value);
+    }
+  }
+}
+
 function buildPrimitiveVocabularyForPrompt(): string {
   const ops = getOperationPrimitives();
   const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
@@ -969,10 +991,16 @@ export class AnthropicAdapter implements AIProviderAdapter {
     // Parse JSON from response
     const result = this.parseJsonResponse(content);
 
-    // Extract confidence from result or default
-    const confidence = typeof result.confidence === 'number' && result.confidence > 0
-      ? result.confidence / 100
-      : 0;
+    // OB-199 Phase 1 (DS-023 §5.4): single producer-side confidence normalization.
+    // All `confidence` fields anywhere in the AIResponse payload (top-level,
+    // result.confidence, result.components[i].confidence, and arbitrarily-nested
+    // confidence fields) are normalized to ratio form before this adapter returns.
+    // Rule: numeric confidence > 1 is divided by 100 (percentage → ratio);
+    // values <= 1 pass through unchanged. No clamping. No floor at 0, no ceiling
+    // at 1 — out-of-range values after normalization surface structurally at the
+    // canonical writer per DS-023 §5.2.
+    normalizeConfidenceFieldsInPlace(result);
+    const confidence = typeof result.confidence === 'number' ? result.confidence : 0;
 
     // Token usage from response
     const tokenUsage = {

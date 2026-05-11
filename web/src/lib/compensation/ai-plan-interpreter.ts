@@ -5,7 +5,8 @@
  * Handles any format (PPTX, CSV, Excel, PDF text) and any language (Spanish, English, mixed).
  */
 
-import { getAIService } from '@/lib/ai';
+// OB-199 Phase 1: getAIService import deleted; only the deleted AIPlainInterpreter
+// class consumed it. Callers requiring AIService use it directly via @/lib/ai.
 import {
   isRegisteredPrimitive,
   getOperationPrimitives,
@@ -115,221 +116,147 @@ export interface PlanInterpretation {
   rawApiResponse?: string;
 }
 
-export interface AIInterpreterConfig {
-  apiKey?: string;
-  model?: string;
-  maxTokens?: number;
+// OB-199 Phase 1 (DS-023 §5.4): AIPlainInterpreter class deleted. Producer-side
+// confidence normalization now happens once at anthropic-adapter.ts via
+// normalizeConfidenceFieldsInPlace. Downstream consumers (this file's
+// bridgeAIToEngineFormat path + plan-comprehension-emitter path) receive
+// ratio-form confidence values from a single source. The validation/coercion
+// surface previously inside AIPlainInterpreter.validateAndNormalize is preserved
+// as the standalone exported function validateAndNormalizePlanInterpretation
+// below; bridgeAIToEngineFormat calls it directly without class indirection.
+//
+// Deletion scope per architect Option (b) disposition 2026-05-11:
+//   - AIPlainInterpreter class (constructor, isConfigured, interpretPlan,
+//     validateAndNormalizePublic, validateAndNormalize, normalizeConfidence,
+//     normalize* helpers)
+//   - getAIInterpreter factory
+//   - resetAIInterpreter
+//   - interpreterInstance singleton
+// Replacement: module-level helper functions + validateAndNormalizePlanInterpretation.
+
+// AIInterpreterConfig interface deleted — only the deleted class consumed it.
+
+// ============================================
+// VALIDATION / NORMALIZATION HELPERS (module-level; no class indirection)
+// ============================================
+
+function normalizeEmployeeTypes(types: unknown): EmployeeType[] {
+  if (!Array.isArray(types)) return [];
+
+  return types.map((t, index) => ({
+    id: String(t.id || `employee-type-${index}`),
+    name: String(t.name || `Type ${index + 1}`),
+    nameEs: t.nameEs ? String(t.nameEs) : undefined,
+    eligibilityCriteria: t.eligibilityCriteria as Record<string, unknown> | undefined,
+  }));
 }
 
-// ============================================
-// AI INTERPRETER CLASS (uses AIService for provider abstraction)
-// ============================================
-
-export class AIPlainInterpreter {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(_config: AIInterpreterConfig = {}) {
-    // Config is ignored - we use AIService for all AI calls
+function normalizeComponentType(type: unknown): ComponentCalculation['type'] {
+  // OB-196 Phase 1.5 (Decision 155 fully closed): every recognized identifier
+  // is sourced from primitive-registry.ts. No private alias lists.
+  const typeStr = String(type ?? '');
+  if (!isRegisteredPrimitive(typeStr)) {
+    throw new UnconvertibleComponentError(
+      `[ai-plan-interpreter] non-foundational componentType "${typeStr}". ` +
+        `The registry holds ${getOperationPrimitives().length} foundational primitives; ` +
+        `AI emission and persisted rule_sets must match. ` +
+        `This is an OB-196 Phase 1.5 closure invariant.`,
+    );
   }
+  return typeStr as ComponentCalculation['type'];
+}
 
-  public isConfigured(): boolean {
-    // AIService handles configuration internally
-    try {
-      getAIService();
-      return true;
-    } catch {
-      return false;
-    }
-  }
+function normalizeCalculationMethod(type: unknown, method: unknown): ComponentCalculation {
+  const typeStr = normalizeComponentType(type);
+  const m = (method || {}) as Record<string, unknown>;
+  return { type: typeStr, ...m } as GenericCalculation;
+}
 
-  /**
-   * Interpret a plan document using AIService (provider-agnostic)
-   */
-  public async interpretPlan(documentContent: string): Promise<PlanInterpretation> {
-    console.log('\n========== AI INTERPRETER DEBUG ==========');
-    console.log('Document content length:', documentContent.length, 'chars');
+function normalizeComponents(components: unknown): InterpretedComponent[] {
+  if (!Array.isArray(components)) return [];
 
-    try {
-      // Use AIService for provider abstraction
-      const aiService = getAIService();
-      console.log('Calling AIService.interpretPlan...');
-
-      const response = await aiService.interpretPlan(documentContent, 'text');
-
-      console.log('\n========== AI RESPONSE ==========');
-      console.log('Request ID:', response.requestId);
-      console.log('Signal ID:', response.signalId);
-      console.log('Confidence:', (response.confidence * 100).toFixed(1) + '%');
-      console.log('Latency:', response.latencyMs + 'ms');
-      console.log('Provider:', response.provider);
-      console.log('Model:', response.model);
-
-      // Parse and normalize the result
-      const interpretation = this.validateAndNormalize(response.result);
-      interpretation.rawApiResponse = JSON.stringify(response.result);
-
-      console.log('\n========== PARSED INTERPRETATION ==========');
-      console.log('Plan name:', interpretation.ruleSetName);
-      console.log('Employee types:', interpretation.employeeTypes.length);
-      interpretation.employeeTypes.forEach((et, i) => {
-        console.log(`  ${i + 1}. ${et.name} (${et.id})`);
-      });
-      console.log('Components:', interpretation.components.length);
-      interpretation.components.forEach((comp, i) => {
-        console.log(`  ${i + 1}. ${comp.name} (${comp.type}) - ${comp.confidence}% confidence`);
-        console.log(`     Calculation method:`, JSON.stringify(comp.calculationMethod).substring(0, 200));
-      });
-      console.log('Worked examples:', interpretation.workedExamples.length);
-      console.log('Overall confidence:', interpretation.confidence);
-      console.log('============================================\n');
-
-      return interpretation;
-    } catch (error) {
-      console.error('AI interpretation error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Public wrapper for validateAndNormalize (used by bridgeAIToEngineFormat)
-   */
-  public validateAndNormalizePublic(parsed: Record<string, unknown>): PlanInterpretation {
-    return this.validateAndNormalize(parsed);
-  }
-
-  /**
-   * Validate and normalize the AI response
-   */
-  private validateAndNormalize(parsed: Record<string, unknown>): PlanInterpretation {
-    return {
-      ruleSetName: String(parsed.ruleSetName || 'Unnamed Plan'),
-      ruleSetNameEs: parsed.ruleSetNameEs ? String(parsed.ruleSetNameEs) : undefined,
-      description: String(parsed.description || ''),
-      descriptionEs: parsed.descriptionEs ? String(parsed.descriptionEs) : undefined,
-      currency: String(parsed.currency || 'USD').toUpperCase(),
-      employeeTypes: this.normalizeEmployeeTypes(parsed.employeeTypes),
-      components: this.normalizeComponents(parsed.components),
-      requiredInputs: this.normalizeRequiredInputs(parsed.requiredInputs),
-      workedExamples: this.normalizeWorkedExamples(parsed.workedExamples),
-      confidence: this.normalizeConfidence(parsed.confidence, 'interpretation.confidence', 0),
-      reasoning: String(parsed.reasoning || ''),
+  return components.map((c, index) => {
+    // OB-199 Phase 1: confidence arrives ratio-form post-producer-normalization
+    // at anthropic-adapter.ts. Direct Number() read; fallback 0.5 preserved for
+    // missing/invalid (matches prior B2 fallback semantic for component-level).
+    const rawConf = Number(c.confidence);
+    const comp: InterpretedComponent = {
+      id: String(c.id || `component-${index}`),
+      name: String(c.name || `Component ${index + 1}`),
+      nameEs: c.nameEs ? String(c.nameEs) : undefined,
+      type: normalizeComponentType(c.type),
+      appliesToEmployeeTypes: Array.isArray(c.appliesToEmployeeTypes)
+        ? c.appliesToEmployeeTypes.map(String)
+        : ['all'],
+      calculationMethod: normalizeCalculationMethod(c.type, c.calculationMethod),
+      // OB-77: Preserve AI-produced structural intent (validated downstream)
+      calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
+        ? c.calculationIntent as Record<string, unknown>
+        : undefined,
+      confidence: Number.isFinite(rawConf) ? rawConf : 0.5,
+      reasoning: String(c.reasoning || ''),
     };
-  }
+    return comp;
+  });
+}
 
-  // HF-214 Phase 2 (B2): structural normalization for AI-emitted confidence values.
-  // Confidence is a decimal probability ratio in [0, 1]. Values > 1 are treated as
-  // percentage-encoded and rescaled by /100; values < 0 clamp to 0. Original-vs-normalized
-  // divergence is logged so upstream prompt drift is observable.
-  private normalizeConfidence(raw: unknown, fieldPath: string, fallback: number): number {
-    const original = Number(raw);
-    if (!Number.isFinite(original)) return fallback;
-    let normalized = original;
-    if (normalized > 1) normalized = normalized / 100;
-    if (normalized < 0) normalized = 0;
-    if (normalized !== original) {
-      console.warn(`[AIPlanInterpreter] confidence normalized: field=${fieldPath} original=${original} normalized=${normalized}`);
-    }
-    return normalized;
-  }
+function normalizeScope(scope: unknown): RequiredInput['scope'] {
+  const validScopes = ['employee', 'store', 'company'];
+  const scopeStr = String(scope || 'employee');
+  return validScopes.includes(scopeStr) ? (scopeStr as RequiredInput['scope']) : 'employee';
+}
 
-  private normalizeEmployeeTypes(types: unknown): EmployeeType[] {
-    if (!Array.isArray(types)) return [];
+function normalizeDataType(dataType: unknown): RequiredInput['dataType'] {
+  const validTypes = ['number', 'percentage', 'currency'];
+  const typeStr = String(dataType || 'number');
+  return validTypes.includes(typeStr) ? (typeStr as RequiredInput['dataType']) : 'number';
+}
 
-    return types.map((t, index) => ({
-      id: String(t.id || `employee-type-${index}`),
-      name: String(t.name || `Type ${index + 1}`),
-      nameEs: t.nameEs ? String(t.nameEs) : undefined,
-      eligibilityCriteria: t.eligibilityCriteria as Record<string, unknown> | undefined,
-    }));
-  }
+function normalizeRequiredInputs(inputs: unknown): RequiredInput[] {
+  if (!Array.isArray(inputs)) return [];
+  return inputs.map((i) => ({
+    field: String(i.field || ''),
+    description: String(i.description || ''),
+    descriptionEs: i.descriptionEs ? String(i.descriptionEs) : undefined,
+    scope: normalizeScope(i.scope),
+    dataType: normalizeDataType(i.dataType),
+  }));
+}
 
-  private normalizeComponents(components: unknown): InterpretedComponent[] {
-    if (!Array.isArray(components)) return [];
+function normalizeWorkedExamples(examples: unknown): WorkedExample[] {
+  if (!Array.isArray(examples)) return [];
+  return examples.map((e) => ({
+    employeeType: String(e.employeeType || 'default'),
+    inputs: (e.inputs as Record<string, number>) || {},
+    expectedTotal: Number(e.expectedTotal) || 0,
+    componentBreakdown: (e.componentBreakdown as Record<string, number>) || {},
+  }));
+}
 
-    return components.map((c, index) => {
-      const comp: InterpretedComponent = {
-        id: String(c.id || `component-${index}`),
-        name: String(c.name || `Component ${index + 1}`),
-        nameEs: c.nameEs ? String(c.nameEs) : undefined,
-        type: this.normalizeComponentType(c.type),
-        appliesToEmployeeTypes: Array.isArray(c.appliesToEmployeeTypes)
-          ? c.appliesToEmployeeTypes.map(String)
-          : ['all'],
-        calculationMethod: this.normalizeCalculationMethod(c.type, c.calculationMethod),
-        // OB-77: Preserve AI-produced structural intent (validated downstream)
-        calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
-          ? c.calculationIntent as Record<string, unknown>
-          : undefined,
-        confidence: this.normalizeConfidence(c.confidence, `interpretation.components[${index}].confidence`, 0.5),
-        reasoning: String(c.reasoning || ''),
-      };
-      return comp;
-    });
-  }
-
-  private normalizeComponentType(type: unknown): ComponentCalculation['type'] {
-    // OB-196 Phase 1.5 (Decision 155 fully closed): every recognized identifier
-    // is sourced from primitive-registry.ts. No private alias lists.
-    //
-    // HF-194: prior 5-of-12 importable subset Set deleted (Rule 8 violation —
-    // private vocabulary copy of registry primitives). All 12 registered
-    // primitives are now importable; convertComponent's canonical-dispatch
-    // switch handles all of them. Throw replaced with UnconvertibleComponentError.
-    const typeStr = String(type ?? '');
-    if (!isRegisteredPrimitive(typeStr)) {
-      throw new UnconvertibleComponentError(
-        `[ai-plan-interpreter] non-foundational componentType "${typeStr}". ` +
-          `The registry holds ${getOperationPrimitives().length} foundational primitives; ` +
-          `AI emission and persisted rule_sets must match. ` +
-          `This is an OB-196 Phase 1.5 closure invariant.`,
-      );
-    }
-    return typeStr as ComponentCalculation['type'];
-  }
-
-  private normalizeCalculationMethod(type: unknown, method: unknown): ComponentCalculation {
-    // OB-196 Phase 1.5: legacy switch arms (matrix_lookup, tier_lookup,
-    // tiered_lookup, percentage, flat_percentage, conditional_percentage)
-    // deleted entirely. Foundational 5-tuple expected exclusively.
-    // normalizeComponentType throws if the input falls outside the importable
-    // foundational subset, so by the time control reaches the spread below,
-    // typeStr is guaranteed to be one of the five canonical identifiers.
-    const typeStr = this.normalizeComponentType(type);
-    const m = (method || {}) as Record<string, unknown>;
-    return { type: typeStr, ...m } as GenericCalculation;
-  }
-
-  private normalizeRequiredInputs(inputs: unknown): RequiredInput[] {
-    if (!Array.isArray(inputs)) return [];
-    return inputs.map((i) => ({
-      field: String(i.field || ''),
-      description: String(i.description || ''),
-      descriptionEs: i.descriptionEs ? String(i.descriptionEs) : undefined,
-      scope: this.normalizeScope(i.scope),
-      dataType: this.normalizeDataType(i.dataType),
-    }));
-  }
-
-  private normalizeScope(scope: unknown): RequiredInput['scope'] {
-    const validScopes = ['employee', 'store', 'company'];
-    const scopeStr = String(scope || 'employee');
-    return validScopes.includes(scopeStr) ? (scopeStr as RequiredInput['scope']) : 'employee';
-  }
-
-  private normalizeDataType(dataType: unknown): RequiredInput['dataType'] {
-    const validTypes = ['number', 'percentage', 'currency'];
-    const typeStr = String(dataType || 'number');
-    return validTypes.includes(typeStr) ? (typeStr as RequiredInput['dataType']) : 'number';
-  }
-
-  private normalizeWorkedExamples(examples: unknown): WorkedExample[] {
-    if (!Array.isArray(examples)) return [];
-    return examples.map((e) => ({
-      employeeType: String(e.employeeType || 'default'),
-      inputs: (e.inputs as Record<string, number>) || {},
-      expectedTotal: Number(e.expectedTotal) || 0,
-      componentBreakdown: (e.componentBreakdown as Record<string, number>) || {},
-    }));
-  }
+/**
+ * Validate and normalize the raw AI response payload into a PlanInterpretation.
+ * OB-199 Phase 1: extracted as a standalone exported function (no class
+ * indirection) per architect Option (b) disposition. Confidence values arrive
+ * ratio-form post-producer-normalization at anthropic-adapter.ts; this function
+ * preserves structural validation (shape coercion, missing-field handling,
+ * non-confidence fallbacks).
+ */
+export function validateAndNormalizePlanInterpretation(rawResult: unknown): PlanInterpretation {
+  const parsed = (rawResult ?? {}) as Record<string, unknown>;
+  const rawTopConf = Number(parsed.confidence);
+  return {
+    ruleSetName: String(parsed.ruleSetName || 'Unnamed Plan'),
+    ruleSetNameEs: parsed.ruleSetNameEs ? String(parsed.ruleSetNameEs) : undefined,
+    description: String(parsed.description || ''),
+    descriptionEs: parsed.descriptionEs ? String(parsed.descriptionEs) : undefined,
+    currency: String(parsed.currency || 'USD').toUpperCase(),
+    employeeTypes: normalizeEmployeeTypes(parsed.employeeTypes),
+    components: normalizeComponents(parsed.components),
+    requiredInputs: normalizeRequiredInputs(parsed.requiredInputs),
+    workedExamples: normalizeWorkedExamples(parsed.workedExamples),
+    confidence: Number.isFinite(rawTopConf) ? rawTopConf : 0,
+    reasoning: String(parsed.reasoning || ''),
+  };
 }
 
 // ============================================
@@ -583,8 +510,8 @@ export function bridgeAIToEngineFormat(
   inputBindings: Record<string, unknown>;
 } {
   // Step 1: Normalize the raw AI output through the same pipeline as the plan import page
-  const interpreter = new AIPlainInterpreter();
-  const normalized = interpreter.validateAndNormalizePublic(rawResult);
+  // OB-199 Phase 1: standalone function call (no class indirection per architect Option (b))
+  const normalized = validateAndNormalizePlanInterpretation(rawResult);
 
   // Step 2: Convert to engine format via interpretationToPlanConfig
   const config = interpretationToPlanConfig(normalized, tenantId, userId);
@@ -599,18 +526,9 @@ export function bridgeAIToEngineFormat(
 }
 
 // ============================================
-// SINGLETON INSTANCE
+// OB-199 Phase 1: SINGLETON INSTANCE block deleted (class deleted per
+// architect Option (b) disposition). Consumers call standalone exported
+// functions directly:
+//   - validateAndNormalizePlanInterpretation(rawResult)
+//   - bridgeAIToEngineFormat(rawResult, tenantId, userId)
 // ============================================
-
-let interpreterInstance: AIPlainInterpreter | null = null;
-
-export function getAIInterpreter(): AIPlainInterpreter {
-  if (!interpreterInstance) {
-    interpreterInstance = new AIPlainInterpreter();
-  }
-  return interpreterInstance;
-}
-
-export function resetAIInterpreter(): void {
-  interpreterInstance = null;
-}

@@ -16,8 +16,12 @@ import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
+// OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
 import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
-import type { ClassificationDensity, StructuralFingerprint, ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
+import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+// OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
+// (canonical writer accepts CanonicalSignalInput directly). Type import removed.
+import type { ClassificationDensity, StructuralFingerprint } from '@/lib/sci/classification-signal-service';
 import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
@@ -456,7 +460,8 @@ export async function POST(req: NextRequest) {
         const unitTrace = unit.classificationTrace as unknown as ClassificationTrace | undefined;
         const unitDecisionSource = unitTrace?.decisionSource || 'crr_bayesian';
 
-        const payload: ClassificationSignalPayload = {
+        // OB-199 Phase 4 supplement A: thin facade re-establishes SCI structural markers.
+        writeClassificationSignal({
           tenantId,
           sourceFileName: unit.sourceFile,
           sheetName: unit.tabName,
@@ -466,17 +471,15 @@ export async function POST(req: NextRequest) {
           decisionSource: unitDecisionSource,
           classificationTrace: (unit.classificationTrace as unknown as ClassificationTrace) ?? ({} as unknown as ClassificationTrace),
           vocabularyBindings: null,
-          agentScores: Object.fromEntries(
-            unit.allScores.map(s => [s.agent, s.confidence])
-          ),
+          agentScores: Object.fromEntries(unit.allScores.map(s => [s.agent, s.confidence])),
           humanCorrectionFrom: null,
-        };
-
-        writeClassificationSignal(
-          payload,
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        ).catch(() => {});
+        }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+          if (err instanceof CanonicalWriteError) {
+            console.warn(`[SCIAnalyze] classification:outcome CanonicalWriteError (${err.cause}): ${err.message}`);
+          } else {
+            console.warn('[SCIAnalyze] classification:outcome unexpected error:', err instanceof Error ? err.message : String(err));
+          }
+        });
       }
     } catch {
       // Signal capture failure must NEVER block import

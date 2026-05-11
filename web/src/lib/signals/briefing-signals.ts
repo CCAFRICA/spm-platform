@@ -7,6 +7,10 @@
  */
 
 import { createClient } from '@/lib/supabase/client';
+// OB-199 Phase 4: bypass writer removed; routes through canonical writer per DS-023 §5.1.
+// Client-side (browser) variant uses writeSignalBatchWithClient with the browser-
+// authenticated Supabase session; RLS gates writes per the authenticated user.
+import { writeSignalBatchWithClient, CanonicalWriteError, type CanonicalSignalInput } from '@/lib/intelligence/canonical-signal-writer';
 
 // ──────────────────────────────────────────────
 // Types
@@ -44,11 +48,11 @@ async function flushSignals(): Promise<void> {
 
   try {
     const supabase = createClient();
-    const rows = batch.map(s => ({
-      tenant_id: s.tenantId,
-      signal_type: 'lifecycle:briefing',
-      entity_id: s.entityId || null,
-      signal_value: {
+    const signals: CanonicalSignalInput[] = batch.map(s => ({
+      tenantId: s.tenantId,
+      signalType: 'lifecycle:briefing',
+      entityId: s.entityId || null,
+      signalValue: {
         action: s.signalType,
         persona: s.persona,
         section: s.section,
@@ -60,13 +64,22 @@ async function flushSignals(): Promise<void> {
         section: s.section,
         ...s.metadata,
       },
-      calculation_run_id: s.calculationRunId ?? null,
-      created_at: s.timestamp,
+      calculationRunId: s.calculationRunId ?? null,
+      // Note: created_at column not exposed in CanonicalSignalInput; Postgres
+      // default (now()) applies. Pre-OB-199 passed s.timestamp; this is a minor
+      // semantic change (server-time vs client-time) acceptable for telemetry.
     }));
 
-    await supabase.from('classification_signals').insert(rows);
-  } catch {
-    // Non-critical — signals are fire-and-forget
+    await writeSignalBatchWithClient(signals, supabase);
+  } catch (err) {
+    // OB-199 Phase 4 + AUD-001 F-003 closure: structured error surfacing.
+    // lifecycle:briefing is confidence_required:false; failures are still
+    // surfaced for observability rather than swallowed silently.
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[BriefingSignals] CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[BriefingSignals] flush error:', err instanceof Error ? err.message : String(err));
+    }
   }
 }
 

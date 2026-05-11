@@ -13,7 +13,8 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { loadDensity } from '@/lib/calculation/synaptic-density';
 import { createSynapticSurface } from '@/lib/calculation/synaptic-surface';
 import { reconcile, type BenchmarkRecord, type CalculatedResult } from '@/lib/agents/reconciliation-agent';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 import type { ExecutionTrace } from '@/lib/calculation/intent-types';
 import type { Json } from '@/lib/supabase/database.types';
@@ -126,8 +127,8 @@ export async function POST(request: NextRequest) {
     })
     .eq('id', batchId);
 
-  // Write training signal (fire-and-forget)
-  persistSignal({
+  // OB-199 Phase 4: canonical writer (DS-023 §5.1).
+  writeSignal({
     tenantId,
     signalType: 'convergence:reconciliation_outcome',
     signalValue: {
@@ -141,7 +142,13 @@ export async function POST(request: NextRequest) {
     confidence: report.entityCount.matched / Math.max(report.entityCount.calculated, 1),
     source: 'ai_prediction',
     context: { trigger: 'reconciliation_run' },
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => console.warn('[ReconciliationAPI] Signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown'));
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[ReconciliationAPI] reconciliation_outcome CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[ReconciliationAPI] reconciliation_outcome unexpected error:', err instanceof Error ? err.message : String(err));
+    }
+  });
 
   // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
   try {

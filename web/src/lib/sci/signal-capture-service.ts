@@ -7,7 +7,9 @@
 // comprehension:* / convergence:* / cost:*). The original sci internal type is
 // preserved in signal_value.sci_internal_type so existing reads can post-filter.
 
-import { persistSignal, persistSignalBatch, getTrainingSignals } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from '@/lib/ai/signal-reader';
+import { writeSignal, writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { SCISignalCapture, SCISignal } from './sci-signal-types';
 
 // OB-197: Map sci internal signal type → prefix-vocabulary signal_type.
@@ -45,7 +47,8 @@ export async function captureSCISignal(
   try {
     const confidence = extractConfidence(capture.signal);
     const sciInternal = capture.signal.signalType;
-    const result = await persistSignal({
+    // OB-199 Phase 4: canonical writer (replaces persistSignal thin-wrap).
+    await writeSignal({
       tenantId: capture.tenantId,
       entityId: capture.entityId,
       signalType: toPrefixSignalType(sciInternal),
@@ -58,14 +61,13 @@ export async function captureSCISignal(
       context: { sciVersion: '1.0', capturedAt: new Date().toISOString() },
       calculationRunId,
     }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-
-    if (result.success) {
-      return sciInternal;
-    }
-    console.warn('[SCISignalCapture] Write failed:', result.error);
-    return null;
+    return sciInternal;
   } catch (err) {
-    console.warn('[SCISignalCapture] Exception (non-blocking):', err);
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[SCISignalCapture] CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+    } else {
+      console.warn('[SCISignalCapture] Exception (non-blocking):', err);
+    }
     return null;
   }
 }
@@ -98,10 +100,15 @@ export async function captureSCISignalBatch(
       };
     });
 
-    const result = await persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    // OB-199 Phase 4: canonical writer batch (replaces persistSignalBatch thin-wrap).
+    const result = await writeSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     return result.count;
   } catch (err) {
-    console.warn('[SCISignalCapture] Batch exception (non-blocking):', err);
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[SCISignalCapture] Batch CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+    } else {
+      console.warn('[SCISignalCapture] Batch exception (non-blocking):', err);
+    }
     return 0;
   }
 }

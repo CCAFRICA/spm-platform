@@ -17,7 +17,8 @@
 
 import { getAIService } from '@/lib/ai/ai-service';
 import { getTrainingSignalService } from '@/lib/ai/training-signal-service';
-import { getTrainingSignals } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from '@/lib/ai/signal-reader';
 import { getRuleSets } from '@/lib/supabase/rule-set-service';
 import {
   recordAIClassificationBatch,

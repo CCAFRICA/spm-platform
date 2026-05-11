@@ -30,6 +30,13 @@ export interface SignalTypeDeclaration {
   declared_writers: string[];          // file path or function citation
   declared_readers: string[];          // file path or function citation
   description: string;                 // structural purpose, not implementation detail
+  confidence_required: boolean;        // OB-199 Phase 2 (DS-023 §5.2/§5.3 + F-AUD-006-007 closure):
+                                       // explicit per-signal-type declaration of whether confidence
+                                       // is mandatory. When true, missing-required outcome at the
+                                       // canonical writer = persist row with confidence:null +
+                                       // observability:write_failure signal. When false (telemetry
+                                       // / lifecycle), missing confidence persists null with no
+                                       // failure signal.
 }
 
 /**
@@ -79,7 +86,38 @@ export function register(decl: SignalTypeDeclaration): void {
       `Per AUD-004 v3 §2 E3, every signal_type must declare at least one reader before write.`,
     );
   }
+  // OB-199 Phase 2: confidence_required must be explicitly declared per signal_type.
+  // Defense-in-depth against silent default drift. The TypeScript interface marks
+  // the field required at compile time; the runtime check below catches any cast/
+  // 'as unknown as' bypass at registration time. Closes F-AUD-006-007 by
+  // registry-driven specification rather than blanket-rule.
+  if (typeof decl.confidence_required !== 'boolean') {
+    throw new Error(
+      `[SignalRegistry] register: signal_type '${decl.identifier}' missing explicit confidence_required:boolean. ` +
+      `Per OB-199 Phase 2 (DS-023 §5.2/§5.3), every registration must declare whether confidence is mandatory.`,
+    );
+  }
   REGISTRY.set(decl.identifier, decl);
+}
+
+/**
+ * OB-199 Phase 2 (DS-023 §5.3): lookup signal_type identifier for an AITaskType.
+ * Replaces the parallel AI_TASK_LEVEL_MAP in training-signal-service.ts. AI training
+ * signals are emitted by every AIService.* call via the training-signal pipeline.
+ * The 16 AITaskType → signal_type mappings live as registered declarations below
+ * (search for `classification:ai_`, `comprehension:ai_`, `convergence:ai_`,
+ * `lifecycle:ai_` prefixes). This helper provides a single lookup point so future
+ * AITaskType additions surface as registration omissions at compile/test time
+ * rather than silent fall-through.
+ */
+const AI_TASK_TO_SIGNAL_TYPE = new Map<string, string>();
+
+export function registerAITaskMapping(aiTaskType: string, signalType: string): void {
+  AI_TASK_TO_SIGNAL_TYPE.set(aiTaskType, signalType);
+}
+
+export function lookupAITaskSignalType(aiTaskType: string): string | null {
+  return AI_TASK_TO_SIGNAL_TYPE.get(aiTaskType) ?? null;
 }
 
 export function lookup(signalType: string): SignalTypeDeclaration | null {
@@ -129,6 +167,7 @@ register({
     'web/src/lib/sci/signal-capture-service.ts (getSCISignals consumers)',
   ],
   description: 'Tenant-scoped content classification outcome from agent dispatch.',
+  confidence_required: true,
 });
 
 register({
@@ -142,6 +181,7 @@ register({
     'web/src/lib/intelligence/convergence-service.ts (observations.crossRun query)',
   ],
   description: 'Human-applied classification correction signal.',
+  confidence_required: true,
 });
 
 register({
@@ -156,6 +196,7 @@ register({
     'web/src/lib/intelligence/convergence-service.ts (loadMetricComprehensionSignals; Pass 4 metricContexts builder)',
   ],
   description: 'Plan-agent metric semantic intent (label, op, inputs, semantic_intent) per component, scoped to (tenant_id, rule_set_id).',
+  confidence_required: true,
 });
 
 register({
@@ -169,6 +210,7 @@ register({
     'web/src/lib/intelligence/convergence-service.ts (observations.crossRun query)',
   ],
   description: 'Header → semantic-role binding evidence per content unit.',
+  confidence_required: true,
 });
 
 register({
@@ -184,6 +226,7 @@ register({
     'web/src/app/api/reconciliation/run/route.ts',
   ],
   description: 'Per-component convergence binding evaluation outcome.',
+  confidence_required: true,
 });
 
 register({
@@ -198,6 +241,7 @@ register({
     'web/src/app/api/reconciliation/compare/route.ts',
   ],
   description: 'Reconciliation outcome scoped to (tenant, calculation_run_id).',
+  confidence_required: true,
 });
 
 register({
@@ -211,6 +255,7 @@ register({
     'web/src/app/api/reconciliation/compare/route.ts (comparison-history queries)',
   ],
   description: 'Cross-run reconciliation comparison signal.',
+  confidence_required: true,
 });
 
 register({
@@ -229,6 +274,7 @@ register({
     'docs/audits/AUD_004_Remediation_Design_Document_v3_20260427.md (§2 E3 declared reader; runtime consumer surface scheduled for OB-N where N succeeds HF-198)',
   ],
   description: 'Dual-path concordance observation: legacy-engine vs intent-executor path agreement rate per calculation run.',
+  confidence_required: true,
 });
 
 register({
@@ -242,6 +288,7 @@ register({
     'web/src/lib/sci/signal-capture-service.ts (getSCISignals consumers)',
   ],
   description: 'Cost-tracking event signal (e.g., LLM token usage).',
+  confidence_required: true,
 });
 
 register({
@@ -255,6 +302,7 @@ register({
     'web/src/app/api/ai/assessment/route.ts (assessment history queries)',
   ],
   description: 'AI assessment generation lifecycle event.',
+  confidence_required: true,
 });
 
 register({
@@ -268,6 +316,8 @@ register({
     'web/src/app/api/approvals/[id]/route.ts (transition history queries)',
   ],
   description: 'Approval lifecycle transition signal.',
+  // OB-199 Phase 2: approval lifecycle has no AI confidence; persists null.
+  confidence_required: false,
 });
 
 register({
@@ -281,6 +331,8 @@ register({
     'web/src/lib/signals/stream-signals.ts (stream consumer queries)',
   ],
   description: 'Stream-context lifecycle signal.',
+  // OB-199 Phase 2: UI telemetry; F-AUD-006-007 closure via registry declaration.
+  confidence_required: false,
 });
 
 register({
@@ -294,6 +346,8 @@ register({
     'web/src/lib/signals/briefing-signals.ts (briefing consumer queries)',
   ],
   description: 'Briefing-surface lifecycle signal.',
+  // OB-199 Phase 2: UI telemetry; F-AUD-006-007 closure via registry declaration.
+  confidence_required: false,
 });
 
 register({
@@ -308,6 +362,8 @@ register({
     'web/src/lib/calculation/synaptic-surface.ts (consolidation queries)',
   ],
   description: 'Synaptic consolidation outcome per calculation run.',
+  // OB-199 Phase 2: calc post-event; no AI confidence.
+  confidence_required: false,
 });
 
 register({
@@ -321,4 +377,256 @@ register({
     'web/src/lib/ai/training-signal-service.ts (training-signal aggregation queries)',
   ],
   description: 'User-action lifecycle signal (training-signal generation).',
+  confidence_required: true,
 });
+
+// OB-199 Phase 2 retroactive (2026-05-11): lifecycle:outcome surfaced during
+// Phase 4 inventory at training-signal-service.ts:126 (recordOutcome). Pre-
+// OB-199 the writer fired the [SignalRegistry] not registered soft-warn;
+// post-Phase-3 (canonical writer) it would throw CanonicalWriteError. Registered
+// here to keep recordOutcome operational post-Phase-4 migration.
+register({
+  identifier: 'lifecycle:outcome',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/lib/ai/training-signal-service.ts (recordOutcome — feedback after-action)',
+  ],
+  declared_readers: [
+    'web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for training signals)',
+    'web/src/lib/ai/training-signal-service.ts (getSignalsAsync history queries)',
+  ],
+  description: 'Training-signal outcome lifecycle event: was the AI correct (1.0) or not (0.0). Written by recordOutcome() after explicit or implicit feedback per HF-055.',
+  // Writer at training-signal-service.ts:126 asserts confidence literally as
+  // (wasCorrect ? 1.0 : 0.0) — always present, always in-range.
+  confidence_required: true,
+});
+
+// ──────────────────────────────────────────────
+// OB-199 Phase 2 — NEW registrations (DS-023 §5.3 + F-AUD-006-005 closure)
+//
+// observability:write_failure — emitted by the canonical signal writer when
+// a §5.2 structural contract validation fails (out-of-range confidence,
+// missing-where-required, unregistered signal_type at validation boundary).
+// Carries (offending_field, expected_range, actual_value, producing_module,
+// source_signal_type) per DS-023 §5.2.
+// ──────────────────────────────────────────────
+
+register({
+  identifier: 'observability:write_failure',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/lib/intelligence/canonical-signal-writer.ts (DS-023 §5.2 structural-failure observability emission)',
+  ],
+  declared_readers: [
+    // Phase 2 minimum: registry test asserts presence. Architect-channel adds
+    // operational reader (Vercel logs query, monitoring dashboard, etc.) post-OB.
+    'web/src/lib/intelligence/__tests__/signal-registry.test.ts (registration coverage assertion)',
+    'web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals universal reader; computes write-failure trend)',
+  ],
+  description: 'Canonical-writer structural-failure observability signal: emitted when a §5.2 validation outcome rejects a confidence value or detects a missing-where-required field. Closes F-AUD-006-002 silent-clamping observability gap.',
+  confidence_required: false,
+});
+
+// ──────────────────────────────────────────────
+// OB-199 Phase 2 — AI_TASK_LEVEL_MAP collapse (F-AUD-006-005 closure)
+//
+// The 16 ai_-prefix signal_types previously defined inline in
+// training-signal-service.ts (`AI_TASK_LEVEL_MAP`) collapse into the registry
+// per DS-023 §5.3. Each is registered with `confidence_required: true` because
+// AI training signals carry the AI's self-asserted confidence by construction.
+//
+// All 16 share a universal reader: `ai-metrics-service.ts:fetchSignals` (no
+// signal_type filter; reads every classification_signals row for calibration
+// metrics, flywheel trend, and cross-tenant aggregation per OB-86). Per-task
+// readers cited additionally where present.
+//
+// The `ai_` prefix is structural (denotes AI-source-origin), not domain-
+// specific. Korean Test (Decision 154) compliant: the suffix uses platform
+// vocabulary (file_classification, plan_interpretation, etc.) which is
+// governance vocabulary, not language-specific.
+//
+// `registerAITaskMapping(taskType, signalType)` populates the lookup the
+// training-signal pipeline calls. Replaces the deleted inline AI_TASK_LEVEL_MAP.
+// ──────────────────────────────────────────────
+
+// L1 — classification:ai_*
+register({
+  identifier: 'classification:ai_file_classification',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: file_classification)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: file-classification task outcome (per OB-198 AITaskType mapping).',
+  confidence_required: true,
+});
+registerAITaskMapping('file_classification', 'classification:ai_file_classification');
+
+register({
+  identifier: 'classification:ai_sheet_classification',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: sheet_classification)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: sheet-classification task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('sheet_classification', 'classification:ai_sheet_classification');
+
+register({
+  identifier: 'classification:ai_document_analysis',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: document_analysis)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: document-analysis task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('document_analysis', 'classification:ai_document_analysis');
+
+// L2 — comprehension:ai_*
+register({
+  identifier: 'comprehension:ai_field_mapping',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: field_mapping)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: field-mapping task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('field_mapping', 'comprehension:ai_field_mapping');
+
+register({
+  identifier: 'comprehension:ai_field_mapping_second_pass',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: field_mapping_second_pass)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: field-mapping second-pass task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('field_mapping_second_pass', 'comprehension:ai_field_mapping_second_pass');
+
+register({
+  identifier: 'comprehension:ai_import_field_mapping',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: import_field_mapping)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: import-field-mapping task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('import_field_mapping', 'comprehension:ai_import_field_mapping');
+
+register({
+  identifier: 'comprehension:ai_header_comprehension',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: header_comprehension)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: header-comprehension task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('header_comprehension', 'comprehension:ai_header_comprehension');
+
+register({
+  identifier: 'comprehension:ai_plan_interpretation',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: plan_interpretation)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: plan-interpretation task outcome (parallel to comprehension:plan_interpretation written by the emitter).',
+  confidence_required: true,
+});
+registerAITaskMapping('plan_interpretation', 'comprehension:ai_plan_interpretation');
+
+register({
+  identifier: 'comprehension:ai_workbook_analysis',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: workbook_analysis)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: workbook-analysis task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('workbook_analysis', 'comprehension:ai_workbook_analysis');
+
+register({
+  identifier: 'comprehension:ai_entity_extraction',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: entity_extraction)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: entity-extraction task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('entity_extraction', 'comprehension:ai_entity_extraction');
+
+// L3 — convergence:ai_*
+register({
+  identifier: 'convergence:ai_convergence_mapping',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: convergence_mapping)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: convergence-mapping task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('convergence_mapping', 'convergence:ai_convergence_mapping');
+
+register({
+  identifier: 'convergence:ai_anomaly_detection',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: anomaly_detection)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: anomaly-detection task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('anomaly_detection', 'convergence:ai_anomaly_detection');
+
+// Lifecycle — lifecycle:ai_*
+register({
+  identifier: 'lifecycle:ai_recommendation',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: recommendation)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: recommendation task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('recommendation', 'lifecycle:ai_recommendation');
+
+register({
+  identifier: 'lifecycle:ai_narration',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: narration)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: narration task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('narration', 'lifecycle:ai_narration');
+
+register({
+  identifier: 'lifecycle:ai_dashboard_assessment',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: dashboard_assessment)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: dashboard-assessment task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('dashboard_assessment', 'lifecycle:ai_dashboard_assessment');
+
+register({
+  identifier: 'lifecycle:ai_natural_language_query',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: ['web/src/lib/ai/training-signal-service.ts (captureAIResponse for AITaskType: natural_language_query)'],
+  declared_readers: ['web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for AI training signals)'],
+  description: 'AI training signal: natural-language-query task outcome.',
+  confidence_required: true,
+});
+registerAITaskMapping('natural_language_query', 'lifecycle:ai_natural_language_query');

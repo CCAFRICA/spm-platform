@@ -21,7 +21,10 @@
  * succeeds independently.
  */
 
-import { persistSignalBatch } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration. The load-bearing emitter for
+// comprehension:plan_interpretation now routes through DS-023 §5.1 single
+// entry point; §5.2 enforces Decision 30 v2 inclusive bound.
+import { writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 interface PlanInterpretationLike {
   components?: Array<Record<string, unknown>>;
@@ -108,18 +111,22 @@ export async function emitPlanComprehensionSignals(
       };
     });
 
-    const result = await persistSignalBatch(
-      signals,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
-
-    if (!result.success) {
-      console.warn(`[PlanComprehensionEmitter] Batch persist failed (non-blocking): ${result.error}`);
+    try {
+      const result = await writeSignalBatch(
+        signals,
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+      console.log(`[PlanComprehensionEmitter] Emitted ${result.count} comprehension:plan_interpretation signals (rule_set=${args.ruleSetId}; observability_signals=${result.observabilitySignalsEmitted})`);
+      return { emitted: result.count, errors: 0 };
+    } catch (err) {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[PlanComprehensionEmitter] Batch CanonicalWriteError (${err.cause}): ${err.message}`);
+      } else {
+        console.warn('[PlanComprehensionEmitter] Batch unexpected error:', err instanceof Error ? err.message : String(err));
+      }
       return { emitted: 0, errors: signals.length };
     }
-    console.log(`[PlanComprehensionEmitter] Emitted ${result.count} comprehension:plan_interpretation signals (rule_set=${args.ruleSetId})`);
-    return { emitted: result.count, errors: 0 };
   } catch (err) {
     console.warn('[PlanComprehensionEmitter] Exception (non-blocking):', err instanceof Error ? err.message : String(err));
     return { emitted: 0, errors: 1 };

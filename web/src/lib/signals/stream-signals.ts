@@ -9,6 +9,8 @@
  */
 
 import { createClient } from '@/lib/supabase/client';
+// OB-199 Phase 4: bypass writer removed per DS-023 §5.1 coverage-trust.
+import { writeSignalBatchWithClient, CanonicalWriteError, type CanonicalSignalInput } from '@/lib/intelligence/canonical-signal-writer';
 
 // ──────────────────────────────────────────────
 // Types
@@ -45,10 +47,10 @@ async function flushSignals(): Promise<void> {
 
   try {
     const supabase = createClient();
-    const rows = batch.map(s => ({
-      tenant_id: s.tenantId,
-      signal_type: 'lifecycle:stream',
-      signal_value: {
+    const signals: CanonicalSignalInput[] = batch.map(s => ({
+      tenantId: s.tenantId,
+      signalType: 'lifecycle:stream',
+      signalValue: {
         persona: s.persona,
         element_id: s.elementId,
         action: s.action,
@@ -59,13 +61,18 @@ async function flushSignals(): Promise<void> {
         element_id: s.elementId,
         action: s.action,
       },
-      calculation_run_id: s.calculationRunId ?? null,
-      created_at: s.timestamp,
+      calculationRunId: s.calculationRunId ?? null,
+      // created_at column omitted; Postgres default (now()) applies.
     }));
 
-    await supabase.from('classification_signals').insert(rows);
-  } catch {
-    // Non-critical — signals are fire-and-forget
+    await writeSignalBatchWithClient(signals, supabase);
+  } catch (err) {
+    // OB-199 Phase 4 + AUD-001 F-003 closure: structured error surfacing.
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[StreamSignals] CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[StreamSignals] flush error:', err instanceof Error ? err.message : String(err));
+    }
   }
 }
 

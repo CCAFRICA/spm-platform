@@ -20,8 +20,9 @@ import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
+// OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
 import { computeStructuralFingerprint, lookupPriorSignals, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
-import type { ClassificationSignalPayload } from '@/lib/sci/classification-signal-service';
+import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
@@ -338,7 +339,8 @@ export async function POST(req: NextRequest) {
       const fp = computeStructuralFingerprint(
         Array.from(profileMap.values()).find(p => p.tabName === unit.tabName) || Array.from(profileMap.values())[0]
       );
-      const payload: ClassificationSignalPayload = {
+      // OB-199 Phase 4 supplement A: thin facade re-establishes SCI structural markers.
+      writeClassificationSignal({
         tenantId,
         sourceFileName: fileName,
         sheetName: unit.tabName,
@@ -350,12 +352,13 @@ export async function POST(req: NextRequest) {
         vocabularyBindings: null,
         agentScores: Object.fromEntries(unit.allScores.map(s => [s.agent, s.confidence])),
         humanCorrectionFrom: null,
-      };
-      writeClassificationSignal(
-        payload,
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      ).catch(() => {});
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+        if (err instanceof CanonicalWriteError) {
+          console.warn(`[SCIProcessJob] classification:outcome CanonicalWriteError (${err.cause}): ${err.message}`);
+        } else {
+          console.warn('[SCIProcessJob] classification:outcome unexpected error:', err instanceof Error ? err.message : String(err));
+        }
+      });
     }
 
     return NextResponse.json({
