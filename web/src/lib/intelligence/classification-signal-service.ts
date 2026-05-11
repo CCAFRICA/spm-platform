@@ -16,7 +16,8 @@
  * Korean Test: No hardcoded field names. Works with any language/encoding.
  */
 
-import { getTrainingSignals } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from '@/lib/ai/signal-reader';
 import { writeSignal, writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 // ============================================

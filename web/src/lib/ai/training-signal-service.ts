@@ -10,7 +10,8 @@
  */
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
-import { getTrainingSignals } from './signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from './signal-reader';
 import { lookupAITaskSignalType } from '@/lib/intelligence/signal-registry';
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 

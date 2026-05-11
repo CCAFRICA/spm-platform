@@ -7,7 +7,8 @@
 // comprehension:* / convergence:* / cost:*). The original sci internal type is
 // preserved in signal_value.sci_internal_type so existing reads can post-filter.
 
-import { getTrainingSignals } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
+import { getTrainingSignals } from '@/lib/ai/signal-reader';
 import { writeSignal, writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { SCISignalCapture, SCISignal } from './sci-signal-types';
 

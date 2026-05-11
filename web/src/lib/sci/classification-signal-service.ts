@@ -59,8 +59,27 @@ export function computeStructuralFingerprint(profile: ContentProfile): Structura
 }
 
 // ============================================================
-// SIGNAL WRITE — Called at execute/confirm time
-// Writes to DEDICATED COLUMNS on classification_signals (HF-092)
+// OB-199 Phase 4 (DS-023 §5.1 coverage-trust closure):
+//
+// writeClassificationSignal function DELETED. The function was a parallel
+// write surface (dedicated-columns path) that bypassed the JSONB-path
+// signal-persistence.ts; its existence was the structural cause of AUD-001
+// F-002 ("dual write architecture") which survived two prior audit cycles
+// (AUD-001 marked P1; AUD-004 v3 omitted from closure map; AUD-006 §1.1
+// F-AUD-006-004 re-surfaced as P1).
+//
+// All 5 prior callers (api/import/sci/execute, api/import/sci/process-job,
+// api/import/sci/analyze, api/intelligence/converge :95 + :120) now call
+// `writeSignal` from `@/lib/intelligence/canonical-signal-writer` directly
+// with the canonical input shape that unifies the JSONB and dedicated-
+// columns insert payloads (DS-023 §5.1). The dedicated columns
+// (source_file_name, sheet_name, structural_fingerprint, classification,
+// decision_source, classification_trace, vocabulary_bindings, agent_scores,
+// human_correction_from, scope) are first-class fields on
+// `CanonicalSignalInput` and persist when the caller provides them.
+//
+// ClassificationSignalPayload TYPE preserved for any caller that still
+// constructs the shape internally (not deleted, just orphaned at this site).
 // ============================================================
 
 export interface ClassificationSignalPayload {
@@ -75,50 +94,7 @@ export interface ClassificationSignalPayload {
   vocabularyBindings: Record<string, string> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
-  calculationRunId?: string;  // OB-197 G11: NULL for ingestion writes; populated when invoked from a calculation run
-}
-
-export async function writeClassificationSignal(
-  payload: ClassificationSignalPayload,
-  supabaseUrl: string,
-  supabaseServiceKey: string,
-): Promise<string | null> {
-  try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const { data, error } = await supabase
-      .from('classification_signals')
-      .insert({
-        tenant_id: payload.tenantId,
-        signal_type: 'classification:outcome',
-        source_file_name: payload.sourceFileName,
-        sheet_name: payload.sheetName,
-        structural_fingerprint: payload.fingerprint,
-        classification: payload.classification,
-        confidence: payload.confidence,
-        decision_source: payload.decisionSource,
-        classification_trace: payload.classificationTrace,
-        vocabulary_bindings: payload.vocabularyBindings,
-        agent_scores: payload.agentScores,
-        human_correction_from: payload.humanCorrectionFrom,
-        scope: 'tenant',
-        source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
-        context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
-        calculation_run_id: payload.calculationRunId ?? null,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('[SCI Signal] Write failed:', error.message);
-      return null;
-    }
-
-    return data?.id ?? null;
-  } catch (err) {
-    console.error('[SCI Signal] Write exception (non-blocking):', err);
-    return null;
-  }
+  calculationRunId?: string;
 }
 
 // ============================================================
