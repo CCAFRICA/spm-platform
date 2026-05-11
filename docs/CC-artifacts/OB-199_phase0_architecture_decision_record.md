@@ -127,6 +127,24 @@ DS-022 v2 §5.2 lines 175 says the structured-failure signal is emitted "to `cla
 
 **Architect resolution (2026-05-11):** `observability:write_failure` is operative. DS-022 v2 admits this as the second option; no contradiction. Registered in Phase 2 step 3.
 
+### Divergence 4 — AUD-006 §1.1 writer inventory incomplete (DISCOVERED Phase 4 step 1; RESOLVED Path (c) by architect 2026-05-11)
+
+Phase 4 step 1 inventory grep returned **5 call sites NOT in the directive's expected list** (which mirrored AUD-006 §1.1 writer enumeration):
+
+1. `web/src/lib/ai/training-signal-service.ts:126` — `recordOutcome()` writes `lifecycle:outcome` with literal `confidence: wasCorrect ? 1.0 : 0.0`. Signal_type was unregistered pre-Phase-2 (fired `[SignalRegistry] not registered` soft-warn).
+2. `web/src/app/api/intelligence/converge/route.ts:95` — `writeClassificationSignal()` caller
+3. `web/src/app/api/intelligence/converge/route.ts:120` — `writeClassificationSignal()` caller
+4. `web/src/app/api/import/sci/process-job/route.ts:354` — `writeClassificationSignal()` caller
+5. `web/src/app/api/import/sci/analyze/route.ts:475` — `writeClassificationSignal()` caller
+
+AUD-006 §1.1 enumerated the bypass at `sci/classification-signal-service.ts:91` (the function declaration / insert body) but did not enumerate the 4 call sites of that function. The `lifecycle:outcome` writer was likewise omitted from the AUD-006 §1.1 enumeration.
+
+**Architect resolution (2026-05-11): Path (c) — expand Phase 4 inventory to 19 sites.**
+
+Sub-action: retroactive Phase 2 registry add of `lifecycle:outcome` with `confidence_required: true` (writer asserts literally `1.0` or `0.0` — always present, never null at the call site). Committed as `a510542b` ("OB-199 Phase 2 retroactive: register lifecycle:outcome").
+
+Phase 4 proceeds at full 19-site scope. Coverage-trust property closes fully. `signal-persistence.ts` and `writeClassificationSignal` both delete at Phase 4 close as originally specified.
+
 ### Divergence 3 — AUD-006 §2.4 dead-code claim partially incorrect (DISCOVERED Phase 1 step 5; RESOLVED Option (b) by architect)
 
 AUD-006 §2.4 grep filter `grep -v "ai-plan-interpreter.ts"` excluded the host file from the dead-code verification, hiding an internal call inside `bridgeAIToEngineFormat`. B2 normalization (`AIPlainInterpreter.validateAndNormalize` via the public wrapper `validateAndNormalizePublic`) IS reachable via the rule_set engineFormat path:
@@ -171,4 +189,5 @@ Per directive Standing Halt Conditions + DS-022 v2 scope:
 - ☑ Divergence 1 (missing-required outcome) RESOLVED 2026-05-11 — DS-023 §5.2 paraphrase operative; row persists with null + observability signal
 - ☑ Divergence 2 (`observability:write_failure` vs `cost:event`) RESOLVED 2026-05-11 — observability signal_type operative
 - ☑ Divergence 3 (AUD-006 §2.4 grep blind-spot) RESOLVED 2026-05-11 — Option (b) extract standalone function + delete class
-- ☑ ADR committed as Phase 0 first commit; amended for Phase 1 step 5 disposition
+- ☑ Divergence 4 (AUD-006 §1.1 writer inventory incomplete; 5 additional sites) RESOLVED 2026-05-11 — Path (c) expand Phase 4 inventory to 19 sites + retroactive Phase 2 register lifecycle:outcome
+- ☑ ADR committed as Phase 0 first commit; amended for Phase 1 step 5 disposition + Phase 4 step 1 disposition
