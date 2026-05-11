@@ -104,7 +104,7 @@ IRA-recommended Sequence A modified with registry gate. The OB-199 directive ren
 
 ## Divergence notes (CC must surface to architect)
 
-### Divergence 1 — Directive vs DS on `missing-required` outcome
+### Divergence 1 — Directive vs DS on `missing-required` outcome (RESOLVED 2026-05-11 by architect)
 
 The OB-199 directive Phase 3 step 2 enumerates four §5.2 outcomes:
 > - In-range → persist as asserted
@@ -115,17 +115,41 @@ The OB-199 directive Phase 3 step 2 enumerates four §5.2 outcomes:
 The DS-022 v2 §5.2 verbatim text (lines 173–177) differs on `missing-required`:
 > - **Confidence missing where required:** typed error class thrown to caller; signal row NOT persisted; producer must remediate and retry. (This case differs from out-of-range because there is no producer assertion at all.)
 
-**CC operates against DS verbatim:** missing-where-required throws typed error and does NOT persist the row. The directive's paraphrase appears to predate or simplify DS-022 v2 §5.2 CHANGE 2 ("row-persistence vs confidence-rejection distinction"). DS-022 v2 §5.2 explicitly distinguishes the two cases: out-of-range = producer-asserted-but-invalid (persist row with null + emit signal, T1-E902 honored); missing-required = no producer assertion (throw, row not persisted — producer surface is broken upstream).
+**Architect resolution (2026-05-11):** DS-023 §5.2 is operative; row persists with `confidence = null` + `observability:write_failure` signal on missing-required (same outcome as out-of-range). Implement per DS-023 §5.2 verbatim as paraphrased in the OB-199 directive. (Note: directive references "DS-023" — file on `main` is `DS-022_Canonical_Signal_Write_Surface_v2.md`; the renumbering is an architect-channel artifact not yet propagated to the file name. Substantive spec is identical.)
 
-**Disposition:** CC implements per DS verbatim. Documented here for architect review.
+**Implementation:** missing-required outcome = persist row with `confidence = null` + emit `observability:write_failure` signal. T1-E902 (Carry Everything) honored for both out-of-range and missing-required.
 
-### Divergence 2 — `observability:write_failure` vs DS-suggested `cost:event`
+### Divergence 2 — `observability:write_failure` vs DS-suggested `cost:event` (RESOLVED 2026-05-11 by architect)
 
 The OB-199 directive Phase 2 step 3 instructs registering a new `observability:write_failure` signal_type.
 
 DS-022 v2 §5.2 lines 175 says the structured-failure signal is emitted "to `classification_signals` with signal_type `cost:event` (or a registered observability signal_type)" — i.e., DS-022 v2 admits both options.
 
-**CC follows the directive:** registers `observability:write_failure` as a new signal_type (preferred per directive Phase 2 step 3). DS-022 v2 admits this; no contradiction.
+**Architect resolution (2026-05-11):** `observability:write_failure` is operative. DS-022 v2 admits this as the second option; no contradiction. Registered in Phase 2 step 3.
+
+### Divergence 3 — AUD-006 §2.4 dead-code claim partially incorrect (DISCOVERED Phase 1 step 5; RESOLVED Option (b) by architect)
+
+AUD-006 §2.4 grep filter `grep -v "ai-plan-interpreter.ts"` excluded the host file from the dead-code verification, hiding an internal call inside `bridgeAIToEngineFormat`. B2 normalization (`AIPlainInterpreter.validateAndNormalize` via the public wrapper `validateAndNormalizePublic`) IS reachable via the rule_set engineFormat path:
+
+```
+app/api/import/sci/execute/route.ts:1273  (and :1527, parallel single-unit path)
+  → bridgeAIToEngineFormat(rawResult, ...)
+    → ai-plan-interpreter.ts:587: interpreter.validateAndNormalizePublic(rawResult)
+      → AIPlainInterpreter.validateAndNormalizePublic
+        → AIPlainInterpreter.validateAndNormalize (calls normalizeConfidence at lines 213 + 262)
+```
+
+The `comprehension:plan_interpretation` emitter path noted in AUD-006 §6.1 (uses `response.result` raw, NOT routed through `bridgeAIToEngineFormat`) still bypasses B2 — that part of AUD-006 stands. But the broader "zero callers" verdict was incorrect.
+
+**Architect disposition: Option (b) — refactor `bridgeAIToEngineFormat` to drop the class indirection.**
+
+Implementation:
+1. Extract `validateAndNormalize` body as a standalone exported function `validateAndNormalizePlanInterpretation(rawResult: unknown): PlanInterpretation` in `ai-plan-interpreter.ts`.
+2. Update `bridgeAIToEngineFormat` (line 587) to call the standalone function directly: `const normalized = validateAndNormalizePlanInterpretation(rawResult);`
+3. Delete `AIPlainInterpreter` class entirely (including `validateAndNormalizePublic`, `interpretPlan`, `getAIInterpreter` factory).
+4. Delete `normalizeConfidence` method; replace its call sites with direct `Number(...)` reads (values arrive ratio-form post-Phase-1 producer normalization at the adapter — no transformation needed).
+
+**Substrate-coherent outcome:** single producer-side normalization site at `anthropic-adapter.ts` per DS-023 §5.4; two downstream consumers (emitter path + `bridgeAIToEngineFormat` path) both receive ratio-form values from one source. B2 logic deleted with confidence (no path orphaned).
 
 ---
 
@@ -144,6 +168,7 @@ Per directive Standing Halt Conditions + DS-022 v2 scope:
 
 - ☑ Branch `ob-199-canonical-signal-write-implementation` created from `main` HEAD `87477053`
 - ☑ DS-023 vs DS-022 v2 identifier mismatch documented
-- ☑ Divergence 1 (missing-required outcome) flagged for architect review
-- ☑ Divergence 2 (`observability:write_failure` vs `cost:event`) flagged as DS-admitted option
-- ☑ ADR committed as Phase 0 first commit
+- ☑ Divergence 1 (missing-required outcome) RESOLVED 2026-05-11 — DS-023 §5.2 paraphrase operative; row persists with null + observability signal
+- ☑ Divergence 2 (`observability:write_failure` vs `cost:event`) RESOLVED 2026-05-11 — observability signal_type operative
+- ☑ Divergence 3 (AUD-006 §2.4 grep blind-spot) RESOLVED 2026-05-11 — Option (b) extract standalone function + delete class
+- ☑ ADR committed as Phase 0 first commit; amended for Phase 1 step 5 disposition
