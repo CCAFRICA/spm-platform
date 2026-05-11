@@ -13,9 +13,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { convergeBindings } from '@/lib/intelligence/convergence-service';
-// OB-199 Phase 4: canonical writer migration; writeClassificationSignal deleted.
-import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
-// OB-199 Phase 4: ClassificationTrace was only used in the deleted writeClassificationSignal payload.
+// OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
+import { writeClassificationSignal, type StructuralFingerprint } from '@/lib/sci/classification-signal-service';
+import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import type { Json } from '@/lib/supabase/database.types';
 
 export async function POST(request: NextRequest) {
@@ -90,24 +91,31 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // OB-160G + OB-199 Phase 4: Write Level 3 convergence signals via canonical writer.
+      // OB-160G + OB-199 Phase 4 supplement A: Write Level 3 convergence signals via facade.
+      const convergenceFingerprint: StructuralFingerprint = {
+        columnCount: 0,
+        numericFieldRatioBucket: '0-25',
+        categoricalFieldRatioBucket: '0-25',
+        identifierRepeatBucket: '0-1',
+        hasTemporalColumns: false,
+        hasIdentifier: false,
+        hasStructuralName: false,
+        rowCountBucket: 'small',
+      };
+      const emptyTrace = {} as unknown as ClassificationTrace;
       for (const signal of result.signals) {
-        writeSignal({
+        writeClassificationSignal({
           tenantId,
-          signalType: 'classification:outcome',
           sourceFileName: 'convergence',
           sheetName: signal.domain,
-          structuralFingerprint: { columnCount: 0, numericFieldRatioBucket: '0-25', categoricalFieldRatioBucket: '0-25', identifierRepeatBucket: '0-1', hasTemporalColumns: false, hasIdentifier: false, hasStructuralName: false, rowCountBucket: 'small' } as Record<string, unknown>,
+          fingerprint: convergenceFingerprint,
           classification: 'convergence_match',
           confidence: signal.confidence,
           decisionSource: 'convergence',
-          classificationTrace: {} as Record<string, unknown>,
+          classificationTrace: emptyTrace,
           vocabularyBindings: null,
           agentScores: { convergence: signal.confidence },
           humanCorrectionFrom: null,
-          scope: 'tenant',
-          source: 'sci_agent',
-          context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
         }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
           if (err instanceof CanonicalWriteError) {
             console.warn(`[ConvergeAPI] convergence_match CanonicalWriteError (${err.cause}): ${err.message}`);
@@ -119,22 +127,18 @@ export async function POST(request: NextRequest) {
 
       // Write gap signals
       for (const gap of result.gaps) {
-        writeSignal({
+        writeClassificationSignal({
           tenantId,
-          signalType: 'classification:outcome',
           sourceFileName: 'convergence',
           sheetName: gap.component,
-          structuralFingerprint: { columnCount: 0, numericFieldRatioBucket: '0-25', categoricalFieldRatioBucket: '0-25', identifierRepeatBucket: '0-1', hasTemporalColumns: false, hasIdentifier: false, hasStructuralName: false, rowCountBucket: 'small' } as Record<string, unknown>,
+          fingerprint: convergenceFingerprint,
           classification: 'convergence_gap',
           confidence: 0,
           decisionSource: 'convergence',
-          classificationTrace: {} as Record<string, unknown>,
+          classificationTrace: emptyTrace,
           vocabularyBindings: null,
           agentScores: { convergence: 0 },
           humanCorrectionFrom: null,
-          scope: 'tenant',
-          source: 'sci_agent',
-          context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
         }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
           if (err instanceof CanonicalWriteError) {
             console.warn(`[ConvergeAPI] convergence_gap CanonicalWriteError (${err.cause}): ${err.message}`);

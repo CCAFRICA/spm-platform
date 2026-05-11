@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { ContentProfile } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
+import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
 // ============================================================
 // STRUCTURAL FINGERPRINT — Bucketed values for fuzzy matching
@@ -59,27 +60,26 @@ export function computeStructuralFingerprint(profile: ContentProfile): Structura
 }
 
 // ============================================================
-// OB-199 Phase 4 (DS-023 §5.1 coverage-trust closure):
+// OB-199 Phase 4 supplement A (Row 8-sub-A disposition — AUD-007 closure):
 //
-// writeClassificationSignal function DELETED. The function was a parallel
-// write surface (dedicated-columns path) that bypassed the JSONB-path
-// signal-persistence.ts; its existence was the structural cause of AUD-001
-// F-002 ("dual write architecture") which survived two prior audit cycles
-// (AUD-001 marked P1; AUD-004 v3 omitted from closure map; AUD-006 §1.1
-// F-AUD-006-004 re-surfaced as P1).
+// `writeClassificationSignal` RESTORED as a thin facade over the DS-023 §5.1
+// canonical writer. The facade re-establishes function-level enforcement of
+// the four SCI structural commitments that AUD-007 surfaced as eroded under
+// the inline migration:
 //
-// All 5 prior callers (api/import/sci/execute, api/import/sci/process-job,
-// api/import/sci/analyze, api/intelligence/converge :95 + :120) now call
-// `writeSignal` from `@/lib/intelligence/canonical-signal-writer` directly
-// with the canonical input shape that unifies the JSONB and dedicated-
-// columns insert payloads (DS-023 §5.1). The dedicated columns
-// (source_file_name, sheet_name, structural_fingerprint, classification,
-// decision_source, classification_trace, vocabulary_bindings, agent_scores,
-// human_correction_from, scope) are first-class fields on
-// `CanonicalSignalInput` and persist when the caller provides them.
+//   1. signalType: 'classification:outcome'
+//   2. scope:     'tenant'
+//   3. source:    'user_corrected' when humanCorrectionFrom is non-null, else 'sci_agent'
+//   4. context:   { sciVersion: '2.0', phase: 'E', schema: 'HF-092' }
 //
-// ClassificationSignalPayload TYPE preserved for any caller that still
-// constructs the shape internally (not deleted, just orphaned at this site).
+// DS-023 §5.1 single-entry-point preserved: the facade delegates to writeSignal;
+// it carries NO independent insert path. The dual-architecture defect closed in
+// Phase 4 remains closed — `canonical-signal-writer.ts` is still the singular
+// `.from('classification_signals').insert(...)` surface.
+//
+// `CanonicalWriteError` propagates from writeSignal to caller. Returns void
+// because callers exclusively consume `.catch` (per-module tag + cause
+// discriminator pattern at the 5 SCI sites; AUD-001 F-003 closure semantics).
 // ============================================================
 
 export interface ClassificationSignalPayload {
@@ -95,6 +95,35 @@ export interface ClassificationSignalPayload {
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
   calculationRunId?: string;
+}
+
+export async function writeClassificationSignal(
+  payload: ClassificationSignalPayload,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  await writeSignal(
+    {
+      tenantId: payload.tenantId,
+      signalType: 'classification:outcome',
+      sourceFileName: payload.sourceFileName,
+      sheetName: payload.sheetName,
+      structuralFingerprint: payload.fingerprint as unknown as Record<string, unknown>,
+      classification: payload.classification,
+      confidence: payload.confidence,
+      decisionSource: payload.decisionSource,
+      classificationTrace: payload.classificationTrace as unknown as Record<string, unknown>,
+      vocabularyBindings: payload.vocabularyBindings,
+      agentScores: payload.agentScores,
+      humanCorrectionFrom: payload.humanCorrectionFrom,
+      scope: 'tenant',
+      source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent',
+      context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
+      calculationRunId: payload.calculationRunId ?? null,
+    },
+    supabaseUrl,
+    supabaseServiceKey,
+  );
 }
 
 // ============================================================

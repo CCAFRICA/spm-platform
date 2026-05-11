@@ -17,8 +17,8 @@ import { convergeBindings } from '@/lib/intelligence/convergence-service';
 // endpoints' post-commit work identical.
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 // OB-199 Phase 4: writeClassificationSignal deleted; migrated to canonical writer below.
-import { aggregateToFoundational, aggregateToDomain } from '@/lib/sci/classification-signal-service';
-import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+import { aggregateToFoundational, aggregateToDomain, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 // OB-199 Phase 4: ClassificationSignalPayload no longer used at call site.
@@ -371,27 +371,23 @@ export async function POST(req: NextRequest) {
         const wasOverridden = originalClassification !== unit.confirmedClassification;
         const traceData = unit.classificationTrace as ClassificationTrace | undefined;
 
-        // OB-199 Phase 4 (canonical writer migration; was writeClassificationSignal).
+        // OB-199 Phase 4 supplement A: thin facade re-establishes SCI structural markers.
         // Decision 30 v2 inclusive bound: confidence=1.0 on human-override admissible.
         const confidenceValue = wasOverridden ? 1.0 : (unit.originalConfidence || 0);
-        writeSignal({
+        writeClassificationSignal({
           tenantId,
-          signalType: 'classification:outcome',
           sourceFileName: unit.sourceFile || '',
           sheetName: unit.tabName || '',
-          structuralFingerprint: unit.structuralFingerprint as Record<string, unknown>,
+          fingerprint: unit.structuralFingerprint as unknown as StructuralFingerprint,
           classification: unit.confirmedClassification,
           confidence: confidenceValue,
           decisionSource: wasOverridden ? 'human_override' : (traceData?.decisionSource || 'heuristic'),
-          classificationTrace: (traceData || {}) as Record<string, unknown>,
-          vocabularyBindings: (unit.vocabularyBindings || null) as Record<string, unknown> | null,
+          classificationTrace: (traceData ?? ({} as unknown as ClassificationTrace)),
+          vocabularyBindings: unit.vocabularyBindings || null,
           agentScores: traceData
             ? Object.fromEntries(traceData.round1.map(s => [s.agent, s.confidence]))
             : {},
           humanCorrectionFrom: wasOverridden ? originalClassification : null,
-          scope: 'tenant',
-          source: wasOverridden ? 'user_corrected' : 'sci_agent',
-          context: { sciVersion: '2.0', phase: 'E', schema: 'HF-092' },
         }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
           if (err instanceof CanonicalWriteError) {
             console.warn(`[SCIExecute] classification:outcome CanonicalWriteError (${err.cause}): ${err.message}`);
