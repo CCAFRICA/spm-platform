@@ -18,6 +18,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MetricDerivationRule } from '@/lib/calculation/run-calculation';
 import type { FieldIdentity } from '@/lib/sci/sci-types';
 import { getAIService } from '@/lib/ai';
+// OB-199 Phase 4: canonical writer migration — bypass writer at line 363 removed.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 // ──────────────────────────────────────────────
 // Types
@@ -360,31 +362,41 @@ export async function convergeBindings(
         const colName = cb?.[bindingRole]?.column ?? 'unknown';
         const dist = distributions[colName];
 
-        await supabase.from('classification_signals').insert({
-          tenant_id: tenantId,
-          signal_type: 'convergence:calculation_validation',
-          signal_value: {
-            component_index: pr.componentIndex,
-            component_name: pr.componentName,
-            anomaly_type: pr.anomalyType,
-            detected_result: pr.sampleResult,
-            peer_median: pr.medianPeerResult,
-            ratio_to_median: pr.ratioToMedian,
-            action_applied: !!pr.proposedAction,
-            action_type: pr.proposedAction?.type,
-            rejected_column: pr.proposedAction?.rejectedColumn,
-          },
-          confidence: 0.85,
-          source: 'convergence_validation',
-          decision_source: 'binding_misalignment',
-          context: {
-            plan_id: ruleSetId,
-            component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
-            bound_column: colName,
-            value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
-          },
-          calculation_run_id: calculationRunId ?? null,
-        });
+        // OB-199 Phase 4: bypass writer removed; migrated to canonical writer per DS-023 §5.1.
+        // Explicit error handling per AUD-001 F-003 closure (no fire-and-forget swallow).
+        try {
+          await writeSignal({
+            tenantId,
+            signalType: 'convergence:calculation_validation',
+            signalValue: {
+              component_index: pr.componentIndex,
+              component_name: pr.componentName,
+              anomaly_type: pr.anomalyType,
+              detected_result: pr.sampleResult,
+              peer_median: pr.medianPeerResult,
+              ratio_to_median: pr.ratioToMedian,
+              action_applied: !!pr.proposedAction,
+              action_type: pr.proposedAction?.type,
+              rejected_column: pr.proposedAction?.rejectedColumn,
+            },
+            confidence: 0.85,
+            source: 'convergence_validation',
+            decisionSource: 'binding_misalignment',
+            context: {
+              plan_id: ruleSetId,
+              component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
+              bound_column: colName,
+              value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
+            },
+            calculationRunId: calculationRunId ?? null,
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        } catch (err) {
+          if (err instanceof CanonicalWriteError) {
+            console.warn(`[ConvergenceService] anomaly signal CanonicalWriteError (${err.cause}): ${err.message}`);
+          } else {
+            console.warn('[ConvergenceService] anomaly signal unexpected error:', err instanceof Error ? err.message : String(err));
+          }
+        }
       }
     }
   }

@@ -16,7 +16,8 @@
  * Korean Test: No hardcoded field names. Works with any language/encoding.
  */
 
-import { persistSignal, persistSignalBatch, getTrainingSignals } from '@/lib/ai/signal-persistence';
+import { getTrainingSignals } from '@/lib/ai/signal-persistence';
+import { writeSignal, writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 // ============================================
 // TYPES
@@ -65,9 +66,8 @@ export function recordSignal(
 
   const id = `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // HF-055: Fire-and-forget persist to Supabase
-  // HF-161: Pass credentials explicitly
-  persistSignal({
+  // OB-199 Phase 4: canonical writer (replaces persistSignal thin-wrap).
+  writeSignal({
     tenantId: signal.tenantId,
     signalType: 'classification:outcome',
     signalValue: {
@@ -79,8 +79,12 @@ export function recordSignal(
     source: signal.source,
     context: signal.metadata ?? {},
     calculationRunId,
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-    console.warn('[ClassificationSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[ClassificationSignalService] recordSignal CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[ClassificationSignalService] recordSignal unexpected error:', err instanceof Error ? err.message : String(err));
+    }
   });
 
   return id;
@@ -122,8 +126,13 @@ export function recordAIClassificationBatch(
     calculationRunId,
   }));
 
-  persistSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-    console.warn('[ClassificationSignalService] Batch persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+  // OB-199 Phase 4: canonical writer batch (replaces persistSignalBatch thin-wrap).
+  writeSignalBatch(signals, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[ClassificationSignalService] recordAIClassificationBatch CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[ClassificationSignalService] recordAIClassificationBatch unexpected error:', err instanceof Error ? err.message : String(err));
+    }
   });
 
   return ids;
