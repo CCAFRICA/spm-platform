@@ -11,7 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai/ai-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { detectAnomalies } from '@/lib/intelligence/anomaly-detection';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import { getDomain } from '@/lib/domain/domain-registry';
 import '@/lib/domain/domains/icm'; // Trigger ICM registration
 import type { Json } from '@/lib/supabase/database.types';
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
 
     // OB-83: Capture training signal for assessment generation (non-blocking)
     if (tenantId) {
-      persistSignal({
+      writeSignal({
         tenantId,
         signalType: 'lifecycle:assessment_generated',
         signalValue: {
@@ -189,8 +190,12 @@ export async function POST(request: NextRequest) {
         },
         source: 'ai_prediction',
         context: { trigger: 'assessment_api', endpoint: '/api/ai/assessment' },
-      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-        console.warn('[Assessment API] Training signal failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+        if (err instanceof CanonicalWriteError) {
+          console.warn(`[Assessment API] CanonicalWriteError (${err.cause}): ${err.message}`);
+        } else {
+          console.warn('[Assessment API] Training signal unexpected error:', err instanceof Error ? err.message : String(err));
+        }
       });
     }
 

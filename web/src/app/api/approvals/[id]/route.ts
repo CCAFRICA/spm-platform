@@ -17,7 +17,8 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { LifecycleState } from '@/lib/supabase/database.types';
 import { isValidTransition } from '@/lib/supabase/calculation-service';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 export async function PATCH(
   request: NextRequest,
@@ -161,8 +162,10 @@ export async function PATCH(
       },
     });
 
-    // OB-77: Training signal — lifecycle approval/rejection (fire-and-forget)
-    persistSignal({
+    // OB-77 + OB-199 Phase 4: canonical writer (DS-023 §5.1). confidence=1.0 admissible
+    // per Decision 30 v2 inclusive bound; lifecycle:transition is confidence_required:false
+    // per registry, but caller still asserts the value explicitly.
+    writeSignal({
       tenantId: profile.tenant_id,
       signalType: 'lifecycle:transition',
       signalValue: {
@@ -179,8 +182,12 @@ export async function PATCH(
         decidedBy: profile.display_name,
         trigger: 'approval_decision',
       },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[Approvals] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[Approvals] CanonicalWriteError (${err.cause}): ${err.message}`);
+      } else {
+        console.warn('[Approvals] Training signal unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
 
     return NextResponse.json({
