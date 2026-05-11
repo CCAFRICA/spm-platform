@@ -11,32 +11,21 @@
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
 import { persistSignal, getTrainingSignals } from './signal-persistence';
+import { lookupAITaskSignalType } from '@/lib/intelligence/signal-registry';
 
-// OB-198: AI task → DS-021 §3 Role 4 semantic level (architect-disposed Option A).
-// Record<AITaskType, string> typing makes the map exhaustive — adding a new
-// AITaskType member without extending the map produces a tsc error.
-const AI_TASK_LEVEL_MAP: Record<AITaskType, string> = {
-  // classification: Level 1 — "what kind?"
-  file_classification:        'classification:ai_file_classification',
-  sheet_classification:       'classification:ai_sheet_classification',
-  document_analysis:          'classification:ai_document_analysis',
-  // comprehension: Level 2 — "how does it behave?"
-  field_mapping:              'comprehension:ai_field_mapping',
-  field_mapping_second_pass:  'comprehension:ai_field_mapping_second_pass',
-  import_field_mapping:       'comprehension:ai_import_field_mapping',
-  header_comprehension:       'comprehension:ai_header_comprehension',
-  plan_interpretation:        'comprehension:ai_plan_interpretation',
-  workbook_analysis:          'comprehension:ai_workbook_analysis',
-  entity_extraction:          'comprehension:ai_entity_extraction',
-  // convergence: Level 3 — "what connects to what?"
-  convergence_mapping:        'convergence:ai_convergence_mapping',
-  anomaly_detection:          'convergence:ai_anomaly_detection',
-  // lifecycle: platform output events
-  recommendation:             'lifecycle:ai_recommendation',
-  narration:                  'lifecycle:ai_narration',
-  dashboard_assessment:       'lifecycle:ai_dashboard_assessment',
-  natural_language_query:     'lifecycle:ai_natural_language_query',
-};
+// OB-199 Phase 2 (DS-023 §5.3 / F-AUD-006-005 closure): inline AI_TASK_LEVEL_MAP
+// deleted. The 16 AITaskType → signal_type mappings now live as registered
+// declarations in `signal-registry.ts` (search for `ai_` suffix tokens) and are
+// looked up via `lookupAITaskSignalType()`. This eliminates the parallel
+// identifier source AUD-006 §3.2 identified (zero overlap between
+// AI_TASK_LEVEL_MAP and the registry).
+//
+// Note for future maintainers: when adding an AITaskType in `./types.ts`, also
+// register its signal_type declaration in `signal-registry.ts` AND call
+// `registerAITaskMapping(aiTaskType, signalType)`. The lookup helper returns
+// `null` for unmapped task types; the caller below uses the AITaskType string
+// as a structural-failure fallback so the soft-warn surface in signal-persistence
+// fires and architect-channel attention is drawn.
 
 export class TrainingSignalService {
   private tenantId: string;
@@ -62,7 +51,10 @@ export class TrainingSignalService {
     // HF-161: Pass credentials explicitly (no dynamic imports)
     persistSignal({
       tenantId,
-      signalType: AI_TASK_LEVEL_MAP[response.task],
+      // OB-199 Phase 2: registry-derived identifier (replaces inline AI_TASK_LEVEL_MAP).
+      // Fallback to task string ensures unregistered tasks surface as soft-warn
+      // via the persistence layer's E3 read-coupling check rather than silent fall-through.
+      signalType: lookupAITaskSignalType(response.task) ?? response.task,
       signalValue: {
         signalId,
         requestId: response.requestId,

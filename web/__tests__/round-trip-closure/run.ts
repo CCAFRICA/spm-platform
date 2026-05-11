@@ -274,6 +274,7 @@ assertThrows(
     declared_writers: ['test'],
     declared_readers: [], // VIOLATION: zero readers
     description: 'negative test fixture',
+    confidence_required: true, // OB-199 Phase 2: explicit per registry schema
   }),
   Error,
   '7.3 register() throws Error on zero declared readers',
