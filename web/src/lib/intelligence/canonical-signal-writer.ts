@@ -417,6 +417,26 @@ export async function writeSignalBatchWithClient(
   try {
     const { error } = await supabase.from('classification_signals').insert(rows);
     if (error) {
+      // OB-199 Phase 4 supplement B (Row 6 disposition): per-row forensic
+      // granularity on batch failures. The single CanonicalWriteError below
+      // collapses all rows into one cause; without this loop the producer
+      // cannot isolate which row(s) in the batch carry the offending value
+      // (HF-214 Phase 1's pre-canonical per-row diagnostic intent restored).
+      for (let i = 0; i < signals.length; i++) {
+        const s = signals[i];
+        const sv = (s.signalValue ?? {}) as Record<string, unknown>;
+        const metricName = sv['metric_name'] ?? null;
+        const componentIndex = sv['component_index'] ?? null;
+        const svJson = JSON.stringify(s.signalValue ?? null);
+        const svTruncated = svJson.length > 200 ? svJson.slice(0, 200) + '…' : svJson;
+        console.error(
+          `[CanonicalWriter] batch row=${i} signal_type=${s.signalType} ` +
+          `confidence=${String(s.confidence)} ` +
+          `metric_name=${String(metricName)} ` +
+          `component_index=${String(componentIndex)} ` +
+          `signal_value_truncated=${svTruncated}`,
+        );
+      }
       throw new CanonicalWriteError(
         'insert_failed',
         signals[0]?.signalType ?? '<empty-batch>',

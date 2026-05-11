@@ -334,3 +334,38 @@ test('OB-199 §5.2 batch — reader-assertion analogue: zero persisted rows viol
     assert.ok(inRangeOrNull, `no persisted row may violate Decision 30 v2 inclusive bound (got ${c})`);
   }
 });
+
+test('OB-199 Phase 4 supplement B — batch insert failure emits one console.error per row before CanonicalWriteError', async () => {
+  // Row 6 disposition: when the batch insert fails for a reason other than
+  // confidence-range (e.g. unique constraint violation), the writer must
+  // surface per-row forensic detail before the single CanonicalWriteError so
+  // the producer can isolate the offending row. HF-214 Phase 1 granularity.
+  const { client } = makeMockClient({ errorOnNthCall: 0, errorMessage: 'unique constraint violation' });
+  const originalConsoleError = console.error;
+  const captured: string[] = [];
+  console.error = (msg: unknown) => { captured.push(String(msg)); };
+  try {
+    const signals: CanonicalSignalInput[] = [
+      { tenantId: 't1', signalType: 'comprehension:plan_interpretation', confidence: 0.5, signalValue: { metric_name: 'revenue', component_index: 0 } },
+      { tenantId: 't1', signalType: 'comprehension:plan_interpretation', confidence: 0.7, signalValue: { metric_name: 'profit',  component_index: 1 } },
+      { tenantId: 't1', signalType: 'comprehension:plan_interpretation', confidence: 0.9, signalValue: { metric_name: 'margin',  component_index: 2 } },
+    ];
+    await assert.rejects(
+      writeSignalBatchWithClient(signals, client),
+      (err: unknown) => err instanceof CanonicalWriteError && err.cause === 'insert_failed',
+      'batch insert failure throws CanonicalWriteError(insert_failed)',
+    );
+  } finally {
+    console.error = originalConsoleError;
+  }
+  const perRowLines = captured.filter(line => line.startsWith('[CanonicalWriter] batch row='));
+  assert.strictEqual(perRowLines.length, 3, 'one per-row diagnostic per signal in the batch');
+  assert.ok(perRowLines[0].includes('row=0'), 'row index 0 surfaced');
+  assert.ok(perRowLines[0].includes("signal_type=comprehension:plan_interpretation"));
+  assert.ok(perRowLines[0].includes('confidence=0.5'));
+  assert.ok(perRowLines[0].includes('metric_name=revenue'));
+  assert.ok(perRowLines[0].includes('component_index=0'));
+  assert.ok(perRowLines[0].includes('signal_value_truncated='));
+  assert.ok(perRowLines[1].includes('row=1') && perRowLines[1].includes('metric_name=profit'));
+  assert.ok(perRowLines[2].includes('row=2') && perRowLines[2].includes('metric_name=margin'));
+});
