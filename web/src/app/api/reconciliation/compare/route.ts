@@ -19,7 +19,8 @@ import { filterRowsByPeriod } from '@/lib/reconciliation/benchmark-intelligence'
 import type { ColumnMapping } from '@/lib/reconciliation/ai-column-mapper';
 import type { ColumnMappingInfo, PeriodValue } from '@/lib/reconciliation/benchmark-intelligence';
 import type { CalculationResult } from '@/types/compensation-plan';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 
 export async function POST(request: NextRequest) {
@@ -152,9 +153,9 @@ export async function POST(request: NextRequest) {
     const matchRate = cs.totalEmployees > 0 ? ((cs.exactMatches + cs.toleranceMatches) / cs.totalEmployees * 100).toFixed(1) : '0.0';
     console.log(`[Reconciliation] Match rate: ${matchRate}% (${cs.exactMatches} exact, ${cs.toleranceMatches} tolerance, ${cs.amberFlags} amber, ${cs.redFlags} red)`);
 
-    // Step 5: Record reconciliation training signal (fire-and-forget)
+    // Step 5: OB-199 Phase 4: canonical writer (DS-023 §5.1).
     const userOverrides = mappings.filter(m => m.isUserOverride);
-    persistSignal({
+    writeSignal({
       tenantId,
       signalType: 'convergence:reconciliation_comparison',
       signalValue: {
@@ -175,7 +176,13 @@ export async function POST(request: NextRequest) {
       confidence: comparisonResult.summary.matched / Math.max(comparisonResult.summary.totalEmployees, 1),
       source: userOverrides.length > 0 ? 'user_corrected' : 'ai_prediction',
       context: { trigger: 'reconciliation_compare' },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => console.warn('[ReconciliationCompare] Signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown'));
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[ReconciliationCompare] reconciliation_comparison CanonicalWriteError (${err.cause}): ${err.message}`);
+      } else {
+        console.warn('[ReconciliationCompare] reconciliation_comparison unexpected error:', err instanceof Error ? err.message : String(err));
+      }
+    });
 
     // OB-135: Capture convergence outcome signal (plan interpretation feedback loop)
     try {
