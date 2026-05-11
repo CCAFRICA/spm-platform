@@ -1,0 +1,1510 @@
+# E1.4.1 — `web/src/lib/calculation/run-calculation.ts` (verbatim full source)
+
+```typescript
+/**
+ * Calculation Orchestrator — Supabase-Only
+ *
+ * Reads rule_sets, entities, committed_data from Supabase.
+ * Evaluates tier_lookup, percentage, matrix_lookup, conditional_percentage.
+ * Writes calculation_batches, calculation_results, entity_period_outcomes.
+ * Zero localStorage.
+ */
+
+import { createClient } from '@/lib/supabase/client';
+import type { Json } from '@/lib/supabase/database.types';
+import {
+  createCalculationBatch,
+  writeCalculationResults,
+  transitionBatchLifecycle,
+} from '@/lib/supabase/calculation-service';
+import type { PlanComponent } from '@/types/compensation-plan';
+import {
+  inferSemanticType,
+  findSheetForComponent,
+} from '@/lib/orchestration/metric-resolver';
+import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
+import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
+import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
+
+// ──────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────
+
+interface CalculationInput {
+  tenantId: string;
+  periodId: string;
+  ruleSetId: string;
+  userId: string;
+}
+
+export interface ComponentResult {
+  componentId: string;
+  componentName: string;
+  componentType: string;
+  payout: number;
+  metricValues: Record<string, number>;
+  details: Record<string, unknown>;
+}
+
+export interface CalculationRunResult {
+  success: boolean;
+  batchId: string;
+  entityCount: number;
+  totalPayout: number;
+  error?: string;
+}
+
+// ──────────────────────────────────────────────
+// OB-118: Metric Derivation — count/filter/group on loaded data
+// ──────────────────────────────────────────────
+
+/**
+ * A single metric derivation rule from input_bindings.metric_derivations.
+ * Domain-agnostic: field names, values, and operators come from config.
+ */
+export interface MetricDerivationRule {
+  metric: string;          // Target metric name (from plan configuration)
+  operation: 'count' | 'sum' | 'delta' | 'ratio';  // Derivation operation
+  source_pattern: string;  // Regex pattern to match data_type/sheet name
+  filters: Array<{
+    field: string;         // Field name in row_data (discovered at runtime)
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
+  source_field?: string;   // OB-119: Field to sum (for operation='sum' or 'delta')
+  // OB-128: Ratio operation — computes numerator/denominator from already-derived metrics
+  numerator_metric?: string;   // metric name to use as numerator (must be derived earlier)
+  denominator_metric?: string; // metric name to use as denominator (must be derived earlier)
+  scale_factor?: number;       // multiply ratio result (e.g., 100 for percentage)
+}
+
+/**
+ * Apply metric derivation rules to already-loaded entity data.
+ * Produces numeric metrics from categorical/string data via count+filter.
+ *
+ * Zero hardcoded field names. Zero DB queries. Works on in-memory rows.
+ * Korean Test: All field names and values come from derivation rules, not code.
+ *
+ * @param entitySheetData - Map<sheetName, rows> already loaded for this entity (current period)
+ * @param derivations - Derivation rules from input_bindings.metric_derivations
+ * @param priorPeriodData - OB-121: Optional prior period data for delta operations
+ * @returns Map of derived metric name → numeric value
+ */
+// HF-172 + OB-186: Filter check helper — exported for use in scope aggregate pre-computation
+export function rowMatchesFilters(
+  rd: Record<string, unknown>,
+  filters: MetricDerivationRule['filters'],
+): boolean {
+  if (!filters || filters.length === 0) return true;
+  return filters.every(filter => {
+    const fieldValue = rd[filter.field];
+    switch (filter.operator) {
+      case 'eq':       return fieldValue === filter.value;
+      case 'neq':      return fieldValue !== filter.value;
+      case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
+      case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
+      case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
+      case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
+      case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
+      default:         return false;
+    }
+  });
+}
+
+export function applyMetricDerivations(
+  entitySheetData: Map<string, Array<{ row_data: Json }>>,
+  derivations: MetricDerivationRule[],
+  priorPeriodData?: Map<string, Array<{ row_data: Json }>>
+): Record<string, number> {
+  const derived: Record<string, number> = {};
+
+  for (const rule of derivations) {
+    // HF-172: source_pattern is provenance metadata, NOT a row filter.
+    // All entity rows within the period's date range are candidates.
+    // Content filtering is done by the filters array, not source_pattern.
+    let matchingRows: Array<{ row_data: Json }> = [];
+    for (const [, rows] of Array.from(entitySheetData.entries())) {
+      matchingRows = matchingRows.concat(rows);
+    }
+
+    // OB-128: Ratio operation works on already-derived metrics, not raw rows
+    if (rule.operation === 'ratio') {
+      const num = derived[rule.numerator_metric || ''] ?? 0;
+      const den = derived[rule.denominator_metric || ''] ?? 0;
+      derived[rule.metric] = den !== 0 ? (num / den) * (rule.scale_factor ?? 1) : 0;
+      continue;
+    }
+
+    if (matchingRows.length === 0) continue;
+
+    // Apply derivation operation
+    if (rule.operation === 'sum' && rule.source_field) {
+      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
+      let total = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') total += val;
+      }
+      derived[rule.metric] = total;
+    } else if (rule.operation === 'delta' && rule.source_field) {
+      // OB-121: Period-over-period delta = current_sum - prior_sum
+      // HF-172: Apply filters to both current and prior period loops
+      let currentTotal = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') currentTotal += val;
+      }
+
+      let priorTotal = 0;
+      if (priorPeriodData) {
+        // HF-172: Include ALL prior period rows, not just source_pattern matches
+        for (const [, rows] of Array.from(priorPeriodData.entries())) {
+          for (const row of rows) {
+            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+              ? row.row_data as Record<string, unknown>
+              : {};
+            if (!rowMatchesFilters(rd, rule.filters)) continue;
+            const val = rd[rule.source_field];
+            if (typeof val === 'number') priorTotal += val;
+          }
+        }
+      }
+
+      derived[rule.metric] = currentTotal - priorTotal;
+      if (!priorPeriodData) {
+        console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
+      }
+    } else if (rule.operation === 'count') {
+      // HF-172: Uses same rowMatchesFilters helper (was already correct, now DRY)
+      let count = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (rowMatchesFilters(rd, rule.filters)) count++;
+      }
+      derived[rule.metric] = count;
+    }
+  }
+
+  return derived;
+}
+
+// ──────────────────────────────────────────────
+// Shared Band Resolution — Half-Open Intervals [min, max)
+// OB-169: Single band resolution function for all evaluators.
+// Uses [min, max) for non-last bands, [min, max] for last band.
+// This prevents boundary values (e.g., 80.0) from matching the
+// lower band via first-match-wins with inclusive upper bounds.
+// ──────────────────────────────────────────────
+
+export function resolveBandIndex(bands: Array<{ min: number; max: number }>, value: number): number {
+  for (let i = 0; i < bands.length; i++) {
+    const band = bands[i];
+    const min = Number.isFinite(band.min) ? band.min : -Infinity;
+    const max = Number.isFinite(band.max) ? band.max : Infinity;
+    const isLast = i === bands.length - 1;
+    // G4: Half-open intervals [min, max) for step functions.
+    // Last band uses [min, max] to capture the upper boundary.
+    if (value >= min && (isLast ? value <= max : value < max)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// ──────────────────────────────────────────────
+// E2 STRUCTURED FAILURE (OB-196 Phase 2 / Decision 151 / T2-E25)
+// ──────────────────────────────────────────────
+// Legacy component evaluators (evaluateTierLookup, evaluatePercentage,
+// evaluateMatrixLookup, evaluateConditionalPercentage) deleted in Phase 2.
+// Calculation flows through intent-executor (Decision 151 sole authority).
+
+export class LegacyEngineUnknownComponentTypeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LegacyEngineUnknownComponentTypeError';
+  }
+}
+
+export function evaluateComponent(component: PlanComponent, metrics: Record<string, number>): ComponentResult {
+  let payout = 0;
+  let details: Record<string, unknown> = {};
+
+  // OB-119: Treat missing 'enabled' as true (AI-interpreted plans omit this field)
+  if (component.enabled === false) {
+    return {
+      componentId: component.id,
+      componentName: component.name,
+      componentType: component.componentType,
+      payout: 0,
+      metricValues: metrics,
+      details: { skipped: true, reason: 'component disabled' },
+    };
+  }
+
+  // OB-196 Phase 2: E2 structured failure on legacy engine arms (Decision 151 / T2-E25).
+  // Post-Phase-1.7, ComponentType union admits foundational identifiers only — legacy
+  // strings unreachable from rule_sets. If a legacy string surfaces here, it's a Phase
+  // 1.5/1.6.5/1.7 cleanup gap; throw structured error rather than silently evaluate.
+  switch (component.componentType) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+      // Foundational primitive — calculation flows through intent-executor below.
+      break;
+    default:
+      throw new LegacyEngineUnknownComponentTypeError(
+        `[run-calculation] Unreachable componentType reached evaluateComponent: ` +
+        `"${component.componentType as string}" (componentId=${component.id}, ` +
+        `componentName=${component.name}). Foundational ComponentType union admits ` +
+        `only registered primitives post-Phase-1.7. A legacy identifier reaching this ` +
+        `point indicates an upstream cleanup gap (Phase 1.5 / 1.6.5 / 1.7 surface ` +
+        `producing legacy strings was missed).`
+      );
+  }
+
+  // OB-117: calculationIntent fallback — when legacy evaluator produces $0
+  // and the component has an AI-produced calculationIntent, attempt evaluation
+  // via the intent executor. This handles cases where tierConfig is broken
+  // (empty tiers, wrong metric) but calculationIntent has the correct structure.
+  if (payout === 0 && component.calculationIntent) {
+    try {
+      let intentOp = component.calculationIntent as unknown as IntentOperation;
+
+      // OB-120: Transform postProcessing.rateFromLookup into scalar_multiply wrapper.
+      // AI plan interpretation generates bounded_lookup_1d + postProcessing for compound
+      // operations (rate × volume), but the executor only handles nested IntentOperations.
+      // Transform: bounded_lookup_1d{postProcessing:{scalar_multiply, rateFromLookup}}
+      //         → scalar_multiply{input: volume, rate: bounded_lookup_1d}
+      const rawIntent = intentOp as unknown as Record<string, unknown>;
+      const postProc = rawIntent.postProcessing as Record<string, unknown> | undefined;
+      if (intentOp.operation === 'bounded_lookup_1d' && postProc?.rateFromLookup) {
+        const lookupWithoutPost = { ...rawIntent };
+        delete lookupWithoutPost.postProcessing;
+        intentOp = {
+          operation: 'scalar_multiply',
+          input: postProc.input || rawIntent.input,
+          rate: lookupWithoutPost,
+        } as unknown as IntentOperation;
+      }
+
+      // OB-120: Auto-detect isMarginal for bounded_lookup_1d with rate-like outputs.
+      // Mirrors OB-117 rate heuristic in evaluateTierLookup: if all non-zero outputs
+      // are < 1.0, they represent rates to multiply against the input value.
+      if (intentOp.operation === 'bounded_lookup_1d') {
+        const bl = intentOp as unknown as Record<string, unknown>;
+        const outputs = bl.outputs as number[] | undefined;
+        if (!bl.isMarginal && Array.isArray(outputs)) {
+          const nonZero = outputs.filter(v => v !== 0);
+          if (nonZero.length > 0 && nonZero.every(v => v > 0 && v < 1.0)) {
+            bl.isMarginal = true;
+          }
+        }
+      }
+
+      if (isIntentOperation(intentOp)) {
+        const entityData: EntityData = {
+          entityId: '',
+          metrics,
+          attributes: {},
+        };
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+        const intentPayout = toNumber(intentPayoutDecimal);
+        if (intentPayout > 0) {
+          payout = intentPayout;
+          details = {
+            ...details,
+            fallbackSource: 'calculationIntent',
+            intentOperation: intentOp.operation,
+            intentPayout,
+            intentInputs: inputLog,
+          };
+        }
+      }
+    } catch {
+      // Fallback failed silently — use original $0 payout
+    }
+  }
+
+  return {
+    componentId: component.id,
+    componentName: component.name,
+    componentType: component.componentType,
+    payout,
+    metricValues: metrics,
+    details,
+  };
+}
+
+// ──────────────────────────────────────────────
+// Metric Aggregation from committed_data
+// ──────────────────────────────────────────────
+
+export function aggregateMetrics(
+  rows: Array<{ row_data: Json }>
+): Record<string, number> {
+  const result: Record<string, number> = {};
+
+  for (const row of rows) {
+    const data = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+      ? row.row_data as Record<string, Json | undefined>
+      : {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (typeof value === 'number') {
+        result[key] = (result[key] || 0) + value;
+      }
+    }
+  }
+
+  return result;
+}
+
+// ──────────────────────────────────────────────
+// Sheet-Aware Metric Resolution
+// ──────────────────────────────────────────────
+
+/** AI context sheet info — passed from import_batches.metadata */
+export interface AIContextSheet {
+  sheetName: string;
+  matchedComponent: string | null;
+}
+
+/**
+ * Find which sheet (data_type) feeds a given plan component.
+ *
+ * OB-122: Uses AI Import Context + direct name matching only.
+ * No hardcoded pattern tables — Korean Test compliant.
+ */
+export function findMatchingSheet(
+  componentName: string,
+  availableSheets: string[],
+  aiContextSheets?: AIContextSheet[]
+): string | null {
+  // Use AI context (from import_batches.metadata) if available
+  if (aiContextSheets && aiContextSheets.length > 0) {
+    const match = findSheetForComponent(
+      componentName,
+      componentName, // componentId = componentName for matching
+      aiContextSheets
+    );
+    if (match && availableSheets.includes(match)) {
+      return match;
+    }
+  }
+
+  // Fallback 1: try direct name matching against available sheets
+  const normComponent = componentName.toLowerCase().replace(/[-\s]/g, '_');
+  for (const sheet of availableSheets) {
+    const normSheet = sheet.toLowerCase().replace(/[-\s]/g, '_');
+    if (normSheet.includes(normComponent) || normComponent.includes(normSheet)) {
+      return sheet;
+    }
+  }
+
+  // OB-153: Fallback 2 — if only one sheet exists, use it
+  // When there's no AI context and names don't match, a single sheet is unambiguous
+  if (availableSheets.length === 1) {
+    return availableSheets[0];
+  }
+
+  return null;
+}
+
+/**
+ * Get all metric names a component expects from its configuration.
+ * OB-121: Also extracts from calculationIntent for ratio and metric sources.
+ */
+/**
+ * HF-196 HF-204 absorption — Phase 1G-14.
+ *
+ * Recursive visitor over the IntentOperation AST. Surfaces every IntentSource
+ * of source ∈ {'metric', 'ratio', 'aggregate'} regardless of position in the
+ * AST. Closes Adjacent-Arm Drift defect class at the metadata-extraction layer
+ * per Decision 108 architectural discipline.
+ *
+ * Replaces position-by-position enumeration that orphaned conditional_gate's
+ * condition.left/right plus several other operation variants whose metric
+ * sources live outside intent.input/intent.inputs (top-level aggregate.source,
+ * ratio.numerator/denominator, weighted_blend.inputs[], piecewise_linear's
+ * ratioInput/baseInput, modifier positions, variant routing, nested
+ * onTrue/onFalse IntentOperations, etc.).
+ *
+ * Future operation types added to IntentOperation are automatically covered
+ * because the visitor walks the AST shape, not enumerated positions.
+ */
+export function getExpectedMetricNames(component: PlanComponent): string[] {
+  const names = new Set<string>();
+  const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
+  if (!intent) return [];
+  visitNode(intent, names);
+  return Array.from(names);
+}
+
+function visitNode(node: unknown, names: Set<string>): void {
+  if (node === null || node === undefined) return;
+  if (typeof node !== 'object') return;
+
+  if (Array.isArray(node)) {
+    for (const child of node) visitNode(child, names);
+    return;
+  }
+
+  const obj = node as Record<string, unknown>;
+
+  // IntentSource of source='metric' — harvest field reference.
+  if (obj.source === 'metric' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.field === 'string') {
+      names.add(spec.field.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of source='ratio' — harvest both operand field names.
+  if (obj.source === 'ratio' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.numerator === 'string') {
+      names.add(spec.numerator.replace(/^metric:/, ''));
+    }
+    if (typeof spec.denominator === 'string') {
+      names.add(spec.denominator.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of source='aggregate' — harvest field (entity scope reads data.metrics).
+  if (obj.source === 'aggregate' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+    const spec = obj.sourceSpec as Record<string, unknown>;
+    if (typeof spec.field === 'string') {
+      names.add(spec.field.replace(/^metric:/, ''));
+    }
+    return;
+  }
+
+  // IntentSource of other kinds (constant, entity_attribute, prior_component,
+  // cross_data, scope_aggregate) do not resolve via data.metrics — skip harvest
+  // but do not recurse into sourceSpec (they don't carry nested operations).
+  if (typeof obj.source === 'string') {
+    return;
+  }
+
+  // Generic node — could be an IntentOperation, modifier, route, or plain
+  // object with nested fields. Recurse into all values.
+  for (const value of Object.values(obj)) {
+    visitNode(value, names);
+  }
+}
+
+/**
+ * Compute attainment from goal + actual if not already present.
+ * Mutates the metrics object in place.
+ */
+function computeAttainmentFromGoal(metrics: Record<string, number>): void {
+  if (metrics['goal'] && metrics['goal'] > 0) {
+    const actual = metrics['amount'] ?? metrics['quantity'] ?? 0;
+    const computedAttainment = actual / metrics['goal'];
+    // Override if attainment is missing or looks like a monetary value (>1000)
+    if (metrics['attainment'] === undefined || metrics['attainment'] > 1000) {
+      metrics['attainment'] = computedAttainment;
+    }
+  }
+}
+
+/**
+ * Build metrics for a specific component using source-aware resolution.
+ *
+ * OB-85-R3 Fix 3: Replaces the single-source approach with source-aware
+ * metric resolution that handles BOTH entity and store data.
+ *
+ * 1. Match entity sheet via AI context or pattern matching
+ * 2. Build store context from ALL store sheets (shared across components)
+ * 3. Resolve plan metric names with source preference:
+ *    - "store_"-prefixed metrics → prefer store data
+ *    - Other metrics → prefer entity data
+ * 4. Compute attainment per source independently (prevents contamination)
+ */
+export function buildMetricsForComponent(
+  component: PlanComponent,
+  entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
+  storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
+  aiContextSheets?: AIContextSheet[],
+  entitySheetStoreAggregates?: Map<string, Record<string, number>>,
+  metricMappings?: Record<string, string>
+): Record<string, number> {
+  // Step 1: Match entity-level sheet for this component
+  const entitySheets = Array.from(entityRowsBySheet.keys());
+  const entityMatch = findMatchingSheet(component.name, entitySheets, aiContextSheets);
+  let entityRows = entityMatch ? (entityRowsBySheet.get(entityMatch) || []) : [];
+
+  // OB-157: Semantic metric matching fallback — when name matching fails,
+  // find the sheet whose data columns best overlap the component's expected metrics.
+  // Korean Test: uses inferSemanticType (pattern-based), not field names.
+  if (entityRows.length === 0 && entitySheets.length > 0) {
+    const expectedTypes = getExpectedMetricNames(component)
+      .map(n => inferSemanticType(n))
+      .filter(t => t !== 'unknown');
+    if (expectedTypes.length > 0) {
+      let bestSheet: string | null = null;
+      let bestOverlap = 0;
+      for (const sheetName of entitySheets) {
+        const rows = entityRowsBySheet.get(sheetName) || [];
+        if (rows.length === 0) continue;
+        const rd = (rows[0].row_data && typeof rows[0].row_data === 'object' && !Array.isArray(rows[0].row_data))
+          ? rows[0].row_data as Record<string, unknown> : {};
+        const sheetTypes = new Set(
+          Object.keys(rd)
+            .filter(k => !k.startsWith('_'))
+            .map(k => inferSemanticType(k))
+            .filter(t => t !== 'unknown')
+        );
+        const overlap = expectedTypes.filter(t => sheetTypes.has(t)).length;
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestSheet = sheetName;
+        }
+      }
+      if (bestSheet) {
+        entityRows = entityRowsBySheet.get(bestSheet) || [];
+      }
+    }
+  }
+
+  // Step 2: Match store-level sheet for this component
+  let storeMatchRows: Array<{ row_data: Json }> = [];
+  if (storeDataBySheet) {
+    const storeSheets = Array.from(storeDataBySheet.keys());
+    const storeMatch = findMatchingSheet(component.name, storeSheets, aiContextSheets);
+    storeMatchRows = storeMatch ? (storeDataBySheet.get(storeMatch) || []) : [];
+
+    // OB-157: Same semantic fallback for store data
+    if (storeMatchRows.length === 0 && storeSheets.length > 0) {
+      const expectedTypes = getExpectedMetricNames(component)
+        .map(n => inferSemanticType(n))
+        .filter(t => t !== 'unknown');
+      if (expectedTypes.length > 0) {
+        let bestSheet: string | null = null;
+        let bestOverlap = 0;
+        for (const sheetName of storeSheets) {
+          const rows = storeDataBySheet.get(sheetName) || [];
+          if (rows.length === 0) continue;
+          const rd = (rows[0].row_data && typeof rows[0].row_data === 'object' && !Array.isArray(rows[0].row_data))
+            ? rows[0].row_data as Record<string, unknown> : {};
+          const sheetTypes = new Set(
+            Object.keys(rd)
+              .filter(k => !k.startsWith('_'))
+              .map(k => inferSemanticType(k))
+              .filter(t => t !== 'unknown')
+          );
+          const overlap = expectedTypes.filter(t => sheetTypes.has(t)).length;
+          if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            bestSheet = sheetName;
+          }
+        }
+        if (bestSheet) {
+          storeMatchRows = storeDataBySheet.get(bestSheet) || [];
+        }
+      }
+    }
+  }
+
+  // Step 3: Build per-sheet store metrics (NOT aggregated across sheets).
+  // OB-85-R3R4: Aggregating all store sheets produces wrong values
+  // (e.g., amount from tienda+cobranza = 99M instead of tienda-only 44M).
+  const perSheetStoreMetrics = new Map<string, Record<string, number>>();
+  if (storeDataBySheet && storeDataBySheet.size > 0) {
+    for (const [sheetName, rows] of Array.from(storeDataBySheet.entries())) {
+      const m = aggregateMetrics(rows);
+      computeAttainmentFromGoal(m);
+      perSheetStoreMetrics.set(sheetName, m);
+    }
+  }
+
+  // If no entity match, no store match, and no per-sheet store data → no data
+  if (entityRows.length === 0 && storeMatchRows.length === 0 && perSheetStoreMetrics.size === 0) {
+    return {};
+  }
+
+  // Aggregate each source independently to prevent cross-source contamination
+  const entityMetrics = entityRows.length > 0 ? aggregateMetrics(entityRows) : {};
+  const storeMatchMetrics = storeMatchRows.length > 0 ? aggregateMetrics(storeMatchRows) : {};
+
+  // Compute attainment per source independently
+  computeAttainmentFromGoal(entityMetrics);
+  computeAttainmentFromGoal(storeMatchMetrics);
+
+  // Step 4: Resolve expected metrics with source preference
+  const resolvedMetrics: Record<string, number> = {};
+  const expectedNames = getExpectedMetricNames(component);
+
+  for (const metricName of expectedNames) {
+    // Direct key match first (exact field name in data)
+    if (entityMetrics[metricName] !== undefined) {
+      resolvedMetrics[metricName] = entityMetrics[metricName];
+      continue;
+    }
+    if (storeMatchMetrics[metricName] !== undefined) {
+      resolvedMetrics[metricName] = storeMatchMetrics[metricName];
+      continue;
+    }
+    // Check each store sheet for exact key match
+    let foundInStoreSheet = false;
+    for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+      if (sheetMetrics[metricName] !== undefined) {
+        resolvedMetrics[metricName] = sheetMetrics[metricName];
+        foundInStoreSheet = true;
+        break;
+      }
+    }
+    if (foundInStoreSheet) continue;
+
+    // Semantic resolution: infer what kind of value this metric name needs
+    const semanticType = inferSemanticType(metricName);
+    if (semanticType === 'unknown') continue;
+
+    if (/store/i.test(metricName)) {
+      // OB-122: Store metrics — semantic type resolution (no hardcoded patterns)
+      // Try matched store sheet first, then iterate all store sheets by semantic type
+      if (storeMatchMetrics[semanticType] !== undefined) {
+        resolvedMetrics[metricName] = storeMatchMetrics[semanticType];
+      } else {
+        let found = false;
+        // Check store-level sheets (null entity_id)
+        for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+          if (sheetMetrics[semanticType] !== undefined) {
+            resolvedMetrics[metricName] = sheetMetrics[semanticType];
+            found = true;
+            break;
+          }
+        }
+        // Fallback: entity-level sheets aggregated per store
+        if (!found && entitySheetStoreAggregates) {
+          for (const [, sheetMetrics] of Array.from(entitySheetStoreAggregates.entries())) {
+            if (sheetMetrics[semanticType] !== undefined) {
+              resolvedMetrics[metricName] = sheetMetrics[semanticType];
+              found = true;
+              break;
+            }
+          }
+        }
+        if (!found) {
+          resolvedMetrics[metricName] = entityMetrics[semanticType] ?? 0;
+        }
+      }
+    } else {
+      // Non-store metrics: entity + storeMatch ONLY (no aggregated store fallback)
+      // First try literal semantic key (e.g., metrics["amount"])
+      let nonStoreResolved = entityMetrics[semanticType] ?? storeMatchMetrics[semanticType];
+
+      // OB-106: If literal key not found, search all keys by inferred semantic type.
+      // This handles metric name mismatches where the rule_set uses a generic name
+      // but the data has a specific enriched key — both infer to the same semantic type.
+      // OB-106: semanticType is already guaranteed non-'unknown' here (filtered at line 442)
+      if (nonStoreResolved === undefined) {
+        for (const [key, val] of Object.entries(entityMetrics)) {
+          if (inferSemanticType(key) === semanticType) {
+            nonStoreResolved = val;
+            break;
+          }
+        }
+      }
+      if (nonStoreResolved === undefined) {
+        for (const [key, val] of Object.entries(storeMatchMetrics)) {
+          if (inferSemanticType(key) === semanticType) {
+            nonStoreResolved = val;
+            break;
+          }
+        }
+      }
+
+      resolvedMetrics[metricName] = nonStoreResolved ?? 0;
+    }
+  }
+
+  // Normalize attainment from decimal ratio to percentage scale.
+  // Values < 10 are treated as ratios (e.g., 1.35 → 135%, 3.88 → 388%).
+  // Values >= 10 are already percentages (e.g., 135.14 stays 135.14%).
+  // OB-90: Skip normalization for metrics with "percent" in the name —
+  // these fields (e.g., optical_achievement_percentage) are already percentages.
+  for (const metricName of expectedNames) {
+    const semanticType = inferSemanticType(metricName);
+    if (semanticType === 'attainment' && resolvedMetrics[metricName] !== undefined) {
+      if (/percent/i.test(metricName)) continue;
+      const v = resolvedMetrics[metricName];
+      if (v > 0 && v < 10) {
+        resolvedMetrics[metricName] = v * 100;
+      }
+    }
+  }
+
+  // Include raw entity metrics for backward compat (allEntityMetrics usage)
+  for (const [k, v] of Object.entries(entityMetrics)) {
+    if (resolvedMetrics[k] === undefined) {
+      resolvedMetrics[k] = v;
+    }
+  }
+
+  // OB-153: Apply metric_mappings from input_bindings (HIGHEST PRIORITY)
+  // Maps semantic metric names (used by components) to raw field names (in row_data).
+  // These override semantic resolution because the mappings are explicit configuration.
+  // Uses FIRST-VALUE extraction (not sum) to handle duplicate rows correctly.
+  if (metricMappings) {
+    // Build first-value pool: scan ALL entity + store rows for field values
+    const firstValues: Record<string, number> = {};
+    for (const [, rows] of Array.from(entityRowsBySheet.entries())) {
+      for (const row of rows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const [k, v] of Object.entries(rd)) {
+          if (typeof v === 'number' && firstValues[k] === undefined) {
+            firstValues[k] = v;
+          }
+        }
+      }
+    }
+    // Also scan store data
+    for (const [, sheetMetrics] of Array.from(perSheetStoreMetrics.entries())) {
+      for (const [k, v] of Object.entries(sheetMetrics)) {
+        if (firstValues[k] === undefined) firstValues[k] = v;
+      }
+    }
+    for (const [metricName, fieldName] of Object.entries(metricMappings)) {
+      if (firstValues[fieldName] !== undefined) {
+        resolvedMetrics[metricName] = firstValues[fieldName];
+      } else {
+        // If mapped field doesn't exist in entity data, zero it out.
+        // Prevents semantic fallback from resolving to unrelated fields.
+        resolvedMetrics[metricName] = 0;
+      }
+    }
+  }
+
+  return resolvedMetrics;
+}
+
+// ──────────────────────────────────────────────
+// Main Orchestrator
+// ──────────────────────────────────────────────
+
+export async function runCalculation(input: CalculationInput): Promise<CalculationRunResult> {
+  const { tenantId, periodId, ruleSetId, userId } = input;
+  const supabase = createClient();
+
+  console.log(`[RunCalculation] Starting: tenant=${tenantId}, period=${periodId}, ruleSet=${ruleSetId}`);
+
+  // HF-196 Phase 1E: fetch superseded import_batch ids once; engine queries below
+  // exclude these ids via NOT IN — operative-batch-only data per Rule 30.
+  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  if (supersededIds.length > 0) {
+    console.log(`[RunCalculation] Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
+  }
+
+  // ── 1. Fetch rule set ──
+  const { data: ruleSet, error: rsErr } = await supabase
+    .from('rule_sets')
+    .select('id, name, components, input_bindings, population_config, metadata')
+    .eq('id', ruleSetId)
+    .single();
+
+  if (rsErr || !ruleSet) {
+    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Rule set not found: ${rsErr?.message}` };
+  }
+
+  // Parse components from JSONB — handle 3 formats:
+  // 1. Flat array: [{id, name, ...}, ...]
+  // 2. Wrapped object: { components: [{id, name, ...}, ...] }
+  // 3. Legacy nested: { variants: [{ components: [...] }] }
+  const rawComponents = ruleSet.components;
+  let defaultComponents: PlanComponent[];
+  let variants: Array<Record<string, unknown>> = [];
+  if (Array.isArray(rawComponents)) {
+    defaultComponents = rawComponents as unknown as PlanComponent[];
+  } else {
+    const componentsJson = rawComponents as Record<string, unknown>;
+    if (Array.isArray(componentsJson?.components)) {
+      // OB-153: Wrapped object format { components: [...] }
+      defaultComponents = componentsJson.components as unknown as PlanComponent[];
+    } else {
+      // Legacy nested format: { variants: [{ components: [...] }] }
+      variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+      defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+    }
+  }
+
+  if (defaultComponents.length === 0) {
+    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Rule set has no components' };
+  }
+
+  console.log(`[RunCalculation] Rule set "${ruleSet.name}" has ${defaultComponents.length} components`);
+
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  const metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+
+  // ── 2. Fetch entities with assignments (OB-75: paginated) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+
+    if (aErr) {
+      return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
+  }
+
+  // HF-078: Deduplicate entity IDs to prevent UNIQUE constraint violations
+  const entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
+  if (entityIds.length === 0) {
+    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'No entities assigned to this rule set' };
+  }
+
+  // Fetch entity display info (OB-75: batched .in() for 22K+ entities)
+  const entities: Array<{ id: string; external_id: string | null; display_name: string }> = [];
+  const ENTITY_BATCH = 200; // OB-85-R3: 1000 UUIDs × 37 chars exceeds Supabase URL limit
+  for (let i = 0; i < entityIds.length; i += ENTITY_BATCH) {
+    const idBatch = entityIds.slice(i, i + ENTITY_BATCH);
+    const { data: page } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', idBatch);
+    if (page) entities.push(...page);
+  }
+
+  const entityMap = new Map(entities.map(e => [e.id, e]));
+
+  // ── 3. Fetch period info (OB-152: include end_date for source_date hybrid) ──
+  const { data: period } = await supabase
+    .from('periods')
+    .select('id, canonical_key, start_date, end_date')
+    .eq('id', periodId)
+    .single();
+
+  if (!period) {
+    return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: 'Period not found' };
+  }
+
+  // ── 3b. OB-121: Find prior period (for delta derivations) ──
+  const hasDeltaDerivations = metricDerivations.some(d => d.operation === 'delta');
+  let priorPeriodId: string | null = null;
+  if (hasDeltaDerivations && period.start_date) {
+    const { data: priorPeriod } = await supabase
+      .from('periods')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .lt('start_date', period.start_date)
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single();
+    priorPeriodId = priorPeriod?.id ?? null;
+    console.log(`[RunCalculation] Prior period for delta: ${priorPeriodId ?? 'none (first period)'}`);
+  }
+
+  // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
+  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+
+  // OB-152: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
+  let usedSourceDate = false;
+  if (period.start_date && period.end_date) {
+    let sdPage = 0;
+    while (true) {
+      const from = sdPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .not('source_date', 'is', null)
+        .gte('source_date', period.start_date)
+        .lte('source_date', period.end_date)
+        .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      sdPage++;
+    }
+    if (committedData.length > 0) {
+      usedSourceDate = true;
+      console.log(`[RunCalculation] OB-152 source_date path: ${committedData.length} rows`);
+    }
+  }
+
+  // Fallback: period_id (LAB/legacy data)
+  if (!usedSourceDate) {
+    let dataPage = 0;
+    while (true) {
+      const from = dataPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+      let q = supabase
+        .from('committed_data')
+        .select('entity_id, data_type, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('period_id', periodId)
+        .range(from, to);
+      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      const { data: page } = await q;
+
+      if (!page || page.length === 0) break;
+      committedData.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      dataPage++;
+    }
+    console.log(`[RunCalculation] OB-152 period_id fallback: ${committedData.length} rows`);
+  }
+
+  // Group entity-level data by entity_id → data_type → rows
+  const dataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  const flatDataByEntity = new Map<string, Array<{ row_data: Json }>>();
+
+  // Store-level data (NULL entity_id) grouped by storeId → data_type → rows
+  const storeData = new Map<string | number, Map<string, Array<{ row_data: Json }>>>();
+
+  for (const row of committedData) {
+    if (row.entity_id) {
+      if (!dataByEntity.has(row.entity_id)) {
+        dataByEntity.set(row.entity_id, new Map());
+      }
+      const entitySheets = dataByEntity.get(row.entity_id)!;
+      const sheetName = row.data_type || '_unknown';
+      if (!entitySheets.has(sheetName)) {
+        entitySheets.set(sheetName, []);
+      }
+      entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+
+      if (!flatDataByEntity.has(row.entity_id)) {
+        flatDataByEntity.set(row.entity_id, []);
+      }
+      flatDataByEntity.get(row.entity_id)!.push({ row_data: row.row_data });
+    } else {
+      const rd = row.row_data as Record<string, unknown> | null;
+      const storeKey = (rd?.['storeId'] ?? rd?.['num_tienda'] ?? rd?.['No_Tienda'] ?? rd?.['Tienda']) as string | number | undefined;
+      if (storeKey !== undefined) {
+        if (!storeData.has(storeKey)) {
+          storeData.set(storeKey, new Map());
+        }
+        const storeSheets = storeData.get(storeKey)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!storeSheets.has(sheetName)) {
+          storeSheets.set(sheetName, []);
+        }
+        storeSheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
+  }
+
+  console.log(`[RunCalculation] ${entityIds.length} entities, ${committedData.length} data rows (paginated fetch)`);
+
+  // ── 4b. OB-121: Fetch prior period data (OB-152: hybrid path) ──
+  const priorDataByEntity = new Map<string, Map<string, Array<{ row_data: Json }>>>();
+  if (priorPeriodId) {
+    // Fetch prior period dates for source_date hybrid
+    const { data: priorPeriodInfo } = await supabase
+      .from('periods')
+      .select('start_date, end_date')
+      .eq('id', priorPeriodId)
+      .single();
+
+    const priorCommittedData: Array<{ entity_id: string | null; data_type: string; row_data: Json }> = [];
+
+    // OB-152: Try source_date first for prior period
+    let priorUsedSourceDate = false;
+    if (priorPeriodInfo?.start_date && priorPeriodInfo?.end_date) {
+      let sdPage = 0;
+      while (true) {
+        const from = sdPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .not('source_date', 'is', null)
+          .gte('source_date', priorPeriodInfo.start_date)
+          .lte('source_date', priorPeriodInfo.end_date)
+          .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        sdPage++;
+      }
+      if (priorCommittedData.length > 0) priorUsedSourceDate = true;
+    }
+
+    // Fallback: period_id
+    if (!priorUsedSourceDate) {
+      let priorPage = 0;
+      while (true) {
+        const from = priorPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+        let q = supabase
+          .from('committed_data')
+          .select('entity_id, data_type, row_data')
+          .eq('tenant_id', tenantId)
+          .eq('period_id', priorPeriodId)
+          .range(from, to);
+        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        const { data: page } = await q;
+
+        if (!page || page.length === 0) break;
+        priorCommittedData.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        priorPage++;
+      }
+    }
+
+    // Group by entity_id → data_type → rows (same structure as dataByEntity)
+    for (const row of priorCommittedData) {
+      if (row.entity_id) {
+        if (!priorDataByEntity.has(row.entity_id)) {
+          priorDataByEntity.set(row.entity_id, new Map());
+        }
+        const entitySheets = priorDataByEntity.get(row.entity_id)!;
+        const sheetName = row.data_type || '_unknown';
+        if (!entitySheets.has(sheetName)) {
+          entitySheets.set(sheetName, []);
+        }
+        entitySheets.get(sheetName)!.push({ row_data: row.row_data });
+      }
+    }
+
+    console.log(`[RunCalculation] Prior period data: ${priorCommittedData.length} rows for ${priorDataByEntity.size} entities`);
+  }
+
+  // ── OB-85-R3 Fix 1: Entity data consolidation ──
+  // Match by row_data.entityId (employee number), not external_id.
+  const employeeToEntityIds = new Map<string, Set<string>>();
+  for (const row of committedData) {
+    if (!row.entity_id) continue;
+    const rd = row.row_data as Record<string, unknown> | null;
+    const empNum = String(rd?.['entityId'] ?? rd?.['num_empleado'] ?? '');
+    if (empNum && empNum !== 'undefined' && empNum !== 'null') {
+      if (!employeeToEntityIds.has(empNum)) {
+        employeeToEntityIds.set(empNum, new Set());
+      }
+      employeeToEntityIds.get(empNum)!.add(row.entity_id);
+    }
+  }
+
+  for (const [, uuidSet] of Array.from(employeeToEntityIds.entries())) {
+    if (uuidSet.size <= 1) continue;
+
+    let primaryId: string | null = null;
+    for (const uuid of Array.from(uuidSet)) {
+      const sheets = dataByEntity.get(uuid);
+      if (sheets) {
+        for (const sheetName of Array.from(sheets.keys())) {
+          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
+            primaryId = uuid;
+            break;
+          }
+        }
+      }
+      if (primaryId) break;
+    }
+    if (!primaryId) continue;
+
+    for (const siblingId of Array.from(uuidSet)) {
+      if (siblingId === primaryId) continue;
+      const siblingSheetData = dataByEntity.get(siblingId);
+      if (!siblingSheetData) continue;
+
+      if (!dataByEntity.has(primaryId)) {
+        dataByEntity.set(primaryId, new Map());
+      }
+      const primarySheets = dataByEntity.get(primaryId)!;
+      for (const [sheetName, rows] of Array.from(siblingSheetData.entries())) {
+        if (!primarySheets.has(sheetName)) {
+          primarySheets.set(sheetName, []);
+        }
+        primarySheets.get(sheetName)!.push(...rows);
+      }
+
+      const siblingFlat = flatDataByEntity.get(siblingId);
+      if (siblingFlat) {
+        if (!flatDataByEntity.has(primaryId)) {
+          flatDataByEntity.set(primaryId, []);
+        }
+        flatDataByEntity.get(primaryId)!.push(...siblingFlat);
+      }
+    }
+  }
+
+  // ── 4a. Population filter: only calculate entities on the roster ──
+  // OB-147: Enhanced roster identification — three-tier detection:
+  //   1. AI context: sheet classified as 'roster' or 'entity_data'
+  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
+  //   3. Keyword fallback: sheet name contains known roster terms
+  const allSheetNames = new Set<string>();
+  for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      allSheetNames.add(sheetName);
+    }
+  }
+
+  let rosterSheetName: string | null = null;
+
+  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
+  // start with its name + "__". This is the import convention for multi-tab files.
+  if (!rosterSheetName && allSheetNames.size > 1) {
+    for (const candidate of Array.from(allSheetNames)) {
+      const prefix = candidate + '__';
+      const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+      if (isParent) {
+        rosterSheetName = candidate;
+        console.log(`[RunCalculation] Roster detected via parent-sheet heuristic: "${rosterSheetName}"`);
+        break;
+      }
+    }
+  }
+
+  // Tier 3: Keyword fallback
+  if (!rosterSheetName) {
+    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
+    for (const sheetName of Array.from(allSheetNames)) {
+      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
+        rosterSheetName = sheetName;
+        console.log(`[RunCalculation] Roster detected via keyword match: "${rosterSheetName}"`);
+        break;
+      }
+    }
+  }
+
+  // Build roster entity set from the identified roster sheet
+  const rosterEntityIds = new Set<string>();
+  if (rosterSheetName) {
+    for (const [entityId, sheetMap] of Array.from(dataByEntity.entries())) {
+      if (sheetMap.has(rosterSheetName)) {
+        rosterEntityIds.add(entityId);
+      }
+    }
+  }
+
+  let calculationEntityIds = entityIds;
+  if (rosterEntityIds.size > 0) {
+    calculationEntityIds = entityIds.filter(id => rosterEntityIds.has(id));
+    console.log(`[RunCalculation] Population filter: ${entityIds.length} total → ${calculationEntityIds.length} roster entities (sheet: "${rosterSheetName}")`);
+  } else {
+    console.log(`[RunCalculation] No roster sheet detected — calculating all ${entityIds.length} entities`);
+  }
+
+  // ── 4b. Fetch AI Import Context (OB-75: Korean Test) ──
+  const aiContextSheets: AIContextSheet[] = [];
+  try {
+    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+    let bq = supabase
+      .from('committed_data')
+      .select('import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .not('import_batch_id', 'is', null)
+      .limit(100);
+    if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    const { data: batchRows } = await bq;
+
+    const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));
+
+    if (batchIds.length > 0) {
+      // HF-196 Phase 1E: also filter the import_batches lookup itself to operative.
+      const { data: batches } = await supabase
+        .from('import_batches')
+        .select('id, metadata')
+        .in('id', batchIds)
+        .is('superseded_by', null);
+
+      for (const b of (batches ?? [])) {
+        const meta = b.metadata as Record<string, unknown> | null;
+        const aiCtx = meta?.ai_context as { sheets?: AIContextSheet[] } | undefined;
+        if (aiCtx?.sheets) {
+          aiContextSheets.push(...aiCtx.sheets);
+        }
+      }
+    }
+
+    console.log(`[RunCalculation] AI context: ${aiContextSheets.length} sheet mappings`);
+  } catch (aiErr) {
+    console.warn('[RunCalculation] AI context fetch failed (non-blocking):', aiErr);
+  }
+
+  // ── 5. Create calculation batch ──
+  const batch = await createCalculationBatch(tenantId, {
+    periodId,
+    ruleSetId,
+    entityCount: calculationEntityIds.length,
+    createdBy: userId,
+  });
+
+  // ── 6. Evaluate each entity ──
+  const entityResults: Array<{
+    entityId: string;
+    ruleSetId: string;
+    periodId: string;
+    totalPayout: number;
+    components: Json;
+    metrics: Json;
+    attainment: Json;
+    metadata: Json;
+  }> = [];
+
+  let grandTotal = 0;
+
+  for (const entityId of calculationEntityIds) {
+    const entityInfo = entityMap.get(entityId);
+    const entitySheetData = dataByEntity.get(entityId) || new Map();
+    const entityRowsFlat = flatDataByEntity.get(entityId) || [];
+
+    // Find this entity's store ID and role (use FIRST occurrence, not sum)
+    const allEntityMetrics = aggregateMetrics(entityRowsFlat);
+    let entityStoreId: string | number | undefined;
+    let entityRole: string | null = null;
+    for (const row of entityRowsFlat) {
+      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+        ? row.row_data as Record<string, unknown> : {};
+      if (entityStoreId === undefined) {
+        const sid = rd['storeId'] ?? rd['num_tienda'] ?? rd['No_Tienda'];
+        if (sid !== undefined && sid !== null) {
+          entityStoreId = sid as string | number;
+        }
+      }
+      if (!entityRole) {
+        const role = rd['role'] ?? rd['Puesto'] ?? rd['puesto'];
+        if (typeof role === 'string' && role.length > 0) {
+          entityRole = role;
+        }
+      }
+      if (entityStoreId !== undefined && entityRole) break;
+    }
+    const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
+
+    // OB-85-R3R4 Fix 2: Select variant based on entity role
+    let selectedComponents = defaultComponents;
+    if (entityRole && variants.length > 1) {
+      const normRole = entityRole.toLowerCase().replace(/\s+/g, ' ').trim();
+      // Try exact match first (after normalization)
+      for (const variant of variants) {
+        const variantName = String(variant.variantName ?? variant.description ?? '');
+        const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+        if (normRole === normVariant) {
+          selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+          break;
+        }
+      }
+      // If no exact match, try contains (longest variant name first to avoid partial matches)
+      if (selectedComponents === defaultComponents) {
+        const sorted = [...variants].sort((a, b) => {
+          const aLen = String(a.variantName ?? '').length;
+          const bLen = String(b.variantName ?? '').length;
+          return bLen - aLen;
+        });
+        for (const variant of sorted) {
+          const variantName = String(variant.variantName ?? variant.description ?? '');
+          const normVariant = variantName.toLowerCase().replace(/\s+/g, ' ').trim();
+          if (normRole.includes(normVariant) || normVariant.includes(normRole)) {
+            selectedComponents = (variant.components as PlanComponent[]) ?? defaultComponents;
+            break;
+          }
+        }
+      }
+    }
+
+    // OB-118: Derive metrics once per entity from loaded data
+    // OB-121: Pass prior period data for delta derivations
+    // OB-146: Merge entity + store data for derivation so store-level metrics
+    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
+    // can be derived. Store data has entity_id IS NULL but derivation rules
+    // match by sheet name pattern, which is source-agnostic.
+    const entityPriorData = priorDataByEntity.get(entityId);
+    let derivationInput = entitySheetData;
+    if (entityStoreData && entityStoreData.size > 0) {
+      derivationInput = new Map(entitySheetData);
+      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
+        if (!derivationInput.has(sheetName)) {
+          derivationInput.set(sheetName, rows);
+        } else {
+          // OB-148: Append store rows even when entity has same sheet name.
+          // Store data may have fields (e.g., Real_Venta_Tienda, Meta_Venta_Tienda)
+          // not present in entity rows. The derivation sum/ratio operations
+          // only aggregate fields that exist, so mixing is safe.
+          derivationInput.set(sheetName, [...derivationInput.get(sheetName)!, ...rows]);
+        }
+      }
+    }
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+      : {};
+
+    // Evaluate each component with sheet-aware metrics
+    const componentResults: ComponentResult[] = [];
+    let entityTotal = 0;
+
+    for (const component of selectedComponents) {
+      const metrics = buildMetricsForComponent(
+        component,
+        entitySheetData,
+        entityStoreData,
+        aiContextSheets
+      );
+      // OB-118: Merge derived metrics
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        metrics[key] = value;
+      }
+      // OB-146: Normalize derived attainment metrics from decimal to percentage.
+      // buildMetricsForComponent normalizes but the derivation override can
+      // re-introduce decimal values (e.g., Cumplimiento = 1.165 → should be 116.5).
+      // Apply the same heuristic: values < 10 are decimal ratios, multiply by 100.
+      for (const [key, value] of Object.entries(metrics)) {
+        if (inferSemanticType(key) === 'attainment' && value > 0 && value < 10) {
+          metrics[key] = value * 100;
+        }
+      }
+      const result = evaluateComponent(component, metrics);
+
+      // HF-122: Per-component rounding (Decision 122).
+      // OB-196 Phase 2: Legacy SHAPE fields removed; precision derives from foundational
+      // intent only. inferOutputPrecision tolerates undefined componentConfig.
+      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
+      const precision = inferOutputPrecision(componentIntent, undefined);
+      const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
+      result.payout = toNumber(rounded);
+
+      componentResults.push(result);
+      entityTotal += result.payout;
+    }
+
+    grandTotal += entityTotal;
+
+    entityResults.push({
+      entityId,
+      ruleSetId,
+      periodId,
+      totalPayout: entityTotal,
+      components: componentResults.map(c => ({
+        componentId: c.componentId,
+        componentName: c.componentName,
+        componentType: c.componentType,
+        payout: c.payout,
+        details: c.details,
+      })) as unknown as Json,
+      metrics: allEntityMetrics as unknown as Json,
+      attainment: { overall: allEntityMetrics['attainment'] ?? 0 } as unknown as Json,
+      metadata: {
+        entityName: entityInfo?.display_name ?? entityId,
+        externalId: entityInfo?.external_id ?? '',
+      } as unknown as Json,
+    });
+  }
+
+  console.log(`[RunCalculation] Calculated ${entityResults.length} entities, total payout: ${grandTotal}`);
+
+  // ── 7. Write results (HF-078: DELETE before INSERT to prevent UNIQUE constraint violations) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+
+  if (cleanupErr) {
+    console.warn(`[RunCalculation] HF-078 cleanup failed (non-blocking): ${cleanupErr.message}`);
+  }
+
+  try {
+    await writeCalculationResults(tenantId, batch.id, entityResults);
+  } catch (writeErr: unknown) {
+    const errMsg = writeErr instanceof Error
+      ? writeErr.message
+      : (typeof writeErr === 'object' && writeErr !== null && 'message' in writeErr)
+        ? String((writeErr as Record<string, unknown>).message)
+        : JSON.stringify(writeErr);
+    return {
+      success: false,
+      batchId: batch.id,
+      entityCount: entityResults.length,
+      totalPayout: grandTotal,
+      error: `Failed to write results: ${errMsg}`,
+    };
+  }
+
+  // ── 8. Transition to PREVIEW ──
+  await transitionBatchLifecycle(tenantId, batch.id, 'PREVIEW', {
+    summary: {
+      total_payout: grandTotal,
+      entity_count: entityResults.length,
+      component_count: defaultComponents.length,
+      rule_set_name: ruleSet.name,
+    },
+    completedAt: new Date().toISOString(),
+  });
+
+  // ── 9. Write metering event ──
+  try {
+    const now = new Date();
+    const meterPeriodKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    await supabase.from('usage_metering').insert({
+      tenant_id: tenantId,
+      metric_name: 'calculation_run',
+      metric_value: entityResults.length,
+      period_key: meterPeriodKey,
+      dimensions: {
+        batch_id: batch.id,
+        rule_set_id: ruleSetId,
+        period_id: periodId,
+        total_payout: grandTotal,
+        component_count: defaultComponents.length,
+      },
+    });
+  } catch (meterErr) {
+    console.warn('[RunCalculation] Metering failed (non-blocking):', meterErr);
+  }
+
+  console.log(`[RunCalculation] Complete: batch=${batch.id}, entities=${entityResults.length}, total=${grandTotal}`);
+
+  return {
+    success: true,
+    batchId: batch.id,
+    entityCount: entityResults.length,
+    totalPayout: grandTotal,
+  };
+}
+```
