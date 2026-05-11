@@ -380,6 +380,28 @@ register({
   confidence_required: true,
 });
 
+// OB-199 Phase 2 retroactive (2026-05-11): lifecycle:outcome surfaced during
+// Phase 4 inventory at training-signal-service.ts:126 (recordOutcome). Pre-
+// OB-199 the writer fired the [SignalRegistry] not registered soft-warn;
+// post-Phase-3 (canonical writer) it would throw CanonicalWriteError. Registered
+// here to keep recordOutcome operational post-Phase-4 migration.
+register({
+  identifier: 'lifecycle:outcome',
+  signal_level: 'L1',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/lib/ai/training-signal-service.ts (recordOutcome — feedback after-action)',
+  ],
+  declared_readers: [
+    'web/src/lib/intelligence/ai-metrics-service.ts (fetchSignals — universal reader for training signals)',
+    'web/src/lib/ai/training-signal-service.ts (getSignalsAsync history queries)',
+  ],
+  description: 'Training-signal outcome lifecycle event: was the AI correct (1.0) or not (0.0). Written by recordOutcome() after explicit or implicit feedback per HF-055.',
+  // Writer at training-signal-service.ts:126 asserts confidence literally as
+  // (wasCorrect ? 1.0 : 0.0) — always present, always in-range.
+  confidence_required: true,
+});
+
 // ──────────────────────────────────────────────
 // OB-199 Phase 2 — NEW registrations (DS-023 §5.3 + F-AUD-006-005 closure)
 //

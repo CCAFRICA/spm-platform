@@ -118,7 +118,18 @@ test('OB-199 §5.3 registry — lookupAITaskSignalType returns null for unmapped
   assert.strictEqual(lookupAITaskSignalType('nonexistent_task_type'), null);
 });
 
-test('OB-199 §5.3 registry — registry has at least 32 signal_types (15 pre-OB + 16 ai_-prefix + 1 observability)', () => {
+test('OB-199 §5.3 registry — registry has at least 33 signal_types (15 pre-OB + 16 ai_-prefix + 1 observability + 1 lifecycle:outcome retroactive)', () => {
   const count = all().length;
-  assert.ok(count >= 32, `registry must contain at least 32 signal_types (got ${count})`);
+  assert.ok(count >= 33, `registry must contain at least 33 signal_types (got ${count})`);
+});
+
+test('OB-199 Phase 2 retroactive — lifecycle:outcome registered with confidence_required:true', () => {
+  // Discovered during Phase 4 inventory at training-signal-service.ts:126
+  // (recordOutcome writes wasCorrect ? 1.0 : 0.0). Pre-OB-199 fired the
+  // [SignalRegistry] not registered soft-warn; post-Phase-3 would throw.
+  const decl = lookup('lifecycle:outcome');
+  assert.ok(decl, 'lifecycle:outcome must be registered (Phase 2 retroactive add)');
+  assert.strictEqual(decl!.confidence_required, true);
+  assert.strictEqual(decl!.signal_level, 'L1');
+  assert.ok(decl!.declared_readers.length > 0);
 });
