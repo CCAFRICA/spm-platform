@@ -10,8 +10,9 @@
  */
 
 import { AIResponse, AITaskType, TrainingSignal } from './types';
-import { persistSignal, getTrainingSignals } from './signal-persistence';
+import { getTrainingSignals } from './signal-persistence';
 import { lookupAITaskSignalType } from '@/lib/intelligence/signal-registry';
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 // OB-199 Phase 2 (DS-023 §5.3 / F-AUD-006-005 closure): inline AI_TASK_LEVEL_MAP
 // deleted. The 16 AITaskType → signal_type mappings now live as registered
@@ -47,13 +48,14 @@ export class TrainingSignalService {
   ): string {
     const signalId = crypto.randomUUID();
 
-    // HF-055: Fire-and-forget persist to Supabase
-    // HF-161: Pass credentials explicitly (no dynamic imports)
-    persistSignal({
+    // OB-199 Phase 4: canonical writer (replaces signal-persistence.ts thin wrapper).
+    // Explicit .catch with structured error log per AUD-001 F-003 closure
+    // (fire-and-forget swallow eliminated; CanonicalWriteError surfaces with cause).
+    writeSignal({
       tenantId,
       // OB-199 Phase 2: registry-derived identifier (replaces inline AI_TASK_LEVEL_MAP).
-      // Fallback to task string ensures unregistered tasks surface as soft-warn
-      // via the persistence layer's E3 read-coupling check rather than silent fall-through.
+      // Fallback to task string for unmapped AITaskTypes surfaces as
+      // CanonicalWriteError('unregistered_signal_type') per DS-023 §5.3.
       signalType: lookupAITaskSignalType(response.task) ?? response.task,
       signalValue: {
         signalId,
@@ -72,8 +74,12 @@ export class TrainingSignalService {
         tokenUsage: response.tokenUsage,
         latencyMs: response.latencyMs,
       },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] Persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] captureAIResponse CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] captureAIResponse unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
 
     return signalId;
@@ -91,9 +97,8 @@ export class TrainingSignalService {
   ): void {
     const tid = tenantId || this.tenantId;
 
-    // HF-055: Persist user action as a new signal
-    // HF-161: Pass credentials explicitly
-    persistSignal({
+    // OB-199 Phase 4: canonical writer.
+    writeSignal({
       tenantId: tid,
       signalType: 'lifecycle:user_action',
       signalValue: {
@@ -104,8 +109,12 @@ export class TrainingSignalService {
       confidence: action === 'accepted' ? 0.95 : action === 'corrected' ? 0.99 : 0,
       source: action === 'corrected' ? 'user_corrected' : action === 'accepted' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] recordUserAction persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] recordUserAction CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] recordUserAction unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
   }
 
@@ -121,9 +130,8 @@ export class TrainingSignalService {
   ): void {
     const tid = tenantId || this.tenantId;
 
-    // HF-055: Persist outcome as a new signal
-    // HF-161: Pass credentials explicitly
-    persistSignal({
+    // OB-199 Phase 4: canonical writer. lifecycle:outcome registered Phase 2 retroactive.
+    writeSignal({
       tenantId: tid,
       signalType: 'lifecycle:outcome',
       signalValue: {
@@ -134,8 +142,12 @@ export class TrainingSignalService {
       confidence: wasCorrect ? 1.0 : 0.0,
       source: feedbackSource === 'user_explicit' ? 'user_confirmed' : 'ai_prediction',
       context: { originalSignalId: signalId },
-    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-      console.warn('[TrainingSignalService] recordOutcome persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+    }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+      if (err instanceof CanonicalWriteError) {
+        console.warn(`[TrainingSignalService] recordOutcome CanonicalWriteError (${err.cause}) signal_type='${err.signalType}': ${err.message}`);
+      } else {
+        console.warn('[TrainingSignalService] recordOutcome unexpected error:', err instanceof Error ? err.message : String(err));
+      }
     });
   }
 
