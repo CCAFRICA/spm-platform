@@ -1,0 +1,351 @@
+# E2.3 — Diff: `signal-persistence.ts` (5e42d88d^) → `signal-reader.ts` (HEAD)
+
+**Command:** `git diff 5e42d88d^ HEAD -- web/src/lib/ai/signal-persistence.ts web/src/lib/ai/signal-reader.ts`
+**5e42d88d^** resolves to commit `ff55872c` (Phase 2 close).
+**HEAD** is commit `8807c82c` (Phase 4 deletion-intent verification artifact commit).
+**Total diff lines:** 341
+**Note:** captures (a) signal-persistence.ts deletion (197 lines removed) and (b) signal-reader.ts creation (87 lines added). CC does NOT claim byte-identity; CC surfaces the diff. Architect reads.
+
+```diff
+diff --git a/web/src/lib/ai/signal-persistence.ts b/web/src/lib/ai/signal-persistence.ts
+deleted file mode 100644
+index 14b95794..00000000
+--- a/web/src/lib/ai/signal-persistence.ts
++++ /dev/null
+@@ -1,242 +0,0 @@
+-/**
+- * Signal Persistence Service
+- *
+- * HF-055: Bridges in-memory signal capture → Supabase classification_signals table.
+- * HF-161: Refactored to argument-passing pattern (same as writeClassificationSignal).
+- *         Removed getClient() dual-mode resolution that caused TypeError: fetch failed
+- *         in Vercel serverless functions. Static import, no dynamic imports.
+- *
+- * Columns from SCHEMA_REFERENCE.md:
+- *   id, tenant_id, entity_id, signal_type, signal_value, confidence, source, context, created_at
+- */
+-
+-import { createClient } from '@supabase/supabase-js';
+-import type { Json } from '@/lib/supabase/database.types';
+-// HF-198 E3: signal-type read-coupling — every signal_type validated against
+-// the registry before persist. Unregistered writes log a soft warn (signal
+-// writes are fire-and-forget; discipline preserved). Hard-failure path is
+-// available via assertRegistered() at call sites that require it.
+-import { isRegistered as isSignalTypeRegistered, all as allRegisteredSignalTypes } from '@/lib/intelligence/signal-registry';
+-
+-// ============================================
+-// TYPES
+-// ============================================
+-
+-export interface SignalData {
+-  tenantId: string;
+-  signalType: string;          // OB-197: prefix vocabulary — classification:* | comprehension:* | convergence:* | cost:* | lifecycle:*
+-  signalValue: Record<string, unknown>;
+-  confidence?: number;
+-  source?: string;             // 'ai_prediction' | 'user_confirmed' | 'user_corrected' | 'ai'
+-  entityId?: string;
+-  context?: Record<string, unknown>;
+-  calculationRunId?: string;   // OB-197 G11: scope signal to a calculation run; null when emitted outside a run
+-  ruleSetId?: string;          // HF-198 E5: scope signal to a rule_set (e.g., 'comprehension:plan_interpretation' per-component emissions)
+-}
+-
+-// ============================================
+-// WRITE OPERATIONS
+-// ============================================
+-
+-/**
+- * Persist a single signal to Supabase classification_signals table.
+- * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
+- */
+-export async function persistSignal(
+-  signal: SignalData,
+-  supabaseUrl: string,
+-  supabaseServiceKey: string,
+-): Promise<{ success: boolean; error?: string }> {
+-  // HF-198 E3: read-coupling soft validation — surface unregistered signal_types.
+-  if (!isSignalTypeRegistered(signal.signalType)) {
+-    console.warn(
+-      `[SignalRegistry] persistSignal: signal_type '${signal.signalType}' not registered. ` +
+-      `Per AUD-004 v3 §2 E3, every signal_type should declare ≥1 reader. ` +
+-      `Available: ${allRegisteredSignalTypes().map(d => d.identifier).join(', ')}`,
+-    );
+-  }
+-  try {
+-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+-      auth: { autoRefreshToken: false, persistSession: false },
+-    });
+-    // HF-214 Phase 2 (A): writer-side defense-in-depth clamp.
+-    // Confidence is a probability ratio in [0, 1); clamp at the canonical writer
+-    // protects every signal_type symmetrically against any upstream drift.
+-    let clampedConfidence: number | null = signal.confidence ?? null;
+-    if (clampedConfidence != null) {
+-      const original = clampedConfidence;
+-      const clamped = Math.min(Math.max(original, 0), 0.9999);
+-      if (clamped !== original) {
+-        const sv: Record<string, unknown> = signal.signalValue || {};
+-        const metricName = sv['metric_name'] ?? null;
+-        const componentIndex = sv['component_index'] ?? null;
+-        console.warn(`[SignalPersistence] confidence clamped: original=${original} clamped=${clamped} signal_type=${signal.signalType} metric_name=${String(metricName)} component_index=${String(componentIndex)}`);
+-      }
+-      clampedConfidence = clamped;
+-    }
+-    const { error } = await supabase
+-      .from('classification_signals')
+-      .insert({
+-        tenant_id: signal.tenantId,
+-        entity_id: signal.entityId || null,
+-        signal_type: signal.signalType,
+-        signal_value: (signal.signalValue || {}) as Json,
+-        confidence: clampedConfidence,
+-        source: signal.source ?? 'ai_prediction',
+-        context: (signal.context ?? {}) as Json,
+-        calculation_run_id: signal.calculationRunId ?? null,
+-        rule_set_id: signal.ruleSetId ?? null,
+-      });
+-
+-    if (error) {
+-      console.error('[SignalPersistence] Failed to persist signal:', error.message, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
+-      const sv: Record<string, unknown> = signal.signalValue || {};
+-      const metricName = sv['metric_name'] ?? null;
+-      const componentIndex = sv['component_index'] ?? null;
+-      const svJson = JSON.stringify(signal.signalValue ?? null);
+-      const svTruncated = svJson.length > 200 ? svJson.slice(0, 200) + '…' : svJson;
+-      console.error(`[SignalPersistence] signal_type=${signal.signalType} confidence=${String(signal.confidence)} metric_name=${String(metricName)} component_index=${String(componentIndex)} signal_value_truncated=${svTruncated}`);
+-      return { success: false, error: error.message };
+-    }
+-    return { success: true };
+-  } catch (err) {
+-    console.error('[SignalPersistence] Exception:', err, '| signal_type:', signal.signalType, '| tenant:', signal.tenantId);
+-    return { success: false, error: String(err) };
+-  }
+-}
+-
+-/**
+- * Persist a batch of signals to Supabase classification_signals table.
+- * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
+- */
+-export async function persistSignalBatch(
+-  signals: SignalData[],
+-  supabaseUrl: string,
+-  supabaseServiceKey: string,
+-): Promise<{ success: boolean; count: number; error?: string }> {
+-  if (signals.length === 0) return { success: true, count: 0 };
+-
+-  // HF-198 E3: read-coupling soft validation — surface unregistered signal_types.
+-  const unregistered = new Set<string>();
+-  for (const s of signals) {
+-    if (!isSignalTypeRegistered(s.signalType)) unregistered.add(s.signalType);
+-  }
+-  if (unregistered.size > 0) {
+-    console.warn(
+-      `[SignalRegistry] persistSignalBatch: unregistered signal_type(s): ${Array.from(unregistered).join(', ')}. ` +
+-      `Per AUD-004 v3 §2 E3, every signal_type should declare ≥1 reader.`,
+-    );
+-  }
+-
+-  try {
+-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+-      auth: { autoRefreshToken: false, persistSession: false },
+-    });
+-    // HF-214 Phase 2 (A): writer-side defense-in-depth clamp.
+-    // Confidence is a probability ratio in [0, 1); clamp per-row protects every
+-    // signal_type symmetrically against any upstream drift.
+-    const rows = signals.map(s => {
+-      let clampedConfidence: number | null = s.confidence ?? null;
+-      if (clampedConfidence != null) {
+-        const original = clampedConfidence;
+-        const clamped = Math.min(Math.max(original, 0), 0.9999);
+-        if (clamped !== original) {
+-          const sv: Record<string, unknown> = s.signalValue || {};
+-          const metricName = sv['metric_name'] ?? null;
+-          const componentIndex = sv['component_index'] ?? null;
+-          console.warn(`[SignalPersistence] confidence clamped: original=${original} clamped=${clamped} signal_type=${s.signalType} metric_name=${String(metricName)} component_index=${String(componentIndex)}`);
+-        }
+-        clampedConfidence = clamped;
+-      }
+-      return {
+-        tenant_id: s.tenantId,
+-        entity_id: s.entityId || null,
+-        signal_type: s.signalType,
+-        signal_value: (s.signalValue || {}) as Json,
+-        confidence: clampedConfidence,
+-        source: s.source ?? 'ai_prediction',
+-        context: (s.context ?? {}) as Json,
+-        calculation_run_id: s.calculationRunId ?? null,
+-        rule_set_id: s.ruleSetId ?? null,
+-      };
+-    });
+-
+-    const { error } = await supabase
+-      .from('classification_signals')
+-      .insert(rows);
+-
+-    if (error) {
+-      console.error('[SignalPersistence] Batch failed:', error.message, '| count:', signals.length, '| tenant:', signals[0]?.tenantId);
+-      for (let i = 0; i < signals.length; i++) {
+-        const s = signals[i];
+-        const sv: Record<string, unknown> = s.signalValue || {};
+-        const metricName = sv['metric_name'] ?? null;
+-        const componentIndex = sv['component_index'] ?? null;
+-        const svJson = JSON.stringify(s.signalValue ?? null);
+-        const svTruncated = svJson.length > 200 ? svJson.slice(0, 200) + '…' : svJson;
+-        console.error(`[SignalPersistence] row=${i} signal_type=${s.signalType} confidence=${String(s.confidence)} metric_name=${String(metricName)} component_index=${String(componentIndex)} signal_value_truncated=${svTruncated}`);
+-      }
+-      return { success: false, count: 0, error: error.message };
+-    }
+-    return { success: true, count: signals.length };
+-  } catch (err) {
+-    console.error('[SignalPersistence] Batch exception:', err, '| count:', signals.length, '| tenant:', signals[0]?.tenantId);
+-    return { success: false, count: 0, error: String(err) };
+-  }
+-}
+-
+-// ============================================
+-// READ OPERATIONS
+-// ============================================
+-
+-/**
+- * Retrieve training signals from Supabase classification_signals table.
+- * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
+- */
+-export async function getTrainingSignals(
+-  tenantId: string,
+-  supabaseUrl: string,
+-  supabaseServiceKey: string,
+-  signalType?: string,
+-  limit: number = 100,
+-): Promise<SignalData[]> {
+-  try {
+-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+-      auth: { autoRefreshToken: false, persistSession: false },
+-    });
+-    let query = supabase
+-      .from('classification_signals')
+-      .select('*')
+-      .eq('tenant_id', tenantId)
+-      .order('created_at', { ascending: false })
+-      .limit(limit);
+-
+-    if (signalType) {
+-      query = query.eq('signal_type', signalType);
+-    }
+-
+-    const { data, error } = await query;
+-
+-    if (error) {
+-      console.error('[SignalPersistence] getTrainingSignals failed:', error.message, '| tenant:', tenantId);
+-      return [];
+-    }
+-
+-    return (data || []).map(row => ({
+-      tenantId: row.tenant_id,
+-      signalType: row.signal_type,
+-      signalValue: (typeof row.signal_value === 'object' && row.signal_value !== null)
+-        ? row.signal_value as Record<string, unknown>
+-        : {},
+-      confidence: row.confidence ?? undefined,
+-      source: row.source ?? undefined,
+-      entityId: row.entity_id ?? undefined,
+-      context: (typeof row.context === 'object' && row.context !== null)
+-        ? row.context as Record<string, unknown>
+-        : {},
+-    }));
+-  } catch (err) {
+-    console.error('[SignalPersistence] getTrainingSignals exception:', err, '| tenant:', tenantId);
+-    return [];
+-  }
+-}
+diff --git a/web/src/lib/ai/signal-reader.ts b/web/src/lib/ai/signal-reader.ts
+new file mode 100644
+index 00000000..94a290fa
+--- /dev/null
++++ b/web/src/lib/ai/signal-reader.ts
+@@ -0,0 +1,87 @@
++/**
++ * Signal Reader — OB-199 Phase 4 (final)
++ *
++ * Read-only surface for `classification_signals`. Successor to the read
++ * functions previously in `signal-persistence.ts` (which is deleted at the
++ * end of Phase 4).
++ *
++ * Write surface lives at `@/lib/intelligence/canonical-signal-writer.ts`
++ * (DS-023 §5.1 single entry point).
++ *
++ * HF-161 contract preserved: accepts Supabase credentials as arguments
++ * (no dynamic imports, no module-level client construction).
++ */
++
++import { createClient } from '@supabase/supabase-js';
++
++// ============================================
++// TYPES (preserved from deleted signal-persistence.ts for caller compatibility)
++// ============================================
++
++export interface SignalData {
++  tenantId: string;
++  signalType: string;          // OB-197: prefix vocabulary — classification:* | comprehension:* | convergence:* | cost:* | lifecycle:*
++  signalValue: Record<string, unknown>;
++  confidence?: number;
++  source?: string;             // 'ai_prediction' | 'user_confirmed' | 'user_corrected' | 'ai'
++  entityId?: string;
++  context?: Record<string, unknown>;
++  calculationRunId?: string;
++  ruleSetId?: string;
++}
++
++// ============================================
++// READ OPERATIONS
++// ============================================
++
++/**
++ * Retrieve training signals from Supabase classification_signals table.
++ * HF-161: Accepts Supabase credentials as arguments (no dynamic imports).
++ */
++export async function getTrainingSignals(
++  tenantId: string,
++  supabaseUrl: string,
++  supabaseServiceKey: string,
++  signalType?: string,
++  limit: number = 100,
++): Promise<SignalData[]> {
++  try {
++    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
++      auth: { autoRefreshToken: false, persistSession: false },
++    });
++    let query = supabase
++      .from('classification_signals')
++      .select('*')
++      .eq('tenant_id', tenantId)
++      .order('created_at', { ascending: false })
++      .limit(limit);
++
++    if (signalType) {
++      query = query.eq('signal_type', signalType);
++    }
++
++    const { data, error } = await query;
++
++    if (error) {
++      console.error('[SignalReader] getTrainingSignals failed:', error.message, '| tenant:', tenantId);
++      return [];
++    }
++
++    return (data || []).map(row => ({
++      tenantId: row.tenant_id,
++      signalType: row.signal_type,
++      signalValue: (typeof row.signal_value === 'object' && row.signal_value !== null)
++        ? row.signal_value as Record<string, unknown>
++        : {},
++      confidence: row.confidence ?? undefined,
++      source: row.source ?? undefined,
++      entityId: row.entity_id ?? undefined,
++      context: (typeof row.context === 'object' && row.context !== null)
++        ? row.context as Record<string, unknown>
++        : {},
++    }));
++  } catch (err) {
++    console.error('[SignalReader] getTrainingSignals exception:', err, '| tenant:', tenantId);
++    return [];
++  }
++}
+```
