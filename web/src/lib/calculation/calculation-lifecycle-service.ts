@@ -10,7 +10,8 @@
 
 import { createClient, requireTenantId } from '@/lib/supabase/client';
 import type { Database, Json, LifecycleState } from '@/lib/supabase/database.types';
-import { persistSignal } from '@/lib/ai/signal-persistence';
+// OB-199 Phase 4: canonical writer migration.
+import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import {
   transitionBatchLifecycle,
   getCalculationBatch,
@@ -450,9 +451,9 @@ export async function performLifecycleTransition(
     options?.details || options?.rejectionReason || undefined
   );
 
-  // OB-77: Training signal — lifecycle transition (fire-and-forget)
-  // HF-161: Pass credentials explicitly
-  persistSignal({
+  // OB-77 + OB-199 Phase 4: canonical writer (DS-023 §5.1). lifecycle:transition
+  // registers confidence_required:false; confidence:1.0 admissible per Decision 30 v2 inclusive.
+  writeSignal({
     tenantId,
     signalType: 'lifecycle:transition',
     signalValue: {
@@ -468,8 +469,12 @@ export async function performLifecycleTransition(
       trigger: 'lifecycle_service',
       details: options?.details || options?.rejectionReason || null,
     },
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(err => {
-    console.warn('[LifecycleService] Training signal persist failed (non-blocking):', err instanceof Error ? err.message : 'unknown');
+  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+    if (err instanceof CanonicalWriteError) {
+      console.warn(`[LifecycleService] CanonicalWriteError (${err.cause}): ${err.message}`);
+    } else {
+      console.warn('[LifecycleService] Training signal unexpected error:', err instanceof Error ? err.message : String(err));
+    }
   });
 
   return batchToCycle(updated, tenantId);
