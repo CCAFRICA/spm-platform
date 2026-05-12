@@ -1375,3 +1375,112 @@ web/src/lib/ai/training-signal-service.ts:111: source: action === 'corrected' ? 
 
 CC note (verbatim, not classification): the writeback loop exists for SCI agent classification decisions (closed loop: user corrects → signal written with source='user_corrected' → next SCI run picks up via lookupPriorSignals → boost applied). It does NOT exist for convergence binding-selection (no consumer of user-corrected signals at convergence binding-selection function `generateAllComponentBindings`). It also does NOT exist for engine fallback decisions (no consumer at the `usedConvergenceBindings` flip site).
 
+---
+
+## Section 6 — Order-Independence Guarantees (operative documentation)
+
+### Section 6.1 — Operative prior-state assumptions by layer
+
+**HC layer (`web/src/lib/sci/header-comprehension.ts`):**
+
+```
+$ grep -rn "previousImport|priorClassification|priorEntities" web/src/lib/sci/header-comprehension.ts
+(empty — zero matches)
+```
+
+HC reads vocabulary bindings via `lookupVocabularyBindings(tenantId, allColumns, …)` (line 287). If empty, LLM runs. If non-empty AND all columns satisfy thresholds, LLM is skipped. No assumption about prior imports having created vocabulary bindings.
+
+**Convergence layer (`web/src/lib/intelligence/convergence-service.ts`):**
+
+```
+$ grep -n "entities.*populated|entities.*exists|tenant.entities" \
+    web/src/lib/intelligence/convergence-service.ts
+(empty — zero matches)
+```
+
+Convergence reads `rule_sets`, `metric_comprehension_signals`, and `capabilities` (committed_data + field_identities). Per Section 2.1, no tenant entity dependency. No assumption about prior entities table population.
+
+**Engine layer (`web/src/app/api/calculation/run/route.ts`):**
+
+```
+$ grep -n "entities.*required|rule_set_assignments|priorImport" \
+    web/src/app/api/calculation/run/route.ts
+346:      .from('rule_set_assignments')
+400:          await supabase.from('rule_set_assignments').insert(slice);
+```
+
+Engine fetches `rule_set_assignments` (assignments linking entities to rule_sets). If empty, engine creates default assignments via INSERT at line 400 (read context for trigger conditions).
+
+**Entity-empty check across codebase (verbatim grep):**
+
+```
+$ grep -rn "entities.size === 0|entities.length === 0" web/src/ --include="*.ts"
+web/src/app/api/financial/data/route.ts:90:  if (!entities || entities.length === 0) return null;
+```
+
+One hit only — in `financial/data/route.ts` (separate scope, financial module). HC/convergence/engine do not check `entities.length === 0` as a precondition.
+
+### Section 6.2 — Operative order-dependencies
+
+**Decision 92 — calc-time entity resolution as substrate guarantee:**
+
+Verbatim from `web/src/lib/sci/calc-time-entity-resolution.ts:1-25`:
+
+```typescript
+/**
+ * HF-196 Phase 2: Calc-time entity resolution.
+ *
+ * Implements the calc-time entity binding architecture per Decision 92
+ * (Calculation Sovereignty / IGF-T1-E904) and OB-182's stated intent:
+ * "engine resolves at calc time." The calc-side replacement for the
+ * post-import back-link work that OB-182 removed.
+ *
+ * Engineering decision (architect-pre-authorized, HF-196 directive Phase 2):
+ *   Durable update at calc time. Engine reads `committed_data.entity_id`
+ *   directly (no engine refactor needed). Resolver UPDATEs the column for
+ *   rows where entity_id IS NULL and an entities-table match exists.
+ *
+ * Coexists with HF-196 Phase 1 import-time back-link (defense in depth):
+ *   Import-time path populates entity_id immediately for typical imports.
+ *   Calc-time path catches any rows the import-time path missed (late-arriving
+ *   data, prior tenant state, etc.). The two paths are mutually idempotent.
+ *
+ * Korean Test (IGF-T1-E910) compliance:
+ *   - Tenant-agnostic: tenant_id is a runtime parameter
+ *   - Entity matching delegates to resolveEntitiesFromCommittedData which
+ *     uses structural identifiers from `field_identities` metadata, not
+ *     hardcoded field names
+ *   - Zero domain-specific string literals
+ */
+```
+
+**Substrate citation (verbatim from `docs/audits/AUD-007_evidence/E5_1_DS-021_full.md:211`):**
+
+> P6 — Sequence Independence. Imports do not require any prior import to have happened first. The substrate accepts any content unit in any order at any time. Operations that create implicit ordering (entity binding requires prior roster import; convergence requires prior plan import) violate sequence independence and are deferred to calculation time per Decision 92.
+
+**Operative behavior — transaction file imported BEFORE roster file:**
+
+- Import-time entity_id back-link (`HF-196 Phase 1`): if a transaction row's identifier value (`No_Empleado` etc.) does not match any existing entity at import time, `committed_data.entity_id` is left NULL.
+- Calc-time entity resolution (`resolveEntitiesAtCalcTime`, `route.ts:154`): runs at calculation entry; UPDATEs `committed_data.entity_id` where NULL and a match now exists in the entities table.
+- Net effect: transaction-before-roster ordering produces NULL `entity_id` at first import; calc-time resolution fills the back-link when the roster has been imported by then. If the roster has NOT been imported by calc time, the rows remain unresolved and surface as data-quality signals per the calc-time resolver docstring.
+
+**Operative behavior — plan file imported AFTER data files:**
+
+- Convergence runs at calc time per Section 2.1 (calc-time convergence triggers at `route.ts:228` when `input_bindings` is empty).
+- Convergence consumes `capabilities` from `inventoryData(tenantId)` — reads committed_data + field_identities.
+- Plan-before-data and data-before-plan both work: convergence at calc time reads whatever is present.
+
+**Operative behavior — all-at-once combined import:**
+
+- Each file processed independently through SCI pipeline (per `process-job/route.ts` parallel-lambda invocation per file).
+- Cross-sheet relationships surfaced via HC `crossSheetInsights` (per `sci-types.ts:103`).
+- Convergence runs once at calc time, consuming the unified capabilities snapshot.
+
+**Code citations enabling order-independence:**
+
+- `committed_data.period_id` nullable + period attribution via `source_date` (verified DIAG-039 E3.1) — periods can be created post-import without re-import
+- `committed_data.entity_id` nullable + calc-time back-link UPDATE — entities can be created post-import without re-import
+- `rule_sets.input_bindings` populated lazily at calc time via convergence — plan can be imported in any order
+
+**Verification of HF-196 Phase 1G claim:** The substrate citation in `DS-021 §P6` (line 211 above) states "operations that create implicit ordering … are deferred to calculation time per Decision 92." CC documents the operative mechanism: Decision 92's calc-time deferral is structurally realized via `resolveEntitiesAtCalcTime` (entity back-link), calc-time `convergeBindings` invocation (binding selection deferred), and `source_date`-based period attribution (period binding deferred). The claim holds at the surfaces CC paste-traced.
+
