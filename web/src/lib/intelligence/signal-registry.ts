@@ -271,9 +271,88 @@ register({
     // HF-198 the reader is the diagnostic surface and the runtime dashboard
     // (convergence health view); declared here so writes are not orphan signals.
     'web/src/lib/intelligence/convergence-service.ts (observations.crossRun query — see signal_type IN list extension below)',
+    'web/src/lib/intelligence/convergence-service.ts (HF-218 Component 4b: tenant-adaptive concordance threshold consumer)',
     'docs/audits/AUD_004_Remediation_Design_Document_v3_20260427.md (§2 E3 declared reader; runtime consumer surface scheduled for OB-N where N succeeds HF-198)',
   ],
   description: 'Dual-path concordance observation: legacy-engine vs intent-executor path agreement rate per calculation run.',
+  confidence_required: true,
+});
+
+// HF-218 Component 1: convergence binding-selection provenance with full candidate scoring.
+register({
+  identifier: 'convergence:binding_selection',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/lib/intelligence/convergence-service.ts (HF-218 generateAllComponentBindings entity_identifier self-verification)',
+  ],
+  declared_readers: [
+    'web/src/lib/intelligence/convergence-service.ts (HF-218 Component 4b downstream consumer — concordance evidence basis)',
+    'web/src/app/api/calculation/run/route.ts (HF-218 Component 2: engine-correction provenance reference)',
+  ],
+  description: 'HF-218 Component 1: convergence entity_identifier binding selection with full candidate cardinality × intersection scoring and tenant_entity_count provenance.',
+  confidence_required: true,
+});
+
+// HF-218 Component 2: engine self-correction outcome at calc-time binding verification.
+register({
+  identifier: 'convergence:engine_correction',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/app/api/calculation/run/route.ts (HF-218 Component 2: verifyBindingAtCalcTime correction path)',
+  ],
+  declared_readers: [
+    'web/src/app/api/calculation/run/route.ts (HF-218 binding_snapshot reference — calculation_results.metadata.corrections_in_this_run)',
+  ],
+  description: 'HF-218 Component 2: engine corrects an existing binding when calc-time verification confidence strictly exceeds stored confidence. Pre-state preserved in signal_value.',
+  confidence_required: true,
+});
+
+// HF-218 Component 2: engine refusal-to-calculate when no candidate achieves any operative confidence.
+register({
+  identifier: 'engine:structural_exception',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/app/api/calculation/run/route.ts (HF-218 Component 2: verifyBindingAtCalcTime refusal path)',
+  ],
+  declared_readers: [
+    'web/src/app/api/calculation/run/route.ts (HF-218 binding_snapshot reference)',
+    'web/src/lib/sci/fingerprint-flywheel.ts (HF-218 Component 3: decrementFingerprintConfidence trigger)',
+  ],
+  description: 'HF-218 Component 2: engine refuses to calculate when verification cannot establish operative confidence for the binding. Skips entity-component; calculation continues elsewhere.',
+  confidence_required: true,
+});
+
+// HF-218 Component 4a: engine exception signal (Tier 3 EXCEPTION addLog mirror).
+register({
+  identifier: 'engine:exception',
+  signal_level: 'L2',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/app/api/calculation/run/route.ts (HF-218 Component 4a: every [CalcRecon-T3] EXCEPTION mirror)',
+  ],
+  declared_readers: [
+    'web/src/app/api/calculation/run/route.ts (within-run signal-surface read)',
+    'web/src/lib/intelligence/convergence-service.ts (HF-218 Component 4b concordance evidence basis)',
+  ],
+  description: 'HF-218 Component 4a: structured persistence of [CalcRecon-T3] EXCEPTION events into classification_signals (closes log-only loop).',
+  confidence_required: false,
+});
+
+// HF-218 Component 3: flywheel fingerprint confidence decrement (OB-177 bidirectional closure).
+register({
+  identifier: 'flywheel:fingerprint_decrement',
+  signal_level: 'L3',
+  originating_flywheel: 'tenant',
+  declared_writers: [
+    'web/src/lib/sci/fingerprint-flywheel.ts (HF-218 Component 3: decrementFingerprintConfidence)',
+  ],
+  declared_readers: [
+    'web/src/lib/sci/fingerprint-flywheel.ts (lookupFingerprint Tier 1 confidence gate read)',
+  ],
+  description: 'HF-218 Component 3: fingerprint confidence decrement event (-0.20 per failure per ADR Decision 2). Pre/post confidence + trigger reason persisted for SOC-grade audit.',
   confidence_required: true,
 });
 

@@ -190,3 +190,87 @@ export async function writeFingerprint(
     console.warn(`[SCI-FINGERPRINT] Write failed (non-blocking): ${err instanceof Error ? err.message : 'unknown'}`);
   }
 }
+
+/**
+ * HF-218 Component 3 — OB-177 self-correction decrement loop.
+ *
+ * Symmetric counterpart to writeFingerprint's Bayesian increment (line 152
+ * `1 - 1/(matchCount+1)`). Per ADR Decision 2: per-event decrement of -0.20,
+ * floored at 0. The arithmetic reproduces the comment at lines 54-55:
+ *   3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
+ *
+ * Optimistic-lock pattern mirrors the increment at lines 158-164.
+ *
+ * Caller invokes on binding-failure paths (e.g., engine structural_exception in
+ * HF-218 Component 2). The decrement signal is persisted into classification_signals
+ * with signal_type='flywheel:fingerprint_decrement' for SOC-grade audit.
+ */
+export async function decrementFingerprintConfidence(
+  tenantId: string,
+  fingerprintHash: string,
+  reason: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<{ updated: boolean; preConfidence: number; postConfidence: number }> {
+  const DECREMENT = 0.20; // per-event decrement (ADR Decision 2, anchored to fingerprint-flywheel.ts:54-55 arithmetic)
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: existing } = await supabase
+      .from('structural_fingerprints')
+      .select('id, match_count, confidence')
+      .eq('tenant_id', tenantId)
+      .eq('fingerprint_hash', fingerprintHash)
+      .maybeSingle();
+
+    if (!existing) {
+      console.log(`[SCI-FINGERPRINT] HF-218 decrement skipped (no fingerprint): hash=${fingerprintHash.substring(0, 12)}`);
+      return { updated: false, preConfidence: 0, postConfidence: 0 };
+    }
+
+    const preConfidence = Number(existing.confidence);
+    const postConfidence = Math.max(0, preConfidence - DECREMENT);
+
+    const { count: updated } = await supabase
+      .from('structural_fingerprints')
+      .update({
+        confidence: Number(postConfidence.toFixed(4)),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .eq('confidence', existing.confidence); // optimistic lock symmetric to increment path
+
+    if (updated === 0) {
+      console.log(`[SCI-FINGERPRINT] HF-218 decrement skipped (concurrent update): hash=${fingerprintHash.substring(0, 12)}`);
+      return { updated: false, preConfidence, postConfidence: preConfidence };
+    }
+
+    console.log(`[SCI-FINGERPRINT] HF-218 decremented: hash=${fingerprintHash.substring(0, 12)} confidence ${preConfidence.toFixed(4)} → ${postConfidence.toFixed(4)} reason=${reason}`);
+
+    // Emit signal via canonical writer (lazy import to avoid circular dependency).
+    try {
+      const { writeSignal } = await import('@/lib/intelligence/canonical-signal-writer');
+      await writeSignal({
+        tenantId,
+        signalType: 'flywheel:fingerprint_decrement',
+        signalValue: {
+          fingerprint_hash: fingerprintHash,
+          pre_confidence: preConfidence,
+          post_confidence: postConfidence,
+          decrement_amount: DECREMENT,
+          reason,
+        },
+        confidence: postConfidence,
+        source: 'system',
+        decisionSource: 'flywheel_self_correction',
+      }, supabaseUrl, supabaseServiceKey);
+    } catch (sigErr) {
+      console.warn(`[SCI-FINGERPRINT] HF-218 decrement signal write failed (non-blocking): ${sigErr instanceof Error ? sigErr.message : 'unknown'}`);
+    }
+
+    return { updated: true, preConfidence, postConfidence };
+  } catch (err) {
+    console.warn(`[SCI-FINGERPRINT] HF-218 decrement failed (non-blocking): ${err instanceof Error ? err.message : 'unknown'}`);
+    return { updated: false, preConfidence: 0, postConfidence: 0 };
+  }
+}
