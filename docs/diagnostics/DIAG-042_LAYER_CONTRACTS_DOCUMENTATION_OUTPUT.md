@@ -1601,3 +1601,32 @@ export type ColumnRole =
 
 CC notes the operative reality: among the vocabularies surveyed, `contextualIdentity` (LLM path) is the only effectively open set. All others are closed at the executor/type-definition layer and require code changes for extension. No tenant-scoped extensible-enum mechanism observed (Section 5.3 confirms). The product claim "any plan, any format, any content" is structurally satisfied at the contextualIdentity LLM path AND at the column/sheet/field-name layer (Korean Test compliance verified DIAG-041 Phase 6.5); it is NOT structurally satisfied for new primitives, new modifier types, or new structural roles — those require code-layer extension.
 
+---
+
+## Phase 8 — DIAG-042 Final State
+
+**File path:** `docs/diagnostics/DIAG-042_LAYER_CONTRACTS_DOCUMENTATION_OUTPUT.md`
+**Total lines:** 1603 lines pre-Phase-8; updated to current length after this append.
+**Sections completed:** Phases 0, 1, 2, 3, 4, 5, 6, 7, 8.
+**Halts encountered:** **none.**
+
+**Operative contract documentation produced:**
+
+1. **HC layer contract** — inputs (sheets + tenantId; no entity-table read), outputs (FieldIdentity persisted to `committed_data.metadata.field_identities`), contextualIdentity open/closed dual-path (LLM-open via free-form `semanticMeaning`; ROLE_MAP-closed fallback with 17 keys), 'unknown' emission via 4 code paths and downstream consumer treatment (no refusal; passes through).
+2. **Convergence layer contract** — inputs (tenantId/ruleSetId/supabase/calculationRunId?; internally fetches rule_sets, metric_comprehension signals, capabilities; no entity-table read), outputs (`ConvergenceResult` with derivations/matchReport/signals/gaps/componentBindings/observations; bindings persisted to `rule_sets.input_bindings.convergence_bindings`; gaps NOT persisted — log-only), invariants enforced (5 checks within `generateAllComponentBindings`) and NOT enforced (5 structural absences, including entity-value-set intersection), gap-handling (recorded but consumed only as log lines).
+3. **Engine consumption contract** — inputs (POST body validated; rule_sets/periods/entities checked for existence; convergence bindings consumed from input_bindings), assumptions checked (3) vs unchecked (5), signal emission split between `classification_signals` (2 signal_types from engine) and log-only `[CalcRecon-T1/T2/T3]` lines, refusal paths (HTTP 400/404 + throws) vs skip-and-result paths (entity exclusion, silent convergence fall-through, OB-118 merge guard), bright line "structural exception vs data anomaly" NOT documented in code.
+4. **Flywheel integration** — `classification_signals` 20-column schema, canonical writer as singular insert surface (OB-199 Phase 4), 14+ emission sites surveyed across engine/convergence/SCI/reconciliation/AI-assessment/approvals/plan-comprehension/SCI-capture, 8 consumption sites (SCI agent priors, contextual-reliability, AI metrics, convergence observation, etc.), fingerprint flywheel structure (Bayesian increment on writeFingerprint; OB-177 decrement-on-failure self-correction referenced in comment but decrement write site NOT located in survey), Closed-Loop Learning operative state — 4 closed loops, 3 open loops, 1 documented-but-not-located decrement loop.
+5. **Cold-start vs steady-state** — Tier 3 path (confidence 0; full LLM; insert at confidence 0.5 / match_count 1), Tier 1 path (≥0.5 confidence gates LLM skip; classification_result + column_roles replayed), Bayesian confidence formula `1 - 1/(matchCount+1)`, HC vocabulary recall threshold (confirmationCount ≥ 2 AND confidence ≥ 0.85, hardcoded), no tenant-adaptive thresholds observed, no tenant-scoped extensible enums, user-corrected writeback wired for SCI agent decisions but not for convergence binding-selection or engine fall-through.
+6. **Order-independence** — Decision 92 calc-time deferral is the operative substrate guarantee; `resolveEntitiesAtCalcTime` (entity back-link), calc-time `convergeBindings` invocation (binding deferral), `source_date`-based period attribution all contribute; HC/convergence/engine have zero hits for explicit "previousImport"/"priorEntities" checks; HF-196 Phase 1G claim verified at the paste-traced surfaces.
+7. **Open vs closed sets** — `contextualIdentity` LLM path is the only effectively open vocabulary surveyed; IntentOperation primitives (12), IntentModifier discriminants (4), scope enum (3), adjustmentType enum (3), ColumnRole (7), SignalSource (3), ROLE_MAP semanticRole keys (17) — all closed at code layer.
+
+**Closed-Loop Learning operative state (Principle 5 evaluation summary):**
+
+- STRUCTURAL closed loops: 4 (plan-comprehension → convergence; classification:outcome → SCI prior boost; fingerprint Bayesian increment → Tier 1 bypass; user_corrected → contextual-reliability adjustment)
+- OPEN loops (emit but no adaptation consumer): 3 (lifecycle:synaptic_consolidation; convergence:dual_path_concordance; [CalcRecon-T3] exception lines as log-only)
+- DOCUMENTED-AS-INTENT but write site not located: 1 (OB-177 self-correction decrement on fingerprint confidence)
+- NOT WIRED at convergence binding-selection: no user-corrected signal consumer
+- NOT WIRED at engine fall-through: `usedConvergenceBindings = false` flip emits no signal
+
+**Awaiting architect disposition.** DIAG-042 produces documentation of operative reality only. Any subsequent design proposal — changes to contracts, additions to flywheel wiring, modifications of vocabulary openness, contract strengthening, signal additions, threshold tenant-scoping — routes through IRA invocation per Decision 153 governance. No further action by CC.
+
