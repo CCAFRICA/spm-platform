@@ -167,20 +167,25 @@ test('OB-199 §5.2 out_of_range — NaN persists null + observability with strin
   assert.strictEqual(obsValue.actual_value, 'NaN');
 });
 
-test('OB-199 §5.2 missing_required — confidence omitted on required-type persists null + observability', async () => {
+// HF-219: missing_required test removed. Pre-HF-219 the canonical writer read
+// confidence_required from the signal-registry per signal_type; missing confidence
+// on a required-type signal triggered observability emission. Post-HF-219 the
+// registry is eradicated (AP-26); confidence_required is no longer per-type
+// metadata; missing confidence defaults to missing_optional uniformly. Callers
+// that require confidence enforce it via input contract upstream.
+test('HF-219 §5.2 missing_optional uniform default — confidence omitted (any signal_type) persists null + NO observability', async () => {
   const { client, calls } = makeMockClient();
   const signal: CanonicalSignalInput = {
     tenantId: 't1',
-    signalType: 'comprehension:plan_interpretation', // confidence_required:true in registry
-    // confidence omitted intentionally
+    signalType: 'comprehension:plan_interpretation',
+    // confidence omitted intentionally — post-HF-219 this is missing_optional, no observability
   };
   const result = await writeSignalWithClient(signal, client);
   assert.strictEqual(result.success, true);
-  assert.strictEqual(result.observabilitySignalEmitted, true);
+  assert.strictEqual(result.observabilitySignalEmitted, false, 'post-HF-219: missing confidence is missing_optional by default; no observability emitted');
   const rows = flattenRows(calls);
+  assert.strictEqual(rows.length, 1, 'one insert: original row only; missing-optional has no companion observability');
   assert.strictEqual(rows[0].confidence, null);
-  const obsValue = rows[1].signal_value as Record<string, unknown>;
-  assert.strictEqual(obsValue.outcome_kind, 'missing_required');
 });
 
 test('OB-199 §5.2 missing_optional — confidence omitted on optional-type persists null + NO observability', async () => {
