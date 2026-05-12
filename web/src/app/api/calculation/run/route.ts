@@ -1668,7 +1668,6 @@ export async function POST(request: NextRequest) {
 
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
-    const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
     // HF-212: Per-entity component breakdown. Cleared per iteration.
@@ -1691,8 +1690,6 @@ export async function POST(request: NextRequest) {
       }
       if (entityStoreId !== undefined) break;
     }
-
-    const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
     // HF-119: Token overlap variant matching — cross-language, structural
     let selectedComponents = defaultComponents;
@@ -1791,9 +1788,10 @@ export async function POST(request: NextRequest) {
     for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
       const component = selectedComponents[compIdx];
 
-      // HF-108: Convergence binding resolution (Decision 111) — PRIMARY path
-      // Convergence bindings tell us exactly which batch + column has each input.
-      // Old sheet-matching path (buildMetricsForComponent) is FALLBACK for pre-OB-162 data.
+      // HF-108: Convergence binding resolution (Decision 111) — sole metrics authority
+      // post-HF-220. Convergence bindings tell us exactly which batch + column has each
+      // input; absence or empty-resolver-output emits engine:exception observability +
+      // metrics = {} (Decision 153 atomic cutover completion).
       const compBindingKey = `component_${compIdx}`;
       const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
       let metrics: Record<string, number>;
