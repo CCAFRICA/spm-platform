@@ -1379,3 +1379,80 @@ $ grep -n "intent|calculationIntent" web/src/lib/calculation/intent-executor.ts 
 
 `executeIntent` (Phase 3.2) consumes the transformer output via `intent: ComponentIntent` parameter at line 618. `intent.intent` (the inner IntentOperation) is dispatched via `executeOperation` (line 661/666/679); `intent.modifiers` is passed to `applyModifiers` (line 683).
 
+---
+
+## Phase 5 — Plan-interpreter cap modifier emission
+
+### Phase 5.1 — File inventory
+
+```
+$ find web/src/lib/ -iname "*plan-interpret*" -o -iname "*planinterp*"
+web/src/lib/compensation/ai-plan-interpreter.ts
+
+$ wc -l web/src/lib/compensation/ai-plan-interpreter.ts
+534
+```
+
+### Phase 5.2 — Cap modifier emission sites
+
+```
+grep -rn "modifier.*cap|'cap'|\"cap\"|maxValue" web/src/lib/compensation/ web/src/lib/sci/ web/src/lib/intelligence/ web/src/lib/ai/ --include="*.ts"
+```
+
+Output (verbatim, 1 match):
+
+```
+web/src/lib/ai/providers/anthropic-adapter.ts:608:      { "modifier": "cap", "maxValue": 5000 }
+```
+
+The single emission site is **inside the LLM prompt template** (the `plan_interpretation` prompt), as an EXAMPLE. There is no deterministic code that constructs `{modifier: 'cap', maxValue: N}` in the plan interpreter; the cap blob is produced by the LLM responding to the prompt and carried verbatim through the persistence layer.
+
+Within `web/src/lib/compensation/ai-plan-interpreter.ts` (534 lines) — zero matches for `'cap'`, `"cap"`, `maxValue`, or `modifier`. The plan interpreter does not construct or transform cap modifiers in code; it forwards whatever the LLM returns.
+
+### Phase 5.3 — Cap emission function bodies
+
+The plan interpreter does not synthesize cap modifiers in code. The cap blob is produced by the LLM via the `plan_interpretation` prompt template in `anthropic-adapter.ts`. The interpreter loads the raw LLM response and persists `calculationIntent` (including `modifiers[]`) into `rule_sets.components[].metadata.intent` / `rule_sets.components[].calculationIntent`.
+
+### Phase 5.4 — LLM prompt construction for cap emission (verbatim)
+
+Excerpt from `web/src/lib/ai/providers/anthropic-adapter.ts:600–613` (within the `plan_interpretation` prompt):
+
+```
+EXAMPLE calculationIntent for a linear_function with cap modifier:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
+    "slope": 0.06,
+    "intercept": 200,
+    "modifiers": [
+      { "modifier": "cap", "maxValue": 5000 }
+    ]
+  }
+}
+
+CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
+```
+
+Excerpt from the surrounding `plan_interpretation` prompt header (line 207):
+
+```
+plan_interpretation: `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content, INCLUDING ALL PAYOUT VALUES.
+```
+
+CC note (verbatim, not classification): the cap example in the prompt shows `modifier: 'cap', maxValue: 5000` attached to a `linear_function` operation whose `input` is a metric field. The example uses `5000` (a payout-currency-magnitude value). The example does not show the modifier attached to a `scalar_multiply` whose input is a ratio, nor does it show pre-multiply ratio clamping.
+
+### Phase 5.5 — `IntentModifier` type definition (verbatim)
+
+`web/src/lib/calculation/intent-types.ts:203–207`:
+
+```typescript
+export type IntentModifier =
+  | { modifier: 'cap'; maxValue: number; scope: 'per_period' | 'per_entity' | 'total' }
+  | { modifier: 'floor'; minValue: number; scope: 'per_period' | 'per_entity' | 'total' }
+  | { modifier: 'proration'; numerator: IntentSource; denominator: IntentSource }
+  | { modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' };
+```
+
+CC note (verbatim, not classification): the `cap` discriminant has 3 fields: `modifier`, `maxValue`, `scope`. The `scope` field is an enum of `'per_period' | 'per_entity' | 'total'` — temporal/aggregation scope, not input-vs-output scope. There is **no `applyTo` field**. There is **no input-scoped (pre-multiply) cap discriminant** in the type union.
+
