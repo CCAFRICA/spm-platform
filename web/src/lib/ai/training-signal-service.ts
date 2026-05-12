@@ -12,7 +12,10 @@
 import { AIResponse, AITaskType, TrainingSignal } from './types';
 // OB-199 Phase 4: read surface migrated from signal-persistence.ts (deleted) to signal-reader.ts.
 import { getTrainingSignals } from './signal-reader';
-import { lookupAITaskSignalType } from '@/lib/intelligence/signal-registry';
+// HF-219: signal-registry eradicated per AP-26. AI task → signal_type mapping
+// relocated to a standalone closed-enum module (small closed enums are OK; the
+// REGISTRY pattern is what's eradicated).
+import { lookupAITaskSignalType } from '@/lib/ai/ai-task-signal-types';
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 
 // OB-199 Phase 2 (DS-023 §5.3 / F-AUD-006-005 closure): inline AI_TASK_LEVEL_MAP
