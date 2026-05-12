@@ -16,10 +16,7 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
-  evaluateComponent,
   aggregateMetrics,
-  buildMetricsForComponent,
-  applyMetricDerivations,
   getExpectedMetricNames,
   type ComponentResult,
   type AIContextSheet,
@@ -1789,31 +1786,11 @@ export async function POST(request: NextRequest) {
     const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
     variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
 
-    // ── OB-118: Derive metrics once per entity from loaded data ──
-    // OB-121: Pass prior period data for delta derivations
-    // OB-146: Merge entity + store data for derivation so store-level metrics
-    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
-    // can be derived. Store data has entity_id IS NULL but derivation rules
-    // match by sheet name pattern, which is source-agnostic.
-    const entityPriorData = priorDataByEntity.get(entityId);
-    let derivationInput = entitySheetData;
-    if (entityStoreData && entityStoreData.size > 0) {
-      derivationInput = new Map(entitySheetData);
-      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
-        if (!derivationInput.has(sheetName)) {
-          derivationInput.set(sheetName, rows);
-        } else {
-          // OB-148: Append store rows even when entity has same sheet name.
-          // Store data may have fields (e.g., Real_Venta_Tienda, Meta_Venta_Tienda)
-          // not present in entity rows. The derivation sum/ratio operations
-          // only aggregate fields that exist, so mixing is safe.
-          derivationInput.set(sheetName, [...derivationInput.get(sheetName)!, ...rows]);
-        }
-      }
-    }
-    const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
-      : {};
+    // HF-220 R1: legacy derivation execution path retired (Decision 151 sole authority
+    // + Decision 25 closed by three-tenant clean-slate verification). derivedMetrics
+    // remains as empty placeholder for the vestigial OB-118 merge-guard loop iteration
+    // (Phase 3 removes the merge-guard and this placeholder together).
+    const derivedMetrics: Record<string, number> = {};
 
     // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
     if (entityResults.length === 0) {
@@ -2190,23 +2167,33 @@ export async function POST(request: NextRequest) {
             ruleSetId,
             context: { trigger: 'engine_fallback', binding_role: 'entity_identifier' },
           }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
-          const entityStoreAgg = entityStoreId !== undefined
-            ? perStoreEntitySheetAgg.get(String(entityStoreId))
-            : undefined;
-          metrics = buildMetricsForComponent(
-            component, entitySheetData, entityStoreData,
-            aiContextSheets, entityStoreAgg, metricMappings
-          );
+          // HF-220 R1 / ADR Decision 2: legacy buildMetricsForComponent fallback retired
+          // (Decision 153 atomic cutover completion). Component evaluates to zero per
+          // existing refuse-with-empty-metrics semantics; HF-218 Component 4a signal
+          // above preserves observability.
+          metrics = {};
         }
       } else {
-        // FALLBACK: Old sheet-matching path (no convergence bindings for this component)
-        const entityStoreAgg = entityStoreId !== undefined
-          ? perStoreEntitySheetAgg.get(String(entityStoreId))
-          : undefined;
-        metrics = buildMetricsForComponent(
-          component, entitySheetData, entityStoreData,
-          aiContextSheets, entityStoreAgg, metricMappings
-        );
+        // HF-220 R1 / ADR Decision 2: no convergence_bindings for this component.
+        // Emit engine:exception signal for observability (HF-218 Component 4a pattern);
+        // metrics = {} → component evaluates to zero per Decision 153 atomic cutover
+        // completion. Legacy sheet-matching path retired.
+        writeSignal({
+          tenantId,
+          signalType: 'engine:exception',
+          signalValue: {
+            entity_external_id: entityInfo?.external_id ?? null,
+            component_index: compIdx,
+            component_name: component.name,
+            type: 'no_convergence_bindings_for_component',
+          },
+          confidence: 0,
+          source: 'system',
+          calculationRunId,
+          ruleSetId,
+          context: { trigger: 'engine_no_bindings' },
+        }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
+        metrics = {};
       }
 
       // Log which path was taken (first entity only, to avoid flooding)
@@ -2306,23 +2293,20 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-      const result = evaluateComponent(component, metrics);
-
-      // HF-122: Per-component rounding (Decision 122).
-      // OB-196 Phase 2: legacy SHAPE fields removed; precision derives from foundational
-      // intent only.
-      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(componentIntent, undefined);
-
-      const { rounded, trace: roundingTrace } = roundComponentOutput(
-        result.payout, compIdx, component.name, precision
-      );
-      result.payout = toNumber(rounded);
-      entityRoundingTraces.push(roundingTrace);
-
-      componentResults.push(result);
+      // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding
+      // retired. Intent executor (below) is sole authority for component payout +
+      // rounding; this loop's residual responsibility is to populate perComponentMetrics
+      // (HF-205 Shape C invariant target) and seed ComponentResult slots with metadata.
+      // Intent executor overwrites placeholder.payout at the index-assignment site.
+      componentResults.push({
+        componentId: component.id,
+        componentName: component.name,
+        componentType: component.componentType,
+        payout: 0,
+        metricValues: metrics,
+        details: {},
+      });
       perComponentMetrics.push(metrics);
-      legacyTotalDecimal = legacyTotalDecimal.plus(rounded);
     }
 
     // HF-188: Legacy total preserved for concordance comparison only
