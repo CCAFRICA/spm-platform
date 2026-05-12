@@ -40,6 +40,8 @@ import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-s
 // Closes Break #2 (entity binding gap) by populating committed_data.entity_id at
 // calc time for any rows where the import-time path didn't already resolve.
 import { resolveEntitiesAtCalcTime } from '@/lib/sci/calc-time-entity-resolution';
+// HF-219 Component R2: bidirectional flywheel loop wiring at structural_exception path.
+import { decrementFingerprintConfidence } from '@/lib/sci/fingerprint-flywheel';
 import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
 import {
   createSynapticSurface,
@@ -1958,6 +1960,52 @@ export async function POST(request: NextRequest) {
           binding_column: eidColumn ?? '<unset>',
           ts: new Date().toISOString(),
         });
+        // HF-219 Component R2: trace failing binding to source fingerprint (ADR Decision 2);
+        // invoke decrementFingerprintConfidence when trace yields a cached fingerprint.
+        // Bidirectional flywheel loop: increment on success (writeFingerprint, pre-HF-218);
+        // decrement on verification failure traced to fingerprint cache (HF-219 wiring).
+        let fingerprintDecrementInfo: { hash: string; pre: number; post: number } | null = null;
+        if (eidBindingRaw?.source_batch_id) {
+          try {
+            // Type-assertion through unknown: Supabase type-defs predate HF-196 Phase 1F
+            // `content_unit_hash_sha256` column on import_batches; runtime column exists per
+            // supabase/migrations/20260503032541_hf196_phase1f_*.sql. Same for structural_fingerprints
+            // table (present at runtime; absent from generated types pre-HF-218).
+            const batchRes = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (c: string, v: string) => { single: () => Promise<{ data: { content_unit_hash_sha256?: string | null } | null }> } } } })
+              .from('import_batches')
+              .select('content_unit_hash_sha256')
+              .eq('id', eidBindingRaw.source_batch_id)
+              .single();
+            const contentHash = batchRes.data?.content_unit_hash_sha256 ?? null;
+            if (contentHash) {
+              const fpRes = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (c: string, v: string) => { eq: (c2: string, v2: string) => { maybeSingle: () => Promise<{ data: { fingerprint_hash?: string | null; confidence?: number | null } | null }> } } } } })
+                .from('structural_fingerprints')
+                .select('fingerprint_hash, confidence')
+                .eq('tenant_id', tenantId)
+                .eq('fingerprint_hash', contentHash)
+                .maybeSingle();
+              if (fpRes.data?.fingerprint_hash) {
+                const decResult = await decrementFingerprintConfidence(
+                  tenantId,
+                  fpRes.data.fingerprint_hash,
+                  `engine_structural_exception:component=${compIdx},column=${eidColumn},batch=${eidBindingRaw.source_batch_id},calc=${calculationRunId},reason=${bindingExceptionReason}`,
+                  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+                );
+                if (decResult.updated) {
+                  fingerprintDecrementInfo = {
+                    hash: fpRes.data.fingerprint_hash,
+                    pre: decResult.preConfidence,
+                    post: decResult.postConfidence,
+                  };
+                  addLog(`[CalcRecon-T3] HF-219 FINGERPRINT_DECREMENT hash=${fpRes.data.fingerprint_hash.substring(0, 12)} ${decResult.preConfidence.toFixed(4)} → ${decResult.postConfidence.toFixed(4)}`);
+                }
+              }
+            }
+          } catch (traceErr) {
+            console.warn(`[CalcAPI] HF-219 fingerprint trace/decrement failed (non-blocking): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
+          }
+        }
         writeSignal({
           tenantId,
           signalType: 'engine:structural_exception',
@@ -1969,6 +2017,8 @@ export async function POST(request: NextRequest) {
             binding_column: eidColumn,
             stored_confidence: eidStoredConf,
             tenant_entity_count: tenantEntityExternalIdsForEngine.size,
+            // HF-219: fingerprint decrement provenance (null if no traceable fingerprint cache hit)
+            fingerprint_decrement: fingerprintDecrementInfo,
           },
           confidence: 0,
           source: 'system',
