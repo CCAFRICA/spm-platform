@@ -1840,6 +1840,11 @@ export async function POST(request: NextRequest) {
       // Verification scope: entity_identifier binding only (the load-bearing identity hop).
       let bindingVerified = true;
       let bindingExceptionReason: string | null = null;
+      // HF-219 Component R1: proposed correction holder. When verification finds an
+      // alternative column with strictly higher score, this is populated and the
+      // correction branch fires (atomic rule_sets update + engine_correction signal).
+      let proposedCorrection: { column: string; confidence: number } | null = null;
+      let verificationExistingScore = 0;
       const eidBindingRaw = compBindings?.entity_identifier as
         { column?: string; confidence?: number; source_batch_id?: string } | undefined;
       const eidColumn = eidBindingRaw?.column;
@@ -1869,18 +1874,74 @@ export async function POST(request: NextRequest) {
         // When tenantEntityExternalIdsForEngine is empty, intersection_ratio is 0 by construction;
         // fall back to cardinality-only check (cardinalityRatio > 0 acceptable, score = cardinalityRatio).
         const operativeConf = proposedConf > 0 ? proposedConf : (tenantEntityExternalIdsForEngine.size === 0 ? cardinalityRatio : 0);
+        verificationExistingScore = operativeConf;
         if (operativeConf === 0) {
           bindingVerified = false;
           bindingExceptionReason = tenantEntityExternalIdsForEngine.size === 0
             ? `cardinality_ratio=0 (column ${eidColumn} has zero distinct non-null values in batch)`
             : `intersection_ratio=0 (column ${eidColumn} distinct values do not intersect with tenant entities; distinct=${distinctValues.size} tenantSize=${tenantEntityExternalIdsForEngine.size})`;
         }
-        // Correction path: C_proposed > C_existing strictly (Disposition 4 inequality).
-        // First-cut scope: scan dataByBatch's other batches for the SAME column name and
-        // measure intersection — propose the highest-scoring batch's column if it differs.
-        // Per ADR Decision 6 + scope contraction: full alternative-column correction is
-        // deferred to a follow-on HF. This first-cut path is detection-only via the signal
-        // emission below; engine does not auto-update rule_sets in this scope.
+        // HF-219 Component R1: Correction proposal scan.
+        // Per Disposition 3 (restored from HF-218 scope contraction): engine MAY correct
+        // bindings when C_proposed > C_existing strictly (Disposition 4 inequality).
+        // Scan committed_data rows for source_batch_id, extract distinct values per column,
+        // compute structural product score (cardinality × intersection); propose the highest
+        // scorer that strictly beats verificationExistingScore AND differs from eidColumn.
+        // Scan is bounded (5000-row ceiling) for scale; per-event cost acceptable at "Large".
+        if (tenantEntityExternalIdsForEngine.size > 0) {
+          try {
+            const SAMPLE_CEILING = 5000;
+            const { data: scanRows } = await supabase
+              .from('committed_data')
+              .select('row_data')
+              .eq('import_batch_id', eidBindingRaw.source_batch_id)
+              .limit(SAMPLE_CEILING);
+            if (scanRows && scanRows.length > 0) {
+              // Per-column distinct value sets
+              const columnDistincts = new Map<string, Set<string>>();
+              const columnTotalRows = new Map<string, number>();
+              for (const row of scanRows) {
+                const rd = row.row_data as Record<string, unknown> | null;
+                if (!rd) continue;
+                for (const [colName, v] of Object.entries(rd)) {
+                  if (colName === eidColumn) continue; // skip stored binding column (already verified)
+                  if (colName.startsWith('_')) continue; // skip metadata fields (_rowIndex, _sheetName)
+                  if (v == null) continue;
+                  const sv = String(v).trim();
+                  if (sv.length === 0) continue;
+                  if (!columnDistincts.has(colName)) {
+                    columnDistincts.set(colName, new Set<string>());
+                    columnTotalRows.set(colName, 0);
+                  }
+                  columnDistincts.get(colName)!.add(sv);
+                  columnTotalRows.set(colName, (columnTotalRows.get(colName) ?? 0) + 1);
+                }
+              }
+              // Score each candidate; track the highest that strictly beats verificationExistingScore
+              let bestCandidate: { column: string; score: number } | null = null;
+              for (const [candCol, candDistinct] of Array.from(columnDistincts.entries())) {
+                const candTotal = columnTotalRows.get(candCol) ?? 0;
+                if (candDistinct.size === 0 || candTotal === 0) continue;
+                let candIntersection = 0;
+                for (const v of Array.from(candDistinct)) {
+                  if (tenantEntityExternalIdsForEngine.has(v)) candIntersection++;
+                }
+                if (candIntersection === 0) continue;
+                const candCardinalityRatio = candDistinct.size / candTotal;
+                const candIntersectionRatio = candIntersection / candDistinct.size;
+                const candScore = candCardinalityRatio * candIntersectionRatio;
+                if (candScore > verificationExistingScore && (!bestCandidate || candScore > bestCandidate.score)) {
+                  bestCandidate = { column: candCol, score: candScore };
+                }
+              }
+              if (bestCandidate && bestCandidate.column !== eidColumn) {
+                proposedCorrection = { column: bestCandidate.column, confidence: bestCandidate.score };
+              }
+            }
+          } catch (scanErr) {
+            console.warn(`[CalcAPI] HF-219 correction scan failed (non-blocking): ${scanErr instanceof Error ? scanErr.message : String(scanErr)}`);
+          }
+        }
       }
 
       if (compBindings && !bindingVerified) {
@@ -1925,6 +1986,131 @@ export async function POST(request: NextRequest) {
         // per existing buildMetricsForComponent semantics for empty input (which is the
         // refuse-with-zero pattern preserving downstream calculation flow).
         metrics = {};
+      } else if (compBindings && proposedCorrection) {
+        // HF-219 Component R1 — Engine correction branch (third branch).
+        // Per Disposition 3 (restored) + ADR Decision 1 (optimistic concurrency control).
+        // C_proposed > C_existing strictly + column_proposed !== column_existing.
+        // Atomic compose: rule_sets update + classification_signals write succeed together.
+        const preBinding = { ...(eidBindingRaw as Record<string, unknown>) };
+        const correctionResolved = await (async () => {
+          const MAX_RETRIES = 3;
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            const { data: rsRow } = await supabase
+              .from('rule_sets')
+              .select('input_bindings, updated_at')
+              .eq('id', ruleSetId)
+              .single();
+            if (!rsRow) return false;
+            const currentBindings = (rsRow.input_bindings as Record<string, unknown>) ?? {};
+            const cb = currentBindings.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+            if (!cb || !cb[compBindingKey]) return false;
+            const newComp = { ...cb[compBindingKey] };
+            newComp.entity_identifier = {
+              ...(newComp.entity_identifier as Record<string, unknown>),
+              column: proposedCorrection!.column,
+              confidence: proposedCorrection!.confidence,
+              source_batch_id: eidBindingRaw?.source_batch_id,
+              match_pass: 1,
+            };
+            const newBindings = {
+              ...currentBindings,
+              convergence_bindings: { ...cb, [compBindingKey]: newComp },
+            };
+            const { data: updateData, error: updateErr } = await supabase
+              .from('rule_sets')
+              .update({ input_bindings: newBindings as unknown as Json })
+              .eq('id', ruleSetId)
+              .eq('updated_at', rsRow.updated_at)
+              .select('id');
+            if (updateErr) {
+              console.warn(`[CalcAPI] HF-219 correction update error (attempt ${attempt + 1}/${MAX_RETRIES}): ${updateErr.message}`);
+              continue;
+            }
+            if (updateData && updateData.length === 1) {
+              return true; // success
+            }
+            // affected_rows === 0 → updated_at mismatch (contention); retry
+          }
+          // Persistent contention after MAX_RETRIES
+          writeSignal({
+            tenantId,
+            signalType: 'convergence:correction_contention',
+            signalValue: {
+              entity_external_id: entityInfo?.external_id ?? null,
+              component_index: compIdx,
+              component_name: component.name,
+              proposed_column: proposedCorrection!.column,
+              proposed_confidence: proposedCorrection!.confidence,
+              stored_column: eidColumn,
+              stored_confidence: verificationExistingScore,
+              retries: MAX_RETRIES,
+            },
+            confidence: 0,
+            source: 'system',
+            calculationRunId,
+            ruleSetId,
+            context: { trigger: 'engine_correction_contention' },
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
+          return false;
+        })();
+
+        if (correctionResolved) {
+          // Update in-memory compBindings + convergenceBindings cache to use corrected column.
+          const correctedCompBindings = { ...compBindings } as Record<string, unknown>;
+          correctedCompBindings.entity_identifier = {
+            ...(eidBindingRaw as Record<string, unknown>),
+            column: proposedCorrection.column,
+            confidence: proposedCorrection.confidence,
+          };
+          if (convergenceBindings) {
+            (convergenceBindings as Record<string, unknown>)[compBindingKey] = correctedCompBindings;
+          }
+          // Emit engine_correction signal with full pre/post state for SOC preservation.
+          writeSignal({
+            tenantId,
+            signalType: 'convergence:engine_correction',
+            signalValue: {
+              entity_external_id: entityInfo?.external_id ?? null,
+              component_index: compIdx,
+              component_name: component.name,
+              pre_state: preBinding,
+              post_state: correctedCompBindings.entity_identifier,
+              c_existing: verificationExistingScore,
+              c_proposed: proposedCorrection.confidence,
+              column_pre: eidColumn,
+              column_post: proposedCorrection.column,
+              tenant_entity_count: tenantEntityExternalIdsForEngine.size,
+            },
+            confidence: proposedCorrection.confidence,
+            source: 'engine_correction',
+            calculationRunId,
+            ruleSetId,
+            context: { trigger: 'engine_correction', binding_role: 'entity_identifier' },
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+            console.warn(`[CalcAPI] HF-219 engine_correction signal write failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+          });
+          correctionsInThisRun.push({
+            entity_id: entityId,
+            entity_external_id: entityInfo?.external_id ?? null,
+            component_index: compIdx,
+            component_name: component.name,
+            pre_column: eidColumn ?? '<unset>',
+            post_column: proposedCorrection.column,
+            pre_confidence: verificationExistingScore,
+            post_confidence: proposedCorrection.confidence,
+            methodology_version: 'HF-219 structural_product_v1',
+            ts: new Date().toISOString(),
+          });
+          addLog(`[CalcRecon-T2] HF-219 ENGINE_CORRECTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} ${eidColumn} → ${proposedCorrection.column} (C ${verificationExistingScore.toFixed(4)} → ${proposedCorrection.confidence.toFixed(4)})`);
+          currentEntityFlags.push('engineCorrection');
+        }
+        // Whether correction succeeded or contended, proceed with resolveMetrics using
+        // current compBindings (corrected on success; unchanged on contention).
+        const cbMetrics = resolveMetricsFromConvergenceBindings(
+          compBindings, component, entityInfo?.external_id ?? '', compIdx
+        );
+        metrics = cbMetrics && Object.keys(cbMetrics).length > 0 ? cbMetrics : {};
+        if (cbMetrics && Object.keys(cbMetrics).length > 0) usedConvergenceBindings = true;
       } else if (compBindings && dataByBatch.size > 0) {
         const cbMetrics = resolveMetricsFromConvergenceBindings(
           compBindings, component, entityInfo?.external_id ?? '', compIdx
