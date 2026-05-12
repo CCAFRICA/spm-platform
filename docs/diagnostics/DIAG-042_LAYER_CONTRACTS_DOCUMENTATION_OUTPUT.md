@@ -297,3 +297,323 @@ contextualIdentity closed-set:
   - No code path treats 'unknown' as a refusal or halt
 ```
 
+---
+
+## Section 2 — Convergence Layer Contract (operative documentation)
+
+### Section 2.1 — Convergence operative inputs
+
+**`convergeBindings` signature** (`web/src/lib/intelligence/convergence-service.ts:166-171`, verbatim):
+
+```typescript
+export async function convergeBindings(
+  tenantId: string,
+  ruleSetId: string,
+  supabase: SupabaseClient,
+  calculationRunId?: string,  // OB-197 G11: scope signals emitted by this convergence to a calculation run
+): Promise<ConvergenceResult> {
+```
+
+**Caller surfaces (verbatim grep, 6 sites):**
+
+```
+web/src/app/api/intelligence/converge/route.ts:51:      const result = await convergeBindings(tenantId, rsId, supabase);
+web/src/app/api/intelligence/wire/route.ts:361:        const result = await convergeBindings(tenantId, rs.id, supabase);
+web/src/app/api/calculation/run/route.ts:230:        const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
+web/src/app/api/import/commit/route.ts:998:        const result = await convergeBindings(tenantId, rs.id, supabase);
+web/src/app/api/import/sci/execute/route.ts:192:          const result = await convergeBindings(tenantId, rs.id, supabase);
+```
+
+All callers pass `tenantId`, `ruleSetId`, `supabase` client. Only `calculation/run/route.ts:230` passes the optional `calculationRunId` for signal scoping (OB-197 G11).
+
+**Internally fetched inputs (function body, lines 184-208):**
+
+```typescript
+  // 1. Fetch rule set
+  const { data: ruleSet } = await supabase
+    .from('rule_sets')
+    .select('id, name, components, input_bindings')
+    .eq('id', ruleSetId)
+    .single();
+  …
+  // 2. Extract plan requirements
+  const components = extractComponents(ruleSet.components);
+  …
+  // HF-196 Phase 3: D153 B-E4 atomic cutover — read metric_comprehension signals
+  const metricComprehensionSignals = await loadMetricComprehensionSignals(tenantId, ruleSetId, supabase);
+  observations.metricComprehension = metricComprehensionSignals;
+  …
+  // 3. Inventory data capabilities (OB-162: includes field identities)
+  const capabilities = await inventoryData(tenantId, supabase);
+```
+
+**Tenant-entity scan inside convergence-service.ts (verbatim grep):**
+
+```
+$ grep -n "tenant.entities|tenantEntityExternalIds|registeredEntities|external_id" \
+    web/src/lib/intelligence/convergence-service.ts
+(empty — zero matches)
+```
+
+CC note (verbatim, not classification): per DIAG-041 Phase 2.4, convergence does NOT read tenant entity external_id values. The function fetches `rule_sets`, `components`, `metric_comprehension` signals (from `classification_signals`), and `capabilities` (from `inventoryData` — committed_data + field_identities). No entity-table read inside convergence.
+
+### Section 2.2 — Convergence operative outputs
+
+**`ComponentBinding` type** (`convergence-service.ts:85-96`):
+
+```typescript
+// OB-162: Per-component convergence binding (Decision 111)
+export interface ComponentBinding {
+  source_batch_id: string;
+  column: string;
+  field_identity: FieldIdentity;
+  match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
+  confidence: number;
+  // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
+  scale_factor?: number;
+  // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
+  failure_reason?: string;
+}
+```
+
+**`ConvergenceResult` type** (`convergence-service.ts:128-150`):
+
+```typescript
+export interface ConvergenceResult {
+  derivations: MetricDerivationRule[];
+  matchReport: Array<{ component: string; dataType: string; confidence: number; reason: string }>;
+  signals: Array<{ domain: string; fieldName: string; semanticType: string; confidence: number }>;
+  gaps: ConvergenceGap[];
+  // OB-162: Per-component input bindings (Decision 111)
+  componentBindings: Record<string, Record<string, ComponentBinding>>;
+  // OB-197 G11: signal-surface observations (within-run + cross-run).
+  observations: {
+    withinRun: ConvergenceSignalObservation[];
+    crossRun: ConvergenceSignalObservation[];
+    metricComprehension: MetricComprehensionSignal[];
+  };
+}
+```
+
+**`ConvergenceGap` type** (`convergence-service.ts:105-113`):
+
+```typescript
+export interface ConvergenceGap {
+  component: string;
+  componentIndex: number;
+  requiredMetrics: string[];
+  calculationOp: string;
+  reason: string;
+  resolution: string;
+  referenceDataAvailable?: boolean;
+}
+```
+
+**Persistence** (per DIAG-041 Phase 6.2; calculation/run/route.ts:241-252, verbatim):
+
+```typescript
+          if (bindingCount > 0) {
+            // Decision 111: convergence_bindings is the primary output
+            updatedBindings.convergence_bindings = convResult.componentBindings;
+          }
+
+          if (derivationCount > 0) {
+            updatedBindings.metric_derivations = convResult.derivations;
+          }
+
+          // Persist to rule_set for reuse on subsequent calculations
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: updatedBindings as unknown as Json })
+            .eq('id', ruleSetId);
+```
+
+`componentBindings` is persisted to `rule_sets.input_bindings.convergence_bindings`. `gaps` are NOT persisted — they live in the function's return value only and are surfaced via log lines (`addLog(...)` in callers).
+
+### Section 2.3 — Convergence operative invariants
+
+`generateAllComponentBindings` is the function that emits bindings (per DIAG-041 Phase 2.2). Checks and failure-handling sites within the function body (verbatim, with explanatory locator):
+
+**Check 1 — Reuse short-circuit (line 1805-1810):**
+
+```typescript
+  // HF-112: Reuse existing bindings if complete (zero AI cost)
+  if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
+    console.log('[Convergence] HF-112 Existing bindings complete — reusing (zero AI cost)');
+    …
+    return;
+  }
+```
+
+Action on completeness: full short-circuit — re-bind not attempted; existing bindings are passed through verbatim. The reuse path skips ALL invariant checks for already-bound components.
+
+**Check 2 — Measure columns must exist (line 1849):**
+
+```typescript
+  if (measureColumns.length === 0 || !primaryCap) return;
+```
+
+Action: silent return with empty bindings.
+
+**Check 3 — AI proposal validation (line 1887-1888):**
+
+```typescript
+          // Boundary validation of AI proposal
+          const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
+          const isValidated = !req.expectedRange || boundaryScore > 0.1;
+```
+
+Action: validation result tagged on the binding as `match_pass: isValidated ? 1 : 2` and `confidence: isValidated ? 0.9 : 0.6`. Binding is written either way.
+
+**Check 4 — Already-bound exclusion (line 1885):**
+
+```typescript
+        if (mc && !boundColumns.has(proposedColumnName)) {
+```
+
+Action: skip the AI proposal if its target column is already bound to another requirement. Falls through to boundary-fallback.
+
+**Check 5 — Boundary fallback minimum threshold (line 1911, 1920):**
+
+```typescript
+      const BOUNDARY_FALLBACK_MIN_SCORE = 0.50;
+      …
+      if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
+        const best = candidates[0];
+        bindings[compKey][req.role] = {
+          …
+          match_pass: 3,  // Boundary-only fallback
+          …
+        };
+```
+
+Action: bind if boundary score ≥ 0.50, else leave requirement unbound (line 1932-1934):
+
+```typescript
+      } else if (candidates.length > 0) {
+        console.log(`[Convergence] HF-199 D2: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} < ${BOUNDARY_FALLBACK_MIN_SCORE} threshold). Requirement left unbound; gap will be recorded.`);
+      }
+```
+
+**Check 6 — entity_identifier selection (lines 1937-1949):**
+
+```typescript
+    // Find entity identifier column
+    const idEntries = Object.entries(cap.fieldIdentities)
+      .filter(([, fi]) => fi.structuralType === 'identifier');
+    if (idEntries.length > 0) {
+      const [colName, fi] = idEntries[0];
+      bindings[compKey]['entity_identifier'] = {
+        source_batch_id: batchId,
+        column: colName,
+        field_identity: fi,
+        match_pass: 1,
+        confidence: match.matchConfidence,
+      };
+    }
+```
+
+Action: pick `idEntries[0]` (first identifier column by insertion order in `cap.fieldIdentities`). No value-content check. No cardinality check. No tenant-entity overlap gate. No `contextualIdentity` filter at this site (the `'person'`-substring filter is in `entity-resolution.ts:91,99`, separate surface).
+
+**Invariants NOT currently enforced at convergence binding-write time** (CC notes structurally evident from code, not classification):
+
+- entity_identifier column-value distinct-count vs tenant entity count
+- entity_identifier column-value-set intersection with tenant entity external_ids
+- entity_identifier `contextualIdentity === 'person_identifier'` (or any other contextualIdentity restriction)
+- No measure/identifier ambiguity check (a column tagged `identifier` AND simultaneously satisfying `measure` criteria — there's no rejection path)
+- No two-pass verification (run binding, run sample calc, verify outcome plausibility)
+
+### Section 2.4 — Convergence operative gap-handling
+
+**Gap creation sites (verbatim grep):**
+
+```
+web/src/lib/intelligence/convergence-service.ts:175:  const gaps: ConvergenceGap[] = [];
+web/src/lib/intelligence/convergence-service.ts:564:      for (const g of aiResult.gaps) {
+web/src/lib/intelligence/convergence-service.ts:574:  console.log(`[Convergence] OB-185 Pass 4: ${aiResult.derivations.length} derivations, ${aiResult.gaps.length} gaps`);
+web/src/lib/intelligence/convergence-service.ts:2187:    const aiGaps = (parsedResult?.gaps as Array<Record<string, unknown>>) ?? [];
+web/src/lib/intelligence/convergence-service.ts:2249:      ...gaps.map(g => g.metric),
+```
+
+**Gap creation when `capabilities.length === 0` (lines 209-220):**
+
+```typescript
+  if (capabilities.length === 0) {
+    for (const comp of components) {
+      gaps.push({
+        component: comp.name,
+        componentIndex: comp.index,
+        requiredMetrics: comp.expectedMetrics,
+        calculationOp: comp.calculationOp,
+        reason: 'No committed data found for this tenant',
+        resolution: `Import data for this plan's components`,
+      });
+    }
+    return { derivations, matchReport, signals, gaps, componentBindings, observations };
+  }
+```
+
+**Gap consumer surfaces (verbatim grep):**
+
+```
+web/src/app/api/intelligence/converge/route.ts:129:      for (const gap of result.gaps) {
+web/src/app/api/calculation/run/route.ts:233:        const gapCount = convResult.gaps.length;
+web/src/app/api/calculation/run/route.ts:268:          for (const gap of convResult.gaps) {
+web/src/app/api/import/sci/execute/route.ts:248:            gaps: result.gaps.map(g => ({
+```
+
+`calculation/run/route.ts:265-270` (verbatim, gap consumption):
+
+```typescript
+          addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);
+        } else {
+          addLog(`HF-165: Convergence produced 0 derivations and 0 bindings (${gapCount} gaps)`);
+          for (const gap of convResult.gaps) {
+            addLog(`HF-165 Gap: ${gap.component} — ${gap.reason}`);
+          }
+        }
+```
+
+CC note (verbatim, not classification): gaps are consumed only as log lines (`addLog`). They are not persisted to a table, not surfaced as user-facing notifications, not used to gate downstream calculation, and not written to `classification_signals`. Calculation proceeds whether gaps exist or not (line 272-275 catches convergence failures as non-blocking).
+
+### Section 2.5 — Convergence contract operative summary
+
+```
+Convergence operative inputs:
+  - tenantId, ruleSetId, supabase, calculationRunId?
+  - Fetched internally: rule_sets row (components + input_bindings), metric_comprehension signals from classification_signals (HF-196 Phase 3 D153 cutover), capabilities (committed_data + field_identities) via inventoryData
+  - NOT passed/fetched: tenant entities table content, prior calculation_results, user override history
+
+Convergence operative outputs:
+  - ConvergenceResult { derivations, matchReport, signals, gaps, componentBindings, observations }
+  - componentBindings persisted to rule_sets.input_bindings.convergence_bindings on calc-time generation
+  - gaps NOT persisted; surfaced only via log lines
+
+Invariants currently enforced (with code citations):
+  - Measure columns must exist (line 1849): silent return with empty bindings if none
+  - AI proposal boundary validation (line 1887-1888): tagged on binding via match_pass + confidence; binding written either way
+  - Already-bound column exclusion (line 1885): one column per binding role, first-come-first-served
+  - Boundary fallback minimum threshold ≥ 0.50 (line 1911, 1920): rejected if below
+  - HF-203 binding misalignment via failure_reason — code referenced in type def line 95 but not paste-traced in this DIAG (further detail in convergence-service.ts:1666+ hasCompleteBindings logic — out of Phase 2 scope here)
+
+Invariants NOT currently enforced (gaps DIAG-041 + DIAG-042 surfaced):
+  - entity_identifier column value-set ∩ tenant.entities.external_id (no check site)
+  - entity_identifier cardinality matching tenant entity count (no check site)
+  - entity_identifier contextualIdentity restriction (no filter at line 1937-1949 site)
+  - measure/identifier disambiguation (no rejection path for columns satisfying both)
+  - Sample-calc plausibility two-pass verification (no two-pass logic)
+
+Failure handling when invariants violated:
+  - Boundary score < 0.50: requirement left unbound; gap recorded; calculation proceeds without that requirement
+  - capabilities.length === 0: all components get a gap; convergence returns; calculation may proceed via fallback paths
+  - Convergence throws (e.g., AI call failure): caught at calculation/run/route.ts:272-274, logged as non-blocking, calculation proceeds with whatever bindings exist (possibly none)
+
+Gap consumer surfaces (operative):
+  - calculation/run/route.ts:265-270 — addLog
+  - intelligence/converge/route.ts:129 — handler response body
+  - import/sci/execute/route.ts:248 — response body
+  - NOT persisted to any table
+  - NOT written to classification_signals
+  - NOT user-notification-triggering
+```
+
