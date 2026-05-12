@@ -62,6 +62,8 @@ import {
   type InlineInsight,
   type CalculationSummary,
 } from '@/lib/agents/insight-agent';
+// HF-216: ConvergenceBindingEntry type (extended with optional via-join clause).
+import type { ConvergenceBindingEntry } from '@/types/convergence-bindings';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -719,6 +721,43 @@ export async function POST(request: NextRequest) {
     addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
   }
 
+  // HF-216: Build roster join index for entity_identifier.via bindings.
+  // Indexes: "data_type|entity_field|roster_field" → Map<entity_external_id, roster_field_value>
+  // The map allows resolveMetricsFromConvergenceBindings to translate the
+  // employee external_id into the join-target value (e.g., Hub_Asignado) that
+  // the measure-side cache (dataByBatch) is keyed by.
+  const rosterJoinIndex = new Map<string, Map<string, string>>();
+  if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
+    const viaSpecs = new Set<string>();
+    for (const compBindings of Object.values(convergenceBindings)) {
+      const cb = compBindings as Record<string, ConvergenceBindingEntry>;
+      const eid = cb.entity_identifier;
+      if (eid?.via?.roster_data_type && eid.via.roster_field && eid.via.entity_field) {
+        viaSpecs.add(`${eid.via.roster_data_type}|${eid.via.entity_field}|${eid.via.roster_field}`);
+      }
+    }
+
+    for (const spec of Array.from(viaSpecs)) {
+      const [rosterDataType, entityField, rosterField] = spec.split('|');
+      const map = new Map<string, string>();
+      for (const row of committedData) {
+        if (row.data_type !== rosterDataType) continue;
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        const entityVal = rd[entityField];
+        const rosterVal = rd[rosterField];
+        if (entityVal != null && rosterVal != null) {
+          map.set(String(entityVal).trim(), String(rosterVal).trim());
+        }
+      }
+      rosterJoinIndex.set(`${rosterDataType}|${entityField}|${rosterField}`, map);
+    }
+
+    if (rosterJoinIndex.size > 0) {
+      addLog(`HF-216 Roster join index: ${rosterJoinIndex.size} via-specs indexed`);
+    }
+  }
+
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
   const storeRowCount = committedData.length - entityRowCount;
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
@@ -1166,15 +1205,7 @@ export async function POST(request: NextRequest) {
   // Resolves metrics for a component using convergence_bindings (batch_id + column)
   // instead of the old sheet-matching + aggregation path.
   // Returns resolved metrics map, or null if bindings are missing/incomplete.
-  interface ConvergenceBindingEntry {
-    source_batch_id: string;
-    column: string;
-    field_identity?: { structuralType?: string; contextualIdentity?: string };
-    match_pass?: number;
-    confidence?: number;
-    // HF-111: Scale factor for percentage columns (e.g., 100 when ratio → percentage)
-    scale_factor?: number;
-  }
+  // HF-216: ConvergenceBindingEntry extracted to @/types/convergence-bindings.ts; via clause added.
 
   function resolveMetricsFromConvergenceBindings(
     compBindings: Record<string, unknown>,
@@ -1194,6 +1225,30 @@ export async function POST(request: NextRequest) {
     // Need at least one measure binding
     if (!actualBinding?.source_batch_id && !numBinding?.source_batch_id) return null;
 
+    // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
+    // through the roster-join index to produce the lookup key against the measure
+    // batch. Existing dataByBatch cache is keyed by row_data[entity_identifier.column],
+    // which for via-bindings is the measure-side join target — exactly what
+    // lookupKey holds after translation. No change to dataByBatch indexing.
+    const eidBinding = compBindings.entity_identifier as ConvergenceBindingEntry | undefined;
+    let lookupKey = entityExternalId;
+    if (eidBinding?.via?.roster_data_type && eidBinding.via.roster_field && eidBinding.via.entity_field) {
+      const viaKey = `${eidBinding.via.roster_data_type}|${eidBinding.via.entity_field}|${eidBinding.via.roster_field}`;
+      const map = rosterJoinIndex.get(viaKey);
+      const translated = map?.get(String(entityExternalId).trim());
+      if (translated) {
+        lookupKey = translated;
+        if (shouldEmitTrace(entityExternalId)) {
+          bufferTrace(`[CalcTrace] HF-216 via-join translated entity=${entityExternalId} | viaKey=${viaKey} | translatedLookupKey=${translated}`);
+        }
+      } else {
+        // Via declared but no roster mapping — surface as exception, return null.
+        addLog(`[CalcRecon-T3] EXCEPTION entity=${entityExternalId} type=via_join_unresolved viaKey=${viaKey}`);
+        currentEntityFlags.push('viaJoinUnresolved');
+        return null;
+      }
+    }
+
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
 
@@ -1203,10 +1258,10 @@ export async function POST(request: NextRequest) {
     if (numBinding?.source_batch_id && numBinding?.column &&
         denBinding?.source_batch_id && denBinding?.column) {
       const rawNumValue = resolveColumnFromBatch(
-        numBinding.source_batch_id, numBinding.column, entityExternalId
+        numBinding.source_batch_id, numBinding.column, lookupKey
       );
       const rawDenValue = resolveColumnFromBatch(
-        denBinding.source_batch_id, denBinding.column, entityExternalId
+        denBinding.source_batch_id, denBinding.column, lookupKey
       );
 
       let numValue = rawNumValue;
@@ -1231,7 +1286,7 @@ export async function POST(request: NextRequest) {
     // Single or dual input (actual + target, or row + column)
     if (actualBinding?.source_batch_id && actualBinding?.column) {
       const rawActualValue = resolveColumnFromBatch(
-        actualBinding.source_batch_id, actualBinding.column, entityExternalId
+        actualBinding.source_batch_id, actualBinding.column, lookupKey
       );
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
@@ -1253,7 +1308,7 @@ export async function POST(request: NextRequest) {
       // Resolve target/column value if binding exists
       if (targetBinding?.source_batch_id && targetBinding?.column) {
         const rawTargetValue = resolveColumnFromBatch(
-          targetBinding.source_batch_id, targetBinding.column, entityExternalId
+          targetBinding.source_batch_id, targetBinding.column, lookupKey
         );
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
