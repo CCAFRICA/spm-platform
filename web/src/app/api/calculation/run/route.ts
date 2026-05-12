@@ -2220,6 +2220,34 @@ export async function POST(request: NextRequest) {
 
     grandTotal += entityTotal;
 
+    // HF-218 Component 5: Binding snapshot in metadata.binding_snapshot.
+    // Per ADR Decision 4: co-located in calculation_results.metadata JSONB (no DDL).
+    // Atomic-by-construction (same row INSERT). Per Disposition 3 + GP-1 (compliance is
+    // architecture): SOC-grade preservation lives in the row, not in logging.
+    // Per Disposition 3: pre-state + post-state + trigger + actor + timestamp captured.
+    const bindingSnapshot = {
+      ts: new Date().toISOString(),
+      convergence_bindings_used: convergenceBindings ?? null,
+      tenant_entity_external_ids_at_t: Array.from(tenantEntityExternalIdsForEngine),
+      verification_confidences: {} as Record<string, { column: string | null; confidence_computed_at_t: number; methodology_version: string }>,
+      corrections_in_this_run: correctionsInThisRun.filter(c => c.entity_id === entityId),
+      structural_exceptions_in_this_run: structuralExceptionsInThisRun.filter(e => e.entity_id === entityId),
+      engine_version: 'HF-218',
+      calculation_run_id: calculationRunId,
+    };
+    // Populate per-component verification confidences (entity_identifier slot only — Component 1 scope).
+    if (convergenceBindings) {
+      for (const [ck, cb] of Object.entries(convergenceBindings)) {
+        const cbObj = cb as Record<string, { column?: string; confidence?: number } | undefined>;
+        const eid = cbObj.entity_identifier;
+        bindingSnapshot.verification_confidences[ck] = {
+          column: eid?.column ?? null,
+          confidence_computed_at_t: typeof eid?.confidence === 'number' ? eid.confidence : 0,
+          methodology_version: 'HF-218 structural_product_v1',
+        };
+      }
+    }
+
     entityResults.push({
       entity_id: entityId,
       rule_set_id: ruleSetId,
@@ -2241,6 +2269,8 @@ export async function POST(request: NextRequest) {
           totalRoundingAdjustment: entityRoundingTraces.reduce((s, t) => s + t.roundingAdjustment, 0),
           components: entityRoundingTraces,
         },
+        // HF-218 Component 5: SOC-grade preservation snapshot.
+        binding_snapshot: bindingSnapshot,
       },
     });
 

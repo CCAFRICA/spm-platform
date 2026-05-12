@@ -24,7 +24,14 @@ import { writeSignal, writeSignalBatch, CanonicalWriteError } from '@/lib/intell
 // TYPES
 // ============================================
 
-export type SignalSource = 'ai' | 'user_confirmed' | 'user_corrected';
+// HF-218 Component 5: SignalSource extended with self-correction sources.
+// 'engine_correction' — engine re-binding at calc time when verification confidence
+//   strictly exceeds stored binding confidence (HF-218 Component 2 / Disposition 3).
+// 'flywheel_correction' — fingerprint flywheel decrement on binding failure
+//   (HF-218 Component 3 / OB-177 decrement). Per ADR Decision 5: type-union only
+//   (no DDL); existing classification_signals.source column accepts any string at
+//   DB level (per DIAG-042 §7.5 existing convention with sci_agent / system / etc).
+export type SignalSource = 'ai' | 'user_confirmed' | 'user_corrected' | 'engine_correction' | 'flywheel_correction';
 
 export interface ClassificationSignal {
   id: string;
@@ -244,8 +251,12 @@ export async function getConfidentMappings(
     // Find the highest-confidence signal for this field
     // Priority: user_corrected > user_confirmed > ai (by confidence, then recency)
     const sorted = fieldSignals.sort((a, b) => {
-      // Source priority
+      // Source priority. HF-218 Component 5 additions:
+      //   engine_correction = 4 (calc-time verification supersedes prior)
+      //   flywheel_correction = 5 (failure-driven self-correction is most authoritative)
       const sourcePriority: Record<SignalSource, number> = {
+        flywheel_correction: 5,
+        engine_correction: 4,
         user_corrected: 3,
         user_confirmed: 2,
         ai: 1,
