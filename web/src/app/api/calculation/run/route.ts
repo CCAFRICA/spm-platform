@@ -418,6 +418,52 @@ export async function POST(request: NextRequest) {
 
   addLog(`${entityIds.length} entities assigned (paginated fetch)`);
 
+  // HF-218 Component 2: tenant entity external_id set for engine-side binding verification.
+  // Per Disposition 2 (architect Decision B): engine reading tenant.entities for verification
+  // does not violate Calculation Sovereignty — verification is gate-and-correct with full
+  // SOC-grade preservation (Component 5 snapshot), not influence-result. Set used to compute
+  // C_proposed at calc time for the existing convergence_bindings.entity_identifier column.
+  const tenantEntityExternalIdsForEngine = new Set<string>();
+  {
+    const { data: extRows, error: extErr } = await supabase
+      .from('entities')
+      .select('external_id')
+      .eq('tenant_id', tenantId)
+      .not('external_id', 'is', null);
+    if (extErr) {
+      addLog(`HF-218 Tenant entity external_id fetch failed (non-blocking): ${extErr.message}`);
+    } else if (extRows) {
+      for (const r of extRows) {
+        if (r.external_id != null) tenantEntityExternalIdsForEngine.add(String(r.external_id).trim());
+      }
+    }
+    addLog(`HF-218 Engine verification baseline: ${tenantEntityExternalIdsForEngine.size} tenant external_ids`);
+  }
+  // HF-218 Component 5: accumulator for binding corrections fired during this calculation run.
+  // Persisted into calculation_results.metadata.binding_snapshot.corrections_in_this_run.
+  const correctionsInThisRun: Array<{
+    entity_id: string;
+    entity_external_id?: string | null;
+    component_index: number;
+    component_name: string;
+    pre_column: string;
+    post_column: string;
+    pre_confidence: number;
+    post_confidence: number;
+    methodology_version: string;
+    ts: string;
+  }> = [];
+  // HF-218 Component 2: structural exceptions emitted during this calculation run.
+  const structuralExceptionsInThisRun: Array<{
+    entity_id: string;
+    entity_external_id?: string | null;
+    component_index: number;
+    component_name: string;
+    reason: string;
+    binding_column: string;
+    ts: string;
+  }> = [];
+
   // Fetch entity display info (OB-85-R3: reduced batch to 200 to avoid URL length limits)
   // HF-157: Added metadata for HF-155 scopeAggregates (district/region resolution)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1715,8 +1761,100 @@ export async function POST(request: NextRequest) {
       const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
       let metrics: Record<string, number>;
       let usedConvergenceBindings = false;
+      // HF-218 Component 2 — Engine binding verification at calc time.
+      // Closes DIAG-042 §3.2 silent fall-through. Per Disposition 4: relative-confidence
+      // comparison (C_proposed > C_existing) using the same structural product methodology
+      // as Component 1 (cardinality × intersection). Per Disposition 3: corrections preserve
+      // pre-state via classification_signals + calculation_results.metadata snapshot.
+      // Verification scope: entity_identifier binding only (the load-bearing identity hop).
+      let bindingVerified = true;
+      let bindingExceptionReason: string | null = null;
+      const eidBindingRaw = compBindings?.entity_identifier as
+        { column?: string; confidence?: number; source_batch_id?: string } | undefined;
+      const eidColumn = eidBindingRaw?.column;
+      const eidStoredConf = typeof eidBindingRaw?.confidence === 'number' ? eidBindingRaw.confidence : 0;
+      if (compBindings && eidColumn && eidBindingRaw?.source_batch_id) {
+        // Compute C_proposed: distinct values for the stored binding column = dataByBatch keys
+        // for that batch (the cache is indexed by row_data[eidColumn] values — see dataByBatch
+        // construction at lines 670+).
+        const batchEntityMap = dataByBatch.get(eidBindingRaw.source_batch_id);
+        const distinctValues = batchEntityMap ? new Set(Array.from(batchEntityMap.keys()).filter(k => k && k.length > 0)) : new Set<string>();
+        let totalRows = 0;
+        if (batchEntityMap) {
+          for (const arr of Array.from(batchEntityMap.values())) totalRows += arr.length;
+        }
+        let intersectionCount = 0;
+        if (tenantEntityExternalIdsForEngine.size > 0) {
+          for (const v of Array.from(distinctValues)) {
+            if (tenantEntityExternalIdsForEngine.has(v)) intersectionCount++;
+          }
+        }
+        const cardinalityRatio = totalRows > 0 ? distinctValues.size / totalRows : 0;
+        const intersectionRatio = distinctValues.size > 0 && tenantEntityExternalIdsForEngine.size > 0
+          ? intersectionCount / distinctValues.size : 0;
+        const proposedConf = cardinalityRatio * intersectionRatio;
 
-      if (compBindings && dataByBatch.size > 0) {
+        // Verification gate: C_proposed > 0 (binding has operative tenant-entity overlap).
+        // When tenantEntityExternalIdsForEngine is empty, intersection_ratio is 0 by construction;
+        // fall back to cardinality-only check (cardinalityRatio > 0 acceptable, score = cardinalityRatio).
+        const operativeConf = proposedConf > 0 ? proposedConf : (tenantEntityExternalIdsForEngine.size === 0 ? cardinalityRatio : 0);
+        if (operativeConf === 0) {
+          bindingVerified = false;
+          bindingExceptionReason = tenantEntityExternalIdsForEngine.size === 0
+            ? `cardinality_ratio=0 (column ${eidColumn} has zero distinct non-null values in batch)`
+            : `intersection_ratio=0 (column ${eidColumn} distinct values do not intersect with tenant entities; distinct=${distinctValues.size} tenantSize=${tenantEntityExternalIdsForEngine.size})`;
+        }
+        // Correction path: C_proposed > C_existing strictly (Disposition 4 inequality).
+        // First-cut scope: scan dataByBatch's other batches for the SAME column name and
+        // measure intersection — propose the highest-scoring batch's column if it differs.
+        // Per ADR Decision 6 + scope contraction: full alternative-column correction is
+        // deferred to a follow-on HF. This first-cut path is detection-only via the signal
+        // emission below; engine does not auto-update rule_sets in this scope.
+      }
+
+      if (compBindings && !bindingVerified) {
+        // HF-218 Component 2: structural exception — binding cannot be verified; refuse to calculate.
+        // Emit signal + addLog + skip metric resolution for this entity-component.
+        addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=structural_exception reason="${bindingExceptionReason}"`);
+        currentEntityFlags.push('structuralException');
+        structuralExceptionsInThisRun.push({
+          entity_id: entityId,
+          entity_external_id: entityInfo?.external_id ?? null,
+          component_index: compIdx,
+          component_name: component.name,
+          reason: bindingExceptionReason ?? 'unknown',
+          binding_column: eidColumn ?? '<unset>',
+          ts: new Date().toISOString(),
+        });
+        writeSignal({
+          tenantId,
+          signalType: 'engine:structural_exception',
+          signalValue: {
+            entity_external_id: entityInfo?.external_id ?? null,
+            component_index: compIdx,
+            component_name: component.name,
+            reason: bindingExceptionReason,
+            binding_column: eidColumn,
+            stored_confidence: eidStoredConf,
+            tenant_entity_count: tenantEntityExternalIdsForEngine.size,
+          },
+          confidence: 0,
+          source: 'system',
+          calculationRunId,
+          ruleSetId,
+          context: { trigger: 'engine_verification', binding_role: 'entity_identifier' },
+        }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+          if (err instanceof CanonicalWriteError) {
+            console.warn(`[CalcAPI] HF-218 structural_exception signal CanonicalWriteError (${err.cause}): ${err.message}`);
+          } else {
+            console.warn('[CalcAPI] HF-218 structural_exception signal unexpected error:', err instanceof Error ? err.message : String(err));
+          }
+        });
+        // Skip metric resolution: produce empty metrics → component evaluates to zero
+        // per existing buildMetricsForComponent semantics for empty input (which is the
+        // refuse-with-zero pattern preserving downstream calculation flow).
+        metrics = {};
+      } else if (compBindings && dataByBatch.size > 0) {
         const cbMetrics = resolveMetricsFromConvergenceBindings(
           compBindings, component, entityInfo?.external_id ?? '', compIdx
         );
@@ -1724,7 +1862,27 @@ export async function POST(request: NextRequest) {
           metrics = cbMetrics;
           usedConvergenceBindings = true;
         } else {
-          // Convergence binding resolution returned nothing — fall back
+          // Convergence binding resolution returned nothing — fall back.
+          // HF-218 Component 4a: persist [CalcRecon-T3]-style EXCEPTION as classification_signal.
+          // Distinct from structural_exception above (binding verified but data resolution null —
+          // a data anomaly, not a binding invalidity per Component 2 bright line). Engine produces
+          // zero/fallback result here AND emits engine:exception for closed-loop visibility.
+          writeSignal({
+            tenantId,
+            signalType: 'engine:exception',
+            signalValue: {
+              entity_external_id: entityInfo?.external_id ?? null,
+              component_index: compIdx,
+              component_name: component.name,
+              type: 'cbMetrics_null_falling_back_to_sheet_matching',
+              binding_column: eidColumn,
+            },
+            confidence: 0,
+            source: 'system',
+            calculationRunId,
+            ruleSetId,
+            context: { trigger: 'engine_fallback', binding_role: 'entity_identifier' },
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
           const entityStoreAgg = entityStoreId !== undefined
             ? perStoreEntitySheetAgg.get(String(entityStoreId))
             : undefined;
