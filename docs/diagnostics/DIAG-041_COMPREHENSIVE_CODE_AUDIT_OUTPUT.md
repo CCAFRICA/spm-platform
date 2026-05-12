@@ -1615,3 +1615,31 @@ Output: (empty — zero matches)
 
 CC note (verbatim, not classification): **0 Korean Test violations across HC, convergence, compensation, and intelligence directories.** No source code in these surfaces hardcodes Meridian-specific column names or language-specific string-match patterns.
 
+---
+
+## Phase 7 — DIAG-041 Final State
+
+**File path:** `docs/diagnostics/DIAG-041_COMPREHENSIVE_CODE_AUDIT_OUTPUT.md`
+**Total lines:** 1617 (Phases 0–6 inclusive) → updated to current length after this Phase 7 append.
+**Sections completed:** Phases 0, 1, 2, 3, 4, 5, 6, 7.
+**Halts encountered:** **none.**
+
+**Surfaces probed:**
+
+1. **HC contextualIdentity emission** — **3 emission functions** surfaced (`buildFieldIdentitiesFromBindings` in `field-identities.ts`; `extractFieldIdentities` + `extractFieldIdentitiesFromTrace` in `header-comprehension.ts`). **1 LLM prompt** at `anthropic-adapter.ts:799–832` (free-form `semanticMeaning` string, enum-constrained `columnRole` and `identifiesWhat`). **4 upstream callers** (3 in `execute-bulk/route.ts`, 1 in `execute/route.ts` with the `extractFromTrace || buildFromBindings` fallback pattern). **6 downstream consumers** of `contextualIdentity` (5 in `convergence-service.ts` + `entity-resolution.ts`; the latter performs `toLowerCase().includes('person')` substring match at lines 91 and 99).
+2. **Convergence binding-selection** — **1 function** `generateAllComponentBindings` (lines 1796–1974 of `convergence-service.ts`); entity_identifier emission at line 1942 picks `idEntries[0]` from `Object.entries(cap.fieldIdentities).filter(([, fi]) => fi.structuralType === 'identifier')`. No value-content check, no cardinality scoring, no tenant-entity overlap gate.
+3. **Intent modifier execution** — **3 functions** surfaced (`executeIntent` line 617; `applyModifiers` line 572; cap dispatch line 584). Cap clamps post-multiply value via `result = result.gt(cap) ? cap : result`. No `applyTo` field. No input-scoped modifier path. `conditional_gate` primitive supports nesting any operation in `op.input`.
+4. **Intent-transformer normalization** — **8 transformations** in `transformFromMetadata` (5 operation-shape rewrites + 2 modifier paths + 1 fallback) + **7 normalizations** in `normalizeIntentInput`. Modifier handling: per-entry `rawIntent.modifiers[]` array (line 185–195) + top-level `meta.cap`/`meta.floor` shortcut (line 197–202). No `applyTo` field handled.
+5. **Plan-interpreter cap modifier emission** — **0 deterministic code emission sites** in `ai-plan-interpreter.ts` (534 lines). **1 LLM prompt example** at `anthropic-adapter.ts:600–611`. The cap blob is produced by the LLM responding to the `plan_interpretation` prompt and persisted verbatim through the interpreter. `IntentModifier` type has 4 discriminants (`cap`, `floor`, `proration`, `temporal_adjustment`) with no `applyTo` field.
+
+**Korean Test scan result:** **0 hits.** No language-specific or Meridian-specific column-name string literals in HC, convergence, compensation, or intelligence directories.
+
+**Cross-surface integration findings:**
+
+- HC → Convergence: `contextualIdentity` passes through verbatim (no normalization at convergence layer).
+- Convergence → Engine: `rule_sets.input_bindings.convergence_bindings` is the storage and replay surface.
+- Plan-interpreter → Transformer → Executor: `rule_sets.components[].calculationIntent` storage; `transformVariant` at calc-time; `executeIntent` consumes.
+- Fingerprint flywheel: caches `classification_result` and `column_roles` on `structural_fingerprints` table; on Tier 1 match (confidence ≥ 0.5) the LLM is skipped. Convergence bindings are NOT cached in this table — they live on `rule_sets.input_bindings`.
+
+**Awaiting architect disposition.** No further action by CC.
+
