@@ -1379,6 +1379,22 @@ export async function POST(request: NextRequest) {
           // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
           addLog(`[CalcRecon-T3] EXCEPTION entity=${entityExternalId} type=diag003Fallback batchId=${batchId} column=${column}`);
           currentEntityFlags.push('diag003Fallback');
+          // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
+          writeSignal({
+            tenantId,
+            signalType: 'engine:exception',
+            signalValue: {
+              entity_external_id: entityExternalId,
+              type: 'diag003Fallback',
+              batch_id: batchId,
+              column,
+            },
+            confidence: 0,
+            source: 'system',
+            calculationRunId,
+            ruleSetId,
+            context: { trigger: 'engine_fallback_t3', fallback_kind: 'diag003' },
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
           break;
         }
       }
@@ -1920,6 +1936,24 @@ export async function POST(request: NextRequest) {
           // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
           addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=ob118MergeGuardFired existingKey=${key} preserved=convergence`);
           currentEntityFlags.push('ob118MergeGuardFired');
+          // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
+          writeSignal({
+            tenantId,
+            signalType: 'engine:exception',
+            signalValue: {
+              entity_external_id: entityInfo?.external_id ?? null,
+              component_index: compIdx,
+              component_name: component.name,
+              type: 'ob118MergeGuardFired',
+              existing_key: key,
+              preserved: 'convergence',
+            },
+            confidence: 0,
+            source: 'system',
+            calculationRunId,
+            ruleSetId,
+            context: { trigger: 'engine_merge_guard', metric_key: key },
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
         }
       }
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
@@ -2573,6 +2607,21 @@ export async function POST(request: NextRequest) {
             boundaryFallbackCount++;
             // HF-212 TIER 3: emit exception detail (binding-level, no per-entity attribution)
             addLog(`[CalcRecon-T3] EXCEPTION component=${compKey} role=${role} type=boundaryFallback`);
+            // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
+            writeSignal({
+              tenantId,
+              signalType: 'engine:exception',
+              signalValue: {
+                component_key: compKey,
+                role,
+                type: 'boundaryFallback',
+              },
+              confidence: 0,
+              source: 'system',
+              calculationRunId,
+              ruleSetId,
+              context: { trigger: 'engine_boundary_fallback', binding_role: role },
+            }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
           }
         }
       }

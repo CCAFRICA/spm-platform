@@ -1883,6 +1883,41 @@ async function generateAllComponentBindings(
   tenantId: string = '',
   supabase?: SupabaseClient,
 ): Promise<void> {
+  // HF-218 Component 4b: tenant-adaptive boundary-fallback threshold.
+  // Per ADR Decision 3 (composite): if recent-N (N=5) convergence:dual_path_concordance
+  // signals exist for tenant, threshold = average of those concordance values; otherwise
+  // fall back to 0.50 cold-start anchor (preserves existing operative behavior).
+  // N=5 anchor: minimum-statistical-distinguishability threshold (Bayesian prior shift).
+  let tenantAdaptiveBoundaryThreshold = 0.50;
+  if (supabase && tenantId) {
+    try {
+      const RECENT_N = 5;
+      const { data: concordanceSignals } = await supabase
+        .from('classification_signals')
+        .select('signal_value, confidence')
+        .eq('tenant_id', tenantId)
+        .eq('signal_type', 'convergence:dual_path_concordance')
+        .order('created_at', { ascending: false })
+        .limit(RECENT_N);
+      if (concordanceSignals && concordanceSignals.length >= RECENT_N) {
+        const rates: number[] = [];
+        for (const sig of concordanceSignals) {
+          const sv = sig.signal_value as Record<string, unknown> | null;
+          const rate = sv ? Number(sv.concordanceRate) : NaN;
+          if (!isNaN(rate) && rate >= 0 && rate <= 1) rates.push(rate);
+        }
+        if (rates.length >= RECENT_N) {
+          const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
+          // Clamp to [0, 1]
+          tenantAdaptiveBoundaryThreshold = Math.max(0, Math.min(1, avg));
+          console.log(`[Convergence] HF-218 Tenant-adaptive boundary threshold: ${tenantAdaptiveBoundaryThreshold.toFixed(4)} (avg of ${rates.length} recent dual_path_concordance signals)`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Convergence] HF-218 tenant-adaptive threshold read failed (non-blocking, using 0.50 anchor): ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+  }
+
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
     console.log('[Convergence] HF-112 Existing bindings complete — reusing (zero AI cost)');
@@ -1990,7 +2025,11 @@ async function generateAllComponentBindings(
       // 506× peer-median ratio anomaly). Below-threshold candidates are rejected
       // and the requirement remains unbound; downstream gap detection records
       // it as a convergence gap rather than silently binding the wrong column.
-      const BOUNDARY_FALLBACK_MIN_SCORE = 0.50;
+      // HF-218 Component 4b: tenant-adaptive threshold per ADR Decision 3 (composite —
+      // recent-N average if N≥5, else 0.50 cold-start anchor). Per Disposition 4
+      // relative-confidence comparison. tenantAdaptiveBoundaryThreshold computed once
+      // per generateAllComponentBindings call (see top of function).
+      const BOUNDARY_FALLBACK_MIN_SCORE = tenantAdaptiveBoundaryThreshold;
       const candidates = measureColumns
         .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
