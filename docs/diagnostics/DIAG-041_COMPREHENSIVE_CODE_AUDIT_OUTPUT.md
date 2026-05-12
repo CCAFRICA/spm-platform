@@ -1456,3 +1456,162 @@ export type IntentModifier =
 
 CC note (verbatim, not classification): the `cap` discriminant has 3 fields: `modifier`, `maxValue`, `scope`. The `scope` field is an enum of `'per_period' | 'per_entity' | 'total'` — temporal/aggregation scope, not input-vs-output scope. There is **no `applyTo` field**. There is **no input-scoped (pre-multiply) cap discriminant** in the type union.
 
+---
+
+## Phase 6 — Cross-surface integration
+
+### Phase 6.1 — HC → Convergence pipeline
+
+`web/src/lib/intelligence/convergence-service.ts:880–892` (verbatim):
+
+```typescript
+      // OB-162: Extract field_identities from metadata (Decision 111)
+      const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
+      if (fieldIds && Object.keys(fieldIds).length > 0) {
+        const identities: Record<string, FieldIdentity> = {};
+        for (const [colName, fi] of Object.entries(fieldIds)) {
+          identities[colName] = {
+            structuralType: (fi.structuralType || 'unknown') as FieldIdentity['structuralType'],
+            contextualIdentity: fi.contextualIdentity || 'unknown',
+            confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
+          };
+        }
+        fieldIdentitiesByType.set(dt, identities);
+      }
+```
+
+CC note (verbatim, not classification): convergence reads `committed_data.metadata.field_identities` (written by `extractFieldIdentitiesFromTrace` || `buildFieldIdentitiesFromBindings` at the SCI execute pipeline per Phase 1.6). Convergence passes through `structuralType` and `contextualIdentity` verbatim (line 886–887) — no normalization, no validation, no override at convergence layer. The convergence binding-selection function (`generateAllComponentBindings`) then filters on `fi.structuralType === 'identifier'` (Phase 2.2 line 1939), which means whatever HC tagged as identifier is what convergence sees.
+
+### Phase 6.2 — Convergence → Engine pipeline
+
+`web/src/app/api/calculation/run/route.ts:177` + `223–262` (verbatim grep, condensed):
+
+```
+177:    .select('id, name, components, input_bindings, population_config, metadata')
+221:  // If input_bindings is empty, run convergence now to generate derivation rules.
+223:    const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+225:    const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+228:      addLog('HF-165: input_bindings empty — running calc-time convergence');
+240:            // Decision 111: convergence_bindings is the primary output
+241:            updatedBindings.convergence_bindings = convResult.componentBindings;
+251:            .update({ input_bindings: updatedBindings as unknown as Json })
+257:            .select('input_bindings')
+262:            (ruleSet as Record<string, unknown>).input_bindings = updatedRS.input_bindings;
+277:      addLog('HF-165: input_bindings already populated — skipping convergence')
+282:  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+286:    addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+```
+
+The engine reads `rule_sets.input_bindings.convergence_bindings` directly. If empty, the engine triggers `convergeBindings` and writes the result back to `rule_sets.input_bindings.convergence_bindings` via `.update()` at line 251.
+
+### Phase 6.3 — Plan-Interpreter → Intent-Transformer → Executor pipeline
+
+Sites where `rule_sets.components` is written (verbatim grep):
+
+```
+web/src/lib/supabase/rule-set-service.ts:208:  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+web/src/lib/supabase/rule-set-service.ts:232:  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+web/src/lib/supabase/rule-set-service.ts:255:  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+web/src/lib/supabase/rule-set-service.ts:280:    .update({ status: 'archived' } as Database['public']['Tables']['rule_sets']['Update'])
+web/src/lib/supabase/rule-set-service.ts:284:  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+web/src/lib/supabase/rule-set-service.ts:307:  const updateRow: Database['public']['Tables']['rule_sets']['Update'] = {
+```
+
+Sites where `rule_sets.input_bindings` is updated (verbatim grep):
+
+```
+web/src/app/api/intelligence/converge/route.ts:81:          .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
+web/src/app/api/intelligence/wire/route.ts:390:            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
+web/src/app/api/calculation/run/route.ts:251:            .update({ input_bindings: updatedBindings as unknown as Json })
+web/src/app/api/import/sci/execute-bulk/route.ts:605:      .update({ input_bindings: {} })
+web/src/app/api/import/sci/execute-bulk/route.ts:758:      .update({ input_bindings: {} })
+web/src/app/api/import/sci/execute-bulk/route.ts:899:      .update({ input_bindings: {} })
+web/src/app/api/import/sci/execute/route.ts:237:              .update({ input_bindings: updatedBindings as unknown as Json })
+web/src/app/api/import/commit/route.ts:1010:            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
+```
+
+Sites where `rule_sets.components[].calculationIntent` is consumed at calc time (verbatim grep):
+
+```
+web/src/app/api/calculation/run/route.ts:30:import { transformVariant } from '@/lib/calculation/intent-transformer';
+web/src/app/api/calculation/run/route.ts:335:  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+web/src/app/api/calculation/run/route.ts:1852:      : transformVariant(selectedComponents);
+```
+
+Pipeline: plan-interpreter (LLM via anthropic-adapter.ts plan_interpretation prompt) → `rule_sets.components[]` (written by rule-set-service.ts) → `transformVariant` (calc-time, intent-transformer.ts) → `executeIntent` (intent-executor.ts) → `applyModifiers`.
+
+### Phase 6.4 — Fingerprint flywheel cache interaction
+
+`web/src/lib/sci/fingerprint-flywheel.ts:1–82` (verbatim, condensed to Tier 1 mechanics):
+
+```typescript
+/**
+ * Fingerprint Flywheel — DS-017 §3-4
+ *
+ * Three Tiers of Recognition:
+ *   Tier 1: Exact tenant-specific fingerprint match → skip LLM entirely
+ *   Tier 2: Foundational (cross-tenant) match → targeted LLM prompt
+ *   Tier 3: Novel structure → full LLM classification
+ */
+
+export async function lookupFingerprint(
+  tenantId: string,
+  columns: string[],
+  sampleRows: Record<string, unknown>[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<FlywheelLookupResult> {
+  const fingerprintHash = computeFingerprintHashSync(columns, sampleRows);
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  // Tier 1: Exact tenant-specific match
+  const { data: tier1 } = await supabase
+    .from('structural_fingerprints')
+    .select('classification_result, column_roles, match_count, confidence')
+    .eq('tenant_id', tenantId)
+    .eq('fingerprint_hash', fingerprintHash)
+    .maybeSingle();
+
+  if (tier1 && tier1.classification_result && Object.keys(tier1.classification_result as object).length > 0) {
+    // HF-145: Confidence threshold gates Tier 1 routing.
+    // Below 0.5 → demote to Tier 2 (re-classify with minimal LLM).
+    // Self-correction (OB-177) decreases confidence on binding failures.
+    // 3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
+    const conf = Number(tier1.confidence);
+    if (conf >= 0.5) {
+      console.log(`[SCI-FINGERPRINT] tier=1 match=true hash=${fingerprintHash.substring(0, 12)} confidence=${conf} matchCount=${tier1.match_count}`);
+      console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
+      return {
+        tier: 1,
+        match: true,
+        fingerprintHash,
+        classificationResult: tier1.classification_result as Record<string, unknown>,
+        columnRoles: tier1.column_roles as Record<string, string>,
+        confidence: conf,
+        matchCount: tier1.match_count,
+      };
+    }
+    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+```
+
+CC note (verbatim, not classification): the flywheel caches `classification_result` and `column_roles` (table: `structural_fingerprints`). On Tier 1 match (confidence ≥ 0.5) the LLM is skipped and cached data is replayed. The cache write happens after every successful classification (per the file's docstring); this caches the HC's output. Self-correction at OB-177 (referenced in comment line 54) decreases confidence on binding failures — the comment cites the 0.92 → 0.32 sequence that triggers Tier 2 re-classification at 3 failures. CC has not paste-traced OB-177 self-correction's full body in this DIAG; the reference is surfaced. No site found that writes `convergence_bindings` directly to the flywheel cache — convergence bindings are stored on `rule_sets.input_bindings`, not on `structural_fingerprints`.
+
+### Phase 6.5 — Korean Test scan
+
+```
+grep -rn "['\"]No_Empleado['\"]|['\"]Hub['\"]|['\"]Cumplimiento['\"]|['\"]ID_Empleado['\"]" \
+  web/src/lib/sci/ web/src/lib/intelligence/ web/src/lib/compensation/ \
+  --include="*.ts"
+```
+
+Output: (empty — zero matches)
+
+```
+grep -rn "/employee/i|/empleado/i|/hub/i" web/src/lib/ --include="*.ts"
+```
+
+Output: (empty — zero matches)
+
+CC note (verbatim, not classification): **0 Korean Test violations across HC, convergence, compensation, and intelligence directories.** No source code in these surfaces hardcodes Meridian-specific column names or language-specific string-match patterns.
+
