@@ -1484,3 +1484,120 @@ Verbatim from `web/src/lib/sci/calc-time-entity-resolution.ts:1-25`:
 
 **Verification of HF-196 Phase 1G claim:** The substrate citation in `DS-021 §P6` (line 211 above) states "operations that create implicit ordering … are deferred to calculation time per Decision 92." CC documents the operative mechanism: Decision 92's calc-time deferral is structurally realized via `resolveEntitiesAtCalcTime` (entity back-link), calc-time `convergeBindings` invocation (binding selection deferred), and `source_date`-based period attribution (period binding deferred). The claim holds at the surfaces CC paste-traced.
 
+---
+
+## Section 7 — Open vs Closed Sets (operative documentation)
+
+### Section 7.1 — contextualIdentity operative reality (consolidated)
+
+Per Phase 1.3 and Phase 1.5 evidence above:
+
+- **Closed set (operative path):** `ROLE_MAP` at `field-identities.ts:20-37` maps 17 SemanticRole keys → fixed `(structuralType, contextualIdentity)` pairs. Extension requires source-code change.
+- **Open set (operative path):** LLM emits `semanticMeaning` as free-form string per `anthropic-adapter.ts:802`. `extractFieldIdentities` (`header-comprehension.ts:374`) and `extractFieldIdentitiesFromTrace` (`header-comprehension.ts:401`) pass the LLM string verbatim to `contextualIdentity`.
+- **Reconciliation at runtime:** `extractFieldIdentitiesFromTrace || buildFieldIdentitiesFromBindings` pattern at SCI execute call sites (e.g., `execute/route.ts:582-584`) — LLM path is primary; ROLE_MAP fallback fires when HC trace returns null.
+
+### Section 7.2 — IntentOperation primitive set (operative)
+
+**Dispatch switch in `executeOperation` (intent-executor.ts:492-503, verbatim):**
+
+```typescript
+  switch (op.operation) {
+    case 'bounded_lookup_1d': return executeBoundedLookup1D(op, data, inputLog, trace);
+    case 'bounded_lookup_2d': return executeBoundedLookup2D(op, data, inputLog, trace);
+    case 'scalar_multiply':   return executeScalarMultiply(op, data, inputLog, trace);
+    case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
+    case 'aggregate':         return executeAggregateOp(op, data, inputLog);
+    case 'ratio':             return executeRatioOp(op, data, inputLog);
+    case 'constant':          return executeConstantOp(op);
+    case 'weighted_blend':    return executeWeightedBlend(op, data, inputLog, trace);
+    case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
+    case 'linear_function':   return executeLinearFunction(op, data, inputLog, trace);
+    case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
+    default: {
+      …
+      throw new IntentExecutorUnknownOperationError(
+```
+
+11 top-level executable operations + `default` throw via `IntentExecutorUnknownOperationError`.
+
+**Primitive registry** (`primitive-registry.ts:45-58`, verbatim):
+
+```typescript
+export const FOUNDATIONAL_PRIMITIVES = [
+  'bounded_lookup_1d',
+  'bounded_lookup_2d',
+  'scalar_multiply',
+  'conditional_gate',
+  'aggregate',
+  'ratio',
+  'constant',
+  'weighted_blend',
+  'temporal_window',
+  'linear_function',
+  'piecewise_linear',
+  'scope_aggregate',
+] as const;
+```
+
+12 foundational primitives. 11 are top-level operations (per `executeOperation` switch); `scope_aggregate` is `source_only` per `PrimitiveEntry.kind` (registry comment line 38-43, paraphrased):
+
+> `scope_aggregate` is recognized vocabulary (named in plan-agent prompt examples and the importer's 5-tuple branch) but has no top-level executor case in the current substrate; per AUD-004 Phase 0G evidence, the prompt typically wraps scope aggregation as `scalar_multiply { input.source: 'scope_aggregate' }`.
+
+**Closed or open:** The set is closed at the executor dispatch. `default: throw IntentExecutorUnknownOperationError` enforces closed-set semantics. Extension requires (a) adding the primitive identifier to `FOUNDATIONAL_PRIMITIVES`, (b) adding the dispatch case to `executeOperation`, (c) implementing the executor function. All three are code changes.
+
+### Section 7.3 — IntentModifier set (operative)
+
+Per Phase 5.5 (Section 5 of DIAG-041 Phase 5.5; re-paste from `intent-types.ts:203-207` for self-containment):
+
+```typescript
+export type IntentModifier =
+  | { modifier: 'cap'; maxValue: number; scope: 'per_period' | 'per_entity' | 'total' }
+  | { modifier: 'floor'; minValue: number; scope: 'per_period' | 'per_entity' | 'total' }
+  | { modifier: 'proration'; numerator: IntentSource; denominator: IntentSource }
+  | { modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' };
+```
+
+4 discriminants: `cap`, `floor`, `proration`, `temporal_adjustment`. Closed TypeScript discriminated union. Extension requires source-code change to the type definition + dispatch case in `applyModifiers`.
+
+**`scope` enum** (cap + floor): `'per_period' | 'per_entity' | 'total'`. 3-value enum. Closed. Extension via code change.
+
+**`adjustmentType` enum** (temporal_adjustment): `'full_reversal' | 'partial' | 'prorated'`. 3-value enum. Closed. Extension via code change.
+
+### Section 7.4 — ColumnRole / structuralType set (operative)
+
+From `sci-types.ts:67-76` (verbatim):
+
+```typescript
+// Structural role of a column in its dataset
+export type ColumnRole =
+  | 'identifier'         // uniquely identifies an entity (employee ID, account number)
+  | 'name'               // human-readable name for an entity
+  | 'temporal'           // represents time (date, month, year, quarter)
+  | 'measure'            // numeric measurement or metric (revenue, count, percentage)
+  | 'attribute'          // categorical property (department, region, role, type)
+  | 'reference_key'      // lookup key for reference data (hub ID, location code)
+  | 'unknown'            // LLM couldn't determine
+  ;
+```
+
+7 values. Closed TypeScript union. Extension via code change.
+
+`LLM prompt at `anthropic-adapter.ts:804` constrains `columnRole` to this exact enum (verbatim from Phase 1.5 paste): `"columnRole: one of: identifier, name, temporal, measure, attribute, reference_key, unknown"`.
+
+### Section 7.5 — Open/closed summary (operative documentation)
+
+| Vocabulary | Open or Closed | Extension Mechanism (operative) |
+|---|---|---|
+| `contextualIdentity` (LLM path) | **Open** | LLM emits free-form string per `anthropic-adapter.ts:802` (`semanticMeaning` not enum-constrained); `extractFieldIdentities` passes through verbatim |
+| `contextualIdentity` (ROLE_MAP fallback) | **Closed** | Code change to `field-identities.ts:20-37` ROLE_MAP literal required |
+| `IntentOperation` primitives (top-level executor) | **Closed** | Code change to `executeOperation` switch (`intent-executor.ts:492-503`) + add to `FOUNDATIONAL_PRIMITIVES` (`primitive-registry.ts:45-58`); `IntentExecutorUnknownOperationError` enforces |
+| `IntentModifier` discriminants (4 values) | **Closed** | Code change to discriminated union in `intent-types.ts:203-207` + dispatch case in `applyModifiers` (`intent-executor.ts:572-610`) |
+| `IntentModifier.scope` enum (cap + floor) | **Closed** | Code change to discriminated union in `intent-types.ts:204-205` |
+| `IntentModifier.adjustmentType` enum (temporal_adjustment) | **Closed** | Code change to discriminated union in `intent-types.ts:207` |
+| `ColumnRole` / `structuralType` (7 values) | **Closed** | Code change to union in `sci-types.ts:67-76` + matching update to LLM prompt at `anthropic-adapter.ts:804` |
+| `SignalSource` (classification_signals.source) | **Closed** | Code change to `intelligence/classification-signal-service.ts:27` type union (`'ai' \| 'user_confirmed' \| 'user_corrected'`) |
+| `semanticRole` keys in ROLE_MAP (17 values) | **Closed** | Code change to `field-identities.ts:20-37` |
+| `signal_type` (classification_signals column) | **Mixed** | Per OB-199 Phase 4 + DS-022 v2 §5.1: signal_type is text in DB; canonical-signal-writer validates against registry. Registry is code-defined but the column accepts any string at DB level. CC notes structurally evident; not classification |
+
+CC notes the operative reality: among the vocabularies surveyed, `contextualIdentity` (LLM path) is the only effectively open set. All others are closed at the executor/type-definition layer and require code changes for extension. No tenant-scoped extensible-enum mechanism observed (Section 5.3 confirms). The product claim "any plan, any format, any content" is structurally satisfied at the contextualIdentity LLM path AND at the column/sheet/field-name layer (Korean Test compliance verified DIAG-041 Phase 6.5); it is NOT structurally satisfied for new primitives, new modifier types, or new structural roles — those require code-layer extension.
+
