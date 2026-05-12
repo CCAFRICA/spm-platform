@@ -721,6 +721,43 @@ export async function POST(request: NextRequest) {
     addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
   }
 
+  // HF-216: Build roster join index for entity_identifier.via bindings.
+  // Indexes: "data_type|entity_field|roster_field" → Map<entity_external_id, roster_field_value>
+  // The map allows resolveMetricsFromConvergenceBindings to translate the
+  // employee external_id into the join-target value (e.g., Hub_Asignado) that
+  // the measure-side cache (dataByBatch) is keyed by.
+  const rosterJoinIndex = new Map<string, Map<string, string>>();
+  if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
+    const viaSpecs = new Set<string>();
+    for (const compBindings of Object.values(convergenceBindings)) {
+      const cb = compBindings as Record<string, ConvergenceBindingEntry>;
+      const eid = cb.entity_identifier;
+      if (eid?.via?.roster_data_type && eid.via.roster_field && eid.via.entity_field) {
+        viaSpecs.add(`${eid.via.roster_data_type}|${eid.via.entity_field}|${eid.via.roster_field}`);
+      }
+    }
+
+    for (const spec of Array.from(viaSpecs)) {
+      const [rosterDataType, entityField, rosterField] = spec.split('|');
+      const map = new Map<string, string>();
+      for (const row of committedData) {
+        if (row.data_type !== rosterDataType) continue;
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        const entityVal = rd[entityField];
+        const rosterVal = rd[rosterField];
+        if (entityVal != null && rosterVal != null) {
+          map.set(String(entityVal).trim(), String(rosterVal).trim());
+        }
+      }
+      rosterJoinIndex.set(`${rosterDataType}|${entityField}|${rosterField}`, map);
+    }
+
+    if (rosterJoinIndex.size > 0) {
+      addLog(`HF-216 Roster join index: ${rosterJoinIndex.size} via-specs indexed`);
+    }
+  }
+
   const entityRowCount = Array.from(flatDataByEntity.values()).reduce((s, r) => s + r.length, 0);
   const storeRowCount = committedData.length - entityRowCount;
   addLog(`${committedData.length} committed_data rows (${entityRowCount} entity-level, ${storeRowCount} store-level)`);
