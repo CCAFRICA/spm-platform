@@ -296,7 +296,40 @@ export async function convergeBindings(
   // raising binding accuracy and the boundary-fallback acceptance threshold.
   const existingConvergenceBindings = (ruleSet.input_bindings as Record<string, unknown>)?.convergence_bindings as
     Record<string, Record<string, unknown>> | undefined;
-  await generateAllComponentBindings(components, matches, capabilities, componentBindings, existingConvergenceBindings, observations.metricComprehension);
+
+  // HF-218 Component 1: fetch tenant entity external_id set for binding self-verification.
+  // The set seeds the structural cardinality × intersection composition (ADR Decision 1) used
+  // by generateAllComponentBindings entity_identifier selection. Per Disposition 2: gate-only
+  // read; not a calculation input — verification metadata only.
+  const tenantEntityExternalIds = new Set<string>();
+  {
+    const { data: entRows, error: entErr } = await supabase
+      .from('entities')
+      .select('external_id')
+      .eq('tenant_id', tenantId)
+      .not('external_id', 'is', null);
+    if (entErr) {
+      console.warn(`[Convergence] HF-218 tenant entity fetch failed (non-blocking, proceeds with empty set): ${entErr.message}`);
+    } else if (entRows) {
+      for (const r of entRows) {
+        const eid = r.external_id;
+        if (eid != null) tenantEntityExternalIds.add(String(eid).trim());
+      }
+    }
+    console.log(`[Convergence] HF-218 Tenant entity overlap baseline: ${tenantEntityExternalIds.size} external_ids loaded`);
+  }
+
+  await generateAllComponentBindings(
+    components,
+    matches,
+    capabilities,
+    componentBindings,
+    existingConvergenceBindings,
+    observations.metricComprehension,
+    tenantEntityExternalIds,
+    tenantId,
+    supabase,
+  );
 
   // HF-115: Cross-component plausibility check — detect scale anomalies
   // Skip if reusing existing bindings (already validated in prior run)
@@ -1793,6 +1826,46 @@ EXAMPLE OUTPUT:
 // AI-Primary column selection + boundary validation + column exclusion
 // ──────────────────────────────────────────────
 
+// HF-218 Component 1 — Structural confidence composition (ADR Decision 1: product).
+// Returns score in [0,1] computed as cardinality_ratio × intersection_ratio.
+// Zero on either axis ⇒ zero score (structural AND). Korean Test compliant: zero
+// hardcoded weights, zero domain literals.
+export interface StructuralBindingConfidence {
+  score: number;
+  cardinality_ratio: number;
+  intersection_ratio: number;
+  distinct_count: number;
+  intersection_count: number;
+  total_row_count: number;
+}
+
+export function computeStructuralBindingConfidence(
+  candidateDistinctValues: Set<string>,
+  candidateTotalRows: number,
+  tenantEntityExternalIds: Set<string>,
+): StructuralBindingConfidence {
+  const distinctCount = candidateDistinctValues.size;
+  const cardinalityRatio = candidateTotalRows > 0 ? distinctCount / candidateTotalRows : 0;
+  let intersectionCount = 0;
+  if (tenantEntityExternalIds.size > 0) {
+    for (const v of Array.from(candidateDistinctValues)) {
+      if (tenantEntityExternalIds.has(v)) intersectionCount++;
+    }
+  }
+  const intersectionRatio = distinctCount > 0 && tenantEntityExternalIds.size > 0
+    ? intersectionCount / distinctCount
+    : 0;
+  const score = cardinalityRatio * intersectionRatio;
+  return {
+    score,
+    cardinality_ratio: cardinalityRatio,
+    intersection_ratio: intersectionRatio,
+    distinct_count: distinctCount,
+    intersection_count: intersectionCount,
+    total_row_count: candidateTotalRows,
+  };
+}
+
 async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
@@ -1800,6 +1873,15 @@ async function generateAllComponentBindings(
   bindings: Record<string, Record<string, ComponentBinding>>,
   existingConvergenceBindings: Record<string, Record<string, unknown>> | undefined,
   metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2: E5 signals threaded through
+  // HF-218 Component 1: tenant entity external_id set for binding self-verification.
+  // generateAllComponentBindings receives the set so identifier-candidate selection can
+  // verify column values against the tenant's registered entities (closes DIAG-042 §2.3
+  // structural absence — no value-set intersection check).
+  tenantEntityExternalIds: Set<string> = new Set(),
+  // HF-218 Component 1: tenantId + supabase needed for (a) per-column distinct-value reads,
+  // (b) writeSignal emission for convergence:binding_selection provenance.
+  tenantId: string = '',
+  supabase?: SupabaseClient,
 ): Promise<void> {
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
@@ -1934,18 +2016,114 @@ async function generateAllComponentBindings(
       }
     }
 
-    // Find entity identifier column
+    // HF-218 Component 1 — Entity identifier self-verification.
+    // Pre-HF-218: idEntries[0] (first-by-insertion-order; no value-content check, no
+    // cardinality scoring, no tenant-entity intersection). Closes DIAG-042 §2.3
+    // structural absences.
+    //
+    // Structural verification protocol (ADR Decision 1: product composition):
+    //   1. Inventory all candidates where fi.structuralType === 'identifier'
+    //   2. For each candidate, fetch distinct values from committed_data for batchIds
+    //   3. Compute cardinality_ratio × intersection_ratio (vs tenant entity external_ids)
+    //   4. Select highest-scoring candidate
+    //   5. Fall back to cardinality-only if zero intersection across all candidates
+    //   6. Persist with freshly-computed confidence; emit convergence:binding_selection signal
     const idEntries = Object.entries(cap.fieldIdentities)
       .filter(([, fi]) => fi.structuralType === 'identifier');
     if (idEntries.length > 0) {
-      const [colName, fi] = idEntries[0];
+      type CandidateScore = {
+        colName: string;
+        fi: FieldIdentity;
+        conf: StructuralBindingConfidence;
+      };
+      const candidateScores: CandidateScore[] = [];
+
+      for (const [colName, fi] of idEntries) {
+        let distinctValues = new Set<string>();
+        let totalRows = 0;
+        if (supabase && cap.batchIds.length > 0) {
+          const PAGE_SIZE = 1000;
+          let page = 0;
+          while (true) {
+            const from = page * PAGE_SIZE;
+            const to = from + PAGE_SIZE - 1;
+            const { data: rows } = await supabase
+              .from('committed_data')
+              .select('row_data')
+              .in('import_batch_id', cap.batchIds)
+              .range(from, to);
+            if (!rows || rows.length === 0) break;
+            for (const r of rows) {
+              const rd = r.row_data as Record<string, unknown> | null;
+              if (!rd) continue;
+              const v = rd[colName];
+              if (v != null && String(v).trim().length > 0) {
+                distinctValues.add(String(v).trim());
+                totalRows++;
+              }
+            }
+            if (rows.length < PAGE_SIZE) break;
+            page++;
+            if (page > 10) break; // 10k row sampling ceiling for cardinality estimate
+          }
+        }
+        const conf = computeStructuralBindingConfidence(distinctValues, totalRows, tenantEntityExternalIds);
+        candidateScores.push({ colName, fi, conf });
+      }
+
+      // Rank: prefer non-zero score (intersection > 0); fall back to cardinality-only if all zero.
+      candidateScores.sort((a, b) => {
+        if (a.conf.score !== b.conf.score) return b.conf.score - a.conf.score;
+        // Tie-break on cardinality_ratio (handles all-zero-intersection case)
+        return b.conf.cardinality_ratio - a.conf.cardinality_ratio;
+      });
+
+      const winner = candidateScores[0];
+      const winnerScore = winner.conf.score > 0 ? winner.conf.score : winner.conf.cardinality_ratio;
+
       bindings[compKey]['entity_identifier'] = {
         source_batch_id: batchId,
-        column: colName,
-        field_identity: fi,
+        column: winner.colName,
+        field_identity: winner.fi,
         match_pass: 1,
-        confidence: match.matchConfidence,
+        confidence: winnerScore,
       };
+
+      // Emit convergence:binding_selection signal with full candidate provenance.
+      // Per DS-022 v2 §5.1: canonical writer is the singular write path.
+      if (supabase && tenantId) {
+        try {
+          await writeSignal({
+            tenantId,
+            signalType: 'convergence:binding_selection',
+            signalValue: {
+              component_index: comp.index,
+              component_name: comp.name,
+              selected_column: winner.colName,
+              selected_confidence: winnerScore,
+              tenant_entity_count: tenantEntityExternalIds.size,
+              candidates: candidateScores.map(c => ({
+                column: c.colName,
+                score: c.conf.score,
+                cardinality_ratio: c.conf.cardinality_ratio,
+                intersection_ratio: c.conf.intersection_ratio,
+                distinct_count: c.conf.distinct_count,
+                intersection_count: c.conf.intersection_count,
+              })),
+              fallback_to_cardinality_only: winner.conf.score === 0,
+            },
+            confidence: winnerScore,
+            source: 'convergence_validation',
+            decisionSource: 'binding_self_verification',
+          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        } catch (sigErr) {
+          if (sigErr instanceof CanonicalWriteError) {
+            console.warn(`[Convergence] HF-218 binding_selection signal CanonicalWriteError (${sigErr.cause}): ${sigErr.message}`);
+          } else {
+            console.warn(`[Convergence] HF-218 binding_selection signal write failed (non-blocking): ${sigErr instanceof Error ? sigErr.message : String(sigErr)}`);
+          }
+        }
+      }
     }
 
     // Find temporal column
