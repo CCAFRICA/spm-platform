@@ -179,6 +179,7 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 | AP-5 | Add field names to hardcoded dictionaries (FIELD_ID_MAPPINGS) | AI semantic inference with confidence scores | HF-046 |
 | AP-6 | Pattern match on column names in specific languages | AI analyzes data values + context, language-agnostic | Standing |
 | AP-7 | Hardcode "50%" or any placeholder confidence score | Calculate real confidence from AI analysis results | HF-046 |
+| AP-26 | Closed-vocabulary signal registries / declared_writers / declared_readers / register-then-emit gates | Signal_types are open-vocabulary strings; emitters produce freely without prior registration; consumers subscribe via pattern-matching predicates (string prefix, regex, predicate function on signal_type) directly against classification_signals table; no registry file, no developer-declared registration step gates emission or consumption. The platform exists to receive novel information; registries that require developer action before novel signals can flow violate the adaptive intelligence moat. | HF-219 (eradication); HF-218 (recurrence); OB-199 Phase 2 (origin) |
 
 ### Deployment & Verification
 | # | Anti-Pattern | Correct Pattern | Source |
