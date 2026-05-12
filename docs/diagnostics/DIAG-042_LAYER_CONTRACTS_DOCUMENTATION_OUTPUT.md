@@ -911,3 +911,296 @@ Bright line "structural exception vs data anomaly":
   - All non-fatal failures route to skip-and-produce-result; no refusal/halt mechanism for "binding invalid"
 ```
 
+---
+
+## Section 4 — Flywheel Integration (operative documentation)
+
+### Section 4.1 — `classification_signals` schema (verbatim from `SCHEMA_REFERENCE_LIVE.md:132+`)
+
+```
+### classification_signals (20 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | YES | |
+| signal_type | text | NO | |
+| signal_value | jsonb | NO | |
+| confidence | numeric | YES | |
+| source | text | YES | |
+| context | jsonb | NO | |
+| created_at | timestamp with time zone | NO | now() |
+| source_file_name | text | YES | |
+| sheet_name | text | YES | |
+| structural_fingerprint | jsonb | YES | |
+| classification | text | YES | |
+| decision_source | text | YES | |
+| classification_trace | jsonb | YES | |
+| header_comprehension | jsonb | YES | |
+| vocabulary_bindings | jsonb | YES | |
+```
+
+(table has 20 columns total per the heading; first 17 listed. Remaining 3 columns not visible in the truncated section read; CC notes that all 20-column reads/writes operate via `canonical-signal-writer.ts` per OB-199 Phase 4.)
+
+### Section 4.2 — Operative signal emission sites
+
+**Canonical writer** (`web/src/lib/intelligence/canonical-signal-writer.ts`) is the singular insert surface per OB-199 Phase 4 (DS-022 v2 §5.1). All write paths route through it.
+
+**`writeSignal` / `writeSignalBatch` / `writeClassificationSignal` callers (verbatim grep, by source layer):**
+
+| Layer | File | Line | Signal type emitted |
+|---|---|---|---|
+| Engine | `app/api/calculation/run/route.ts` | 2138 | `lifecycle:synaptic_consolidation` (default) — passed from `signalBatch` |
+| Engine | `app/api/calculation/run/route.ts` | 2155 | `convergence:dual_path_concordance` |
+| Convergence | `lib/intelligence/convergence-service.ts` | 368 | (read line for signal_type) |
+| Convergence (router) | `app/api/intelligence/converge/route.ts` | 107, 130 | facade — `classification:outcome` via `writeClassificationSignal` |
+| SCI Execute | `app/api/import/sci/execute/route.ts` | 377 | `classification:outcome` via `writeClassificationSignal` |
+| SCI Analyze | `app/api/import/sci/analyze/route.ts` | 464 | `classification:outcome` via `writeClassificationSignal` |
+| SCI Process-job | `app/api/import/sci/process-job/route.ts` | 343 | `classification:outcome` via `writeClassificationSignal` |
+| Reconciliation | `app/api/reconciliation/run/route.ts` | 131 | (signal_type at line; read in code) |
+| Reconciliation | `app/api/reconciliation/compare/route.ts` | 158 | (signal_type at line) |
+| AI Assessment | `app/api/ai/assessment/route.ts` | 179 | (signal_type at line) |
+| Approvals | `app/api/approvals/[id]/route.ts` | 168 | (signal_type at line) |
+| Ingest Classification | `app/api/ingest/classification/route.ts` | 45 | `.from('classification_signals').insert(...)` (test mock; see grep) |
+| Plan-comprehension emitter | `lib/compensation/plan-comprehension-emitter.ts` | 115 | `writeSignalBatch` — emits `comprehension:plan_interpretation` signals (per HF-196 D153 cutover; these are read by convergence per Section 2.1) |
+| SCI capture | `lib/sci/signal-capture-service.ts` | 51, 104 | various SCI signals (`content_classification`, `field_binding`, `negotiation_round`, `convergence_outcome`, `cost_event` per `extractConfidence` switch at line 287-304) |
+
+Per `signal-capture-service.ts:287-320`, the SCI capture surface supports these signal categories:
+
+```typescript
+function extractConfidence(signal: SCISignal): number {
+  switch (signal.signalType) {
+    case 'content_classification':       return signal.winningConfidence;
+    case 'content_classification_outcome': return signal.predictionConfidence;
+    case 'field_binding':                return signal.avgConfidence;
+    case 'field_binding_outcome':        return signal.predictionConfidence;
+    case 'negotiation_round':            return signal.round2TopConfidence;
+    case 'convergence_outcome':          return signal.matchRate;
+    case 'cost_event':                   return 1.0;
+  }
+}
+
+function getSource(signal: SCISignal): string {
+  switch (signal.signalType) {
+    case 'content_classification':
+    case 'field_binding':
+    case 'negotiation_round':
+      return 'sci_agent';
+    case 'content_classification_outcome':
+    case 'field_binding_outcome':
+      return (signal as { wasOverridden?: boolean }).wasOverridden ? 'user_corrected' : 'user_confirmed';
+    case 'convergence_outcome':
+      return 'reconciliation';
+    case 'cost_event':
+      return 'system';
+  }
+}
+```
+
+### Section 4.3 — Operative signal consumption sites
+
+**`from('classification_signals')` SELECT sites in `web/src/lib/` (verbatim grep, deduplicated):**
+
+```
+web/src/lib/sci/contextual-reliability.ts:67           — loadSignalsForTenant (cached per-session)
+web/src/lib/intelligence/ai-metrics-service.ts:96      — fetchSignals for AI metrics computation
+web/src/lib/sci/classification-signal-service.ts:153   — lookupPriorSignals
+web/src/lib/sci/classification-signal-service.ts:356   — computeClassificationDensity
+web/src/lib/sci/classification-signal-service.ts:546   — recallVocabularyBindings
+web/src/lib/intelligence/convergence-service.ts:231    — within-run signal observation
+web/src/lib/intelligence/convergence-service.ts:241    — cross-run signal observation
+web/src/lib/intelligence/convergence-service.ts:775    — loadMetricComprehensionSignals (HF-196 Phase 3 D153 cutover)
+```
+
+**Consumer purposes (CC documents from surrounding code, verbatim claims only):**
+
+| Consumer | Purpose (per comment/code context) | Adaptation? |
+|---|---|---|
+| `contextual-reliability.ts:67` | Empirical accuracy data for SCI 5-level reliability calculation (fingerprint → category → boundary → global → seed) | Drives `reliability.level` decision; AI agent confidence is adjusted per this score upstream |
+| `ai-metrics-service.ts:96` | OB-86 computes calibration metrics for AI insight surface | Read-only observation; does not write back |
+| `classification-signal-service.ts:153` | `lookupPriorSignals` — read priors before scoring (SCI agent classification phase) | Boost +0.05 / +0.07 / +0.10 added to agent scores via `tenant-context.ts:computeTenantContextAdjustments` — closed loop into SCI agent decision-making |
+| `classification-signal-service.ts:356` | `computeClassificationDensity` — adaptive SCI execution mode (full_analysis / light_analysis / confident) | Drives `SCIExecutionMode` selection |
+| `classification-signal-service.ts:546` | `recallVocabularyBindings` — HC vocabulary recall (skip LLM on Tier 1) | Closes HC loop: stored binding bypasses LLM |
+| `convergence-service.ts:231, 241` | Within-run + cross-run signal observation (OB-197 G11) | "Observation, not computation" per DS-021 §7 — observed, surfaced via `ConvergenceResult.observations`, NOT used to gate matching (CC notes structurally evident, not classification) |
+| `convergence-service.ts:775` | `loadMetricComprehensionSignals` (HF-196 Phase 3 D153 cutover) — operative input to convergence binding selection | Consumed by `generateAllComponentBindings` as authoritative metric semantics |
+
+### Section 4.4 — Fingerprint flywheel (operative wiring)
+
+`web/src/lib/sci/fingerprint-flywheel.ts:1–192` (file overview already pasted in DIAG-041 Phase 6.4). Re-pasted relevant write-path section here (lines 127–192, verbatim):
+
+```typescript
+export async function writeFingerprint(
+  tenantId: string,
+  fingerprintHash: string,
+  classificationResult: Record<string, unknown>,
+  columnRoles: Record<string, string>,
+  sourceFileName: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Check if record exists
+    const { data: existing } = await supabase
+      .from('structural_fingerprints')
+      .select('id, match_count, confidence')
+      .eq('tenant_id', tenantId)
+      .eq('fingerprint_hash', fingerprintHash)
+      .maybeSingle();
+
+    if (existing) {
+      // HF-145: Optimistic locking — only update if match_count hasn't changed since read.
+      const newMatchCount = existing.match_count + 1;
+      const newConfidence = 1 - (1 / (newMatchCount + 1));
+
+      const { count: updated } = await supabase
+        .from('structural_fingerprints')
+        .update({
+          match_count: newMatchCount,
+          confidence: Number(newConfidence.toFixed(4)),
+          classification_result: classificationResult,
+          column_roles: columnRoles,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+        .eq('match_count', existing.match_count);  // optimistic lock
+      …
+    } else {
+      // Insert new fingerprint record — confidence = 1 - 1/(1+1) = 0.5
+      await supabase
+        .from('structural_fingerprints')
+        .insert({
+          tenant_id: tenantId,
+          fingerprint_hash: fingerprintHash,
+          fingerprint: fingerprintHash,
+          classification_result: classificationResult,
+          column_roles: columnRoles,
+          match_count: 1,
+          confidence: 0.5,
+          source_file_sample: sourceFileName,
+        });
+      …
+    }
+  } catch (err) {
+    // Flywheel write failure must NEVER block classification
+    console.warn(`[SCI-FINGERPRINT] Write failed (non-blocking): ${err instanceof Error ? err.message : 'unknown'}`);
+  }
+}
+```
+
+**What the flywheel caches** (per the `structural_fingerprints` columns referenced in update at lines 154-163 and insert at lines 174-184): `tenant_id`, `fingerprint_hash`, `classification_result` (JSONB), `column_roles` (JSONB), `match_count`, `confidence`, `source_file_sample`, `updated_at`.
+
+**Confidence update formula** (line 152): `newConfidence = 1 - (1 / (newMatchCount + 1))` — monotonic increase as match_count grows. At match_count=1: 0.5. At match_count=10: ~0.91. At match_count=100: ~0.99.
+
+**Confidence threshold gating Tier 1** (per line 57, copied here):
+
+```typescript
+    if (conf >= 0.5) {
+      …
+      return { tier: 1, match: true, … };
+    }
+    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+```
+
+### Section 4.5 — OB-177 self-correction loop (operative state)
+
+**Grep evidence (verbatim):**
+
+```
+$ grep -rn "OB-177|decreaseConfidence|confidence -=" web/src/lib/sci/ web/src/lib/intelligence/ --include="*.ts"
+web/src/lib/sci/entity-resolution.ts:313:  // for unchanged values). Per OB-177 pattern at processEntityUnit:461-509.
+web/src/lib/sci/fingerprint-flywheel.ts:54:    // Self-correction (OB-177) decreases confidence on binding failures.
+web/src/lib/sci/agents.ts:283:      entity.confidence -= 0.10;
+web/src/lib/sci/agents.ts:293:      entity.confidence -= 0.15;
+```
+
+**`fingerprint-flywheel.ts:52-69` (verbatim — the Tier 1 demotion gate that the OB-177 comment references):**
+
+```typescript
+    // HF-145: Confidence threshold gates Tier 1 routing.
+    // Below 0.5 → demote to Tier 2 (re-classify with minimal LLM).
+    // Self-correction (OB-177) decreases confidence on binding failures.
+    // 3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
+    const conf = Number(tier1.confidence);
+    if (conf >= 0.5) {
+      …
+      return {
+        tier: 1,
+        match: true,
+        …
+      };
+    }
+    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+```
+
+CC searched for the actual code site that DECREMENTS `structural_fingerprints.confidence` on binding failure:
+
+```
+$ grep -rn "structural_fingerprints.*update.*confidence|update.*confidence.*structural_fingerprints" \
+    web/src/ --include="*.ts"
+(empty — zero matches for decrement-on-failure pattern targeting structural_fingerprints.confidence)
+```
+
+CC note (verbatim, not classification): the comment at `fingerprint-flywheel.ts:54-55` describes a self-correction loop that decreases `structural_fingerprints.confidence` on binding failures, with an arithmetic example (`0.92 → 0.72 → 0.52 → 0.32`). The only `structural_fingerprints.confidence` update site in `fingerprint-flywheel.ts:154-163` is the `writeFingerprint` Bayesian INCREMENT (`newConfidence = 1 - 1/(newMatchCount+1)`). CC did not locate a corresponding decrement implementation in the searched files.
+
+`agents.ts:283, 293` decrement entity-level confidence (`entity.confidence -= 0.10` / `0.15`), not fingerprint-cache confidence. Different surface.
+
+`entity-resolution.ts:313` references the OB-177 pattern in a comment ("Per OB-177 pattern at processEntityUnit:461-509") — CC did not paste-trace that processEntityUnit reference in this DIAG.
+
+### Section 4.6 — Closed-Loop Learning operative state evaluation
+
+Per **Section A Principle 5** (verbatim from `CC_STANDING_ARCHITECTURE_RULES.md:76-79`):
+
+> **5. Closed-Loop Learning ← GP-2**
+> Platform activity generates training signals for continuous improvement. AI mappings that get manually corrected inform future AI interpretation. The platform gets smarter with use.
+
+**Operative state per DIAG-042 evidence:**
+
+```
+Layers emitting classification_signals:
+  - Engine (calculation/run/route.ts):
+      lifecycle:synaptic_consolidation (line 2138)
+      convergence:dual_path_concordance (line 2155)
+  - Convergence (convergence-service.ts:368): (signal_type at line; read in code for trigger)
+  - Convergence-router (intelligence/converge/route.ts:107, 130): classification:outcome
+  - SCI Execute / Analyze / Process-job: classification:outcome (5 sites)
+  - Reconciliation (compare + run): (signal_types at line)
+  - AI Assessment + Approvals: (signal_types at line)
+  - SCI capture (signal-capture-service.ts): 7 signal categories (content_classification, content_classification_outcome, field_binding, field_binding_outcome, negotiation_round, convergence_outcome, cost_event)
+  - Plan-comprehension emitter (plan-comprehension-emitter.ts:115): comprehension:plan_interpretation
+
+Layers consuming classification_signals:
+  - SCI contextual-reliability (5-level reliability) → adjusts agent confidence upstream
+  - SCI classification-signal-service.lookupPriorSignals → boost SCI agent scores (+0.05/+0.07/+0.10)
+  - SCI classification-signal-service.computeClassificationDensity → SCIExecutionMode selection
+  - SCI classification-signal-service.recallVocabularyBindings → HC vocabulary recall (skip LLM on Tier 1)
+  - Convergence loadMetricComprehensionSignals (HF-196 Phase 3) → operative input to binding selection
+  - Convergence withinRun/crossRun observations (OB-197 G11) → surfaced as observations, NOT consumed by binding-selection matching
+  - AI metrics service (OB-86) → calibration metrics for AI insight surface (read-only)
+
+Closed loops (emit → consume → adapt):
+  1. Plan-comprehension emitter → loadMetricComprehensionSignals → convergence binding selection (HF-196 Phase 3 D153 cutover)
+  2. classification:outcome emission (SCI Execute) → SCI prior lookup → next SCI run's agent confidence boost
+  3. Fingerprint write (structural_fingerprints table, separate from classification_signals) → Tier 1 lookup → HC bypass on next import (closed via Bayesian confidence INCREMENT)
+  4. SCI content_classification_outcome (user_corrected source) → contextual-reliability empirical accuracy data → agent confidence adjustment
+
+Open loops (emit but no consumer adapting downstream):
+  1. lifecycle:synaptic_consolidation (engine line 2138) — no consumer that adapts engine behavior next run
+  2. convergence:dual_path_concordance (engine line 2155) — no consumer that adapts engine path selection next run
+  3. [CalcRecon-T3] EXCEPTION lines (diag003Fallback, ob118MergeGuardFired, boundaryFallback) — log-only, not written to classification_signals, no consumer
+
+Special-cased loops:
+  - OB-177 self-correction loop on fingerprint confidence: COMMENT references it (fingerprint-flywheel.ts:54-55), arithmetic example given (0.92 → 0.32 over 3 failures), but CC did not locate the decrement-on-binding-failure write site in the surveyed code. Increment path is structurally present (writeFingerprint line 152); decrement path may live elsewhere or may be aspirational. CC notes structurally evident gap, not classification.
+
+Aspirational vs structural:
+  - "AI mappings that get manually corrected inform future AI interpretation" (Principle 5 statement):
+    - STRUCTURAL for SCI agent scoring (lookupPriorSignals → +confidence boost; content_classification_outcome with source='user_corrected' captures correction)
+    - STRUCTURAL for HC vocabulary (recallVocabularyBindings replays user-confirmed bindings)
+    - STRUCTURAL for fingerprint-cache Bayesian increment on repeat success
+    - DOCUMENTED-AS-INTENT but CC could not locate the implementation site for fingerprint-cache decrement on binding failure (OB-177 self-correction): comment present in fingerprint-flywheel.ts:54-55, decrement write site not surfaced
+    - NOT WIRED at engine layer: when usedConvergenceBindings flips false (silent fall-through line 1717-1745), no signal is emitted and no consumer adjusts convergence binding selection on next calculation
+    - NOT WIRED at engine→convergence learning: convergence:dual_path_concordance is emitted (line 2155) but CC did not locate a convergence-binding-selection consumer that reads it
+```
+
