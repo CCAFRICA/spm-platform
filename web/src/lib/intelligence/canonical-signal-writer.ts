@@ -37,7 +37,12 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
-import { isRegistered, lookup, all as allRegistered } from './signal-registry';
+// HF-219 Disposition 5: signal-registry eradicated. Open-vocabulary signal_types.
+// Emission is unconditional on signal_type string. Consumers subscribe via
+// pattern-matching queries against classification_signals directly. AP-26 in
+// CC_STANDING_ARCHITECTURE_RULES.md prevents recurrence. OB-199 Decision 154/155
+// substrate-level commitment becomes platform-side debt (parallel to E924/E904/E902
+// per Disposition 1) — VG amendment addresses it separately.
 
 // ============================================
 // TYPES
@@ -140,26 +145,15 @@ type ValidationOutcome =
  * 1.0 is admissible (no longer the 0.9999 exclusive clamp boundary HF-214 Phase 2
  * established). Out-of-range = confidence is a number outside [0, 1] OR NaN/Infinity.
  *
- * `confidence_required` per signal_type is read from the registry (Phase 2 schema).
- * When absent (registry returned no declaration), the caller has already failed
- * upstream via assertRegistered; this function asserts the precondition.
+ * HF-219: signal-registry eradicated. signal_type is no longer gated by registration.
+ * confidence_required is no longer per-type metadata — open-vocabulary signals are
+ * inherently confidence-optional. Callers that require confidence enforce it themselves
+ * via input contract. Missing confidence defaults to missing_optional.
  */
 function validateSignal(signal: CanonicalSignalInput): ValidationOutcome {
-  const decl = lookup(signal.signalType);
-  if (!decl) {
-    throw new CanonicalWriteError(
-      'unregistered_signal_type',
-      signal.signalType,
-      `[CanonicalWriter] signal_type '${signal.signalType}' is not registered. ` +
-      `Per Decision 154/155 + AUD-004 v3 E1/E2, every signal_type must declare ` +
-      `at least one reader before write. Available identifiers: ${allRegistered().map(d => d.identifier).join(', ')}`,
-    );
-  }
   const conf = signal.confidence;
-  const confRequired = decl.confidence_required;
-
   if (conf === null || conf === undefined) {
-    return confRequired ? { kind: 'missing_required' } : { kind: 'missing_optional' };
+    return { kind: 'missing_optional' };
   }
   if (typeof conf === 'number' && Number.isFinite(conf) && conf >= 0.0 && conf <= 1.0) {
     return { kind: 'in_range', confidence: conf };
@@ -276,15 +270,9 @@ export async function writeSignal(
   supabaseUrl: string,
   supabaseServiceKey: string,
 ): Promise<WriteResult> {
-  if (!isRegistered(signal.signalType)) {
-    throw new CanonicalWriteError(
-      'unregistered_signal_type',
-      signal.signalType,
-      `[CanonicalWriter] writeSignal: signal_type '${signal.signalType}' not registered. ` +
-      `Decision 154/155 + AUD-004 v3 E1/E2: registration is the canonical declaration surface. ` +
-      `Available: ${allRegistered().map(d => d.identifier).join(', ')}`,
-    );
-  }
+  // HF-219 Disposition 5: signal_type emission is unconditional. No registration gate.
+  // Per AP-26: closed-vocabulary signal registries violate the adaptive-intelligence
+  // commitment. The platform exists to receive novel information; emitters fire freely.
   const supabase = createClient(supabaseUrl, supabaseServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -370,19 +358,8 @@ export async function writeSignalBatch(
 ): Promise<BatchWriteResult> {
   if (signals.length === 0) return { success: true, count: 0, observabilitySignalsEmitted: 0 };
 
-  // Pre-validate every signal_type is registered (Decision 154/155 + AUD-004 v3 E1/E2).
-  // Atomic: if any signal in the batch is unregistered, no writes occur.
-  for (const s of signals) {
-    if (!isRegistered(s.signalType)) {
-      throw new CanonicalWriteError(
-        'unregistered_signal_type',
-        s.signalType,
-        `[CanonicalWriter] writeSignalBatch: signal_type '${s.signalType}' not registered. ` +
-        `Decision 154/155 + AUD-004 v3 E1/E2: registration is the canonical declaration surface. ` +
-        `Available: ${allRegistered().map(d => d.identifier).join(', ')}`,
-      );
-    }
-  }
+  // HF-219 Disposition 5: signal_type emission is unconditional. No registration gate.
+  // Batch insert proceeds regardless of signal_type vocabulary.
   const supabase = createClient(supabaseUrl, supabaseServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });

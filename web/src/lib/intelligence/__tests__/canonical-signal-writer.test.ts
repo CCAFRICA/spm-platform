@@ -16,9 +16,10 @@ import {
   type CanonicalSignalInput,
 } from '../canonical-signal-writer';
 
-// Importing signal-registry triggers all register() calls; required because
-// the canonical writer reads from the registry at validation time.
-import '../signal-registry';
+// HF-219: signal-registry eradicated per AP-26. Canonical writer no longer
+// validates against a registry. Tests that exercised the unregistered_signal_type
+// throw are documented below as removed — open-vocabulary writes succeed regardless
+// of signal_type string.
 
 // ============================================
 // Mock Supabase client
@@ -197,21 +198,21 @@ test('OB-199 §5.2 missing_optional — confidence omitted on optional-type pers
   assert.strictEqual(rows[0].confidence, null);
 });
 
-test('OB-199 §5.3 unregistered_signal_type — throws CanonicalWriteError', async () => {
-  const { client } = makeMockClient();
+test('HF-219 open-vocabulary — novel signal_type emits successfully (no registration gate)', async () => {
+  // Per HF-219 Disposition 5 / AP-26: signal-registry eradicated. Open-vocabulary
+  // emission. Pre-HF-219 this same input produced unregistered_signal_type throw;
+  // post-HF-219 it succeeds.
+  const { client, calls } = makeMockClient();
   const signal: CanonicalSignalInput = {
     tenantId: 't1',
-    signalType: 'invalid:not_in_registry',
+    signalType: 'novel:emergent_pattern_never_registered_before',
     confidence: 0.5,
   };
-  await assert.rejects(
-    () => writeSignalWithClient(signal, client),
-    (err: unknown) => {
-      assert.ok(err instanceof CanonicalWriteError);
-      assert.strictEqual((err as CanonicalWriteError).cause, 'unregistered_signal_type');
-      return true;
-    },
-  );
+  const result = await writeSignalWithClient(signal, client);
+  assert.strictEqual(result.success, true);
+  const rows = flattenRows(calls);
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].signal_type, 'novel:emergent_pattern_never_registered_before');
 });
 
 test('OB-199 §5.5 no writer-side clamp — confidence > 1 produces null, never 0.9999', async () => {
@@ -264,23 +265,21 @@ test('OB-199 §5.2 batch — 10 rows, 1 out-of-range; all 10 persist + 1 observa
   assert.strictEqual(obsValue.actual_value, 1.5);
 });
 
-test('OB-199 §5.3 batch — unregistered signal_type in batch throws synchronously (atomic)', async () => {
+test('HF-219 open-vocabulary batch — novel signal_types in batch all persist (no registration gate)', async () => {
+  // Per HF-219 Disposition 5: batch insert proceeds regardless of signal_type vocabulary.
+  // Pre-HF-219 a novel signal_type in batch would throw and prevent ALL writes (atomic).
+  // Post-HF-219 the batch inserts all rows; open-vocabulary contract.
   const { client, calls } = makeMockClient();
   const signals: CanonicalSignalInput[] = [
     { tenantId: 't1', signalType: 'comprehension:plan_interpretation', confidence: 0.9 },
-    { tenantId: 't1', signalType: 'invalid:not_in_registry', confidence: 0.9 },
+    { tenantId: 't1', signalType: 'novel:emergent_pattern_in_batch', confidence: 0.9 },
     { tenantId: 't1', signalType: 'comprehension:plan_interpretation', confidence: 0.9 },
   ];
-  await assert.rejects(
-    () => writeSignalBatchWithClient(signals, client),
-    (err: unknown) => {
-      assert.ok(err instanceof CanonicalWriteError);
-      assert.strictEqual((err as CanonicalWriteError).cause, 'unregistered_signal_type');
-      return true;
-    },
-  );
-  // Atomic: zero rows persisted
-  assert.strictEqual(calls.length, 0, 'unregistered identifier prevents any writes (atomic batch)');
+  const result = await writeSignalBatchWithClient(signals, client);
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.count, 3, 'all 3 rows persist (open-vocabulary; AP-26 prevents registry-as-gate)');
+  const originals = calls[0].payload as Array<Record<string, unknown>>;
+  assert.strictEqual(originals[1].signal_type, 'novel:emergent_pattern_in_batch');
 });
 
 test('OB-199 §5.1 column collapse — dedicated columns and JSONB columns both persisted', async () => {
