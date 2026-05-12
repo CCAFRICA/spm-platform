@@ -2078,7 +2078,7 @@ async function generateAllComponentBindings(
       const candidateScores: CandidateScore[] = [];
 
       for (const [colName, fi] of idEntries) {
-        let distinctValues = new Set<string>();
+        const distinctValues = new Set<string>();
         let totalRows = 0;
         if (supabase && cap.batchIds.length > 0) {
           const PAGE_SIZE = 1000;
