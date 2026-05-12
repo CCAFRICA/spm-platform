@@ -16,10 +16,7 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
-  evaluateComponent,
   aggregateMetrics,
-  buildMetricsForComponent,
-  applyMetricDerivations,
   getExpectedMetricNames,
   type ComponentResult,
   type AIContextSheet,
@@ -100,8 +97,8 @@ export async function POST(request: NextRequest) {
 
   // HF-208: Reconciliation summary counters. Incremented at existing emission sites;
   // surfaced in the [CalcRecon] summary block at handler exit. See HF-208 directive §3.
+  // HF-220 R2: ob118MergeGuardFiredCount retired (merge-guard removed; counter vestigial).
   let diag003FallbackCount = 0;
-  let ob118MergeGuardFiredCount = 0;
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
 
   // HF-210: Cap route.ts [CalcTrace] emissions at first N entities for log visibility.
@@ -1511,8 +1508,6 @@ export async function POST(request: NextRequest) {
   }> = [];
 
   let grandTotal = 0;
-  let intentMatchCount = 0;
-  let intentMismatchCount = 0;
 
   // HF-119: Token overlap variant matching — build token sets once before entity loop
   const variantTokenize = (text: string): string[] =>
@@ -1673,7 +1668,6 @@ export async function POST(request: NextRequest) {
 
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
-    const entitySheetData = dataByEntity.get(entityId) || new Map();
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
     // HF-212: Per-entity component breakdown. Cleared per iteration.
@@ -1696,8 +1690,6 @@ export async function POST(request: NextRequest) {
       }
       if (entityStoreId !== undefined) break;
     }
-
-    const entityStoreData = entityStoreId !== undefined ? storeData.get(entityStoreId) : undefined;
 
     // HF-119: Token overlap variant matching — cross-language, structural
     let selectedComponents = defaultComponents;
@@ -1789,47 +1781,17 @@ export async function POST(request: NextRequest) {
     const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
     variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
 
-    // ── OB-118: Derive metrics once per entity from loaded data ──
-    // OB-121: Pass prior period data for delta derivations
-    // OB-146: Merge entity + store data for derivation so store-level metrics
-    // (e.g., new_customers from clientes_nuevos, collections from cobranza)
-    // can be derived. Store data has entity_id IS NULL but derivation rules
-    // match by sheet name pattern, which is source-agnostic.
-    const entityPriorData = priorDataByEntity.get(entityId);
-    let derivationInput = entitySheetData;
-    if (entityStoreData && entityStoreData.size > 0) {
-      derivationInput = new Map(entitySheetData);
-      for (const [sheetName, rows] of Array.from(entityStoreData.entries())) {
-        if (!derivationInput.has(sheetName)) {
-          derivationInput.set(sheetName, rows);
-        } else {
-          // OB-148: Append store rows even when entity has same sheet name.
-          // Store data may have fields (e.g., Real_Venta_Tienda, Meta_Venta_Tienda)
-          // not present in entity rows. The derivation sum/ratio operations
-          // only aggregate fields that exist, so mixing is safe.
-          derivationInput.set(sheetName, [...derivationInput.get(sheetName)!, ...rows]);
-        }
-      }
-    }
-    const derivedMetrics = metricDerivations.length > 0
-      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
-      : {};
-
-    // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
-    if (entityResults.length === 0) {
-      addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
-    }
     const componentResults: ComponentResult[] = [];
-    let legacyTotalDecimal = ZERO;
     const perComponentMetrics: Record<string, number>[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
     for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
       const component = selectedComponents[compIdx];
 
-      // HF-108: Convergence binding resolution (Decision 111) — PRIMARY path
-      // Convergence bindings tell us exactly which batch + column has each input.
-      // Old sheet-matching path (buildMetricsForComponent) is FALLBACK for pre-OB-162 data.
+      // HF-108: Convergence binding resolution (Decision 111) — sole metrics authority
+      // post-HF-220. Convergence bindings tell us exactly which batch + column has each
+      // input; absence or empty-resolver-output emits engine:exception observability +
+      // metrics = {} (Decision 153 atomic cutover completion).
       const compBindingKey = `component_${compIdx}`;
       const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
       let metrics: Record<string, number>;
@@ -2190,23 +2152,33 @@ export async function POST(request: NextRequest) {
             ruleSetId,
             context: { trigger: 'engine_fallback', binding_role: 'entity_identifier' },
           }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
-          const entityStoreAgg = entityStoreId !== undefined
-            ? perStoreEntitySheetAgg.get(String(entityStoreId))
-            : undefined;
-          metrics = buildMetricsForComponent(
-            component, entitySheetData, entityStoreData,
-            aiContextSheets, entityStoreAgg, metricMappings
-          );
+          // HF-220 R1 / ADR Decision 2: legacy buildMetricsForComponent fallback retired
+          // (Decision 153 atomic cutover completion). Component evaluates to zero per
+          // existing refuse-with-empty-metrics semantics; HF-218 Component 4a signal
+          // above preserves observability.
+          metrics = {};
         }
       } else {
-        // FALLBACK: Old sheet-matching path (no convergence bindings for this component)
-        const entityStoreAgg = entityStoreId !== undefined
-          ? perStoreEntitySheetAgg.get(String(entityStoreId))
-          : undefined;
-        metrics = buildMetricsForComponent(
-          component, entitySheetData, entityStoreData,
-          aiContextSheets, entityStoreAgg, metricMappings
-        );
+        // HF-220 R1 / ADR Decision 2: no convergence_bindings for this component.
+        // Emit engine:exception signal for observability (HF-218 Component 4a pattern);
+        // metrics = {} → component evaluates to zero per Decision 153 atomic cutover
+        // completion. Legacy sheet-matching path retired.
+        writeSignal({
+          tenantId,
+          signalType: 'engine:exception',
+          signalValue: {
+            entity_external_id: entityInfo?.external_id ?? null,
+            component_index: compIdx,
+            component_name: component.name,
+            type: 'no_convergence_bindings_for_component',
+          },
+          confidence: 0,
+          source: 'system',
+          calculationRunId,
+          ruleSetId,
+          context: { trigger: 'engine_no_bindings' },
+        }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
+        metrics = {};
       }
 
       // Log which path was taken (first entity only, to avoid flooding)
@@ -2214,39 +2186,9 @@ export async function POST(request: NextRequest) {
         addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
       }
 
-      // OB-118 / HF-206: Convergence-resolved metrics are authoritative (Decision 111 /
-      // Decision 153 atomic cutover completion). Derivation fills gaps only — a metric
-      // resolved by convergence cannot be overwritten by Pass 4 derivation output.
-      // IRA HF-206 (2026-05-06, $1.671075; ira_request_hash cfcef09e02e70710dbd5e523b1eb4ef27aedf50ccb6776ed75784c8963d9bb43)
-      // recommended Shape A as minimum-viable coherence restoration.
-      for (const [key, value] of Object.entries(derivedMetrics)) {
-        if (!(key in metrics)) {
-          metrics[key] = value;  // derivation fills gaps only; convergence values preserved
-        } else {
-          ob118MergeGuardFiredCount++;  // HF-208: track guard firings (convergence preserved over derivation)
-          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
-          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=ob118MergeGuardFired existingKey=${key} preserved=convergence`);
-          currentEntityFlags.push('ob118MergeGuardFired');
-          // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
-          writeSignal({
-            tenantId,
-            signalType: 'engine:exception',
-            signalValue: {
-              entity_external_id: entityInfo?.external_id ?? null,
-              component_index: compIdx,
-              component_name: component.name,
-              type: 'ob118MergeGuardFired',
-              existing_key: key,
-              preserved: 'convergence',
-            },
-            confidence: 0,
-            source: 'system',
-            calculationRunId,
-            ruleSetId,
-            context: { trigger: 'engine_merge_guard', metric_key: key },
-          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
-        }
-      }
+      // HF-220 R2 / ADR Decision 1: OB-118 merge-guard retired. With legacy derivation
+      // path removed in R1, convergence binding resolution is the single populator of
+      // metrics[key]; no merge required, no guard fires possible.
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
       // Compare metric values against the component's band ranges (from the plan spec).
       // If value is in decimal range (0-2) but the band expects percentage range (max > 10),
@@ -2306,29 +2248,23 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-      const result = evaluateComponent(component, metrics);
-
-      // HF-122: Per-component rounding (Decision 122).
-      // OB-196 Phase 2: legacy SHAPE fields removed; precision derives from foundational
-      // intent only.
-      const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(componentIntent, undefined);
-
-      const { rounded, trace: roundingTrace } = roundComponentOutput(
-        result.payout, compIdx, component.name, precision
-      );
-      result.payout = toNumber(rounded);
-      entityRoundingTraces.push(roundingTrace);
-
-      componentResults.push(result);
+      // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding
+      // retired. Intent executor (below) is sole authority for component payout +
+      // rounding; this loop's residual responsibility is to populate perComponentMetrics
+      // (HF-205 Shape C invariant target) and seed ComponentResult slots with metadata.
+      // Intent executor overwrites placeholder.payout at the index-assignment site.
+      componentResults.push({
+        componentId: component.id,
+        componentName: component.name,
+        componentType: component.componentType,
+        payout: 0,
+        metricValues: metrics,
+        details: {},
+      });
       perComponentMetrics.push(metrics);
-      legacyTotalDecimal = legacyTotalDecimal.plus(rounded);
     }
 
-    // HF-188: Legacy total preserved for concordance comparison only
-    const legacyTotal = toNumber(legacyTotalDecimal);
-
-    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
+    // ── INTENT ENGINE PATH (authoritative — Decision 151 sole authority) ──
     // HF-119: Use selected variant's intents, not always defaultComponents
     const entityIntents = selectedVariantIndex === 0
       ? componentIntents
@@ -2412,7 +2348,7 @@ export async function POST(request: NextRequest) {
     if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
     if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
-    // HF-188: Intent executor is sole authority. Rounding applied here.
+    // Intent executor is sole authority (Decision 151). Rounding applied here.
     let intentTotalDecimal = ZERO;
     if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
       bufferTrace(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
@@ -2447,7 +2383,7 @@ export async function POST(request: NextRequest) {
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
 
-      // HF-188: Apply Decision 122 rounding to intent executor results
+      // Apply Decision 122 rounding to intent executor results
       const comp = selectedComponents[ci.componentIndex];
       const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
       const precision = inferOutputPrecision(compIntent, undefined);
@@ -2485,17 +2421,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // HF-188: Intent executor is authoritative — legacy is concordance shadow
     const intentTotal = toNumber(intentTotalDecimal);
     const entityTotal = intentTotal;
-
-    // ── DUAL-PATH COMPARISON ──
-    const entityMatch = Math.abs(legacyTotal - intentTotal) < 0.01;
-    if (entityMatch) {
-      intentMatchCount++;
-    } else {
-      intentMismatchCount++;
-    }
 
     // ── SYNAPTIC: Write per-component confidence synapses ──
     for (let ci = 0; ci < componentIntents.length; ci++) {
@@ -2552,8 +2479,6 @@ export async function POST(request: NextRequest) {
         externalId: entityInfo?.external_id ?? '',
         intentTraces,
         intentTotal,
-        legacyTotal,
-        intentMatch: entityMatch,
         roundingTrace: {
           rawTotal: entityRoundingTraces.reduce((s, t) => s + t.rawValue, 0),
           roundedTotal: entityTotal,
@@ -2579,8 +2504,7 @@ export async function POST(request: NextRequest) {
 
     // Only log first 20 and last 5 entities to avoid log flooding at scale
     if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
-      const matchLabel = entityMatch ? '✓' : '✗';
-      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} | intent=${intentTotal.toLocaleString()} ${matchLabel}`);
+      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()}`);
     } else if (entityResults.length === 21) {
       addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
     }
@@ -2598,9 +2522,6 @@ export async function POST(request: NextRequest) {
       addLog(`[CalcRecon-T2] ${t2ExternalId} | ${t2EntityName} | variant=${variantKey} | total=${entityTotal} | components=[${t2Breakdown}] | flags=[${currentEntityFlags.join(',')}]`);
     }
   }
-
-  const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
-  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
@@ -2663,36 +2584,6 @@ export async function POST(request: NextRequest) {
       });
     }
   }
-
-  // ── OB-77 + OB-199 Phase 4: Training signal — dual-path concordance (canonical writer) ──
-  writeSignal({
-    tenantId,
-    signalType: 'convergence:dual_path_concordance',
-    signalValue: {
-      matchCount: intentMatchCount,
-      mismatchCount: intentMismatchCount,
-      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
-      entityCount: calculationEntityIds.length,
-      componentCount: defaultComponents.length,
-      intentsTransformed: componentIntents.length,
-      totalPayout: grandTotal,
-      ruleSetId,
-      periodId,
-    },
-    // concordanceRate is in percentage (0–100); divide for Decision 30 v2 inclusive [0, 1].
-    confidence: concordanceRate / 100,
-    source: 'ai_prediction',
-    context: {
-      ruleSetName: ruleSet.name,
-      trigger: 'calculation_run',
-    },
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
-    if (err instanceof CanonicalWriteError) {
-      console.warn(`[CalcAPI] Dual-path concordance signal CanonicalWriteError (${err.cause}): ${err.message}`);
-    } else {
-      console.warn('[CalcAPI] Dual-path concordance signal unexpected error:', err instanceof Error ? err.message : String(err));
-    }
-  });
 
   // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
   const { error: cleanupErr } = await supabase
@@ -2761,9 +2652,6 @@ export async function POST(request: NextRequest) {
         component_count: defaultComponents.length,
         rule_set_name: ruleSet.name,
         intentLayer: {
-          matchCount: intentMatchCount,
-          mismatchCount: intentMismatchCount,
-          concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
           intentsTransformed: componentIntents.length,
         },
         synaptic: {
@@ -2797,7 +2685,6 @@ export async function POST(request: NextRequest) {
       avgOutcome: entityResults.length > 0 ? grandTotal / entityResults.length : 0,
       medianOutcome,
       zeroOutcomeCount: zeroCount,
-      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
       topEntities: entityResults
         .sort((a, b) => b.total_payout - a.total_payout)
         .slice(0, 5)
@@ -2899,8 +2786,10 @@ export async function POST(request: NextRequest) {
   }
 
   // ── OB-83: Domain Agent dispatch — score result through IAP ──
+  // HF-220 R3: concordance rate retired (Decision 151 sole authority); IAP confidence
+  // proxy now derives from synaptic activity rather than dual-path concordance.
   const producedLearning = densityUpdates.length > 0 || signalBatch.length > 0;
-  const avgConfidence = concordanceRate / 100; // concordance rate as 0-1 confidence
+  const avgConfidence = producedLearning ? 1.0 : 0.0;
   const dispatchResult = scoreCalculationResult(
     dispatchContext,
     negotiationRequest.requestId,
@@ -2956,7 +2845,7 @@ export async function POST(request: NextRequest) {
   const t1SortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
   const t1ComponentSummary = t1SortedComponents.map(([idx, info]) => `c${idx}:${info.total}`).join(' | ');
   addLog(`[CalcRecon-T1] componentTotals=[${t1ComponentSummary}]`);
-  addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount} ob118MergeGuardFired:${ob118MergeGuardFiredCount}/${t1FooterTotalLookups}}`);
+  addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount}}`);
   const t1VariantBreakdown = Array.from(variantCounts.entries()).map(([k, v]) => `${k}:${v}`).join(' | ');
   addLog(`[CalcRecon-T1] variantDistribution={${t1VariantBreakdown}}`);
   addLog(`[CalcRecon-T1] ╔═══════════════════════════════════════════════════════════════╗`);
@@ -3015,9 +2904,6 @@ export async function POST(request: NextRequest) {
     excludedCount: excludedEntities.length,
     totalPayout: grandTotal,
     intentLayer: {
-      matchCount: intentMatchCount,
-      mismatchCount: intentMismatchCount,
-      concordance: `${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}%`,
       intentsTransformed: componentIntents.length,
     },
     synaptic: {
