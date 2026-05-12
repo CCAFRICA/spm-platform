@@ -790,3 +790,278 @@ CC note (verbatim, not classification): this surface lives in the SCI agent clas
 
 `import/commit/route.ts:518` — single-file site, also in pre-convergence ingestion. Not consumed by convergence binding-selection.
 
+---
+
+## Phase 3 — Intent modifier execution (cap-slot mechanics)
+
+### Phase 3.1 — File inventory
+
+```
+$ find web/src/lib/ -name "intent-executor*.ts" -o -name "intent-execution*.ts"
+web/src/lib/calculation/intent-executor.ts
+
+$ wc -l web/src/lib/calculation/intent-executor.ts
+707
+```
+
+Top-level function inventory (verbatim grep):
+
+```
+68:function resolveSource(
+159:function resolveValue(
+186:export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+215:function executeBoundedLookup1D(
+257:function executeBoundedLookup2D(
+299:function executeScalarMultiply(
+312:function executeConditionalGate(
+336:function executeAggregateOp(
+344:function executeRatioOp(
+357:function executeConstantOp(op: ConstantOp): Decimal {
+365:function executeWeightedBlend(
+399:function executeTemporalWindow(
+486:export function executeOperation(
+520:function executeLinearFunction(
+535:function executePiecewiseLinear(
+572:function applyModifiers(
+584:      case 'cap': {
+617:export function executeIntent(
+683:  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+```
+
+### Phase 3.2 — `executeIntent` function body (verbatim, lines 617–686)
+
+```typescript
+export function executeIntent(
+  intent: ComponentIntent,
+  entityData: EntityData
+): ExecutionResult {
+  const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+  const modifierLog: Array<{ modifier: string; before: number; after: number }> = [];
+  // OB-196 Phase 3 (E4): trace carries foundational primitive identifier directly.
+  // Top-level operation is intent.intent.operation; variant-routed primitives carry
+  // identifier on the matched route's intent.operation, but the outer-shape op is
+  // the foundational primitive that defines the component.
+  const outerOp =
+    (intent.intent && (intent.intent as { operation?: string }).operation) ||
+    (intent.variants?.routes?.[0]?.intent && (intent.variants.routes[0].intent as { operation?: string }).operation) ||
+    'unknown';
+  const trace: Partial<ExecutionTrace> = {
+    entityId: entityData.entityId,
+    componentIndex: intent.componentIndex,
+    componentType: outerOp,
+    confidence: intent.confidence,
+  };
+
+  let outcome = ZERO;
+
+  // 1. Resolve variant routing (if present)
+  if (intent.variants) {
+    const routing = intent.variants;
+    const attrSrc = routing.routingAttribute;
+
+    // For entity_attribute source, resolve as string for matching
+    let attrValue: string | number | boolean = '';
+    if (attrSrc.source === 'entity_attribute') {
+      attrValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
+    } else {
+      attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
+    }
+
+    const matchedRoute = routing.routes.find(r => String(r.matchValue) === String(attrValue));
+
+    if (matchedRoute) {
+      trace.variantRoute = {
+        attribute: attrSrc.source === 'entity_attribute' ? attrSrc.sourceSpec.attribute : 'resolved',
+        value: attrValue,
+        matched: String(matchedRoute.matchValue),
+      };
+      outcome = executeOperation(matchedRoute.intent, entityData, inputLog, trace);
+    } else {
+      switch (routing.noMatchBehavior) {
+        case 'first':
+          if (routing.routes.length > 0) {
+            outcome = executeOperation(routing.routes[0].intent, entityData, inputLog, trace);
+          }
+          break;
+        case 'skip':
+          outcome = ZERO;
+          break;
+        case 'error':
+          outcome = ZERO;
+          break;
+      }
+    }
+  } else if (intent.intent) {
+    // 2. Execute single operation (no variants)
+    outcome = executeOperation(intent.intent, entityData, inputLog, trace);
+  }
+
+  // 3. Apply modifiers
+  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+
+  // 4. Convert to native number at output boundary (Decision 122)
+```
+
+CC note (verbatim, not classification): `applyModifiers` at line 683 is called on the **outcome** of executeOperation (line 661, 666, or 679). The argument passed is the post-multiply Decimal value. No code path applies modifiers to operation inputs.
+
+### Phase 3.3 — `applyModifiers` function body (verbatim, lines 572–610)
+
+```typescript
+function applyModifiers(
+  value: Decimal,
+  modifiers: IntentModifier[],
+  data: EntityData,
+  modifierLog: Array<{ modifier: string; before: number; after: number }>
+): Decimal {
+  let result = value;
+
+  for (const mod of modifiers) {
+    const before = toNumber(result);
+
+    switch (mod.modifier) {
+      case 'cap': {
+        const cap = toDecimal(mod.maxValue);
+        result = result.gt(cap) ? cap : result;
+        break;
+      }
+      case 'floor': {
+        const floor = toDecimal(mod.minValue);
+        result = result.lt(floor) ? floor : result;
+        break;
+      }
+      case 'proration': {
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const num = resolveSource(mod.numerator, data, inputLog);
+        const den = resolveSource(mod.denominator, data, inputLog);
+        result = den.isZero() ? ZERO : result.mul(num.div(den));
+        break;
+      }
+      case 'temporal_adjustment':
+        // Temporal adjustment requires historical data — not applied in single-period execution
+        break;
+    }
+
+    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
+  }
+
+  return result;
+}
+```
+
+CC note (verbatim, not classification): the dispatch switch tests `mod.modifier` (not `mod.type`). Four cases: `cap`, `floor`, `proration`, `temporal_adjustment`. No `applyTo` field tested. The function signature accepts a single `value: Decimal` (one scalar in), one Decimal out.
+
+### Phase 3.4 — Cap modifier dispatch (verbatim, lines 583–588)
+
+```typescript
+switch (mod.modifier) {
+  case 'cap': {
+    const cap = toDecimal(mod.maxValue);
+    result = result.gt(cap) ? cap : result;
+    break;
+  }
+```
+
+Cap is a strictly post-execute clamp: if `result > maxValue`, set `result = maxValue`. No conditional, no scope distinction, no input-pre-multiply application.
+
+### Phase 3.5 — Modifier application sequence (input vs outcome)
+
+`executeIntent` step-3 (verbatim, line 682–683):
+
+```typescript
+  // 3. Apply modifiers
+  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+```
+
+The `outcome` variable holds the executeOperation return value (scalar Decimal). For Meridian c4 Senior:
+- `executeScalarMultiply` (line 299–310) computes `inputValue.mul(rateValue)` where `inputValue` is the ratio result (`executeRatioOp` numerator/denominator) and `rateValue` is `800`. Output: ratio × 800.
+- The output is then passed to `applyModifiers`, which dispatches `cap` at line 584 against the post-multiply value.
+
+No code path calls `applyModifiers` on operation inputs.
+
+### Phase 3.6 — Existing input-scoped modifier path scan
+
+```
+grep -rn "applyTo.*input|applyTo.*outcome|input.*modifier|modifier.*input" web/src/lib/ --include="*.ts"
+```
+
+Output (verbatim — 1 match, unrelated):
+
+```
+web/src/lib/calculation/primitive-registry.ts:195:    allowedKeys: ['operation', 'input', 'slope', 'intercept', 'modifiers'],
+```
+
+This is a primitive-registry `allowedKeys` declaration for a `linear_function` primitive (input + modifiers are sibling keys). No `applyTo` field exists. No input-scoped modifier path exists.
+
+### Phase 3.7 — Existing conditional / min primitives
+
+```
+grep -n "conditional_gate|conditional.*operation|min\(|Math.min" web/src/lib/calculation/intent-executor.ts
+496:    case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
+```
+
+`conditional_gate` exists as a top-level primitive (function `executeConditionalGate` at line 312, verbatim):
+
+```typescript
+function executeConditionalGate(
+  op: ConditionalGate,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const leftVal = resolveSource(op.condition.left, data, inputLog);
+  const rightVal = resolveSource(op.condition.right, data, inputLog);
+
+  let conditionMet = false;
+  switch (op.condition.operator) {
+    case '>=': conditionMet = leftVal.gte(rightVal); break;
+    case '>':  conditionMet = leftVal.gt(rightVal);  break;
+    case '<=': conditionMet = leftVal.lte(rightVal); break;
+    case '<':  conditionMet = leftVal.lt(rightVal);  break;
+    case '=':  // AI plan interpreter produces single-equals for equality
+    case '==': conditionMet = leftVal.eq(rightVal);  break;
+    case '!=': conditionMet = !leftVal.eq(rightVal); break;
+  }
+
+  const branch = conditionMet ? op.onTrue : op.onFalse;
+  return executeOperation(branch, data, inputLog, trace);
+}
+```
+
+`conditional_gate` supports `>=`, `>`, `<=`, `<`, `=`, `==`, `!=` operators with arbitrary left/right sources, and branches between two sub-operations. No `Math.min` or `min(` site found in intent-executor.ts.
+
+`executeRatioOp` (line 344–355):
+
+```typescript
+function executeRatioOp(
+  op: RatioOp,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
+): Decimal {
+  const num = resolveSource(op.numerator, data, inputLog);
+  const den = resolveSource(op.denominator, data, inputLog);
+  if (den.isZero()) {
+    return ZERO;
+  }
+  return num.div(den);
+}
+```
+
+`executeScalarMultiply` (line 299–310):
+
+```typescript
+function executeScalarMultiply(
+  op: ScalarMultiply,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
+  const rateValue = typeof op.rate === 'number'
+    ? toDecimal(op.rate)
+    : resolveValue(op.rate, data, inputLog, trace);
+  return inputValue.mul(rateValue);
+}
+```
+
+CC note (verbatim, not classification): `op.input` is resolved via `resolveValue` which (per Phase 3.5 declared inputs) accepts a source spec OR a nested `IntentOperation`. So `op.input` can itself be a `conditional_gate` or any other primitive operation. This means a transformation that rewrites `{input: ratio, modifiers: [{cap, maxValue: 1.5}]}` into `{input: conditional_gate{ratio < 1.5 → ratio, ELSE 1.5}}` is structurally expressible using existing primitives.
+
