@@ -617,3 +617,297 @@ Gap consumer surfaces (operative):
   - NOT user-notification-triggering
 ```
 
+---
+
+## Section 3 — Engine Consumption Contract (operative documentation)
+
+### Section 3.1 — Engine operative inputs
+
+**Engine entry** (`web/src/app/api/calculation/run/route.ts:66`):
+
+```typescript
+export async function POST(request: NextRequest) {
+```
+
+Input body (line 67-68): `{ tenantId, periodId, ruleSetId }`.
+
+**Database read sites (verbatim grep):**
+
+```
+176:    .from('rule_sets')                       — primary rule_set fetch (line 176-179)
+250-258: .from('rule_sets')                     — convergence-result write + re-read on calc-time convergence
+294:    .from('rule_sets')                       — assignment-related lookup
+375, 429: .from('entities')                     — entity fetches (calculation roster)
+442, 461: .from('periods')                      — period fetch + lookback
+486, 515, 539, 748, 774, 1004: .from('committed_data')  — primary data fetches
+732, 1434: .from('periods')                     — period reads in lookback
+1446: .from('entities')                          — entity refresh
+```
+
+**`convergenceBindings` read site (verbatim, line 282-284):**
+
+```typescript
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  let metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+```
+
+And (verbatim, line 320-330, ruleSet.input_bindings.convergence_bindings access):
+
+```typescript
+  const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+  …
+```
+
+Engine consumes `convergenceBindings` from `rule_sets.input_bindings.convergence_bindings`. If empty, engine invokes `convergeBindings` at calc-time (line 230, per Section 2.2 persistence trace).
+
+### Section 3.2 — Engine operative assumptions (checked vs unchecked)
+
+**Check — early validation on POST body (lines 70-74, verbatim):**
+
+```typescript
+  if (!tenantId || !periodId || !ruleSetId) {
+    return NextResponse.json(
+      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+      { status: 400 }
+    );
+  }
+```
+
+Action: refusal with HTTP 400 if any of the three required IDs is missing.
+
+**Check — ruleSet must exist** (lines 176-184; ruleSet fetched and downstream checked at line 182):
+
+```typescript
+  const { data: ruleSet, error: rsErr } = await supabase
+    .from('rule_sets')
+    .select('id, name, components, input_bindings, population_config, metadata')
+    .eq('id', ruleSetId)
+    .single();
+  …
+  if (!ruleSet) {
+    return NextResponse.json(
+      { error: 'Rule set not found' },
+      { status: 404 }
+    );
+  }
+```
+
+Action: refusal with HTTP 404 if rule_set absent.
+
+**Check — period must exist** (similar pattern at line 442-448; HTTP 404 on absence).
+
+**`usedConvergenceBindings` flip site (verbatim, line 1717-1745):**
+
+```typescript
+      let usedConvergenceBindings = false;
+
+      if (compBindings && dataByBatch.size > 0) {
+        const cbMetrics = resolveMetricsFromConvergenceBindings(
+          compBindings, component, entityInfo?.external_id ?? '', compIdx
+        );
+        if (cbMetrics && Object.keys(cbMetrics).length > 0) {
+          metrics = cbMetrics;
+          usedConvergenceBindings = true;
+        } else {
+          // Convergence binding resolution returned nothing — fall back
+          const entityStoreAgg = entityStoreId !== undefined
+            ? perStoreEntitySheetAgg.get(String(entityStoreId))
+            : undefined;
+          metrics = buildMetricsForComponent(
+            component, entitySheetData, entityStoreData,
+            aiContextSheets, entityStoreAgg, metricMappings
+          );
+        }
+      } else {
+        // FALLBACK: Old sheet-matching path (no convergence bindings for this component)
+        const entityStoreAgg = entityStoreId !== undefined
+          ? perStoreEntitySheetAgg.get(String(entityStoreId))
+          : undefined;
+        metrics = buildMetricsForComponent(
+          component, entitySheetData, entityStoreData,
+          aiContextSheets, entityStoreAgg, metricMappings
+        );
+      }
+```
+
+CC note (verbatim, not classification): when `cbMetrics` resolves to null OR empty object, the engine silently falls through to `buildMetricsForComponent` + `metricDerivations`. The fallback is logged at line 1749 only for `entityResults.length === 0 && compIdx === 0` (one log line per calculation, not per fallback). No signal is written to `classification_signals` on the silent fall-through.
+
+**OB-118 merge guard (verbatim, line 1757-1766):**
+
+```typescript
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        if (!(key in metrics)) {
+          metrics[key] = value;  // derivation fills gaps only; convergence values preserved
+        } else {
+          ob118MergeGuardFiredCount++;  // HF-208: track guard firings (convergence preserved over derivation)
+          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
+          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=ob118MergeGuardFired existingKey=${key} preserved=convergence`);
+          currentEntityFlags.push('ob118MergeGuardFired');
+        }
+      }
+```
+
+Implicit assumption encoded by the guard: convergence-resolved metrics are authoritative; derivation rules fill gaps only. Per Decision 111 / Decision 153 atomic cutover (cited at line 1752-1756).
+
+**Unchecked assumptions (CC notes structurally evident from code, not classification):**
+
+- engine does NOT verify `convergence_bindings.entity_identifier.column` values exist as keys in tenant entities table
+- engine does NOT verify cardinality of `dataByBatch` cache matches expected tenant entity count
+- engine does NOT verify `compBindings` cover all components in the rule_set (silent fall-through if missing)
+- engine does NOT verify metric value plausibility (e.g., ratio output in [0, 10] range) before passing to intent-executor
+- engine treats `cbMetrics === null` as "fall back silently" rather than as a structural exception requiring user surface
+
+### Section 3.3 — Engine operative signal emission
+
+**`writeSignal` call sites in `route.ts` (verbatim grep):**
+
+```
+38:import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+2138:      writeSignal({         — synaptic consolidation signals (lifecycle:synaptic_consolidation)
+2155:  writeSignal({              — convergence:dual_path_concordance training signal
+```
+
+**Synaptic consolidation emit (line 2138-2151, verbatim):**
+
+```typescript
+  if (signalBatch.length > 0) {
+    for (const signal of signalBatch) {
+      writeSignal({
+        tenantId,
+        signalType: (signal.signalType as string) ?? 'lifecycle:synaptic_consolidation',
+        signalValue: (signal.signalValue as Record<string, unknown>) ?? {},
+        source: 'ai_prediction',
+        context: { trigger: 'synaptic_consolidation', batchId: undefined },
+      }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
+        …
+      });
+    }
+  }
+```
+
+**Concordance signal emit (line 2155-2165, verbatim):**
+
+```typescript
+  writeSignal({
+    tenantId,
+    signalType: 'convergence:dual_path_concordance',
+    signalValue: {
+      matchCount: intentMatchCount,
+      mismatchCount: intentMismatchCount,
+      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
+      entityCount: calculationEntityIds.length,
+      componentCount: defaultComponents.length,
+      intentsTransformed: componentIntents.length,
+```
+
+**Log-only emit sites (`[CalcRecon-T1/T2/T3]`):**
+
+```
+1334: [CalcRecon-T3] EXCEPTION entity=… type=diag003Fallback batchId=… column=…
+1542-1553: [CalcRecon-T1] header lines (calculation run start)
+1763: [CalcRecon-T3] EXCEPTION entity=… component=… type=ob118MergeGuardFired existingKey=… preserved=convergence
+2085: [CalcRecon-T2] external_id | name | variant=… | total=… | components=[…] | flags=[…]
+2417: [CalcRecon-T3] EXCEPTION component=… role=… type=boundaryFallback
+2426-2433: [CalcRecon-T1] footer lines (entitiesCalculated, grandTotal, componentTotals, flags, variantDistribution)
+```
+
+CC note (verbatim, not classification): the engine writes 2 signal types to `classification_signals` table — `lifecycle:synaptic_consolidation` and `convergence:dual_path_concordance` — both written at end-of-calculation, NOT per-entity or per-component. The `[CalcRecon-T1/T2/T3]` exception emissions are LOG-ONLY (`addLog` → `log: string[]` array + `console.log`), not persisted to `classification_signals`.
+
+When `usedConvergenceBindings` flips to false (silent fall-through at line 1745), NO signal is written. The fallback is observable only via the single `addLog` line at line 1749 (one log per calculation, not one log per fallback).
+
+### Section 3.4 — Engine operative refusal-vs-result paths
+
+**Refusal paths (HTTP non-200 returns, throw, or abort):**
+
+```
+70-74: HTTP 400 — missing tenantId/periodId/ruleSetId
+182:   HTTP 404 — rule_set not found
+210:   HTTP <error> — (read context for full reason)
+353:   HTTP <error>
+412:   HTTP <error>
+448:   HTTP <error> — period not found
+1100:  HTTP <error>
+1142:  throw new Error(…)
+1945:  throw new Error(…)
+2193:  HTTP <error>
+2227:  HTTP <error>
+2483:  HTTP 200 — success (line 2483 return)
+```
+
+**Skip-with-result paths (proceed with zero/partial result, no error):**
+
+```
+1537-1700: excludedEntities — entity has no qualifying variant; logged but calculation continues for other entities
+1654-1657: console.log(`[VARIANT] … NO MATCH — excluded`)
+1717-1745: usedConvergenceBindings = false fallback — convergence resolution returns null, engine silently uses sheet-matching fallback
+2096-2101: addLog excluded entity summary at calculation end (NOT user-facing error)
+```
+
+**Bright-line "structural exception vs data anomaly" documentation in code:** CC searched for explicit dichotomy markers (e.g., comments or code paths that name "binding invalid vs data missing"). Grep evidence:
+
+```
+$ grep -n "structural exception|data anomaly|binding invalid|invalid binding" \
+    web/src/app/api/calculation/run/route.ts
+(empty — zero matches)
+```
+
+CC note (verbatim, not classification): no code path or comment in `route.ts` explicitly distinguishes "binding is invalid; refuse to calculate" from "binding is valid but data is missing; produce zero with logged exception". The silent fall-through at line 1717-1745 treats `cbMetrics === null` (a possible-binding-invalid signal) as equivalent to "missing convergence binding entirely" (which routes to sheet-matching fallback). Both produce a result; neither produces a refusal.
+
+### Section 3.5 — Engine contract operative summary
+
+```
+Engine operative inputs:
+  - POST body: { tenantId, periodId, ruleSetId } — required, validated at handler entry
+  - rule_sets (incl. components + input_bindings.convergence_bindings + input_bindings.metric_derivations)
+  - periods (selected + lookback)
+  - entities (calculation roster + refresh)
+  - committed_data (paginated reads; filtered by source_date when period_id is null per OB-152)
+  - convergenceBindings from rule_sets.input_bindings.convergence_bindings (calc-time-generated if absent)
+
+Engine operative assumptions (checked):
+  - tenantId/periodId/ruleSetId non-null at handler entry (HTTP 400 if missing)
+  - rule_set row exists (HTTP 404 if missing)
+  - period row exists (HTTP 404 if missing)
+  - convergence-resolved metrics are authoritative — OB-118 merge guard preserves them over derivation (line 1757-1766)
+
+Engine operative assumptions (unchecked):
+  - convergence_bindings.entity_identifier.column values match tenant entity external_ids — NO check
+  - dataByBatch cache cardinality matches expected entity count — NO check
+  - convergence binding covers all components in rule_set — NO check; silent fall-through if any missing
+  - Resolved metric values within plausible range (e.g., ratio in [0, 10]) — NO check before intent-executor
+  - cbMetrics === null implies binding-invalid (not data-missing) — NO distinguishing logic
+
+Engine signal emission to logs:
+  - [CalcRecon-T1] header/footer (line 1542-1553, 2426-2433)
+  - [CalcRecon-T2] per-entity row (line 2085)
+  - [CalcRecon-T3] EXCEPTION lines (line 1334 diag003Fallback, 1763 ob118MergeGuardFired, 2417 boundaryFallback)
+  - HF-108 resolution path (line 1749) — one log per calculation run
+
+Engine signal emission to classification_signals:
+  - lifecycle:synaptic_consolidation (line 2138, per signal in signalBatch)
+  - convergence:dual_path_concordance (line 2155, one per calculation run)
+  - NO signal written when usedConvergenceBindings flips false
+  - NO signal written on diag003Fallback fire
+  - NO signal written on ob118MergeGuardFired fire
+  - NO signal written on entity exclusion (line 1654)
+  - NO signal written on boundary fallback (line 2417)
+
+Engine refusal paths (HTTP non-200 or throw):
+  - Missing required body fields → 400
+  - Rule_set not found → 404
+  - Period not found → 404
+  - Throw at lines 1142 + 1945 — context-specific (read in surrounding code for trigger)
+
+Engine skip-and-return-zero paths:
+  - Excluded entities (no qualifying variant, line 1655) — proceed with other entities
+  - convergence_bindings resolution returns null — silent fall-through to sheet-matching
+  - Component without binding — silent fall-through to sheet-matching
+
+Bright line "structural exception vs data anomaly":
+  - NOT documented in code (zero grep matches for those phrases)
+  - NOT structurally encoded in the engine's path selection
+  - All non-fatal failures route to skip-and-produce-result; no refusal/halt mechanism for "binding invalid"
+```
+
