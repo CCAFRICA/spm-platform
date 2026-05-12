@@ -178,7 +178,9 @@ export interface CalculationSummary {
   avgOutcome: number;
   medianOutcome: number;
   zeroOutcomeCount: number;
-  concordanceRate: number;
+  // HF-220 R3: concordanceRate retired (Decision 151 sole authority; dual-path concordance
+  // comparison removed). Optional to preserve type back-compat for any caller still passing it.
+  concordanceRate?: number;
   topEntities: Array<{ entityId: string; outcome: number }>;
   bottomEntities: Array<{ entityId: string; outcome: number }>;
 }
@@ -309,21 +311,8 @@ export function generateFullAnalysis(
     }
   }
 
-  // ── Insight: Concordance ──
-  if (summary.concordanceRate < 100) {
-    insights.push({
-      id: 'concordance_gap',
-      category: 'process',
-      severity: summary.concordanceRate < 95 ? 'critical' : 'info',
-      title: 'Dual-path concordance gap',
-      description: `${summary.concordanceRate.toFixed(1)}% concordance between execution paths`,
-      recommendation: summary.concordanceRate < 95
-        ? 'Critical: execution paths diverge significantly — investigate component transformations'
-        : 'Minor concordance gap — monitor in subsequent runs',
-      dataSource: ['calculation_summary.concordanceRate'],
-      confidence: 0.95,
-    });
-  }
+  // HF-220 R3: concordance insight retired (Decision 151 sole authority; intent executor
+  // is sole calculation authority — no second path exists to compare against).
 
   // ── Coaching: Performance distribution ──
   if (summary.bottomEntities.length > 0 && summary.totalOutcome > 0) {

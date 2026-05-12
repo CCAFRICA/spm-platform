@@ -1508,8 +1508,6 @@ export async function POST(request: NextRequest) {
   }> = [];
 
   let grandTotal = 0;
-  let intentMatchCount = 0;
-  let intentMismatchCount = 0;
 
   // HF-119: Token overlap variant matching — build token sets once before entity loop
   const variantTokenize = (text: string): string[] =>
@@ -1786,12 +1784,7 @@ export async function POST(request: NextRequest) {
     const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
     variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
 
-    // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
-    if (entityResults.length === 0) {
-      addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
-    }
     const componentResults: ComponentResult[] = [];
-    let legacyTotalDecimal = ZERO;
     const perComponentMetrics: Record<string, number>[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
@@ -2273,10 +2266,7 @@ export async function POST(request: NextRequest) {
       perComponentMetrics.push(metrics);
     }
 
-    // HF-188: Legacy total preserved for concordance comparison only
-    const legacyTotal = toNumber(legacyTotalDecimal);
-
-    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
+    // ── INTENT ENGINE PATH (authoritative — Decision 151 sole authority) ──
     // HF-119: Use selected variant's intents, not always defaultComponents
     const entityIntents = selectedVariantIndex === 0
       ? componentIntents
@@ -2360,7 +2350,7 @@ export async function POST(request: NextRequest) {
     if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
     if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
-    // HF-188: Intent executor is sole authority. Rounding applied here.
+    // Intent executor is sole authority (Decision 151). Rounding applied here.
     let intentTotalDecimal = ZERO;
     if (shouldEmitTrace(entityInfo?.external_id ?? entityId)) {
       bufferTrace(`[CalcTrace] runCalculation:entity_start entity=${entityInfo?.external_id ?? ''} entityName=${JSON.stringify(entityInfo?.display_name ?? entityId)} | variantSelected=${selectedVariantIndex} | flatDataRowCount=${entityRowsFlat.length} | metricsKeys=[${Object.keys(allEntityMetrics).join(',')}]`);
@@ -2395,7 +2385,7 @@ export async function POST(request: NextRequest) {
       const intentResult = executeIntent(ci, entityData);
       intentTraces.push(intentResult.trace);
 
-      // HF-188: Apply Decision 122 rounding to intent executor results
+      // Apply Decision 122 rounding to intent executor results
       const comp = selectedComponents[ci.componentIndex];
       const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
       const precision = inferOutputPrecision(compIntent, undefined);
@@ -2433,17 +2423,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // HF-188: Intent executor is authoritative — legacy is concordance shadow
     const intentTotal = toNumber(intentTotalDecimal);
     const entityTotal = intentTotal;
-
-    // ── DUAL-PATH COMPARISON ──
-    const entityMatch = Math.abs(legacyTotal - intentTotal) < 0.01;
-    if (entityMatch) {
-      intentMatchCount++;
-    } else {
-      intentMismatchCount++;
-    }
 
     // ── SYNAPTIC: Write per-component confidence synapses ──
     for (let ci = 0; ci < componentIntents.length; ci++) {
@@ -2500,8 +2481,6 @@ export async function POST(request: NextRequest) {
         externalId: entityInfo?.external_id ?? '',
         intentTraces,
         intentTotal,
-        legacyTotal,
-        intentMatch: entityMatch,
         roundingTrace: {
           rawTotal: entityRoundingTraces.reduce((s, t) => s + t.rawValue, 0),
           roundedTotal: entityTotal,
@@ -2527,8 +2506,7 @@ export async function POST(request: NextRequest) {
 
     // Only log first 20 and last 5 entities to avoid log flooding at scale
     if (entityResults.length <= 20 || entityResults.length > calculationEntityIds.length - 5) {
-      const matchLabel = entityMatch ? '✓' : '✗';
-      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()} | intent=${intentTotal.toLocaleString()} ${matchLabel}`);
+      addLog(`  ${entityInfo?.display_name ?? entityId}: ${entityTotal.toLocaleString()}`);
     } else if (entityResults.length === 21) {
       addLog(`  ... (${calculationEntityIds.length - 25} more entities) ...`);
     }
@@ -2546,9 +2524,6 @@ export async function POST(request: NextRequest) {
       addLog(`[CalcRecon-T2] ${t2ExternalId} | ${t2EntityName} | variant=${variantKey} | total=${entityTotal} | components=[${t2Breakdown}] | flags=[${currentEntityFlags.join(',')}]`);
     }
   }
-
-  const concordanceRate = (intentMatchCount / calculationEntityIds.length) * 100;
-  addLog(`OB-76 Dual-path: ${intentMatchCount} match, ${intentMismatchCount} mismatch (${concordanceRate.toFixed(1)}% concordance)`);
 
   addLog(`Grand total: ${grandTotal.toLocaleString()}`);
 
@@ -2611,36 +2586,6 @@ export async function POST(request: NextRequest) {
       });
     }
   }
-
-  // ── OB-77 + OB-199 Phase 4: Training signal — dual-path concordance (canonical writer) ──
-  writeSignal({
-    tenantId,
-    signalType: 'convergence:dual_path_concordance',
-    signalValue: {
-      matchCount: intentMatchCount,
-      mismatchCount: intentMismatchCount,
-      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
-      entityCount: calculationEntityIds.length,
-      componentCount: defaultComponents.length,
-      intentsTransformed: componentIntents.length,
-      totalPayout: grandTotal,
-      ruleSetId,
-      periodId,
-    },
-    // concordanceRate is in percentage (0–100); divide for Decision 30 v2 inclusive [0, 1].
-    confidence: concordanceRate / 100,
-    source: 'ai_prediction',
-    context: {
-      ruleSetName: ruleSet.name,
-      trigger: 'calculation_run',
-    },
-  }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch((err: unknown) => {
-    if (err instanceof CanonicalWriteError) {
-      console.warn(`[CalcAPI] Dual-path concordance signal CanonicalWriteError (${err.cause}): ${err.message}`);
-    } else {
-      console.warn('[CalcAPI] Dual-path concordance signal unexpected error:', err instanceof Error ? err.message : String(err));
-    }
-  });
 
   // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
   const { error: cleanupErr } = await supabase
@@ -2709,9 +2654,6 @@ export async function POST(request: NextRequest) {
         component_count: defaultComponents.length,
         rule_set_name: ruleSet.name,
         intentLayer: {
-          matchCount: intentMatchCount,
-          mismatchCount: intentMismatchCount,
-          concordance: ((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1) + '%',
           intentsTransformed: componentIntents.length,
         },
         synaptic: {
@@ -2745,7 +2687,6 @@ export async function POST(request: NextRequest) {
       avgOutcome: entityResults.length > 0 ? grandTotal / entityResults.length : 0,
       medianOutcome,
       zeroOutcomeCount: zeroCount,
-      concordanceRate: parseFloat(concordanceRate.toFixed(2)),
       topEntities: entityResults
         .sort((a, b) => b.total_payout - a.total_payout)
         .slice(0, 5)
@@ -2847,8 +2788,10 @@ export async function POST(request: NextRequest) {
   }
 
   // ── OB-83: Domain Agent dispatch — score result through IAP ──
+  // HF-220 R3: concordance rate retired (Decision 151 sole authority); IAP confidence
+  // proxy now derives from synaptic activity rather than dual-path concordance.
   const producedLearning = densityUpdates.length > 0 || signalBatch.length > 0;
-  const avgConfidence = concordanceRate / 100; // concordance rate as 0-1 confidence
+  const avgConfidence = producedLearning ? 1.0 : 0.0;
   const dispatchResult = scoreCalculationResult(
     dispatchContext,
     negotiationRequest.requestId,
@@ -2963,9 +2906,6 @@ export async function POST(request: NextRequest) {
     excludedCount: excludedEntities.length,
     totalPayout: grandTotal,
     intentLayer: {
-      matchCount: intentMatchCount,
-      mismatchCount: intentMismatchCount,
-      concordance: `${((intentMatchCount / calculationEntityIds.length) * 100).toFixed(1)}%`,
       intentsTransformed: componentIntents.length,
     },
     synaptic: {
