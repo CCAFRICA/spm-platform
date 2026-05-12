@@ -1273,8 +1273,30 @@ export async function POST(request: NextRequest) {
         bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
       }
 
-      if (numValue !== null && denValue !== null && denValue !== 0) {
-        metrics[expectedMetrics[0]] = numValue / denValue;
+      // HF-217: Write raw numerator and denominator to their declared metric names.
+      // The intent-executor's source:'ratio' resolver divides them at execution time.
+      // Reads metric names from the binding-declared intent (component.calculationIntent
+      // .input.sourceSpec.{numerator,denominator}), not from expectedMetrics position,
+      // to avoid fragility against AST walk order. Pre-HF-217 the function wrote the
+      // pre-divided ratio to expectedMetrics[0] and left expectedMetrics[1] unfilled,
+      // which let the OB-118 merge guard backfill the second key from derivedMetrics
+      // (count rule) so the intent-executor's ratio resolver then divided the already-
+      // divided value by the count — producing nonsense.
+      const ratioIntent = (component.calculationIntent as Record<string, unknown> | undefined)?.input as
+        Record<string, unknown> | undefined;
+      const ratioSpec = ratioIntent?.sourceSpec as Record<string, unknown> | undefined;
+      const numMetricName = typeof ratioSpec?.numerator === 'string'
+        ? ratioSpec.numerator.replace(/^metric:/, '')
+        : null;
+      const denMetricName = typeof ratioSpec?.denominator === 'string'
+        ? ratioSpec.denominator.replace(/^metric:/, '')
+        : null;
+
+      if (numMetricName && numValue !== null) {
+        metrics[numMetricName] = numValue;
+      }
+      if (denMetricName && denValue !== null) {
+        metrics[denMetricName] = denValue;
       }
       const result = Object.keys(metrics).length > 0 ? metrics : null;
       if (shouldEmitTrace(entityExternalId)) {
