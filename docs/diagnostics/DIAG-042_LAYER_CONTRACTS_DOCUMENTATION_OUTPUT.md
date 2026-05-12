@@ -1204,3 +1204,174 @@ Aspirational vs structural:
     - NOT WIRED at engine→convergence learning: convergence:dual_path_concordance is emitted (line 2155) but CC did not locate a convergence-binding-selection consumer that reads it
 ```
 
+---
+
+## Section 5 — Cold-Start vs Steady-State Behaviors (operative documentation)
+
+### Section 5.1 — Cold-start operative behavior
+
+**Tier 3 path (no fingerprint match) — `fingerprint-flywheel.ts:106-117` (verbatim):**
+
+```typescript
+  // Tier 3: No match — novel structure
+  console.log(`[SCI-FINGERPRINT] tier=3 match=false hash=${fingerprintHash.substring(0, 12)} — novel structure`);
+  console.log(`[SCI-FINGERPRINT] LLM called — Tier 3 novel structure, fingerprint stored for future recognition`);
+  return {
+    tier: 3,
+    match: false,
+    fingerprintHash,
+    classificationResult: null,
+    columnRoles: null,
+    confidence: 0,
+    matchCount: 0,
+  };
+```
+
+Tier 3 returns `confidence: 0`, `match: false`. Caller (in `app/api/import/sci/process-job/route.ts` or similar SCI pipeline entry) interprets `tier === 3` as "no prior; perform full LLM classification" — HC runs in full via `comprehendHeaders` → `callLLMForHeaders`.
+
+**Cold-start fingerprint INSERT** (`fingerprint-flywheel.ts:171-187`, verbatim):
+
+```typescript
+    } else {
+      // Insert new fingerprint record — confidence = 1 - 1/(1+1) = 0.5
+      await supabase
+        .from('structural_fingerprints')
+        .insert({
+          tenant_id: tenantId,
+          fingerprint_hash: fingerprintHash,
+          fingerprint: fingerprintHash,
+          classification_result: classificationResult,
+          column_roles: columnRoles,
+          match_count: 1,
+          confidence: 0.5,
+          source_file_sample: sourceFileName,
+        });
+```
+
+Initial confidence: **0.5** at `match_count: 1`. Per the gating at line 57 (`if (conf >= 0.5)`), the threshold for Tier 1 routing is exactly 0.5 — a freshly-inserted fingerprint will satisfy the threshold on subsequent imports (no demotion at first repeat).
+
+**SCI negotiation cold-start branch (`negotiation.ts:105`, verbatim context grep):**
+
+```
+web/src/lib/sci/negotiation.ts:105:  if (matchCount === 0) {
+```
+
+Branches on `matchCount === 0` (no prior; cold start). CC did not paste-trace the surrounding logic in this Phase 5 surface (file is `negotiation.ts`; behavior is per-SCI-agent cold-start adjustment, separate scope from this DIAG).
+
+**HC cold-start path** (per Phase 1.1 Section 1: `comprehendHeaders` line 277-326): if vocabulary bindings are absent or low-confidence, the LLM is called (`callLLMForHeaders`). On cold start, `existingBindings` is empty Map, `allBound === false`, LLM fires.
+
+### Section 5.2 — Steady-state operative behavior
+
+**Tier 1 match path** (`fingerprint-flywheel.ts:43-69`, verbatim):
+
+```typescript
+  // Tier 1: Exact tenant-specific match
+  const { data: tier1 } = await supabase
+    .from('structural_fingerprints')
+    .select('classification_result, column_roles, match_count, confidence')
+    .eq('tenant_id', tenantId)
+    .eq('fingerprint_hash', fingerprintHash)
+    .maybeSingle();
+
+  if (tier1 && tier1.classification_result && Object.keys(tier1.classification_result as object).length > 0) {
+    // HF-145: Confidence threshold gates Tier 1 routing.
+    // Below 0.5 → demote to Tier 2 (re-classify with minimal LLM).
+    // Self-correction (OB-177) decreases confidence on binding failures.
+    // 3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
+    const conf = Number(tier1.confidence);
+    if (conf >= 0.5) {
+      console.log(`[SCI-FINGERPRINT] tier=1 match=true hash=${fingerprintHash.substring(0, 12)} confidence=${conf} matchCount=${tier1.match_count}`);
+      console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
+      return {
+        tier: 1,
+        match: true,
+        fingerprintHash,
+        classificationResult: tier1.classification_result as Record<string, unknown>,
+        columnRoles: tier1.column_roles as Record<string, string>,
+        confidence: conf,
+        matchCount: tier1.match_count,
+      };
+    }
+    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+```
+
+**Reused on Tier 1 match:**
+- `classification_result` (JSONB) — the cached LLM classification output
+- `column_roles` (Record<string, string>) — the cached structural role assignments per column
+
+**What still fires** (per the caller's downstream handling; the Tier 1 return signals "skip LLM" but downstream processing — convergence, calc-time — still runs unchanged).
+
+**HC vocabulary recall steady-state** (`header-comprehension.ts:283-310`, verbatim partial):
+
+```typescript
+  // Step 2: If ALL columns have confirmed bindings with high confidence, skip LLM
+  const allBound = allColumns.length > 0 && allColumns.every(col => {
+    const binding = existingBindings.get(col);
+    return binding && binding.confirmationCount >= 2 && binding.interpretation.confidence >= 0.85;
+  });
+
+  if (allBound) {
+    const comprehensions = buildComprehensionFromBindings(input, existingBindings);
+    …
+    return { comprehensions, metrics };
+  }
+```
+
+HC skips LLM when ALL columns have `confirmationCount >= 2` AND `confidence >= 0.85`. The thresholds (2, 0.85) are hardcoded constants, not tenant-adaptive.
+
+### Section 5.3 — Progressive automation operative state
+
+**Tenant-adaptive thresholds (verbatim grep):**
+
+```
+$ grep -rn "tenant.*threshold|adaptiveThreshold|tenant.*confidence|perTenant" \
+    web/src/ --include="*.ts"
+web/src/app/api/signals/route.ts:13: …  (column listing in signals route)
+web/src/app/api/signals/route.ts:38: …
+web/src/app/api/platform/observatory/route.ts:390: …
+web/src/app/api/platform/observatory/route.ts:394: …
+web/src/app/api/platform/observatory/route.ts:399: …
+web/src/app/api/platform/observatory/route.ts:458: …
+web/src/app/api/platform/observatory/route.ts:785: …
+web/src/lib/normalization/dictionary-seeder.ts:75-107: seedEntry (3 sites, dictionary normalization)
+```
+
+CC notes: matches found are not tenant-adaptive thresholds in the binding/classification/decision surfaces — they are (a) signal observatory aggregation reads (`perTenant` is a result key, not a threshold variable), or (b) dictionary-seeder calls (different scope).
+
+**Hardcoded constants observed in code** (illustrative grep, not exhaustive):
+
+- `0.5` Tier 1 confidence gate (fingerprint-flywheel.ts:57)
+- `2` HC confirmationCount minimum (header-comprehension.ts:294)
+- `0.85` HC interpretation confidence minimum (header-comprehension.ts:294)
+- `0.50` BOUNDARY_FALLBACK_MIN_SCORE (convergence-service.ts:1911)
+- `0.10` SCI agent confidence decrement on misclassification (agents.ts:283)
+- `0.15` SCI agent confidence decrement on misclassification (agents.ts:293)
+
+All are hardcoded constants. No tenant-adaptive variant observed.
+
+**Learned canonical enums (verbatim grep):**
+
+```
+$ grep -rn "learned.*enum|tenantScopedEnum|extendedEnum" web/src/ --include="*.ts"
+(empty — zero matches)
+```
+
+CC notes: no tenant-scoped extensible enum mechanism observed in code. The contextualIdentity vocabulary is fixed-by-code-or-LLM-free-form (per Section 1.3). The ColumnRole enum is closed (7 values, code-defined).
+
+**Evaluate surface → flywheel writeback (verbatim grep for `user_corrected` propagation):**
+
+```
+web/src/lib/intelligence/classification-signal-service.ts:14: * - user_corrected: 0.99 (user provided explicit correction)
+web/src/lib/intelligence/classification-signal-service.ts:27: export type SignalSource = 'ai' | 'user_confirmed' | 'user_corrected';
+web/src/lib/intelligence/classification-signal-service.ts:181: source: 'user_corrected',
+web/src/lib/intelligence/classification-signal-service.ts:245-249: Priority: user_corrected > user_confirmed > ai (sort logic)
+web/src/lib/intelligence/ai-metrics-service.ts:131: if (src === 'user_corrected') return 'corrected';
+web/src/lib/sci/synaptic-ingestion-state.ts:235: boost = bestPrior.source === 'human_override' || bestPrior.source === 'user_corrected'
+web/src/lib/sci/classification-signal-service.ts:120: source: payload.humanCorrectionFrom ? 'user_corrected' : 'sci_agent'
+web/src/lib/ai/training-signal-service.ts:111: source: action === 'corrected' ? 'user_corrected' : action === 'accepted' ? 'user_confirmed' : 'ai_prediction'
+```
+
+**Operative reality:** `source: 'user_corrected'` is a structural marker on signal writes. SCI agent priors (lookup at `classification-signal-service.ts:153`) sort and boost by source — `user_corrected` is prioritized (priority weight `3` at line 249). Per `synaptic-ingestion-state.ts:235`, a `user_corrected` prior triggers a higher boost than an `ai_prediction` prior.
+
+CC note (verbatim, not classification): the writeback loop exists for SCI agent classification decisions (closed loop: user corrects → signal written with source='user_corrected' → next SCI run picks up via lookupPriorSignals → boost applied). It does NOT exist for convergence binding-selection (no consumer of user-corrected signals at convergence binding-selection function `generateAllComponentBindings`). It also does NOT exist for engine fallback decisions (no consumer at the `usedConvergenceBindings` flip site).
+
