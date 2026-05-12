@@ -1065,3 +1065,317 @@ function executeScalarMultiply(
 
 CC note (verbatim, not classification): `op.input` is resolved via `resolveValue` which (per Phase 3.5 declared inputs) accepts a source spec OR a nested `IntentOperation`. So `op.input` can itself be a `conditional_gate` or any other primitive operation. This means a transformation that rewrites `{input: ratio, modifiers: [{cap, maxValue: 1.5}]}` into `{input: conditional_gate{ratio < 1.5 → ratio, ELSE 1.5}}` is structurally expressible using existing primitives.
 
+---
+
+## Phase 4 — Intent-transformer normalization surface
+
+### Phase 4.1 — File inventory
+
+```
+$ find web/src/lib/ -name "intent-transformer*.ts" -o -name "intent-transformation*.ts"
+web/src/lib/calculation/intent-transformer.ts
+
+$ wc -l web/src/lib/calculation/intent-transformer.ts
+222
+```
+
+Public API symbols (verbatim):
+```
+web/src/lib/calculation/intent-transformer.ts:52:export function transformVariant(
+web/src/lib/calculation/intent-transformer.ts:86:function normalizeIntentInput(raw: unknown): IntentSource | IntentOperation {
+```
+
+`transformComponent` is exported per line 28 (single internal name with the `export` keyword removed in grep — actually visible at line 28 in the file). The full file is pasted in Phase 4.2.
+
+### Phase 4.2 — Intent-transformer full file content (verbatim)
+
+`web/src/lib/calculation/intent-transformer.ts` (222 lines, full):
+
+```typescript
+/**
+ * Intent Transformer — Bridge from PlanComponent to ComponentIntent
+ *
+ * Deterministic transformation. No AI. No heuristics.
+ * Reads the existing plan component and produces a structural intent
+ * that the domain-agnostic executor can process.
+ *
+ * Foundational primitives only — legacy vocabulary case arms removed in OB-196 Phase 1.6.5.
+ */
+
+import type { PlanComponent } from '../../types/compensation-plan';
+
+import type {
+  ComponentIntent,
+  IntentOperation,
+  IntentSource,
+  IntentModifier,
+} from './intent-types';
+
+// ──────────────────────────────────────────────
+// Public API
+// ──────────────────────────────────────────────
+
+/**
+ * Transform a PlanComponent into a ComponentIntent.
+ * Returns null if the component is disabled or has no valid intent.
+ */
+export function transformComponent(
+  component: PlanComponent,
+  componentIndex: number
+): ComponentIntent | null {
+  if (!component.enabled) return null;
+
+  switch (component.componentType) {
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+      return transformFromMetadata(component, componentIndex);
+    default:
+      // Default path: any component with calculationIntent or metadata.intent
+      // routes through metadata-driven construction. Components lacking either
+      // produce null (no transform).
+      return transformFromMetadata(component, componentIndex);
+  }
+}
+
+/**
+ * Transform all components in a variant into ComponentIntents.
+ */
+export function transformVariant(
+  components: PlanComponent[]
+): ComponentIntent[] {
+  const results: ComponentIntent[] = [];
+  for (let i = 0; i < components.length; i++) {
+    const intent = transformComponent(components[i], i);
+    if (intent) results.push(intent);
+  }
+  return results;
+}
+
+// ──────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────
+
+function entityScope(level: string): 'entity' | 'group' {
+  return level === 'individual' ? 'entity' : 'group';
+}
+
+// ──────────────────────────────────────────────
+// Metadata-driven intent construction (OB-182)
+// The AI plan interpreter stores the intent structure in component.metadata.intent
+// or component.calculationIntent.
+// ──────────────────────────────────────────────
+
+/**
+ * HF-187: Normalize an AI-produced source reference into a valid IntentSource or IntentOperation.
+ *
+ * AI format for metrics:  { source: "metric", sourceSpec: { field: "X" } }  → pass through
+ * AI format for ratios:   { source: "ratio", sourceSpec: { numerator: "X", denominator: "Y" } }
+ *                         → { operation: "ratio", numerator: IntentSource, denominator: IntentSource }
+ * AI format for constants: { source: "constant", value: N } → pass through
+ * String shorthand:       "field_name" → { source: "metric", sourceSpec: { field: "field_name" } }
+ */
+function normalizeIntentInput(raw: unknown): IntentSource | IntentOperation {
+  if (raw == null) return { source: 'constant', value: 0 };
+
+  if (typeof raw === 'string') {
+    return { source: 'metric', sourceSpec: { field: raw } };
+  }
+
+  if (typeof raw === 'number') {
+    return { source: 'constant', value: raw };
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  if ('operation' in obj && typeof obj.operation === 'string') {
+    if (obj.operation === 'ratio') {
+      const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+      return {
+        operation: 'ratio',
+        numerator: normalizeIntentInput(obj.numerator || spec.numerator),
+        denominator: normalizeIntentInput(obj.denominator || spec.denominator),
+        zeroDenominatorBehavior: (obj.zeroDenominatorBehavior as string) || 'zero',
+      } as IntentOperation;
+    }
+    return obj as unknown as IntentOperation;
+  }
+
+  if (obj.source === 'ratio') {
+    const spec = (obj.sourceSpec || {}) as Record<string, unknown>;
+    return {
+      operation: 'ratio',
+      numerator: normalizeIntentInput(spec.numerator),
+      denominator: normalizeIntentInput(spec.denominator),
+      zeroDenominatorBehavior: 'zero',
+    } as IntentOperation;
+  }
+
+  if (obj.source === 'metric' || obj.source === 'constant' || obj.source === 'entity_attribute'
+    || obj.source === 'prior_component' || obj.source === 'cross_data'
+    || obj.source === 'scope_aggregate' || obj.source === 'aggregate') {
+    return obj as unknown as IntentSource;
+  }
+
+  return { source: 'constant', value: 0 };
+}
+
+function transformFromMetadata(
+  component: PlanComponent,
+  componentIndex: number
+): ComponentIntent | null {
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const rawIntent = (meta?.intent || (component as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+  if (!rawIntent) return null;
+
+  let operation: IntentOperation;
+  if (rawIntent.additionalConstant != null && rawIntent.rate != null) {
+    operation = {
+      operation: 'linear_function',
+      input: normalizeIntentInput(rawIntent.input),
+      slope: Number(rawIntent.rate),
+      intercept: Number(rawIntent.additionalConstant),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null) {
+    operation = {
+      operation: 'scalar_multiply',
+      input: normalizeIntentInput(rawIntent.input),
+      rate: Number(rawIntent.rate),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'piecewise_linear') {
+    const calcMethod = (component as unknown as Record<string, unknown>).calculationMethod as Record<string, unknown> | undefined;
+    const tv = rawIntent.targetValue ?? calcMethod?.targetValue ?? meta?.targetValue;
+    operation = {
+      operation: 'piecewise_linear',
+      ratioInput: normalizeIntentInput(rawIntent.ratioInput),
+      baseInput: normalizeIntentInput(rawIntent.baseInput),
+      ...(tv != null && Number(tv) > 0 ? { targetValue: Number(tv) } : {}),
+      segments: Array.isArray(rawIntent.segments) ? rawIntent.segments.map((seg: Record<string, unknown>) => ({
+        min: Number(seg.min ?? 0),
+        max: seg.max != null ? Number(seg.max) : null,
+        rate: Number(seg.rate ?? 0),
+      })) : [],
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'conditional_gate') {
+    const cond = (rawIntent.condition || {}) as Record<string, unknown>;
+    operation = {
+      operation: 'conditional_gate',
+      condition: {
+        left: normalizeIntentInput(cond.left),
+        operator: String(cond.operator || '>='),
+        right: normalizeIntentInput(cond.right),
+      },
+      onTrue: normalizeIntentInput(rawIntent.onTrue) as IntentOperation,
+      onFalse: normalizeIntentInput(rawIntent.onFalse) as IntentOperation,
+    } as IntentOperation;
+  } else {
+    operation = rawIntent as unknown as IntentOperation;
+  }
+
+  const modifiers: IntentModifier[] = [];
+
+  if (Array.isArray(rawIntent.modifiers)) {
+    for (const mod of rawIntent.modifiers) {
+      const m = mod as Record<string, unknown>;
+      if (m.modifier === 'cap' && m.maxValue != null) {
+        modifiers.push({ modifier: 'cap', maxValue: Number(m.maxValue), scope: 'per_period' });
+      }
+      if (m.modifier === 'floor' && m.minValue != null) {
+        modifiers.push({ modifier: 'floor', minValue: Number(m.minValue), scope: 'per_period' });
+      }
+    }
+  }
+
+  if (meta.cap != null && Number(meta.cap) > 0) {
+    modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
+  }
+  if (meta.floor != null && Number(meta.floor) > 0) {
+    modifiers.push({ modifier: 'floor', minValue: Number(meta.floor), scope: 'per_period' });
+  }
+
+  return {
+    componentIndex,
+    label: component.name,
+    confidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
+    dataSource: {
+      sheetClassification: 'transaction',
+      entityScope: entityScope(component.measurementLevel),
+      requiredMetrics: [],
+    },
+    intent: operation,
+    modifiers,
+    metadata: {
+      domainLabel: component.name,
+      planReference: component.id,
+      aiConfidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
+      interpretationNotes: `AI-interpreted ${component.componentType} via calculationIntent`,
+    },
+  };
+}
+```
+
+### Phase 4.3 — Existing transformations enumerated
+
+| # | Site | Input shape | Output shape | Trigger |
+|---|---|---|---|---|
+| 1 | `transformFromMetadata` line 140–146 | `rawIntent.additionalConstant != null && rawIntent.rate != null` | `{operation: 'linear_function', input, slope: rate, intercept: additionalConstant}` | both `additionalConstant` and `rate` present |
+| 2 | `transformFromMetadata` line 147–152 | `rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null` | `{operation: 'scalar_multiply', input, rate}` | `operation==='scalar_multiply'` + `rate` present |
+| 3 | `transformFromMetadata` line 153–166 | `rawIntent.operation === 'piecewise_linear'` | `{operation: 'piecewise_linear', ratioInput, baseInput, segments[]}` | `operation==='piecewise_linear'` |
+| 4 | `transformFromMetadata` line 167–178 | `rawIntent.operation === 'conditional_gate'` | `{operation: 'conditional_gate', condition{left,operator,right}, onTrue, onFalse}` | `operation==='conditional_gate'` |
+| 5 | `transformFromMetadata` line 179–181 | none of the above | passthrough: `rawIntent` cast as `IntentOperation` | else branch |
+| 6 | `transformFromMetadata` line 185–195 | `Array.isArray(rawIntent.modifiers)` | append `{modifier: 'cap', maxValue, scope: 'per_period'}` or `{modifier: 'floor', minValue, scope: 'per_period'}` to modifiers[] | per-modifier check `m.modifier === 'cap' && m.maxValue != null` OR `m.modifier === 'floor' && m.minValue != null` |
+| 7 | `transformFromMetadata` line 197–202 | `meta.cap != null && Number(meta.cap) > 0` (top-level shortcut) | append cap modifier with `scope: 'per_period'` | `meta.cap` numeric > 0 (legacy shortcut) |
+| 8 | `transformFromMetadata` line 200–202 | `meta.floor != null && Number(meta.floor) > 0` (top-level shortcut) | append floor modifier with `scope: 'per_period'` | `meta.floor` numeric > 0 (legacy shortcut) |
+
+Additional `normalizeIntentInput` rewrites (line 86–129):
+
+| # | Input shape | Output shape | Trigger |
+|---|---|---|---|
+| N1 | `null` | `{source: 'constant', value: 0}` | input null/undefined |
+| N2 | `typeof raw === 'string'` | `{source: 'metric', sourceSpec: {field: raw}}` | string shorthand |
+| N3 | `typeof raw === 'number'` | `{source: 'constant', value: raw}` | number shorthand |
+| N4 | `obj.operation === 'ratio'` (operation-shape) | `{operation: 'ratio', numerator: normalize(...), denominator: normalize(...), zeroDenominatorBehavior}` | object has `operation: 'ratio'` |
+| N5 | `obj.source === 'ratio'` (source-shape) | `{operation: 'ratio', numerator: normalize(sourceSpec.numerator), denominator: normalize(sourceSpec.denominator), zeroDenominatorBehavior: 'zero'}` | object has `source: 'ratio'` |
+| N6 | `obj.source ∈ {metric, constant, entity_attribute, prior_component, cross_data, scope_aggregate, aggregate}` | passthrough as `IntentSource` | source is one of 7 allowed values |
+| N7 | else | `{source: 'constant', value: 0}` | fallback for unknown shape |
+
+CC note (verbatim, not classification): the transformer dispatches on operation-shape via switch-like sequential if/else. Modifier handling at lines 185–202 has TWO paths: per-entry `rawIntent.modifiers[]` array (line 185–195) and top-level `meta.cap`/`meta.floor` shortcut (line 197–202). No transformation exists for `applyTo` field or input-scoped cap.
+
+### Phase 4.4 — Transformer call sites (verbatim grep)
+
+```
+web/src/app/api/calculation/run/route.ts:30:import { transformVariant } from '@/lib/calculation/intent-transformer';
+web/src/app/api/calculation/run/route.ts:335:  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+web/src/app/api/calculation/run/route.ts:1852:      : transformVariant(selectedComponents);
+```
+
+Call site 1 (line 335, pre-entity-loop, verbatim):
+
+```typescript
+  // ── OB-76: Transform components to intents (once, before entity loop) ──
+  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+  addLog(`OB-76 Intent layer: ${componentIntents.length} components transformed to intents`);
+```
+
+Call site 2 (line 1852, inside entity loop for variant-routed entities, verbatim):
+
+```typescript
+    // ── HF-188 INTENT ENGINE PATH (authoritative) ──
+    // HF-119: Use selected variant's intents, not always defaultComponents
+    const entityIntents = selectedVariantIndex === 0
+      ? componentIntents
+      : transformVariant(selectedComponents);
+```
+
+CC note (verbatim, not classification): transformer is called at **calculation time** (every POST to `/api/calculation/run`), not at binding-write time. `defaultComponents` is transformed once before the entity loop; variant-specific `selectedComponents` is re-transformed per non-default-variant entity.
+
+### Phase 4.5 — Transformer output consumption
+
+```
+$ grep -n "intent|calculationIntent" web/src/lib/calculation/intent-executor.ts | head -10
+```
+
+`executeIntent` (Phase 3.2) consumes the transformer output via `intent: ComponentIntent` parameter at line 618. `intent.intent` (the inner IntentOperation) is dispatched via `executeOperation` (line 661/666/679); `intent.modifiers` is passed to `applyModifiers` (line 683).
+
