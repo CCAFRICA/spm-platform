@@ -62,8 +62,6 @@ import {
   type InlineInsight,
   type CalculationSummary,
 } from '@/lib/agents/insight-agent';
-// HF-216: ConvergenceBindingEntry type (extended with optional via-join clause).
-import type { ConvergenceBindingEntry } from '@/types/convergence-bindings';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -1168,7 +1166,15 @@ export async function POST(request: NextRequest) {
   // Resolves metrics for a component using convergence_bindings (batch_id + column)
   // instead of the old sheet-matching + aggregation path.
   // Returns resolved metrics map, or null if bindings are missing/incomplete.
-  // HF-216: ConvergenceBindingEntry extracted to @/types/convergence-bindings.ts; via clause added.
+  interface ConvergenceBindingEntry {
+    source_batch_id: string;
+    column: string;
+    field_identity?: { structuralType?: string; contextualIdentity?: string };
+    match_pass?: number;
+    confidence?: number;
+    // HF-111: Scale factor for percentage columns (e.g., 100 when ratio → percentage)
+    scale_factor?: number;
+  }
 
   function resolveMetricsFromConvergenceBindings(
     compBindings: Record<string, unknown>,
