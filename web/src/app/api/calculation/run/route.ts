@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
 
   // HF-208: Reconciliation summary counters. Incremented at existing emission sites;
   // surfaced in the [CalcRecon] summary block at handler exit. See HF-208 directive §3.
+  // HF-220 R2: ob118MergeGuardFiredCount retired (merge-guard removed; counter vestigial).
   let diag003FallbackCount = 0;
-  let ob118MergeGuardFiredCount = 0;
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
 
   // HF-210: Cap route.ts [CalcTrace] emissions at first N entities for log visibility.
@@ -1786,12 +1786,6 @@ export async function POST(request: NextRequest) {
     const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
     variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
 
-    // HF-220 R1: legacy derivation execution path retired (Decision 151 sole authority
-    // + Decision 25 closed by three-tenant clean-slate verification). derivedMetrics
-    // remains as empty placeholder for the vestigial OB-118 merge-guard loop iteration
-    // (Phase 3 removes the merge-guard and this placeholder together).
-    const derivedMetrics: Record<string, number> = {};
-
     // ── LEGACY ENGINE PATH (concordance shadow — HF-188) ──
     if (entityResults.length === 0) {
       addLog('HF-188: Intent executor is sole authority — legacy engine is concordance shadow');
@@ -2201,39 +2195,9 @@ export async function POST(request: NextRequest) {
         addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
       }
 
-      // OB-118 / HF-206: Convergence-resolved metrics are authoritative (Decision 111 /
-      // Decision 153 atomic cutover completion). Derivation fills gaps only — a metric
-      // resolved by convergence cannot be overwritten by Pass 4 derivation output.
-      // IRA HF-206 (2026-05-06, $1.671075; ira_request_hash cfcef09e02e70710dbd5e523b1eb4ef27aedf50ccb6776ed75784c8963d9bb43)
-      // recommended Shape A as minimum-viable coherence restoration.
-      for (const [key, value] of Object.entries(derivedMetrics)) {
-        if (!(key in metrics)) {
-          metrics[key] = value;  // derivation fills gaps only; convergence values preserved
-        } else {
-          ob118MergeGuardFiredCount++;  // HF-208: track guard firings (convergence preserved over derivation)
-          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
-          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=ob118MergeGuardFired existingKey=${key} preserved=convergence`);
-          currentEntityFlags.push('ob118MergeGuardFired');
-          // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
-          writeSignal({
-            tenantId,
-            signalType: 'engine:exception',
-            signalValue: {
-              entity_external_id: entityInfo?.external_id ?? null,
-              component_index: compIdx,
-              component_name: component.name,
-              type: 'ob118MergeGuardFired',
-              existing_key: key,
-              preserved: 'convergence',
-            },
-            confidence: 0,
-            source: 'system',
-            calculationRunId,
-            ruleSetId,
-            context: { trigger: 'engine_merge_guard', metric_key: key },
-          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
-        }
-      }
+      // HF-220 R2 / ADR Decision 1: OB-118 merge-guard retired. With legacy derivation
+      // path removed in R1, convergence binding resolution is the single populator of
+      // metrics[key]; no merge required, no guard fires possible.
       // OB-167: Band-aware normalization — replaces inferSemanticType-gated normalization.
       // Compare metric values against the component's band ranges (from the plan spec).
       // If value is in decimal range (0-2) but the band expects percentage range (max > 10),
@@ -2940,7 +2904,7 @@ export async function POST(request: NextRequest) {
   const t1SortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
   const t1ComponentSummary = t1SortedComponents.map(([idx, info]) => `c${idx}:${info.total}`).join(' | ');
   addLog(`[CalcRecon-T1] componentTotals=[${t1ComponentSummary}]`);
-  addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount} ob118MergeGuardFired:${ob118MergeGuardFiredCount}/${t1FooterTotalLookups}}`);
+  addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount}}`);
   const t1VariantBreakdown = Array.from(variantCounts.entries()).map(([k, v]) => `${k}:${v}`).join(' | ');
   addLog(`[CalcRecon-T1] variantDistribution={${t1VariantBreakdown}}`);
   addLog(`[CalcRecon-T1] ╔═══════════════════════════════════════════════════════════════╗`);
