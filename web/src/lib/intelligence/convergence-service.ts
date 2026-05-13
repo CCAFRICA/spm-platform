@@ -1878,6 +1878,35 @@ export function computeStructuralBindingConfidence(
   };
 }
 
+// HF-222 Phase 2: distribution-derived distinguishability test.
+//
+// Replaces HF-218 Component 4b's tenant-adaptive boundary threshold (which carried
+// developer-stated 0.50 cold-start anchor and N=5 window — both Korean Test
+// violations per AP-25 / IGF-T1-E910). The new test derives its acceptance
+// threshold from the candidate distribution itself at the moment of binding;
+// no developer-stated numerical constants in foundational binding-gate code.
+//
+// Properties verified algebraically (and via property-test proof in
+// scripts/hf222-phase2-3-distribution-test-proof.ts):
+//   - N=0: refuses to bind (empty distribution).
+//   - N=1: binds iff score > 0 (substrate eligibility floor: cardinality × intersection
+//          > 0 — already a substrate test, not a magnitude threshold).
+//   - N=2: binds iff scores differ at all (population stddev = |s1-s0|/2,
+//          top-next = |s1-s0|; the comparison holds whenever scores aren't equal).
+//   - N>=3: cluster cases (small dispersion relative to top-next gap) refuse to bind;
+//           clear-outlier cases bind. Invariant under linear scaling and translation.
+export function distinctEnoughToBind(scoredCandidates: Array<{ score: number }>): boolean {
+  if (scoredCandidates.length === 0) return false;
+  if (scoredCandidates.length === 1) {
+    return scoredCandidates[0].score > 0;
+  }
+  const scores = scoredCandidates.map(c => c.score);
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((s, x) => s + (x - mean) ** 2, 0) / scores.length;
+  const stddev = Math.sqrt(variance);
+  return scoredCandidates[0].score - scoredCandidates[1].score > stddev;
+}
+
 async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
@@ -2010,11 +2039,11 @@ async function generateAllComponentBindings(
       }
 
       // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-222 Phase 1: HF-199 D2 / HF-218 Component 4b developer-stated thresholds
-      // retired. The boundary-fallback acceptance mechanism uses the substrate floor
-      // (binding-eligibility: score strictly positive) as an interim gate. Phase 2
-      // upgrades this to a distribution-derived distinguishability test that derives
-      // its acceptance margin from the candidate distribution itself at decision time.
+      // HF-222 Phase 2: boundary-fallback acceptance uses distribution-derived
+      // distinguishability (see distinctEnoughToBind). The threshold is computed
+      // from the candidate distribution at decision time — no developer-stated
+      // numerical constants. Cluster cases refuse to bind and surface convergence
+      // gaps; clear-outlier cases bind.
       const candidates = measureColumns
         .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
@@ -2023,12 +2052,12 @@ async function generateAllComponentBindings(
         })
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length > 0 && candidates[0].score > 0) {
+      if (candidates.length > 0 && distinctEnoughToBind(candidates)) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
           column: best.name,
           field_identity: best.fi,
-          match_pass: 3,  // Boundary-only fallback
+          match_pass: 3,  // Boundary-only fallback (distribution-derived acceptance)
           confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
           scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
           learning_provenance: {
@@ -2037,9 +2066,9 @@ async function generateAllComponentBindings(
           },
         };
         boundColumns.add(best.name);
-        console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
+        console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
       } else if (candidates.length > 0) {
-        console.log(`[Convergence] HF-222 Phase 1: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} not strictly positive). Requirement left unbound; gap will be recorded.`);
+        console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
       }
     }
 
