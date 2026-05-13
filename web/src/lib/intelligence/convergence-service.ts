@@ -257,6 +257,14 @@ export async function convergeBindings(
         'classification:human_correction',
         // HF-198 E3 / F-011 closure: declared reader for convergence:dual_path_concordance.
         // Cross-run observation surface for dual-path agreement-rate trend.
+        // HF-222 Phase 4: signal classification is observation-only. The HF-218 Component 4b
+        // gate consumer was retired in Phase 1 (Korean Test compliance). This reader remains
+        // — it is read-only and feeds cross-run flywheel observation (IRA priors,
+        // ICA Mode 5 capture). Classification metadata lives at substrate (VG entry
+        // T2-E-signal-convergence-dual-path-concordance-observation-only), not at code comment;
+        // this comment is the runtime breadcrumb pointing to the substrate entry. The signal
+        // MUST NOT be re-introduced as a binding-gate consumer without satisfying AP-25 /
+        // IGF-T1-E910 (Korean Test).
         'convergence:dual_path_concordance',
       ])
       .not('calculation_run_id', 'is', null)
