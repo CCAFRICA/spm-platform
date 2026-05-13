@@ -1895,40 +1895,16 @@ async function generateAllComponentBindings(
   tenantId: string = '',
   supabase?: SupabaseClient,
 ): Promise<void> {
-  // HF-218 Component 4b: tenant-adaptive boundary-fallback threshold.
-  // Per ADR Decision 3 (composite): if recent-N (N=5) convergence:dual_path_concordance
-  // signals exist for tenant, threshold = average of those concordance values; otherwise
-  // fall back to 0.50 cold-start anchor (preserves existing operative behavior).
-  // N=5 anchor: minimum-statistical-distinguishability threshold (Bayesian prior shift).
-  let tenantAdaptiveBoundaryThreshold = 0.50;
-  if (supabase && tenantId) {
-    try {
-      const RECENT_N = 5;
-      const { data: concordanceSignals } = await supabase
-        .from('classification_signals')
-        .select('signal_value, confidence')
-        .eq('tenant_id', tenantId)
-        .eq('signal_type', 'convergence:dual_path_concordance')
-        .order('created_at', { ascending: false })
-        .limit(RECENT_N);
-      if (concordanceSignals && concordanceSignals.length >= RECENT_N) {
-        const rates: number[] = [];
-        for (const sig of concordanceSignals) {
-          const sv = sig.signal_value as Record<string, unknown> | null;
-          const rate = sv ? Number(sv.concordanceRate) : NaN;
-          if (!isNaN(rate) && rate >= 0 && rate <= 1) rates.push(rate);
-        }
-        if (rates.length >= RECENT_N) {
-          const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
-          // Clamp to [0, 1]
-          tenantAdaptiveBoundaryThreshold = Math.max(0, Math.min(1, avg));
-          console.log(`[Convergence] HF-218 Tenant-adaptive boundary threshold: ${tenantAdaptiveBoundaryThreshold.toFixed(4)} (avg of ${rates.length} recent dual_path_concordance signals)`);
-        }
-      }
-    } catch (err) {
-      console.warn(`[Convergence] HF-218 tenant-adaptive threshold read failed (non-blocking, using 0.50 anchor): ${err instanceof Error ? err.message : 'unknown'}`);
-    }
-  }
+  // HF-222 Phase 1: HF-218 Component 4b tenant-adaptive boundary threshold block
+  // RETIRED (Korean Test violation: developer-stated initial-state anchor value
+  // and signal-window size were introduced at HF-218 design lock and reviewed via
+  // an unfilled GP-2 citation slot). The boundary-fallback acceptance mechanism
+  // is replaced in Phase 2 by a distribution-derived distinguishability test that
+  // computes its threshold from the candidate distribution at decision time.
+  //
+  // The `convergence:dual_path_concordance` signal continues to be emitted by the
+  // engine (calculation/run/route.ts) and is classified observation-only per the
+  // VG substrate entry T2-E-signal-convergence-dual-path-concordance-observation-only.
 
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
@@ -2034,17 +2010,11 @@ async function generateAllComponentBindings(
       }
 
       // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-199 D2: structured threshold raised from `> 0` to `>= 0.50`. Below
-      // threshold, the boundary fallback is structurally too weak to bind reliably
-      // (DIAG evidence: New Accounts:actual → Año at score=0.10 produced
-      // 506× peer-median ratio anomaly). Below-threshold candidates are rejected
-      // and the requirement remains unbound; downstream gap detection records
-      // it as a convergence gap rather than silently binding the wrong column.
-      // HF-218 Component 4b: tenant-adaptive threshold per ADR Decision 3 (composite —
-      // recent-N average if N≥5, else 0.50 cold-start anchor). Per Disposition 4
-      // relative-confidence comparison. tenantAdaptiveBoundaryThreshold computed once
-      // per generateAllComponentBindings call (see top of function).
-      const BOUNDARY_FALLBACK_MIN_SCORE = tenantAdaptiveBoundaryThreshold;
+      // HF-222 Phase 1: HF-199 D2 / HF-218 Component 4b developer-stated thresholds
+      // retired. The boundary-fallback acceptance mechanism uses the substrate floor
+      // (binding-eligibility: score strictly positive) as an interim gate. Phase 2
+      // upgrades this to a distribution-derived distinguishability test that derives
+      // its acceptance margin from the candidate distribution itself at decision time.
       const candidates = measureColumns
         .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
@@ -2053,7 +2023,7 @@ async function generateAllComponentBindings(
         })
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
+      if (candidates.length > 0 && candidates[0].score > 0) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
           column: best.name,
@@ -2069,7 +2039,7 @@ async function generateAllComponentBindings(
         boundColumns.add(best.name);
         console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
       } else if (candidates.length > 0) {
-        console.log(`[Convergence] HF-199 D2: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} < ${BOUNDARY_FALLBACK_MIN_SCORE} threshold). Requirement left unbound; gap will be recorded.`);
+        console.log(`[Convergence] HF-222 Phase 1: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} not strictly positive). Requirement left unbound; gap will be recorded.`);
       }
     }
 
