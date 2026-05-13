@@ -387,9 +387,268 @@ Step D OK: status transitioned to locked.
 
 **VG commit:** `00d20e9` on `vialuce-governance` `main` branch — `HF-222 Phase 5.5: PG-3 schema-class naming + signal reclassification (capture-promote pipeline via insert_layer1_capture_event)`. Scripts committed: `scripts/hf222-phase5-5-substrate-locks.ts`, `scripts/hf222-phase5-5-verify.ts`.
 
-### HG-6.3 — Clean-slate recalc (PENDING Phase 6)
+### HG-6.3 — Clean-slate recalc evidence
 
-Pending architect-channel dispatch of Nuclear Clear (6.1) + re-imports (6.2). CC runs recalc + pastes verbatim totals (6.3).
+**Status:** evidence surfaced verbatim per T2-E46. No reconciliation interpretation. Architect reconciles in Phase 6.4 against `_Resultados_Esperados.xlsx`.
+
+**Schema notes (Phase 6.3.1 inventory):**
+- The directive's reference to `import_batches.period` and `calculation_runs` does not match the operative schema. Actual schema: `periods.label` (not `name`); `import_batches.status='completed'` (not `'committed'`); `calculation_runs` table does not exist — calc persists directly to `calculation_results` + `entity_period_outcomes`. Inventory and value-surface queries adjusted to operative schema.
+- Architect's Phase 6.1 (Nuclear Clear) + 6.2 (re-import) executed in architect channel pre-dispatch: `periods.created_at` and `import_batches.created_at` are 2026-05-13T23:14 (post-Phase-5 commit). BCL + Meridian also have post-Phase-5 calculation results (`created_at` 23:16–23:31 for BCL, 23:29–23:31 for Meridian) — calc has already executed; no fresh dispatch needed at 6.3.2 for those two tenants. CRP has 0 periods and 0 calculation_results (state surfaced verbatim below for architect disposition).
+
+#### §HG-6.3.1 — Inventory
+
+```
+rule_sets:
+  BCL  (b1c2d3e4-...): 1 rule_set — dbf3357e-138d-46f0-ad93-fd28e80d0a2b "Plan de Comisiones — Banca Minorista 2025-2026"
+  Meridian (5035b1e8-...): 1 rule_set — 9ac467ba-bab4-4680-9453-5cb3deae02c6 "Meridian Logistics Group Incentive Plan 2025"
+  CRP  (e44bbcb1-...): 4 rule_sets
+     c28c5d86-8ad1-4949-8724-fc4510a1abe3 "Cross-Sell Bonus Plan"
+     b965d9b3-b34e-4b7e-b37b-fb5e648d294f "Capital Equipment Commission Plan"
+     2b3777bf-6a2e-4a4a-ac30-f86e4d29dceb "District Override Plan"
+     12003582-7f01-419d-856e-a9faa3d55ddf "Consumables Commission Plan"
+
+periods:
+  BCL: 6 periods — October 2025, November 2025, December 2025, January 2026, February 2026, March 2026 (all status='open', period_type='monthly')
+  Meridian: 3 periods — January 2025, February 2025, March 2025 (all status='open', period_type='monthly')
+  CRP: 0 periods
+
+entities (with calc_results):
+  BCL: 85
+  Meridian: 79 (67 calculated per period)
+  CRP: 32 entities, 0 calculated
+
+calculation_results row counts:
+  BCL: 510 (85 entities × 6 periods × 1 rule_set; created_at 2026-05-13T23:16–23:22)
+  Meridian: 201 (67 entities × 3 periods × 1 rule_set; created_at 2026-05-13T23:29–23:31)
+  CRP: 0
+```
+
+#### §HG-6.3.2 — Dispatch evidence
+
+Per Phase 6.3.1 inventory, BCL + Meridian already have post-HF-222 calc results from architect-channel Phase 6.2 dispatch. No additional CC dispatch executed. CRP has 0 periods / 0 committed_data → no dispatch possible without prior import.
+
+No `calculation_runs` table exists in operative schema; dispatch tracking is via `calculation_results.created_at` per (tenant, rule_set, period) cohort.
+
+#### §HG-6.3.3 — Verbatim recalc values
+
+##### BCL — Grand totals per (rule_set × period)
+
+```
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=October 2025  (2025-10-01) | grand_total=$44590.00 | rows=85
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=November 2025 (2025-11-01) | grand_total=$46291.00 | rows=85
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=December 2025 (2025-12-01) | grand_total=$61986.00 | rows=85
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=January 2026  (2026-01-01) | grand_total=$47545.00 | rows=85
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=February 2026 (2026-02-01) | grand_total=$53215.00 | rows=85
+rule_set=Plan de Comisiones — Banca Minorista 2025-2026 | period=March 2026    (2026-03-01) | grand_total=$58406.00 | rows=85
+```
+
+##### BCL — Per-period component breakdown (sum across all 85 entities)
+
+```
+October 2025:
+  Colocación de Crédito - Ejecutivo:        $14590.00
+  Captación de Depósitos - Ejecutivo:        $8400.00
+  Cumplimiento Regulatorio - Ejecutivo:      $6300.00
+  Productos Cruzados - Ejecutivo:            $6030.00
+  Colocación de Crédito - Ejecutivo Senior:  $3400.00
+  Productos Cruzados - Ejecutivo Senior:     $2450.00
+  Captación de Depósitos - Ejecutivo Senior: $1770.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1650.00
+  [sum-of-components: $44590.00]
+
+November 2025:
+  Colocación de Crédito - Ejecutivo:        $13380.00
+  Captación de Depósitos - Ejecutivo:        $9580.00
+  Productos Cruzados - Ejecutivo:            $6786.00
+  Cumplimiento Regulatorio - Ejecutivo:      $5700.00
+  Colocación de Crédito - Ejecutivo Senior:  $3320.00
+  Captación de Depósitos - Ejecutivo Senior: $2950.00
+  Productos Cruzados - Ejecutivo Senior:     $2775.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1800.00
+  [sum-of-components: $46291.00]
+
+December 2025:
+  Colocación de Crédito - Ejecutivo:        $20690.00
+  Captación de Depósitos - Ejecutivo:       $14380.00
+  Productos Cruzados - Ejecutivo:            $7596.00
+  Cumplimiento Regulatorio - Ejecutivo:      $5800.00
+  Colocación de Crédito - Ejecutivo Senior:  $4760.00
+  Captación de Depósitos - Ejecutivo Senior: $3760.00
+  Productos Cruzados - Ejecutivo Senior:     $3050.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1950.00
+  [sum-of-components: $61986.00]
+
+January 2026:
+  Colocación de Crédito - Ejecutivo:        $14200.00
+  Captación de Depósitos - Ejecutivo:        $9720.00
+  Productos Cruzados - Ejecutivo:            $7200.00
+  Cumplimiento Regulatorio - Ejecutivo:      $6100.00
+  Colocación de Crédito - Ejecutivo Senior:  $3660.00
+  Productos Cruzados - Ejecutivo Senior:     $2875.00
+  Captación de Depósitos - Ejecutivo Senior: $2440.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1350.00
+  [sum-of-components: $47545.00]
+
+February 2026:
+  Colocación de Crédito - Ejecutivo:        $16160.00
+  Captación de Depósitos - Ejecutivo:       $11460.00
+  Productos Cruzados - Ejecutivo:            $7380.00
+  Cumplimiento Regulatorio - Ejecutivo:      $6100.00
+  Colocación de Crédito - Ejecutivo Senior:  $4540.00
+  Captación de Depósitos - Ejecutivo Senior: $3050.00
+  Productos Cruzados - Ejecutivo Senior:     $2875.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1650.00
+  [sum-of-components: $53215.00]
+
+March 2026:
+  Colocación de Crédito - Ejecutivo:        $19560.00
+  Captación de Depósitos - Ejecutivo:       $10720.00
+  Productos Cruzados - Ejecutivo:            $7416.00
+  Cumplimiento Regulatorio - Ejecutivo:      $6600.00
+  Colocación de Crédito - Ejecutivo Senior:  $5680.00
+  Captación de Depósitos - Ejecutivo Senior: $3780.00
+  Productos Cruzados - Ejecutivo Senior:     $2700.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $1950.00
+  [sum-of-components: $58406.00]
+```
+
+##### BCL — Reference entity (first external_id ascending with calc_results): BCL-5001 — Adriana Reyes Molina
+
+```
+period=October 2025  | total_payout=$980.00
+  Colocación de Crédito - Ejecutivo Senior:  $180.00
+  Captación de Depósitos - Ejecutivo Senior: $400.00
+  Productos Cruzados - Ejecutivo Senior:     $250.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":112918.53,"Pct_Meta_Depositos":1.0716,"Depositos_Nuevos_Netos":48221.25,"Indice_Calidad_Cartera":0.899,"Cumplimiento_Colocacion":0.7528,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":10}
+
+period=November 2025 | total_payout=$955.00
+  Colocación de Crédito - Ejecutivo Senior:  $180.00
+  Captación de Depósitos - Ejecutivo Senior: $400.00
+  Productos Cruzados - Ejecutivo Senior:     $225.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":134658.24,"Pct_Meta_Depositos":1.1574,"Depositos_Nuevos_Netos":52084.62,"Indice_Calidad_Cartera":0.7139,"Cumplimiento_Colocacion":0.8977,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":9}
+
+period=December 2025 | total_payout=$820.00
+  Colocación de Crédito - Ejecutivo Senior:  $120.00
+  Captación de Depósitos - Ejecutivo Senior: $250.00
+  Productos Cruzados - Ejecutivo Senior:     $300.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":88287.9,"Pct_Meta_Depositos":0.8599,"Depositos_Nuevos_Netos":38694.45,"Indice_Calidad_Cartera":0.8413,"Cumplimiento_Colocacion":0.5886,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":12}
+
+period=January 2026  | total_payout=$605.00
+  Colocación de Crédito - Ejecutivo Senior:  $260.00
+  Captación de Depósitos - Ejecutivo Senior: $120.00
+  Productos Cruzados - Ejecutivo Senior:      $75.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":140387.13,"Pct_Meta_Depositos":0.7697,"Depositos_Nuevos_Netos":34638.44,"Indice_Calidad_Cartera":0.7983,"Cumplimiento_Colocacion":0.9359,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":3}
+
+period=February 2026 | total_payout=$675.00
+  Colocación de Crédito - Ejecutivo Senior:  $180.00
+  Captación de Depósitos - Ejecutivo Senior: $120.00
+  Productos Cruzados - Ejecutivo Senior:     $225.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":117084.58,"Pct_Meta_Depositos":0.6721,"Depositos_Nuevos_Netos":30244.28,"Indice_Calidad_Cartera":0.8472,"Cumplimiento_Colocacion":0.7806,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":9}
+
+period=March 2026    | total_payout=$1010.00
+  Colocación de Crédito - Ejecutivo Senior:  $360.00
+  Captación de Depósitos - Ejecutivo Senior: $400.00
+  Productos Cruzados - Ejecutivo Senior:     $100.00
+  Cumplimiento Regulatorio - Ejecutivo Senior: $150.00
+  metrics={"_rowIndex":0,"Meta_Depositos":45000,"Meta_Colocacion":150000,"Monto_Colocacion":150130.48,"Pct_Meta_Depositos":1.0996,"Depositos_Nuevos_Netos":49483.75,"Indice_Calidad_Cartera":0.7782,"Cumplimiento_Colocacion":1.0009,"Infracciones_Regulatorias":0,"Cantidad_Productos_Cruzados":4}
+```
+
+##### Meridian — Grand totals per (rule_set × period)
+
+```
+rule_set=Meridian Logistics Group Incentive Plan 2025 | period=January 2025  | grand_total=$150284.00 | rows=67
+rule_set=Meridian Logistics Group Incentive Plan 2025 | period=February 2025 | grand_total=$140584.00 | rows=67
+rule_set=Meridian Logistics Group Incentive Plan 2025 | period=March 2025    | grand_total=$160184.00 | rows=67
+```
+
+##### Meridian — Per-period component breakdown
+
+```
+January 2025:
+  New Accounts - Senior:            $37100.00
+  New Accounts - Standard:          $32800.00
+  Revenue Performance - Senior:     $23400.00
+  Revenue Performance - Standard:   $20600.00
+  Safety Record - Senior:           $10500.00
+  On-Time Delivery - Senior:        $10300.00
+  Safety Record - Standard:         $10200.00
+  On-Time Delivery - Standard:       $5250.00
+  Fleet Utilization - Standard:        $82.00
+  Fleet Utilization - Senior:          $52.00
+  [sum-of-components: $150284.00]
+
+February 2025:
+  New Accounts - Standard:          $33200.00
+  New Accounts - Senior:            $31500.00
+  Revenue Performance - Standard:   $20950.00
+  Revenue Performance - Senior:     $20000.00
+  Safety Record - Senior:           $10500.00
+  Safety Record - Standard:         $10200.00
+  On-Time Delivery - Senior:         $7200.00
+  On-Time Delivery - Standard:       $6900.00
+  Fleet Utilization - Standard:        $82.00
+  Fleet Utilization - Senior:          $52.00
+  [sum-of-components: $140584.00]
+
+March 2025:
+  New Accounts - Standard:          $37000.00
+  New Accounts - Senior:            $31500.00
+  Revenue Performance - Senior:     $28900.00
+  Revenue Performance - Standard:   $20000.00
+  Safety Record - Senior:           $12500.00
+  Safety Record - Standard:         $11700.00
+  On-Time Delivery - Standard:       $9850.00
+  On-Time Delivery - Senior:         $8600.00
+  Fleet Utilization - Standard:        $82.00
+  Fleet Utilization - Senior:          $52.00
+  [sum-of-components: $160184.00]
+```
+
+##### Meridian — Reference entity: 70010 — Antonio López Hernández
+
+```
+period=January 2025  | total_payout=$5602.00
+  Revenue Performance - Senior: $1600.00
+  On-Time Delivery - Senior:     $700.00
+  New Accounts - Senior:        $2800.00
+  Safety Record - Senior:        $500.00
+  Fleet Utilization - Senior:      $2.00
+  metrics={"Mes":1,"Año":2025,"_rowIndex":2,"Ingreso_Meta":361978,"Ingreso_Real":440003,"Cuentas_Nuevas":8,"Entregas_Tiempo":97,"Cargas_Flota_Hub":1083,"Entregas_Totales":99,"Volumen_Rutas_Hub":1083,"Capacidad_Flota_Hub":1306,"Pct_Entregas_Tiempo":0.9798,"Cumplimiento_Ingreso":1.2156,"Incidentes_Seguridad":0,"Tasa_Utilizacion_Hub":0.8292}
+
+period=February 2025 | total_payout=$2452.00
+  Revenue Performance - Senior: $1600.00
+  On-Time Delivery - Senior:        $0.00
+  New Accounts - Senior:         $350.00
+  Safety Record - Senior:        $500.00
+  Fleet Utilization - Senior:      $2.00
+  metrics={"Mes":2,"Año":2025,"_rowIndex":69,"Ingreso_Meta":446709,"Ingreso_Real":526906,"Cuentas_Nuevas":1,"Entregas_Tiempo":51,"Cargas_Flota_Hub":1157,"Entregas_Totales":63,"Volumen_Rutas_Hub":1157,"Capacidad_Flota_Hub":1361,"Pct_Entregas_Tiempo":0.8095,"Cumplimiento_Ingreso":1.1795,"Incidentes_Seguridad":0,"Tasa_Utilizacion_Hub":0.8501}
+
+period=March 2025    | total_payout=$2652.00
+  Revenue Performance - Senior: $1400.00
+  On-Time Delivery - Senior:     $400.00
+  New Accounts - Senior:         $350.00
+  Safety Record - Senior:        $500.00
+  Fleet Utilization - Senior:      $2.00
+  metrics={"Mes":3,"Año":2025,"_rowIndex":136,"Ingreso_Meta":343324,"Ingreso_Real":448704,"Cuentas_Nuevas":1,"Entregas_Tiempo":45,"Cargas_Flota_Hub":925,"Entregas_Totales":49,"Volumen_Rutas_Hub":925,"Capacidad_Flota_Hub":956,"Pct_Entregas_Tiempo":0.9184,"Cumplimiento_Ingreso":1.3069,"Incidentes_Seguridad":0,"Tasa_Utilizacion_Hub":0.9676}
+```
+
+##### CRP
+
+```
+rule_sets: 4 (Cross-Sell Bonus, Capital Equipment Commission, District Override, Consumables Commission)
+periods: 0
+entities: 32
+committed_data rows: 0
+calculation_results: 0
+entity_period_outcomes: 0
+```
+
+CRP state: no periods imported, no committed_data, no calculation_results. Architect-channel disposition required per directive HALT-6.3-A ("any rule_set surfaced in 6.3.1 has tenant_id mismatch or is missing expected periods") — surfacing verbatim for Phase 6.4 disposition.
 
 ### HG-6.4 — Architect ground-truth reconciliation (PENDING Phase 6)
 
