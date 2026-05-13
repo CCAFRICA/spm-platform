@@ -83,8 +83,12 @@ interface DataCapability {
 }
 
 // OB-162: Per-component convergence binding (Decision 111)
+// HF-222 Phase 3 (schema-class root closure): the prior single batch-id field that
+// collapsed learning-provenance and data-location semantics is retired. Audit
+// provenance is now carried by `learning_provenance` (period-agnostic, write-time
+// metadata only). Data-location resolution keys by column name across all
+// operative-period batches. See VG entry T1-E-PG3 for the class naming.
 export interface ComponentBinding {
-  source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
   match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
@@ -93,6 +97,11 @@ export interface ComponentBinding {
   scale_factor?: number;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
+  // HF-222 Phase 3: learning provenance (audit metadata only).
+  learning_provenance?: {
+    batch_id: string;
+    learned_at: string;
+  };
 }
 
 interface BindingMatch {
@@ -530,11 +539,14 @@ export async function convergeBindings(
       if (targetCap.batchIds.length > 0) {
         const targetFI = targetCap.fieldIdentities[targetCap.targetField];
         componentBindings[compKey]['target'] = {
-          source_batch_id: targetCap.batchIds[0],
           column: targetCap.targetField,
           field_identity: targetFI || { structuralType: 'measure', contextualIdentity: 'performance_target', confidence: 0.7 },
           match_pass: 2,
           confidence: bestCompMatch.score,
+          learning_provenance: {
+            batch_id: targetCap.batchIds[0],
+            learned_at: new Date().toISOString(),
+          },
         };
       }
 
@@ -2005,12 +2017,15 @@ async function generateAllComponentBindings(
           const isValidated = !req.expectedRange || boundaryScore > 0.1;
 
           bindings[compKey][req.role] = {
-            source_batch_id: mc.batchId,
             column: proposedColumnName,
             field_identity: mc.fi,
             match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
             confidence: isValidated ? 0.9 : 0.6,
             scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+            learning_provenance: {
+              batch_id: mc.batchId,
+              learned_at: new Date().toISOString(),
+            },
           };
           boundColumns.add(proposedColumnName);
           console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor})`);
@@ -2041,12 +2056,15 @@ async function generateAllComponentBindings(
       if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
-          source_batch_id: best.batchId,
           column: best.name,
           field_identity: best.fi,
           match_pass: 3,  // Boundary-only fallback
           confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
           scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
+          learning_provenance: {
+            batch_id: best.batchId,
+            learned_at: new Date().toISOString(),
+          },
         };
         boundColumns.add(best.name);
         console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
@@ -2121,11 +2139,14 @@ async function generateAllComponentBindings(
       const winnerScore = winner.conf.score > 0 ? winner.conf.score : winner.conf.cardinality_ratio;
 
       bindings[compKey]['entity_identifier'] = {
-        source_batch_id: batchId,
         column: winner.colName,
         field_identity: winner.fi,
         match_pass: 1,
         confidence: winnerScore,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
 
       // Emit convergence:binding_selection signal with full candidate provenance.
@@ -2171,11 +2192,14 @@ async function generateAllComponentBindings(
     if (temporalEntries.length > 0) {
       const [colName, fi] = temporalEntries[0];
       bindings[compKey]['period'] = {
-        source_batch_id: batchId,
         column: colName,
         field_identity: fi,
         match_pass: 1,
         confidence: match.matchConfidence,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
     }
   }
