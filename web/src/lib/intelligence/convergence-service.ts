@@ -1889,8 +1889,8 @@ export function computeStructuralBindingConfidence(
 // HF-222 Phase 2: distribution-derived distinguishability test.
 //
 // Replaces HF-218 Component 4b's tenant-adaptive boundary threshold (which carried
-// developer-stated 0.50 cold-start anchor and N=5 window — both Korean Test
-// violations per AP-25 / IGF-T1-E910). The new test derives its acceptance
+// a developer-stated initial-state anchor value and signal-window size — both
+// Korean Test violations per AP-25 / IGF-T1-E910). The new test derives its acceptance
 // threshold from the candidate distribution itself at the moment of binding;
 // no developer-stated numerical constants in foundational binding-gate code.
 //
