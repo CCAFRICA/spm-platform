@@ -287,15 +287,105 @@ Lines 1754-1808 of `web/src/app/api/calculation/run/route.ts` (verbatim):
 
 `npm run build` exited 0 post-all-code-phases. HALT-4 — not fired at any phase boundary.
 
-### HG-5.5 — VG substrate-statement locks (ARCHITECT-CHANNEL ONLY)
+### HG-5.5 — VG substrate-statement locks (Path A: capture-promote pipeline)
 
-**Status:** pending architect execution. CC does not execute VG psql INSERTs.
+**Status:** ✅ closed. Architect dispositioned Path A on 2026-05-13; CC executed the capture-then-promote pipeline in `~/vialuce-governance` via `tsx + porsager postgres` (tsx equivalent of `psql + DATABASE_URL`; precedent: `scripts/insert_prom_igf_07.ts`). Two entries landed at `status='locked'` with substrate-coherent content shape.
 
-Architect to execute the two INSERTs per directive §5.5:
-1. `T1-E-PG3-source_batch_id-schema-confusion` (schema-semantic-confusion class naming)
-2. `T2-E-signal-convergence-dual-path-concordance-observation-only` (signal reclassification)
+**HALT-5.5.0 resolution.** Initial schema inspection (`psql "$DATABASE_URL" -c "\d igf.entries"` equivalent) surfaced two mismatches with the directive template, both halted per HALT-5.5.0 instruction and dispositioned by architect:
 
-Architect pastes VG `SELECT entry_id, tier, title, locked_at` outputs into this Hard Gate row when both INSERTs complete.
+1. **Tooling mismatch:** `psql` binary not installed on this machine. VG repo uses `tsx + porsager postgres` via `src/lib/db.ts`. Architect Path A directive specifies use of `src/lib/db.ts withRawSql` (precedent compatible).
+2. **Schema mismatch:** `igf.entries` columns are `(id, tier, title, current_version, status, ip_classification, created_at, updated_at, notes)`, not `(entry_id, tier, title, content, locked_at, locked_by)`. Content lives in `igf.entry_versions(entry_id, version_number, content jsonb, lineage_notes, supersession_id, created_at, locked_by)`. Substrate-write protocol is capture-then-promote, not direct INSERT.
+
+**Pipeline executed (per entry):**
+
+| Step | Function | Args |
+|---|---|---|
+| A | `igf.insert_layer1_capture_event(p_source_summary, p_candidate_entries, p_provenance)` | source_summary='HF-222 Phase 5.5 ...', candidate_entries=[{proposed_id, tier, title, content, ip_classification, status:'draft'}], provenance={hf:'HF-222', phase:'5.5', branch, commit_sha:'07990823', architect:'Andrew Cobb'} |
+| B | `igf.dispose_capture_event(capture_event_id, 'approved', notes, per_candidate)` | per_candidate=[{candidate_index:0, disposition:'approved', notes, reason_code:'extraction_faithful'}] |
+| C | `igf.promote_approved_capture_event(capture_event_id)` | (creates igf.entries row + igf.entry_versions v1 row; status='draft' initially) |
+| D | `igf.promote_entry(entry_id, 'locked', 'Andrew Cobb')` | (status transition: draft → locked; enforces content completeness — statement, applies_when[≥1], violation_patterns/adherence_patterns[≥1], provenance.origin_document) |
+
+**Pipeline execution evidence:**
+
+Entry 1 (T1-E-PG3-source_batch_id-schema-confusion):
+```
+========== Locking Entry 1 (PG-3 schema-confusion class): T1-E-PG3-source_batch_id-schema-confusion ==========
+Step A — insert_layer1_capture_event...
+Step A OK: capture_event_id=16e36831-486d-4253-8dac-c280c144942a
+Step B — dispose_capture_event(approved)...
+Step B OK: dispose_result={"id":"16e36831-486d-4253-8dac-c280c144942a", "mode":"layer1", "disposition":"approved", "disposed_at":"2026-05-13T18:57:49.602Z", "disposed_by":"postgres", ...}
+Step C — promote_approved_capture_event...
+Step C OK: promoted_entry_ids=["T1-E-PG3-source_batch_id-schema-confusion"]
+Step D — promote_entry(T1-E-PG3-source_batch_id-schema-confusion, 'locked', 'Andrew Cobb')...
+Step D OK: status transitioned to locked.
+```
+
+Entry 2 (T2-E-signal-convergence-dual-path-concordance-observation-only):
+```
+========== Locking Entry 2 (signal observation-only): T2-E-signal-convergence-dual-path-concordance-observation-only ==========
+Step A OK: capture_event_id=<uuid issued by VG>
+Step B OK: dispose_result={..."disposition":"approved","disposed_at":"2026-05-13T18:57:50.575Z",...}
+Step C OK: promoted_entry_ids=["T2-E-signal-convergence-dual-path-concordance-observation-only"]
+Step D OK: status transitioned to locked.
+```
+
+**Verification (`scripts/hf222-phase5-5-verify.ts`):**
+
+`igf.entries` post-lock:
+```json
+[
+  {
+    "id": "T1-E-PG3-source_batch_id-schema-confusion",
+    "tier": 1,
+    "title": "Schema-semantic confusion: provenance and data-location collapsed in single field",
+    "current_version": 1,
+    "status": "locked",
+    "ip_classification": "internal_only",
+    "created_at": "2026-05-13T18:57:49.305Z",
+    "updated_at": "2026-05-13T18:57:49.602Z"
+  },
+  {
+    "id": "T2-E-signal-convergence-dual-path-concordance-observation-only",
+    "tier": 2,
+    "title": "Signal classification: convergence:dual_path_concordance is observation-only",
+    "current_version": 1,
+    "status": "locked",
+    "ip_classification": "internal_only",
+    "created_at": "2026-05-13T18:57:50.336Z",
+    "updated_at": "2026-05-13T18:57:50.575Z"
+  }
+]
+```
+
+`igf.entry_versions` post-lock (content shape verification):
+```json
+[
+  {
+    "entry_id": "T1-E-PG3-source_batch_id-schema-confusion",
+    "version_number": 1,
+    "content_length": 4849,
+    "statement_present": true,
+    "applies_when_count": 5,
+    "violation_or_adherence_count": 3,
+    "origin_document_present": true
+  },
+  {
+    "entry_id": "T2-E-signal-convergence-dual-path-concordance-observation-only",
+    "version_number": 1,
+    "content_length": 4634,
+    "statement_present": true,
+    "applies_when_count": 5,
+    "violation_or_adherence_count": 3,
+    "origin_document_present": true
+  }
+]
+```
+
+**Verification summary:** both entries pass all 8 checks (status='locked', current_version=1, version_number=1, content_length>0, statement_present, applies_when_count≥1, violation_or_adherence_count≥1, origin_document_present).
+
+**HALT-5.5-A/B/C/D conditions:** none fired. Function signatures matched the inspected definitions (`insert_layer1_capture_event(text, jsonb, jsonb) → uuid`, `dispose_capture_event(uuid, text, text, jsonb) → jsonb`, `promote_approved_capture_event(uuid) → jsonb`, `promote_entry(text, text, text) → void`). Enum values matched: 'approved' (75 prior approvals on capture_events) and 'locked' (344 prior locked entries) are operative canonical values.
+
+**VG commit:** `00d20e9` on `vialuce-governance` `main` branch — `HF-222 Phase 5.5: PG-3 schema-class naming + signal reclassification (capture-promote pipeline via insert_layer1_capture_event)`. Scripts committed: `scripts/hf222-phase5-5-substrate-locks.ts`, `scripts/hf222-phase5-5-verify.ts`.
 
 ### HG-6.3 — Clean-slate recalc (PENDING Phase 6)
 
