@@ -206,3 +206,55 @@ $ grep -n "^async function\|^function\|^export async function\|^export function"
 ```
 
 10 top-level functions: 1 POST handler + 1 dispatcher (`executeContentUnit`) + 6 per-classification pipelines (target / transaction / entity / reference / batched-plan / plan) + 1 partial-claim filter + 1 local `postCommitConstruction` helper (file-private, distinct from the shared `executePostCommitConstruction` module at line 270).
+
+---
+
+## Phase 3 -- Bulk path anatomy (`web/src/app/api/import/sci/execute-bulk/route.ts`)
+
+### 3.1 -- Structural-grep summary (920 lines)
+
+Imports include `buildFieldIdentitiesFromBindings`, `resolveDataTypeFromClassification`, `supersedePriorBatchOnContentMatch`, `computeFileHashSha256`, `computeContentUnitHashSha256`, `executePostCommitConstruction`. **Does NOT import `convergeBindings`** — line 11 carries the explicit retirement annotation: `// OB-182: convergeBindings removed from import — runs at calc time`. POST handler at line 80. Per-classification pipeline functions: `processContentUnit` (305) → `processEntityUnit` (339) / `processDataUnit` (619) / `processReferenceUnit` (788). No `executeTargetPipeline` / `executeTransactionPipeline` / `executeBatchedPlanInterpretation` / `executePlanPipeline` — the non-bulk path's plan-handling pipelines are absent from bulk. Plan classifications are not handled by the bulk path; only entity / data / reference.
+
+### 3.2 -- Convergence presence check
+
+```
+$ grep -n "converge\|Convergence\|convergeBindings" web/src/app/api/import/sci/execute-bulk/route.ts
+11:  // OB-182: convergeBindings removed from import — runs at calc time
+601: // OB-195 Layer 4: Invalidate cached convergence bindings
+610: console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
+754: // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
+763: console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+770: // Convergence derivation also removed (was lines 685-716) — runs at calc time.
+772: // OB-182: Entity binding validation and convergence derivation REMOVED.
+774: // Convergence: deferred to calculation time (engine derives when input_bindings empty).
+895: // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
+904: console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
+```
+
+**Zero runtime `convergeBindings(...)` calls.** All hits are comments documenting OB-182 retirement, OB-195 Layer-4 cache invalidation (which clears `input_bindings` so the engine re-derives), and console.log strings narrating the cache invalidation. The path actively *deletes* cached convergence bindings (entity/data/reference branches at 601-610 / 754-763 / 895-904) rather than computing them at import time.
+
+### 3.3 -- Post-pipeline operations
+
+```
+41:  import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+248: await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
+601-610:  OB-195 Layer 4 cache invalidation (entity branch — clears input_bindings)
+754-763:  OB-195 Layer 4 cache invalidation (data branch — clears input_bindings)
+895-904:  OB-195 Layer 4 cache invalidation (reference branch — clears input_bindings)
+```
+
+Same `executePostCommitConstruction` shared module call as non-bulk (line 248 here vs line 270 in non-bulk; both pass `source` field — `'sci-bulk'` vs `'sci-execute'`). Per-pipeline cache invalidation only in bulk. **No `rule_set_assignments` insert (HF-126)**, **no `writeClassificationSignal` fire-and-forget**, **no `aggregateToFoundational` / `aggregateToDomain`**, **no `writeFingerprint`**.
+
+### 3.4 -- Function list
+
+```
+$ grep -n "^async function\|^function\|^export async function\|^export function" web/src/app/api/import/sci/execute-bulk/route.ts
+80:  export async function POST(req: NextRequest) {
+273: function filterFieldsForPartialClaim(
+305: async function processContentUnit(
+339: async function processEntityUnit(
+619: async function processDataUnit(
+788: async function processReferenceUnit(
+```
+
+6 top-level functions: 1 POST + 1 dispatcher (`processContentUnit`) + 3 per-classification pipelines (entity / data / reference) + 1 partial-claim filter. Same `filterFieldsForPartialClaim` shape as non-bulk. No plan-handling pipelines.
