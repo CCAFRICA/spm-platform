@@ -739,3 +739,39 @@ All five residuals from directive §6A are operative-state known gaps, named exp
 **Residual 5 — Pre-existing 0.5* literals in convergence-service.ts outside HF-222 retirement scope.** Lines ~987, ~998, ~1076, ~1107. Future file-wide Korean Test sweep candidate.
 
 ---
+
+## §HG-6.3 Clean-slate recalc evidence (architect-channel summary)
+
+BCL: 6 periods × 85 entities = 510 results. Grand totals per period: Oct $44,590; Nov $46,291; Dec $61,986; Jan $47,545; Feb $53,215; Mar $58,406. Six-period grand total $312,033.
+
+Reference entity BCL-5001 Adriana Reyes Molina per-period totals: Oct $980; Nov $955; Dec $820; Jan $605; Feb $675; Mar $1,010.
+
+Meridian: 3 periods × 67 entities = 201 results. Grand totals per period: Jan $150,284; Feb $140,584; Mar $160,184. Three-period grand total $451,052.
+
+Reference entity Antonio López Hernández 70010 per-period totals: Jan $5,602; Feb $2,452; Mar $2,652.
+
+CRP: 4 rule_sets, 0 periods, 0 committed_data, 0 calculation_results. Roster import was attempted in Phase 6.2 and did not complete. CRP did not enter recalc.
+
+---
+
+## §HG-6.4 Architect-channel reconciliation against ground truth
+
+**BCL reconciliation result: PASS.** Per-period grand totals match `BCL_Resultados_Esperados.xlsx` exactly across all six periods. Six-period grand total $312,033 matches Resumen sheet exactly. Reference entity BCL-5001 matches GT all six periods. The HF-218 Component 2 verification block defect that pre-HF-222 produced 5 of 6 BCL periods at $0 grand total is structurally closed by Phase 3 schema-class root closure.
+
+**Meridian reconciliation result: PARTIAL PASS.** Components C1 Revenue Performance, C2 OnTime Delivery, C3 New Accounts, C4 Safety Record reconcile against `Meridian_Resultados_Esperados.xlsx` exactly at the aggregate level (C1 $133,850, C2 $48,100, C3 $203,100, C4 $65,600). Component C5 Fleet Utilization underreconciles: GT $106,335 vs CC output $402 (99.62% under). Detailed per-entity-per-component CSV at `web/scripts/output/hf222-phase64-meridian-detail.csv`, commit `0975c283`. C5 defect localizes to one component; C1–C4 are clean.
+
+**CRP reconciliation: not testable.** No data imported.
+
+---
+
+## §HG-Known-Issues
+
+**KI-1: Meridian C5 Fleet Utilization regression.** Component-level localization confirmed via Phase 6.4 detailed CSV. Defect predates HF-222 and exists across the diagnostic chain DIAG-039 (c4 import-to-result trace, 2026-05-11), DIAG-040 (post-HF-216 traces; intent-executor cap-modifier collapse), DIAG-041 (comprehensive code audit; `IntentModifier` type has no `applyTo` discriminant; cap clamps post-multiply; LLM plan-interpreter emits cap `maxValue: 1.5` verbatim), DIAG-042 (layer-contract documentation). HF-216 attempted a related fix at commit `160125da` and was reverted by HF-217 at `08960026`. HF-218 superseded scope via layer-contract closure. HF-222 did not target C5; the Phase 1 + Phase 2 mechanisms address binding-admission Korean Test compliance, not the cap-modifier applyTo defect that produces C5 = $2.
+
+**KI-2: CRP roster import did not complete in Phase 6.2.** CRP not testable in Phase 6.4. Recovery deferred.
+
+---
+
+## §HG-Phase-6.4-Exit-Criterion-Disposition
+
+Directive §6.4 stated PASS = 100% match across all three tenants × all periods × all components. The actual outcome: BCL passes 100%; Meridian passes C1–C4 (4 of 5 components, 80% by component count, 81% by aggregate value); CRP not testable. Architect dispositions HF-222 close with scope-reduced exit: BCL structural defect closed empirically; Meridian C5 + CRP named as residuals deferred to follow-on HF.
