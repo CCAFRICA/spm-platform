@@ -102,3 +102,146 @@ web/src/lib/calculation/intent-types.ts:239:  modifiers: IntentModifier[];
 - `intent-executor.ts`: 6 references (import, parameter signature, switch dispatch, two field reads, modifierLog emission)
 - `intent-transformer.ts`: 3 references (import, local-array typing, modifier-rewrite condition)
 - `intent-types.ts`: 2 references (type definition, ComponentIntent field)
+
+---
+
+## Phase 2.1 -- applyModifiers function body (current)
+
+**File:** `web/src/lib/calculation/intent-executor.ts` lines 572-610 (verbatim):
+
+```typescript
+function applyModifiers(
+  value: Decimal,
+  modifiers: IntentModifier[],
+  data: EntityData,
+  modifierLog: Array<{ modifier: string; before: number; after: number }>
+): Decimal {
+  let result = value;
+
+  for (const mod of modifiers) {
+    const before = toNumber(result);
+
+    switch (mod.modifier) {
+      case 'cap': {
+        const cap = toDecimal(mod.maxValue);
+        result = result.gt(cap) ? cap : result;
+        break;
+      }
+      case 'floor': {
+        const floor = toDecimal(mod.minValue);
+        result = result.lt(floor) ? floor : result;
+        break;
+      }
+      case 'proration': {
+        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
+        const num = resolveSource(mod.numerator, data, inputLog);
+        const den = resolveSource(mod.denominator, data, inputLog);
+        result = den.isZero() ? ZERO : result.mul(num.div(den));
+        break;
+      }
+      case 'temporal_adjustment':
+        // Temporal adjustment requires historical data — not applied in single-period execution
+        break;
+    }
+
+    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
+  }
+
+  return result;
+}
+```
+
+**Delta from DIAG-041 Phase 3.3 (lines 572-610 in current file vs 572-610 in DIAG-041 extraction):** byte-identical at the function-body level. No drift.
+
+## Phase 2.2 -- applyModifiers call sites in executeIntent
+
+**Single call site at line 683 of `executeIntent`. Surrounding context lines 677-688 (verbatim):**
+
+```typescript
+  } else if (intent.intent) {
+    // 2. Execute single operation (no variants)
+    outcome = executeOperation(intent.intent, entityData, inputLog, trace);
+  }
+
+  // 3. Apply modifiers
+  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+
+  // 4. Convert to native number at output boundary (Decision 122)
+  const outcomeNumber = toNumber(outcome);
+```
+
+**Key answer to the directive's input-accessibility question:** at the line 683 call site, the resolved input value(s) (pre-operation) are NOT directly accessible as a separate `Decimal` reference in local scope. Only `outcome` (post-operation `Decimal`) and `inputLog` (a `Record` of resolved-input objects with `source/rawValue/resolvedValue:number` fields, keyed by source label) survive into the `applyModifiers` call. The `inputLog` carries pre-operation resolved values but **as `number`, not as `Decimal`**, and indexed by descriptor key rather than by operation slot. Any input-scoped modifier path that needs to apply to the pre-operation input would either (a) re-resolve from `intent.intent.input` against `EntityData` inside `applyModifiers` (currently `applyModifiers` does not receive the `intent.intent` operation tree — only `intent.modifiers` and `EntityData`), or (b) require `executeIntent` to surface the pre-operation Decimal explicitly to `applyModifiers`.
+
+## Phase 2.3 -- executeScalarMultiply (current)
+
+**File:** `web/src/lib/calculation/intent-executor.ts` lines 299-310 (verbatim):
+
+```typescript
+function executeScalarMultiply(
+  op: ScalarMultiply,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
+  const rateValue = typeof op.rate === 'number'
+    ? toDecimal(op.rate)
+    : resolveValue(op.rate, data, inputLog, trace);
+  return inputValue.mul(rateValue);
+}
+```
+
+The function returns `inputValue.mul(rateValue)` — only the post-multiply `Decimal` is returned. The pre-multiply `inputValue` is a local `const` and is not surfaced to the caller.
+
+## Phase 2.4 -- executeOperation dispatcher (current)
+
+**File:** `web/src/lib/calculation/intent-executor.ts` lines 486-514 (verbatim):
+
+```typescript
+export function executeOperation(
+  op: IntentOperation,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  switch (op.operation) {
+    case 'bounded_lookup_1d': return executeBoundedLookup1D(op, data, inputLog, trace);
+    case 'bounded_lookup_2d': return executeBoundedLookup2D(op, data, inputLog, trace);
+    case 'scalar_multiply':   return executeScalarMultiply(op, data, inputLog, trace);
+    case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
+    case 'aggregate':         return executeAggregateOp(op, data, inputLog);
+    case 'ratio':             return executeRatioOp(op, data, inputLog);
+    case 'constant':          return executeConstantOp(op);
+    case 'weighted_blend':    return executeWeightedBlend(op, data, inputLog, trace);
+    case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
+    case 'linear_function':   return executeLinearFunction(op, data, inputLog, trace);
+    case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
+    default: {
+      const operation = (op as { operation?: string }).operation ?? '<undefined>';
+      throw new IntentExecutorUnknownOperationError(
+        `[intent-executor] Unknown operation "${operation}" reached executeOperation. ` +
+        `Foundational IntentOperation union admits only registered primitives. An unknown ` +
+        `operation indicates either (1) an upstream cleanup gap producing a non-foundational ` +
+        `operation string, or (2) data corruption in the persisted intent shape.`
+      );
+    }
+  }
+}
+```
+
+Returns only the post-operation `Decimal`. The eleven primitives include `conditional_gate` (which can nest other operations via `op.onTrue`/`op.onFalse`) — relevant to Option A's nested-operation rewrite path.
+
+## Phase 2.5 -- Modifier trace emission sites
+
+```
+$ grep -n "modifierLog\|modifier.*before.*after\|trace.*modifiers" web/src/lib/calculation/intent-executor.ts
+```
+
+Output (verbatim):
+```
+576:  modifierLog: Array<{ modifier: string; before: number; after: number }>
+606:    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
+622:  const modifierLog: Array<{ modifier: string; before: number; after: number }> = [];
+```
+
+The trace shape is `{ modifier: string; before: number; after: number }` — three fields per modifier event. No `applyTo` field; no input-vs-output discrimination at the trace surface.
