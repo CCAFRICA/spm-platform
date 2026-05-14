@@ -627,3 +627,82 @@ web/src/lib/ingestion/pipeline-bridge.ts:69,76                          (context
 **employee-reconciliation-trace.ts:461** reads `(meta.intent || (component as unknown as Record<string, unknown>).calculationIntent)` — the same pattern as transformer + route.ts. Reads top-level intent for label generation; does not recurse into nested operations for description purposes.
 
 **Readiness:** N/A for nested-operation describing. Reads top-level operation type only.
+
+---
+
+## Phase 7 -- UI consumers
+
+### Phase 7.1 -- `.tsx` reads of calculationIntent / sub-shapes
+
+```
+$ grep -rn "calculationIntent|calcIntent|\.operation\b|\.sourceSpec\b" web/src/components/ web/src/app/ --include="*.tsx"
+web/src/app/perform/statements/page.tsx:596:      if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
+web/src/app/data/import/enhanced/page.tsx:759:  const intent = (meta.intent || (comp as unknown as Record<string, unknown>).calculationIntent) ...
+web/src/app/data/import/enhanced/page.tsx:762:  const op = intent.operation as string | undefined;
+web/src/app/data/import/enhanced/page.tsx:779:  const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+```
+
+Two `.tsx` files reference intent shape.
+
+### Phase 7.2 -- `web/src/app/perform/statements/page.tsx:585-602` (verbatim)
+
+```typescript
+      return `${d.matchedTier || '—'} (${Number(d.metricValue || 0).toFixed(1)})`;
+    case 'scalar_multiply':
+      return `${d.baseAmount || 0} × ${d.rate || 0}`;
+    case 'conditional_gate':
+      return d.gateSemantics ? `${d.matchedCondition || 'Qualified'}` : `${d.matchedCondition || '—'}`;
+    default:
+      if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
+        return d.payout ? 'Qualified' : 'Not qualified';
+      }
+      // OB-196 Phase 3 (E4 / Q-A.5.4): graceful-with-explicit-label, never silent.
+      return `Component type ${comp.componentType ?? 'unknown'} not supported in statement display`;
+  }
+}
+```
+
+Reads `d.operation` (the foundational primitive label, not the intent's recursive operation tree). The descriptor function switches on the top-level primitive; for HF-223 `scalar_multiply` with nested conditional_gate input, the case is `'scalar_multiply'` and produces `${d.baseAmount || 0} × ${d.rate || 0}` — the description does not surface the nested cap or the conditional gate. The default branch's `d.source === 'calculationIntent' && d.operation === 'conditional_gate'` would only fire for top-level conditional_gate components.
+
+**Readiness:** N/A for nested-operation description. The statement page summarises top-level operation only.
+
+### Phase 7.3 -- `web/src/app/data/import/enhanced/page.tsx:755-802` (verbatim of intent-reading block)
+
+```typescript
+  if (firstVariant?.components) {
+    firstVariant.components.forEach((comp: PlanComponent) => {
+      // OB-196 Phase 1.7: read metric names from foundational metadata.intent.
+      const meta = (comp.metadata || {}) as Record<string, unknown>;
+      const intent = (meta.intent || (comp as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+      if (!intent) return;
+
+      const op = intent.operation as string | undefined;
+      const pushField = (id: string | undefined, category: 'metric' | 'amount') => {
+        if (!id) return;
+        componentFields.push({ ... });
+      };
+      const readField = (raw: unknown): string | undefined => {
+        if (!raw || typeof raw !== 'object') return undefined;
+        const o = raw as Record<string, unknown>;
+        if (o.source === 'metric') {
+          const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+          return typeof spec.field === 'string' ? spec.field : undefined;
+        }
+        return undefined;
+      };
+
+      if (op === 'bounded_lookup_2d') {
+        const inputs = (intent.inputs || {}) as Record<string, unknown>;
+        pushField(readField(inputs.row), 'metric');
+        pushField(readField(inputs.column), 'amount');
+      } else if (op === 'bounded_lookup_1d') {
+        pushField(readField(intent.input), 'metric');
+      } else if (op === 'scalar_multiply' || op === 'linear_function' || op === 'piecewise_linear') {
+        pushField(readField(intent.input), 'amount');
+      } else if (op === 'conditional_gate') {
+        const cond = (intent.condition || {}) as Record<string, unknown>;
+```
+
+`readField` returns undefined when `o.source !== 'metric'` (i.e., when input is a nested operation like conditional_gate). For HF-223 `scalar_multiply` (line 791 branch), `readField(intent.input)` returns undefined and `pushField(undefined, 'amount')` is a no-op — no UI field surfaced for nested-input components.
+
+**Readiness:** N/A for nested operations. The enhanced-import UI surfaces required-field metadata only for top-level flat sources; nested inputs produce no UI field entries.
