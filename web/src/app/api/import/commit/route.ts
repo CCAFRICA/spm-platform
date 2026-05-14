@@ -982,39 +982,10 @@ export async function POST(request: NextRequest) {
       console.warn('[ImportCommit] Rule set assignment failed (non-blocking):', assignErr);
     }
 
-    // ── Step 9.5: Converge input_bindings (OB-120) ──
-    // Replaced OB-119 Phase 4 inline binding generation with convergence service.
-    // Semantic matching of plan requirements → data capabilities → MetricDerivationRules.
-    try {
-      const { convergeBindings } = await import('@/lib/intelligence/convergence-service');
-
-      const { data: activeRS } = await supabase
-        .from('rule_sets')
-        .select('id, name, input_bindings')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'active');
-
-      for (const rs of activeRS || []) {
-        const result = await convergeBindings(tenantId, rs.id, supabase);
-        if (result.derivations.length > 0) {
-          const existing = ((rs.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-          const merged = [...existing];
-          for (const d of result.derivations) {
-            // Only add if no existing derivation targets the same metric
-            if (!merged.some(e => e.metric === (d as unknown as Record<string, unknown>).metric)) {
-              merged.push(d as unknown as Record<string, unknown>);
-            }
-          }
-          await supabase
-            .from('rule_sets')
-            .update({ input_bindings: { metric_derivations: merged } as unknown as Json })
-            .eq('id', rs.id);
-          console.log(`[ImportCommit] OB-120 converged "${rs.name}": ${result.derivations.length} new derivations`);
-        }
-      }
-    } catch (convErr) {
-      console.warn('[ImportCommit] OB-120 convergence failed (non-blocking):', convErr);
-    }
+    // HF-224: Import-time convergence (OB-120) removed. Calc-time convergence
+    // (HF-165) at /api/calculation/run is the single binding decision point so
+    // every run sees the full committed dataset and a fresh distinguishability
+    // check (no partial bindings persisted from upload time).
 
     // ── Step 10: Update batch status ──
     await supabase.from('import_batches').update({
