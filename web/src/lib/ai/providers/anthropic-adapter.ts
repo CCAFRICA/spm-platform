@@ -610,6 +610,29 @@ EXAMPLE calculationIntent for a linear_function with cap modifier:
   }
 }
 
+SEMANTIC PRINCIPLE FOR CONSTRAINTS:
+When the plan document specifies a constraint on an INPUT value (a ratio, a metric, an attribute) BEFORE it enters a calculation (e.g., "utilization capped at 150%", "ratio limited to 1.5x", "maximum attainment 200%"), express the constraint INSIDE the input specification using conditional_gate. The constraint is part of the input, not a post-calculation modifier.
+
+When the plan document specifies a constraint on the OUTPUT value (a dollar amount, a payout, a commission) AFTER the calculation (e.g., "maximum commission $5,000", "payout capped at $10,000"), express it as a modifier in the modifiers array.
+
+EXAMPLE calculationIntent for scalar_multiply with input-constrained ratio (ratio capped before multiplication):
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": {
+      "operation": "conditional_gate",
+      "condition": {
+        "left": { "source": "ratio", "sourceSpec": { "numerator": "actual_units", "denominator": "target_units" } },
+        "operator": "<=",
+        "right": { "source": "constant", "value": 1.5 }
+      },
+      "onTrue": { "source": "ratio", "sourceSpec": { "numerator": "actual_units", "denominator": "target_units" } },
+      "onFalse": { "source": "constant", "value": 1.5 }
+    },
+    "rate": 800
+  }
+}
+
 CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
 
 Return your analysis as valid JSON.`,
