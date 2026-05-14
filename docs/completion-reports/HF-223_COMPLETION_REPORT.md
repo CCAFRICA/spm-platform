@@ -158,4 +158,20 @@ See §H1–§H6 above. All EPG grep outputs and code-extract verbatim pastes are
 
 ## FINAL BUILD VERIFICATION
 
-(populated after Phase 4 final-build step appends.)
+```
+$ pkill -f "next dev"; rm -rf web/.next
+$ cd web && npm run build
+(... Next.js production build completed; route table emitted including all static + dynamic surfaces; exit 0 ...)
+ƒ Middleware                                  76 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+$ npm run dev &
+(dev server background; process ID b2jzegqg5)
+
+$ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000
+307
+```
+
+**Final build:** PASS (exit 0). **Dev server:** PASS (HTTP 307 unauth-redirect on `/` — standard for unauthenticated root).
