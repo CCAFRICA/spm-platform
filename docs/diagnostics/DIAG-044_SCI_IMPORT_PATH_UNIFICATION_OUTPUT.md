@@ -545,3 +545,18 @@ $ grep -n "input_bindings.*empty\|hasConvergenceBindings\|hasCompleteBindings\|c
 ```
 
 **Trigger condition (line 231):** calc-time convergence fires when `!hasMetricDerivations && !hasConvergenceBindings` — both legacy `metric_derivations` array AND the newer `convergence_bindings` object are empty/absent. If either is populated, the calc engine skips convergence (line 281: `'HF-165: input_bindings already populated — skipping convergence'`). Newly computed bindings persist to `rule_sets.input_bindings` (lines 253-256) so subsequent calculations reuse them.
+
+---
+
+## Phase 6 -- DIAG-044 Complete
+
+All five phases executed. Output file contains verbatim current-codebase extractions for:
+- File inventory of all import routes with line counts (Phase 1.1-1.3)
+- UI callers identifying which path the browser invokes (Phase 1.4)
+- Non-bulk path full anatomy including OB-160G convergence call site (Phase 2)
+- Bulk path full anatomy confirming convergence absence + OB-195 cache invalidation (Phase 3)
+- Divergence analysis: head diff, function-call shared/exclusive lists, POST handler shapes (Phase 4.1-4.3)
+- Convergence presence in all other import routes (Phase 4.4)
+- Calc-time convergence path (HF-165 trigger condition + persistence) (Phase 5)
+
+CC does not interpret findings. Architect dispositions in architect channel.
