@@ -258,3 +258,189 @@ $ grep -n "^async function\|^function\|^export async function\|^export function"
 ```
 
 6 top-level functions: 1 POST + 1 dispatcher (`processContentUnit`) + 3 per-classification pipelines (entity / data / reference) + 1 partial-claim filter. Same `filterFieldsForPartialClaim` shape as non-bulk. No plan-handling pipelines.
+
+---
+
+## Phase 4 -- Divergence analysis
+
+### 4.1 -- Head diff (first 50 lines)
+
+```
+$ diff <(head -50 web/src/app/api/import/sci/execute/route.ts) <(head -50 web/src/app/api/import/sci/execute-bulk/route.ts)
+1,4c1,3
+< // SCI Execute API — POST /api/import/sci/execute
+< // Decision 77 — OB-127
+< // Processes confirmed proposals through classification-specific pipelines.
+< // Zero domain vocabulary. Korean Test applies.
+---
+> // OB-156: SCI Execute Bulk — Server-side file processing
+> // Downloads file from Supabase Storage, parses server-side, bulk inserts.
+> // Fixes AP-1 (no row data in HTTP bodies) and AP-2 (no sequential chunks from browser).
+6d4
+< // OB-133/OB-150: Extended timeout for plan interpretation (AI takes 20-60s on production)
+13,26c11
+< import { convergeBindings } from '@/lib/intelligence/convergence-service';
+< import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+< import { aggregateToFoundational, aggregateToDomain, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+< import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+< import { writeFingerprint } from '@/lib/sci/fingerprint-flywheel';
+< import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
+< import type { StructuralFingerprint } from '@/lib/sci/classification-signal-service';
+< import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
+---
+> // OB-182: convergeBindings removed from import — runs at calc time
+29d13
+<   SCIExecutionRequest,
+32c16,17
+<   ContentUnitExecution,
+---
+>   AgentType,
+>   SemanticBinding,
+40,41c25
+< import { extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
+50a35,50
+> import { computeContentUnitHashSha256 } from '@/lib/sci/content-unit-hash';
+> import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+> const PROCESSING_ORDER: Record<AgentType, number> = {
+>   plan: 0,
+>   entity: 1,
+>   target: 2,
+>   transaction: 3,
+>   reference: 4,
+> };
+```
+
+Header divergence: non-bulk imports convergence + fingerprint flywheel + classification-signal aggregation (8 imports unique to non-bulk); bulk includes content-unit-hash + processing-order map.
+
+### 4.2 -- Function-call divergence
+
+Identifier-followed-by-paren grep (`[a-zA-Z_]+\(`), sorted unique:
+
+```
+shared count:        58
+non-bulk-only count: 36
+bulk-only count:     12
+```
+
+**Shared (subset — both paths call these):** `add`, `arrayBuffer`, `buildFieldIdentitiesFromBindings`, `buildSemanticRolesMap`, `createClient`, `createServerSupabaseClient`, `detectPeriodMarkerColumns`, `download`, `executePostCommitConstruction`, `extractSourceDate`, `filterFieldsForPartialClaim`, `findDateColumnFromBindings`, `getUser`, `insert`, `POST`, `randomUUID`, `resolveDataTypeFromClassification`, `supersedePriorBatchOnContentMatch`, `update`, plus 39 generic JS/array/string built-ins. Full list of 58 in earlier raw output.
+
+**Non-bulk-only (36):**
+```
+aggregateToDomain, aggregateToFoundational, bridgeAIToEngineFormat, computeFingerprintHashSync,
+convergeBindings, emitPlanComprehensionSignals, executeBatchedPlanInterpretation,
+executeContentUnit, executeEntityPipeline, executePlanPipeline, executeReferencePipeline,
+executeTargetPipeline, executeTransactionPipeline, extractFieldIdentitiesFromTrace,
+fromEntries, getAIService, interpretPlan, loadAsync, matchAll, postCommitConstruction,
+sheet_to_json, slide, upsert, writeClassificationSignal, writeFingerprint,
+plus 11 generic identifiers (async/catch/endsWith/file/is/limit/match/parseInt/range/test/toString)
+```
+
+**Bulk-only (12):**
+```
+buildTemporalAttrs, ceil, now, processContentUnit, processDataUnit, processEntityUnit,
+processReferenceUnit, Promise, setTimeout, stringify, substring, values
+```
+
+Non-bulk owns: convergence runtime call, all per-pipeline plan/target/transaction/entity/reference functions, classification-signal write + aggregation + fingerprint, plan-interpreter integration (`interpretPlan`, `bridgeAIToEngineFormat`, `emitPlanComprehensionSignals`, `executeBatchedPlanInterpretation`), `getAIService`. Bulk owns: temporal-attribute builder (`buildTemporalAttrs`), the three `process*Unit` pipelines. Plan classification handling exists only in the non-bulk path.
+
+### 4.3 -- POST handler shapes
+
+**Non-bulk POST handler header (lines 59-158, abbreviated):**
+
+```typescript
+export async function POST(req: NextRequest) {
+  try {
+    // HF-084 auth check; HF-090 profileId = authUser.id
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authUser } } = await authClient.auth.getUser();
+    if (!authUser) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const body: SCIExecutionRequest = await req.json();
+    const { proposalId, tenantId, contentUnits, storagePath } = body;
+    if (!tenantId || !proposalId || !contentUnits || contentUnits.length === 0) { ... }
+
+    // HF-196 Phase 1F-corrective: SHA-256 over raw file bytes (optional unless non-plan)
+    let fileHashSha256: string | null = null;
+    if (storagePath) { /* download + computeFileHashSha256 */ }
+    const nonPlanExists = contentUnits.some(u => u.confirmedClassification !== 'plan');
+    if (nonPlanExists && !fileHashSha256) return error 400;
+
+    // Verify tenant exists + read industry for domain flywheel (OB-160J)
+    const { data: tenant } = await supabase.from('tenants').select('id, settings').eq('id', tenantId).single();
+    const tenantDomainId = (tenantSettings.industry as string) || '';
+
+    // HF-109: Pipeline order — reference before data for convergence, plan independent
+    const PIPELINE_ORDER: Record<string, number> = { reference: 0, entity: 1, target: 1, transaction: 1, plan: 2 };
+    const sorted = [...contentUnits].sort((a, b) => (PIPELINE_ORDER[a.confirmedClassification] ?? 9) - ...);
+
+    // HF-130: Batch all plan-classified units from same file into ONE interpretation call
+    const planUnits = sorted.filter(u => u.confirmedClassification === 'plan');
+    if (planUnits.length > 0 && storagePath) {
+      const batchResults = await executeBatchedPlanInterpretation(supabase, tenantId, planUnits, profileId, storagePath);
+      ...
+    }
+```
+
+Request shape: `{ proposalId, tenantId, contentUnits, storagePath }`. Sort order: reference < entity/target/transaction < plan. Plan-batch handling via `executeBatchedPlanInterpretation` is non-bulk-exclusive.
+
+**Bulk POST handler header (lines 80-179, abbreviated):**
+
+```typescript
+export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  try {
+    // Auth check
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authUser } } = await authClient.auth.getUser();
+    if (!authUser) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const body: BulkRequest = await req.json();
+    const { proposalId, tenantId, storagePath, contentUnits } = body;
+    if (!tenantId || !proposalId || !storagePath || !contentUnits?.length) { ... }
+
+    const { data: tenant } = await supabase.from('tenants').select('id').eq('id', tenantId).single();
+    if (!tenant) return error 404;
+
+    // Step 1: Download file from Supabase Storage
+    const { data: fileData, error: downloadErr } = await supabase.storage.from('ingestion-raw').download(storagePath);
+    // Step 2: Parse server-side via XLSX
+    const XLSX = await import('xlsx');
+    const buffer = await fileData.arrayBuffer();
+    const fileHashSha256 = computeFileHashSha256(buffer);
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheetDataMap = new Map<string, { rows; columns }>();
+    for (const sheetName of workbook.SheetNames) { ... }
+    // HF-141 diagnostic: log unique source_dates
+    // Step 3: Sort content units
+    const sortedUnits = [...contentUnits].sort((a, b) => PROCESSING_ORDER[a.confirmedClassification] - PROCESSING_ORDER[b.confirmedClassification]);
+```
+
+Request shape: `{ proposalId, tenantId, storagePath, contentUnits }`. `storagePath` is REQUIRED (bulk gates on it as Step 1); for non-bulk it's optional unless `nonPlanExists`. Sort order via module-level `PROCESSING_ORDER` (plan:0, entity:1, target:2, transaction:3, reference:4). Bulk parses XLSX server-side once and threads `sheetDataMap` into pipelines; non-bulk's `executeBatchedPlanInterpretation` does its own file fetch.
+
+### 4.4 -- Convergence in other import routes
+
+```
+$ for f in <import routes>; do grep -n "converge..." "$f"; done
+
+web/src/app/api/import/commit/route.ts:
+  777: // data_type and convergence can't distinguish actuals from targets.   (comment)
+  986: // Replaced OB-119 Phase 4 inline binding generation with convergence service.
+  989: const { convergeBindings } = await import('@/lib/intelligence/convergence-service');
+  998: const result = await convergeBindings(tenantId, rs.id, supabase);
+  1012: console.log(`[ImportCommit] OB-120 converged "${rs.name}": ${result.derivations.length} new derivations`);
+  1016: console.warn('[ImportCommit] OB-120 convergence failed (non-blocking):', convErr);
+
+web/src/app/api/import/prepare/route.ts: (zero hits)
+web/src/app/api/import/sci/analyze-document/route.ts: (zero hits)
+web/src/app/api/import/sci/analyze/route.ts: (zero hits)
+web/src/app/api/import/sci/process-job/route.ts: (zero hits)
+web/src/app/api/import/sci/trace/route.ts: (zero hits)
+```
+
+**Two runtime convergence call sites at import time:**
+1. `web/src/app/api/import/sci/execute/route.ts:192` (non-bulk SCI execute, OB-160G)
+2. `web/src/app/api/import/commit/route.ts:998` (legacy `/api/import/commit` path, OB-120)
+
+`/api/import/sci/execute-bulk/route.ts` does not invoke convergence at import time (OB-182 retirement). The other five import-route files do not import or invoke convergence.
