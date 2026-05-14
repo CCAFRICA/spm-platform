@@ -1291,3 +1291,33 @@ Pre-conclusion emission-completeness verification: confirm every required array 
 }
 === COST: $1.379745 ===
 ```
+
+---
+
+## Completion report
+
+### Table 1 -- Per-Pass Cost Transparency
+
+| Pass | Input tokens | Output tokens | Model | Cost USD |
+|---|---|---|---|---|
+| Pass 1 (single-pass unified) | n/a (not surfaced in stdout; pricing constants in `src/lib/agents/shared/cost.ts` reference `claude-opus-4-6` and `claude-sonnet-4-6`; per-invocation token counts live in `igf.agent_invocations`) | n/a (same) | n/a (model not surfaced in stdout) | $1.379745 |
+| Pass 2 (chunked unit dispatch) | n/a (not invoked at non-zero cost: `pass_2_total_cost_usd: 0`, `pass_2_unit_count: 21`, `pass_2_unit_failure_count: 0`) | n/a | n/a | $0.000000 |
+| **Total** | **n/a (token counts not surfaced in IRA CLI stdout)** | **n/a** | **n/a** | **$1.379745** |
+
+### Table 2 -- Invocation metadata
+
+| Field | Value |
+|---|---|
+| invocation_id | `848679c2-b50f-47c5-a9b7-e3e26f568187` |
+| evaluation_status | `fired_with_results` |
+| pass_2_units_total | `21` (pass_2_unit_count) |
+| pass_2_failures | `0` (pass_2_unit_failure_count; unit_failures: []) |
+| output_tokens vs MAX_TOKENS_UNIFIED | n/a (not surfaced in CLI stdout) |
+| tier_verdict | `tier_3_novel` |
+| prompt_version | `ira-v6.0-unified-2026-04-19` |
+| ira_request_hash | `1cc159e0e07fdbd797dce0bf10b0308a0e52c9c32eb0701f5504191e7aa54fa5` |
+| cost_usd (aggregate) | `$1.379745` |
+| pass_1_cost_usd | `$1.379745` |
+| pass_2_total_cost_usd | `$0` |
+
+CC pastes the full output and the metadata tables. CC does not interpret the IRA response. Architect dispositions in architect channel.
