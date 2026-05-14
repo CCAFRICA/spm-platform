@@ -706,3 +706,45 @@ Reads `d.operation` (the foundational primitive label, not the intent's recursiv
 `readField` returns undefined when `o.source !== 'metric'` (i.e., when input is a nested operation like conditional_gate). For HF-223 `scalar_multiply` (line 791 branch), `readField(intent.input)` returns undefined and `pushField(undefined, 'amount')` is a no-op — no UI field surfaced for nested-input components.
 
 **Readiness:** N/A for nested operations. The enhanced-import UI surfaces required-field metadata only for top-level flat sources; nested inputs produce no UI field entries.
+
+---
+
+## Phase 8 -- AUD-008 Complete
+
+All seven audit phases executed. Output file contains verbatim code extractions for every consumer of calculationIntent or its sub-shapes across the codebase.
+
+**Per-consumer nested-operation-tree readiness summary (verbatim observations from code, not interpretation):**
+
+| Consumer surface | File / function | Nested-operation handling | Notes |
+|---|---|---|---|
+| Convergence — `extractInputRequirements` | convergence-service.ts:1245 | DOES NOT handle | `scalar_multiply` branch checks `input?.source === 'ratio'` only; falls to else returning `{role:'actual', metricField:'unknown', expectedRange:null}` for nested inputs |
+| Convergence — `extractComponents` `walkNested` | convergence-service.ts:765-781 | partial | recurses on top-level `onTrue/onFalse/condition` only; produces flat metrics list, not requirement records; does not extract ratio numerator/denominator |
+| Convergence — `scoreColumnForRequirement` | convergence-service.ts:1339 | indirect | inherits null `expectedRange` from extractInputRequirements; returns flat 0.1 baseline |
+| Convergence — `estimateSampleResult` | convergence-service.ts:1497 | indirect (consumes compBindings, not intent) | returns 0 when bindings empty |
+| Convergence — `getRequiredMeasureCount` | convergence-service.ts:2561 | top-level only | returns 1 for `scalar_multiply`; does not interrogate input shape |
+| Convergence — Pass 4 AI prompt builder | convergence-service.ts:574-583 | DOES NOT handle | reads `intent.input.sourceSpec` only |
+| Executor — `resolveValue` | intent-executor.ts:159 | YES (recursive) | discriminates `IntentOperation` vs `IntentSource`; recurses via `executeOperation` |
+| Executor — `executeScalarMultiply` | intent-executor.ts:299 | YES (via resolveValue) | resolves `op.input` recursively |
+| Executor — `executeConditionalGate` | intent-executor.ts:312 | partial | resolves `condition.left/right` via `resolveSource` (leaves only); recurses through `op.onTrue/onFalse` via `executeOperation` |
+| Executor — `resolveSource` | intent-executor.ts:68 | N/A (leaf resolver) | handles IntentSource branches only |
+| Transformer — `normalizeIntentInput` | intent-transformer.ts:86 | YES (recursive) | discriminates `operation` vs `source` and recurses |
+| Transformer — `transformFromMetadata` | intent-transformer.ts:131 | YES (via normalizeIntentInput) | constructs nested operation trees for `scalar_multiply`/`conditional_gate`/`piecewise_linear` |
+| Transformer — modifier handling | intent-transformer.ts:183-249 (HF-223 Phase 1) | YES | all 4 IntentModifier discriminants carried; validation-passthrough |
+| Plan-interpretation — `anthropic-adapter.ts` | adapter prompt templates | N/A (prompt construction) | HF-223 Phase 2 added SEMANTIC PRINCIPLE + nested example |
+| Plan-interpretation — `ai-plan-interpreter.ts` | lines 193, 307, 405, 431 | top-level only | reads `intent.operation` for type dispatch; does not traverse input |
+| Plan-interpretation — `PlanComprehensionEmitter` | plan-comprehension-emitter.ts:75-100 | passthrough | copies `calculationIntent.input` verbatim into `metric_inputs` signal field |
+| Calc route — ratio metric-name extractor | route.ts:1312-1321 | DOES NOT handle | reads `calculationIntent.input.sourceSpec.{numerator,denominator}` only |
+| Calc route — OB-196 band normalization | route.ts:2170-2207 | partial | only fires for `bounded_lookup_1d`/`bounded_lookup_2d`; `readField` returns undefined for nested ops |
+| Calc route — precision inference | route.ts:2360 + decimal-precision.ts:85 | indirect | collects output values from intent tree (recursive via `collectOutputValues`) |
+| Calc route — intent trace emission | route.ts:2244, 2356 | YES (executor-driven) | `executeIntent` returns `ExecutionTrace` with all resolution events including nested |
+| Calc route — fingerprint write | structural-fingerprint.ts via sci/execute | orthogonal | fingerprint hashes HC + classification, not intent tree |
+| Reconciliation — `employee-reconciliation-trace.ts:461` | line 461 | top-level only | reads `intent.operation` for label generation |
+| UI — statements page descriptor | perform/statements/page.tsx:585-602 | N/A | switches on top-level primitive; nested inputs not surfaced |
+| UI — enhanced import field metadata | data/import/enhanced/page.tsx:755-802 | N/A | `readField` returns undefined for non-leaf inputs; nested-shape components produce no UI field entries |
+
+**Three structural readiness classes surfaced in this audit:**
+1. **YES (recursive)** — executor `resolveValue`/`executeScalarMultiply`/`executeConditionalGate`; transformer `normalizeIntentInput`/`transformFromMetadata`; trace emission. These layers handle HF-223 nested shapes structurally.
+2. **DOES NOT handle (flat-shape assumption)** — convergence `extractInputRequirements`; calc route `resolveMetricsFromConvergenceBindings` ratio-name extractor; convergence Pass 4 AI prompt builder. These are the surfaces where HF-223 nested emission produces no binding / wrong metric resolution.
+3. **N/A or top-level only** — UI surfaces, reconciliation trace, plan-interpreter dispatch. These read the top-level operation primitive for labels/dispatch and don't interrogate nested input semantics. Nested inputs produce missing fields or generic labels but do not actively break.
+
+CC does not interpret findings. CC does not propose fixes. Architect dispositions in architect channel.
