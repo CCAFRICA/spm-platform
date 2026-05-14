@@ -309,3 +309,79 @@ function resolveSource(
 All of `executeBoundedLookup1D`, `executeBoundedLookup2D`, `executeConditionalGate`, `executeLinearFunction`, `executePiecewiseLinear`, `executeTemporalWindow`, `executeWeightedBlend`, `executeScalarMultiply` route their inputs through `resolveValue` (which handles nesting) and their leaf operands through `resolveSource` (for IntentSource fields like ratio numerator/denominator). `executeConditionalGate` reads `op.condition.left` and `op.condition.right` via `resolveSource` directly (IntentSource shape only — not nested operations). `executeAggregateOp` and `executeRatioOp` similarly read from `resolveSource` only.
 
 **Readiness summary for executor layer:** the recursive `resolveValue` is the structural primitive that handles nested operation trees. The HF-223 nested shape (`scalar_multiply { input: conditional_gate(...) }`) flows correctly through the executor IF the binding layer has populated the necessary metric→column mappings AND if `op.condition.left.source === 'ratio'` resolves through `resolveSource`'s ratio branch (numerator/denominator keyed by `metric:` prefix; convergence binding maps `hub_total_loads`/`hub_total_capacity` to actual data columns). The executor itself is structurally ready.
+
+---
+
+## Phase 4 -- Transformer consumers (`web/src/lib/calculation/intent-transformer.ts`, 268 LOC post-HF-223)
+
+### Phase 4.1 -- Functions
+
+```
+$ grep -nE "^function|^export function|^export async function" web/src/lib/calculation/intent-transformer.ts
+28:  export function transformComponent(
+52:  export function transformVariant(
+67:  function entityScope(level: string): 'entity' | 'group' {
+86:  function normalizeIntentInput(raw: unknown): IntentSource | IntentOperation {
+131: function transformFromMetadata(
+```
+
+### Phase 4.2 -- `normalizeIntentInput` (lines 86-129, already extracted in DIAG-043 Phase 1.2)
+
+Discriminates between leaf `IntentSource` and nested `IntentOperation`. Recurses on `obj.operation === 'ratio'` constructing a `ratio` operation node with `normalizeIntentInput`-normalized `numerator` and `denominator`. Returns the broader `IntentSource | IntentOperation` union — callers may need to assert narrower type via cast (per HF-223 Phase 1 transformer edits at the `proration`/`temporal_adjustment` modifier branches).
+
+**Readiness:** YES. Recursive normalization. Handles the LLM emission of both flat and nested input shapes.
+
+### Phase 4.3 -- `transformFromMetadata` (lines 131-onward)
+
+```typescript
+function transformFromMetadata(
+  component: PlanComponent,
+  componentIndex: number
+): ComponentIntent | null {
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const rawIntent = (meta?.intent || (component as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+  if (!rawIntent) return null;
+
+  let operation: IntentOperation;
+  if (rawIntent.additionalConstant != null && rawIntent.rate != null) {
+    operation = {
+      operation: 'linear_function',
+      input: normalizeIntentInput(rawIntent.input),
+      slope: Number(rawIntent.rate),
+      intercept: Number(rawIntent.additionalConstant),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null) {
+    operation = {
+      operation: 'scalar_multiply',
+      input: normalizeIntentInput(rawIntent.input),
+      rate: Number(rawIntent.rate),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'piecewise_linear') {
+    ...
+  } else if (rawIntent.operation === 'conditional_gate') {
+    const cond = (rawIntent.condition || {}) as Record<string, unknown>;
+    operation = {
+      operation: 'conditional_gate',
+      condition: {
+        left: normalizeIntentInput(cond.left),
+        operator: String(cond.operator || '>='),
+        right: normalizeIntentInput(cond.right),
+      },
+      onTrue: normalizeIntentInput(rawIntent.onTrue) as IntentOperation,
+      onFalse: normalizeIntentInput(rawIntent.onFalse) as IntentOperation,
+    } as IntentOperation;
+  } else {
+    operation = rawIntent as unknown as IntentOperation;
+  }
+  ...
+}
+```
+
+For HF-223's `scalar_multiply { input: conditional_gate {...}, rate: 800 }`:
+- Matches the `else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null)` branch at line 147
+- Calls `normalizeIntentInput(rawIntent.input)` where `rawIntent.input` is the nested conditional_gate object
+- `normalizeIntentInput` at line 86 checks `'operation' in obj && typeof obj.operation === 'string'` (line 99); for the conditional_gate input, this is true; falls to the catchall return at line 109: `return obj as unknown as IntentOperation;` (the conditional_gate node is passed through as-is)
+
+**Readiness:** YES. `transformFromMetadata` produces a structurally valid nested `ComponentIntent` for HF-223 emission. The `else` catch-all at line 109 of `normalizeIntentInput` passes nested operations through.
+
+**Modifier handling (HF-223 Phase 1, lines 183-249 post-edit):** validation-passthrough for all four `IntentModifier` discriminants (cap/floor/proration/temporal_adjustment). Already extracted in DIAG-043 Phase 4 + HF-223 PR (`9dbc0fea`). Confirms HF-223 closed the `scope` overwrite + `proration`/`temporal_adjustment` drop defects.
