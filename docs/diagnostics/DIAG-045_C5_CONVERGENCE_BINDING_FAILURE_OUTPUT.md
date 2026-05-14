@@ -417,3 +417,77 @@ function scoreColumnForRequirement(
 The top branch (lines 1344-1347): `if (!requirement.expectedRange) { return { score: 0.1, scaleFactor: 1 } }` — returns a flat baseline of `0.1` for every column when the requirement has no expectedRange. The second guard at line 1350 (`expMax <= expMin`) also returns `0.1`. The boundary-match scoring (lines 1352-1385) only runs when both `expectedRange` is non-null AND `expMax > expMin`.
 
 Connection back to the import log surface `(top=0.1000, n=8)`: when every candidate scores exactly `0.1`, the sorted candidate distribution is uniform; `distinctEnoughToBind` computes `mean = 0.1`, `variance = 0`, `stddev = 0`; the gate `top - next > stddev` evaluates `0.1 - 0.1 > 0` which is `false`; binding is refused with the verbatim log line at convergence-service.ts:2079.
+
+---
+
+## Phase 3 -- Meridian data columns
+
+### Phase 3.1 -- committed_data shape
+
+```
+=== committed_data sample row count: 5
+=== Top-level keys: [id, tenant_id, import_batch_id, entity_id, period_id, data_type, row_data, metadata, created_at, source_date]
+  id: string
+  tenant_id: string
+  import_batch_id: string
+  entity_id: string
+  period_id: object = null
+  data_type: string = "entity"
+  row_data: object with 8 keys: [Region, _rowIndex, _sheetName, No_Empleado, Hub_Asignado, Fecha_Ingreso, Nombre_Completo, Tipo_Coordinador]
+  metadata: object with 7 keys: [source, proposalId, semantic_roles, entity_id_field, field_identities, resolved_data_type, informational_label]
+  created_at: string
+  source_date: object = null
+
+=== Inspecting JSONB field "row_data" across all sample rows (entity-class):
+Union of all keys: [Fecha_Ingreso, Hub_Asignado, No_Empleado, Nombre_Completo, Region, Tipo_Coordinador, _rowIndex, _sheetName]
+
+=== Rows by data_type:
+  entity:      67   (batch 00389689-2dbe-40ca-a42b-d2f7b30ebbc7)
+  transaction: 201  (batch 41d0acba-328b-46ae-9480-1e59f5690a39)
+  reference:   36   (batch 82f30cba-ba77-42e8-aec9-637208f9c0b6)
+
+Total Meridian committed_data rows: 304
+```
+
+### Phase 3.2 -- Fleet/Hub data columns (full inventory across all rows)
+
+```
+=== ALL columns (>>> = fleet-pattern match: /hub|fleet|load|capacity|utiliz/i) ===
+    Año                           rows={transaction:201, reference:36}  samples=[2025, 2025, 2025]
+>>> Capacidad_Flota_Hub           rows={transaction:201}                 samples=[1306, 1306, 1306]
+    Capacidad_Total               rows={reference:36}                    samples=[1306, 951, 805]
+>>> Cargas_Flota_Hub              rows={transaction:201}                 samples=[1083, 1083, 1083]
+    Cargas_Totales                rows={reference:36}                    samples=[1083, 898, 846]
+    Cuentas_Nuevas                rows={transaction:201}                 samples=[8, 6, 3]
+    Cumplimiento_Ingreso          rows={transaction:201}                 samples=[1.2156, 1.1031, 0.7545]
+    Entregas_Tiempo               rows={transaction:201}                 samples=[97, 34, 63]
+    Entregas_Totales              rows={transaction:201}                 samples=[99, 43, 73]
+    Fecha_Ingreso                 rows={entity:67}                       samples=["2018-04-08", "2021-04-15", "2021-02-12"]
+>>> Hub                           rows={transaction:201, reference:36}   samples=["Monterrey Hub", "Monterrey Hub", ...]
+>>> Hub_Asignado                  rows={entity:67}                       samples=["Monterrey Hub", "Monterrey Hub", ...]
+    Incidentes_Seguridad          rows={transaction:201}                 samples=[0, 0, 0]
+    Ingreso_Meta                  rows={transaction:201}                 samples=[361978, 356580, 392062]
+    Ingreso_Real                  rows={transaction:201}                 samples=[440003, 393346, 295798]
+    Mes                           rows={transaction:201, reference:36}   samples=[1, 1, 1]
+    No_Empleado                   rows={entity:67, transaction:201}      samples=["70010", "70019", "70028"]
+    Nombre                        rows={transaction:201}                 samples=["Antonio López Hernández", ...]
+    Nombre_Completo               rows={entity:67}                       samples=["Antonio López Hernández", ...]
+    Pct_Entregas_Tiempo           rows={transaction:201}                 samples=[0.9798, 0.7907, 0.863]
+    Region                        rows={entity:67, transaction:201, reference:36}  samples=["Norte", "Norte", "Norte"]
+>>> Tasa_Utilizacion              rows={reference:36}                    samples=[0.8292, 0.9443, 1.0509]
+>>> Tasa_Utilizacion_Hub          rows={transaction:201}                 samples=[0.8292, 0.8292, 0.8292]
+    Tipo_Coordinador              rows={entity:67, transaction:201}      samples=["Coordinador Senior", "Coordinador", ...]
+>>> Volumen_Rutas_Hub             rows={transaction:201}                 samples=[1083, 1083, 1083]
+    _rowIndex / _sheetName        (metadata markers)
+```
+
+**Fleet-pattern columns (subset):**
+- `Capacidad_Flota_Hub` (numeric, transaction-rows-only, 201 rows; values ~1306)
+- `Cargas_Flota_Hub` (numeric, transaction-rows-only, 201 rows; values ~1083)
+- `Volumen_Rutas_Hub` (numeric, transaction-rows-only, 201 rows; values ~1083)
+- `Tasa_Utilizacion_Hub` (numeric, transaction-rows-only, 201 rows; values ~0.8292 — a precomputed ratio)
+- `Hub` / `Hub_Asignado` (string identifiers — "Monterrey Hub" etc.)
+- `Tasa_Utilizacion` (numeric, reference-rows-only, 36 rows; values 0.8292-1.0509)
+- `Capacidad_Total` / `Cargas_Totales` (reference-rows-only)
+
+The numeric columns `Cargas_Flota_Hub` (numerator-eligible) and `Capacidad_Flota_Hub` (denominator-eligible) both exist on transaction-class rows with 201 populated values. The C5 plan intent declares the ratio source as `numerator: "hub_total_loads"` / `denominator: "hub_total_capacity"` — programmatic metric names that do not match the actual data column names. Mapping from `hub_total_loads` → `Cargas_Flota_Hub` is the AI-mapping responsibility (resolveColumnMappingsViaAI at line 2005) or the boundary-fallback responsibility (lines 2055-2080) depending on which path executes.
