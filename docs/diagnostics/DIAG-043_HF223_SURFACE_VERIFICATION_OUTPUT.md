@@ -369,3 +369,81 @@ $ grep -n "modifier\|cap\|floor\|proration" web/src/lib/ai/providers/anthropic-a
 (The `capped` reference at line 453 is about lookup-grid boundary `maxInclusive: true`, not about the cap modifier.)
 
 **Complete inventory of modifier instructions in the plan_interpretation prompt:** the cap example block at lines 600-611 is the **only** instruction the LLM receives about modifiers. There is no `floor`, `proration`, `temporal_adjustment`, or `applyTo`-related text in the prompt body. There is no narrative description of when to emit a cap modifier vs nesting a clamp inside the operation tree. The prompt teaches the cap pattern by example only.
+
+---
+
+## Phase 4.1 -- Transformer modifier handling (current)
+
+**File:** `web/src/lib/calculation/intent-transformer.ts`
+
+Locator grep:
+```
+$ grep -n "modifier\|modifiers\|cap\|floor\|applyTo" web/src/lib/calculation/intent-transformer.ts
+183:  const modifiers: IntentModifier[] = [];
+185:  if (Array.isArray(rawIntent.modifiers)) {
+186:    for (const mod of rawIntent.modifiers) {
+188:      if (m.modifier === 'cap' && m.maxValue != null) {
+189:        modifiers.push({ modifier: 'cap', maxValue: Number(m.maxValue), scope: 'per_period' });
+191:      if (m.modifier === 'floor' && m.minValue != null) {
+192:        modifiers.push({ modifier: 'floor', minValue: Number(m.minValue), scope: 'per_period' });
+197:  if (meta.cap != null && Number(meta.cap) > 0) {
+198:    modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
+200:  if (meta.floor != null && Number(meta.floor) > 0) {
+201:    modifiers.push({ modifier: 'floor', minValue: Number(meta.floor), scope: 'per_period' });
+214:    modifiers,
+```
+
+`applyTo` grep: zero hits in intent-transformer.ts.
+
+**Modifier handling block, lines 183-202 (verbatim):**
+
+```typescript
+  const modifiers: IntentModifier[] = [];
+
+  if (Array.isArray(rawIntent.modifiers)) {
+    for (const mod of rawIntent.modifiers) {
+      const m = mod as Record<string, unknown>;
+      if (m.modifier === 'cap' && m.maxValue != null) {
+        modifiers.push({ modifier: 'cap', maxValue: Number(m.maxValue), scope: 'per_period' });
+      }
+      if (m.modifier === 'floor' && m.minValue != null) {
+        modifiers.push({ modifier: 'floor', minValue: Number(m.minValue), scope: 'per_period' });
+      }
+    }
+  }
+
+  if (meta.cap != null && Number(meta.cap) > 0) {
+    modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
+  }
+  if (meta.floor != null && Number(meta.floor) > 0) {
+    modifiers.push({ modifier: 'floor', minValue: Number(meta.floor), scope: 'per_period' });
+  }
+```
+
+**Delta from DIAG-041 Phase 4.3 (which extracted lines 185-202):** byte-identical at the per-entry modifier-rewrite path (lines 185-194) and the top-level `meta.cap`/`meta.floor` shortcut (lines 197-202). No drift. The transformer:
+- Reads `rawIntent.modifiers[]` and pushes `cap`/`floor` entries with hardcoded `scope: 'per_period'`.
+- Silently discards modifier types other than `cap` and `floor` (e.g., a `proration` or `temporal_adjustment` from LLM would be dropped at lines 185-194).
+- Synthesises additional `cap`/`floor` entries from `meta.cap`/`meta.floor` shortcut fields.
+- Does not pass through any `applyTo` field (no such field exists in the type or in the transformer logic).
+
+**Modifier output is attached to the ComponentIntent at line 214:**
+
+```typescript
+    intent: operation,
+    modifiers,
+```
+
+## Phase 4.2 -- Transformer call sites in route.ts (current line numbers)
+
+```
+$ grep -n "transformVariant\|transformFromMetadata" web/src/app/api/calculation/run/route.ts
+27:import { transformVariant } from '@/lib/calculation/intent-transformer';
+341:  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+2243:      : transformVariant(selectedComponents);
+```
+
+- **Line 27:** import of `transformVariant`.
+- **Line 341:** initial transformation of `defaultComponents` (used pre-variant-routing).
+- **Line 2243:** per-entity transformation of `selectedComponents` (variant-routed components).
+
+`transformFromMetadata` is not directly invoked from `route.ts` — it is called transitively via `transformVariant`. Both call sites at line 341 and 2243 are post-HF-222 line numbers (line 2243 is the per-entity variant-routed path which moved during HF-222 Phase 3.5c verification-block rewrite, though `transformVariant` itself was not touched by HF-222).
