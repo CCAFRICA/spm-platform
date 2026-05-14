@@ -444,3 +444,104 @@ web/src/app/api/import/sci/trace/route.ts: (zero hits)
 2. `web/src/app/api/import/commit/route.ts:998` (legacy `/api/import/commit` path, OB-120)
 
 `/api/import/sci/execute-bulk/route.ts` does not invoke convergence at import time (OB-182 retirement). The other five import-route files do not import or invoke convergence.
+
+---
+
+## Phase 5 -- Calculation-time convergence path
+
+### 5.1 -- HF-165 calc-time convergence block
+
+**`web/src/app/api/calculation/run/route.ts` lines 222-283, verbatim:**
+
+```typescript
+  // ── HF-165: Calc-time convergence (completes OB-182 deferred architecture) ──
+  // OB-182 removed convergence from the bulk import path to eliminate sequence dependency.
+  // At calculation time, both plans AND data are guaranteed to exist.
+  // If input_bindings is empty, run convergence now to generate derivation rules.
+  {
+    const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+    const hasMetricDerivations = Array.isArray(rawBindings?.metric_derivations) && (rawBindings.metric_derivations as unknown[]).length > 0;
+    const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+
+    if (!hasMetricDerivations && !hasConvergenceBindings) {
+      addLog('HF-165: input_bindings empty — running calc-time convergence');
+      try {
+        const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
+        const derivationCount = convResult.derivations.length;
+        const bindingCount = Object.keys(convResult.componentBindings).length;
+        const gapCount = convResult.gaps.length;
+
+        if (derivationCount > 0 || bindingCount > 0) {
+          // Store convergence results on the rule_set for future calculations
+          const updatedBindings: Record<string, unknown> = {};
+
+          if (bindingCount > 0) {
+            // Decision 111: convergence_bindings is the primary output
+            updatedBindings.convergence_bindings = convResult.componentBindings;
+          }
+
+          if (derivationCount > 0) {
+            updatedBindings.metric_derivations = convResult.derivations;
+          }
+
+          // Persist to rule_set for reuse on subsequent calculations
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: updatedBindings as unknown as Json })
+            .eq('id', ruleSetId);
+
+          // Re-read the updated rule_set so the engine uses the new bindings
+          const { data: updatedRS } = await supabase
+            .from('rule_sets')
+            .select('input_bindings')
+            .eq('id', ruleSetId)
+            .single();
+
+          if (updatedRS) {
+            (ruleSet as Record<string, unknown>).input_bindings = updatedRS.input_bindings;
+          }
+
+          addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);
+        } else {
+          addLog(`HF-165: Convergence produced 0 derivations and 0 bindings (${gapCount} gaps)`);
+          for (const gap of convResult.gaps) {
+            addLog(`HF-165 Gap: ${gap.component} — ${gap.reason}`);
+          }
+        }
+      } catch (convErr) {
+        // Non-blocking: convergence failure should not prevent calculation attempt
+        addLog(`HF-165: Convergence failed (non-blocking): ${convErr instanceof Error ? convErr.message : String(convErr)}`);
+      }
+    } else {
+      addLog('HF-165: input_bindings already populated — skipping convergence');
+    }
+  }
+```
+
+### 5.2 -- Trigger condition
+
+```
+$ grep -n "input_bindings.*empty\|hasConvergenceBindings\|hasCompleteBindings\|convergence_bindings" web/src/app/api/calculation/run/route.ts | head -20
+105:  // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
+225:  // If input_bindings is empty, run convergence now to generate derivation rules.
+229:  const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+231:  if (!hasMetricDerivations && !hasConvergenceBindings) {
+232:    addLog('HF-165: input_bindings empty — running calc-time convergence');
+244:    // Decision 111: convergence_bindings is the primary output
+245:    updatedBindings.convergence_bindings = convResult.componentBindings;
+321:  // HF-108: Parse convergence_bindings from input_bindings (Decision 111)
+325:  // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
+326:  const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+329:    addLog(`HF-108 Using convergence_bindings (Decision 111) for data resolution — ${bindingCount} component bindings`);
+335:    addLog('HF-108 Using metric_derivations (legacy) for data resolution — no convergence_bindings found');
+431:  // C_proposed at calc time for the existing convergence_bindings.entity_identifier column.
+1242: // Resolves metrics for a component using convergence_bindings (batch_id + column)
+1986: const cb = currentBindings.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+2001: convergence_bindings: { ...cb, [compBindingKey]: newComp },
+2134: // HF-220 R1 / ADR Decision 2: no convergence_bindings for this component.
+2145: type: 'no_convergence_bindings_for_component',
+2158: addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
+2333: // convergence-resolvable for tenants with convergence_bindings.
+```
+
+**Trigger condition (line 231):** calc-time convergence fires when `!hasMetricDerivations && !hasConvergenceBindings` — both legacy `metric_derivations` array AND the newer `convergence_bindings` object are empty/absent. If either is populated, the calc engine skips convergence (line 281: `'HF-165: input_bindings already populated — skipping convergence'`). Newly computed bindings persist to `rule_sets.input_bindings` (lines 253-256) so subsequent calculations reuse them.
