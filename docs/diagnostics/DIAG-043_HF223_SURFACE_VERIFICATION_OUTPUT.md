@@ -447,3 +447,25 @@ $ grep -n "transformVariant\|transformFromMetadata" web/src/app/api/calculation/
 - **Line 2243:** per-entity transformation of `selectedComponents` (variant-routed components).
 
 `transformFromMetadata` is not directly invoked from `route.ts` — it is called transitively via `transformVariant`. Both call sites at line 341 and 2243 are post-HF-222 line numbers (line 2243 is the per-entity variant-routed path which moved during HF-222 Phase 3.5c verification-block rewrite, though `transformVariant` itself was not touched by HF-222).
+
+---
+
+## Phase 5 -- DIAG-043 Complete
+
+All four phases executed. Output file contains verbatim current-codebase extractions at HEAD for:
+- IntentModifier type definition + all consumers (Phase 1)
+- applyModifiers function + call sites + input value accessibility analysis (Phase 2.1, 2.2)
+- executeScalarMultiply + executeOperation dispatcher (Phase 2.3, 2.4)
+- Modifier trace emission sites (Phase 2.5)
+- Plan-interpretation prompt cap/modifier instruction section + primitive examples + modifier inventory (Phase 3)
+- Intent-transformer modifier passthrough + call sites (Phase 4)
+
+**Delta-from-DIAG-041 summary (verbatim observations, not interpretation):**
+- IntentModifier type union: byte-identical at lines 203-207. `applyTo` field: zero hits.
+- applyModifiers function body: byte-identical at lines 572-610. Cap dispatch at 583-588 unchanged.
+- Plan-interpretation prompt cap example: byte-identical at lines 600-611. Single cap-modifier example in entire prompt; example caps a `linear_function`, not a `scalar_multiply` with `ratio` input.
+- Intent-transformer modifier handling: byte-identical at lines 185-202. Hardcoded `scope: 'per_period'`; silent drop of modifier types other than cap/floor; no `applyTo` passthrough.
+
+**Branch note:** scaffold commit `2f9726e9` was authored on local `main`; remote `main` is branch-protected (push declined with `Changes must be made through a pull request`). CC reset local `main` to `origin/main` and moved the scaffold + all subsequent phase commits to feature branch `diag-043-hf223-surface-verification`. PR path remains the merge route per project discipline.
+
+CC does not interpret findings. Architect dispositions in architect channel.
