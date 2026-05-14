@@ -514,3 +514,116 @@ The emitter at line 86 reads `calcIntent?.input` and assigns it verbatim to `met
 **Readiness:** passthrough. The emitter does not traverse or transform the input shape — it copies `calculationIntent.input` verbatim into the signal. Whether downstream consumers (convergence's `loadMetricComprehensionSignals` + extraction logic) handle the nested shape is the question.
 
 Cross-reference to Phase 2: `loadMetricComprehensionSignals` populates `observations.metricComprehension`, which is threaded into `generateAllComponentBindings` as input. The metric_comprehension signal's `metric_inputs` field is consumed at line 580+ inside the Pass 4 AI prompt construction (`metricContexts: MetricContext[] = unresolvedForAI.map(metricName => ...)`) — the consumer reads `intent.input.sourceSpec` at line 583, which for the new shape is undefined (`input.sourceSpec` is undefined when `input` is a conditional_gate operation).
+
+---
+
+## Phase 6 -- Calculation route consumers (`web/src/app/api/calculation/run/route.ts`, 2915 LOC)
+
+### Phase 6.1 -- Intent-shape reads
+
+```
+$ grep -n "calculationIntent\|\.operation\b\|\.sourceSpec\b\|\.onTrue\b\|\.onFalse\b\|intent\.input\b" web/src/app/api/calculation/run/route.ts | head -40
+509:  const hasDeltaDerivations = metricDerivations.some(d => d.operation === 'delta');
+1312: // Reads metric names from the binding-declared intent (component.calculationIntent
+1313: // .input.sourceSpec.{numerator,denominator}), not from expectedMetrics position,
+1319: const ratioIntent = (component.calculationIntent as Record<string, unknown> | undefined)?.input as ...
+1321: const ratioSpec = ratioIntent?.sourceSpec as Record<string, unknown> | undefined;
+2171: // OB-196 Phase 2: band-normalization reads foundational metadata.intent ...
+2176: const intent = (meta.intent || component.calculationIntent) as Record<string, unknown> | undefined;
+2178:   const op = intent.operation as string | undefined;
+2183:   const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+2201:   const field = readField(intent.input);
+2308: if (rule.operation !== 'sum' || !rule.source_field) continue;
+2360: const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
+```
+
+**(a) Lines 1312-1321 — ratio metric-name extraction inside `resolveMetricsFromConvergenceBindings`:**
+
+```typescript
+      // Reads metric names from the binding-declared intent (component.calculationIntent
+      // .input.sourceSpec.{numerator,denominator}), not from expectedMetrics position,
+      // to avoid fragility against AST walk order. Pre-HF-217 the function wrote the
+      // pre-divided ratio to expectedMetrics[0] and left expectedMetrics[1] unfilled,
+      ...
+      const ratioIntent = (component.calculationIntent as Record<string, unknown> | undefined)?.input as
+        Record<string, unknown> | undefined;
+      const ratioSpec = ratioIntent?.sourceSpec as Record<string, unknown> | undefined;
+```
+
+For HF-223 emission, `component.calculationIntent.input` is the conditional_gate node, not a ratio source. `ratioSpec` becomes undefined; the metric-name resolution path that hands raw numerator/denominator to the ratio-write fails for ratios nested inside conditional_gate.
+
+**Readiness:** does NOT handle. Reads `calculationIntent.input.sourceSpec` only.
+
+**(b) Lines 2170-2207 — OB-196 Phase 2 band-normalization:**
+
+```typescript
+        // OB-196 Phase 2: band-normalization reads foundational metadata.intent (Decision 151
+        // read-only projection). 1D lookup → intent.boundaries[0].max keyed by intent.input
+        // metric field; 2D lookup → intent.rowBoundaries[0].max + intent.columnBoundaries[0].max
+        const bandMaxByMetric: Record<string, number> = {};
+        const meta = (component.metadata || {}) as Record<string, unknown>;
+        const intent = (meta.intent || component.calculationIntent) as Record<string, unknown> | undefined;
+        if (intent) {
+          const op = intent.operation as string | undefined;
+          const readField = (raw: unknown): string | undefined => {
+            if (!raw || typeof raw !== 'object') return undefined;
+            const o = raw as Record<string, unknown>;
+            if (o.source === 'metric') {
+              const spec = (o.sourceSpec || {}) as Record<string, unknown>;
+              return typeof spec.field === 'string' ? spec.field : undefined;
+            }
+            return undefined;
+          };
+          if (op === 'bounded_lookup_2d') { ... }
+          else if (op === 'bounded_lookup_1d') {
+            const field = readField(intent.input);
+            ...
+          }
+        }
+```
+
+Only fires for `op === 'bounded_lookup_1d'` or `'bounded_lookup_2d'`. For HF-223 `scalar_multiply` it skips entirely. `readField` requires `o.source === 'metric'` — would return undefined for nested operations.
+
+**Readiness:** N/A for scalar_multiply path. Returns undefined for nested operation inputs.
+
+**(c) Line 2360 — precision inference for rounding:** reads `comp?.calculationIntent` to call `inferOutputPrecision`. Decimal-precision module reads `calculationIntent` to collect output values (per Phase 1.1 hit list, decimal-precision.ts:85-92). Not nesting-sensitive in a binding sense.
+
+### Phase 6.2 -- Trace emission
+
+```
+$ grep -n "executionTrace\|modifierLog\|intentTraces\|before.*after\|trace.*push" web/src/app/api/calculation/run/route.ts | head -20
+136:   traceBuffer.push(line);
+2244:  const intentTraces: unknown[] = [];
+2356:  intentTraces.push(intentResult.trace);
+2452:  intentTraces,
+```
+
+Line 2355-2356: per-component `intentResult.trace` (the `ExecutionTrace` from executor) is pushed onto `intentTraces[]` and persisted to `calculation_results.metadata.intentTraces` per DIAG-040 evidence. The trace structure includes `inputs: { ... resolvedValue }` recorded via `resolveSource` inputLog. For nested operations, `resolveValue` → `executeOperation` recursively populates the same inputLog with each nested resolution.
+
+**Readiness:** YES via executor recursion. The intent trace records every leaf resolution including those reached through nested operations. The trace describes the actual data flow correctly.
+
+### Phase 6.3 -- Fingerprint computation
+
+```
+$ grep -rn "fingerprint" web/src/app/api/calculation/run/route.ts | head -5
+41:   import { decrementFingerprintConfidence } from '@/lib/sci/fingerprint-flywheel';
+1897-1937:  HF-219 fingerprint trace + decrement (failure path; no hash of intent shape)
+```
+
+`route.ts` calc-time fingerprint usage is read-only: it traces a binding-failure-related fingerprint hash from `structural_fingerprints` table and decrements confidence. **No intent-tree hashing at calc time.** `computeFingerprintHashSync` is in `web/src/lib/sci/structural-fingerprint.ts` (DIAG-041 Phase 6.4 confirmed it hashes column-role + classification-result shape, not intent). Convergence-time fingerprint write (`writeFingerprint` from `web/src/lib/sci/fingerprint-flywheel.ts`) is called from `web/src/app/api/import/sci/execute/route.ts:420+` (HF-181 Layer 2; AUD-008 Phase 5 / non-bulk path per DIAG-044 Phase 2.3) — fingerprint scope is HC classification + bindings, not calculationIntent tree.
+
+**Readiness:** orthogonal. Fingerprint surface does not hash intent operation tree. Different nested/flat shapes do not produce different fingerprints unless the underlying HC classifications differ.
+
+### Phase 6.4 -- Explanation / reconciliation surfaces
+
+```
+$ grep -rn "explain\|reconcil\|describe.*component\|display.*intent" web/src/lib/ web/src/app/api/ web/src/components/ --include="*.ts" --include="*.tsx" 2>/dev/null | grep -v test | grep -v node_modules | head -15
+web/src/lib/reconciliation/report-engine.ts:72,132,205,342,367,436    (report generation, GT-vs-output)
+web/src/lib/reconciliation/employee-reconciliation-trace.ts:139,461   (trace at line 461 reads metadata.intent || calculationIntent)
+web/src/lib/reconciliation/comparison-depth-engine.ts:402,487         (comparison primitives)
+web/src/lib/ingestion/pipeline-bridge.ts:69,76                          (context label only)
+```
+
+**employee-reconciliation-trace.ts:461** reads `(meta.intent || (component as unknown as Record<string, unknown>).calculationIntent)` — the same pattern as transformer + route.ts. Reads top-level intent for label generation; does not recurse into nested operations for description purposes.
+
+**Readiness:** N/A for nested-operation describing. Reads top-level operation type only.
