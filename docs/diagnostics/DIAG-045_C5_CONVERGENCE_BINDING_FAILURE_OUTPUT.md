@@ -491,3 +491,96 @@ Total Meridian committed_data rows: 304
 - `Capacidad_Total` / `Cargas_Totales` (reference-rows-only)
 
 The numeric columns `Cargas_Flota_Hub` (numerator-eligible) and `Capacidad_Flota_Hub` (denominator-eligible) both exist on transaction-class rows with 201 populated values. The C5 plan intent declares the ratio source as `numerator: "hub_total_loads"` / `denominator: "hub_total_capacity"` — programmatic metric names that do not match the actual data column names. Mapping from `hub_total_loads` → `Cargas_Flota_Hub` is the AI-mapping responsibility (resolveColumnMappingsViaAI at line 2005) or the boundary-fallback responsibility (lines 2055-2080) depending on which path executes.
+
+---
+
+## Phase 4 -- Old vs new rule_set comparison
+
+### Phase 4.1 -- `input_bindings.convergence_bindings`
+
+**Old rule_set (`9ac467ba-...`, created 2026-05-13T23:24:58Z) — C5 (component_4) fully bound:**
+
+```json
+"component_4": {
+  "period": { "column": "Mes", "confidence": 0.775, ... },
+  "numerator": {
+    "column": "Cargas_Flota_Hub",
+    "confidence": 0.9,
+    "match_pass": 1,
+    "field_identity": { "confidence": 0.7, "structuralType": "measure", "contextualIdentity": "count" },
+    "learning_provenance": { "batch_id": "41d0acba-...", "learned_at": "2026-05-13T23:28:29.774Z" }
+  },
+  "denominator": {
+    "column": "Capacidad_Flota_Hub",
+    "confidence": 0.9,
+    "match_pass": 1,
+    "field_identity": { "confidence": 0.7, "structuralType": "measure", "contextualIdentity": "count" },
+    "learning_provenance": { "batch_id": "41d0acba-...", "learned_at": "2026-05-13T23:28:29.774Z" }
+  },
+  "entity_identifier": { "column": "No_Empleado", ... }
+}
+```
+
+**New rule_set (`6c98f209-...`, created 2026-05-14T05:04:41Z) — C5 (component_4) missing measure bindings:**
+
+```json
+"component_4": {
+  "period": { "column": "Mes", "confidence": 0.775, ... },
+  "entity_identifier": { "column": "No_Empleado", "confidence": 0.3333..., ... }
+}
+```
+
+No `numerator`, no `denominator`, no `actual` measure binding. Components 0–3 in the new rule_set bind identically to the old rule_set (same columns, same confidences). Only component_4 differs.
+
+### Phase 4.2 -- `comprehension:plan_interpretation` signal divergence at C5
+
+Both rule_sets have **10 `comprehension:plan_interpretation` signals each**; no other signal types are linked to these rule_sets via `rule_set_id`. The key divergence is in component_4's `metric_inputs` shape:
+
+**Old rule_set — Fleet Utilization signals (both variants):**
+```json
+{
+  "metric_op": "scalar_multiply",
+  "component_id": "fleet_utilization_senior",        // (and "_standard" for the other variant)
+  "metric_label": "Fleet Utilization - Senior",
+  "metric_inputs": {
+    "source": "ratio",
+    "sourceSpec": {
+      "numerator": "hub_total_loads",
+      "denominator": "hub_total_capacity"
+    }
+  },
+  "component_type": "scalar_multiply",
+  ...
+}
+```
+
+`metric_inputs.source === "ratio"` at the **top level**.
+
+**New rule_set — Fleet Utilization signals (both variants):**
+```json
+{
+  "metric_op": "scalar_multiply",
+  "component_id": "fleet_utilization_senior",        // (and "_standard" for the other variant)
+  "metric_label": "Fleet Utilization - Senior",
+  "metric_inputs": {
+    "onTrue": {
+      "source": "ratio",
+      "sourceSpec": {
+        "numerator": "hub_total_loads",
+        "denominator": "hub_total_capacity"
+      }
+    },
+    ...
+  },
+  "component_type": "scalar_multiply",
+  ...
+}
+```
+
+`metric_inputs.source` is **undefined** at the top level; the ratio is nested inside the `onTrue` branch of an outer `conditional_gate`-shaped envelope. The new shape matches the HF-223 conditional_gate-wrapped intent (DIAG-043 Phase 2 + post-HF-223 verification turn).
+
+### Phase 4.2 cross-reference to Phase 1 extraction logic
+
+`extractInputRequirements` switch case `'scalar_multiply'` at convergence-service.ts:1277 reads `intent.input`. For both old and new rule_sets the top-level `intent.operation === 'scalar_multiply'`. In the old rule_set the `intent.input` is `{ source: 'ratio', sourceSpec: { numerator, denominator } }` — the `input?.source === 'ratio'` branch (line 1279) fires, populating `reqs` with role:numerator/denominator metricField:hub_total_loads/hub_total_capacity. In the new rule_set the `intent.input` is `{ operation: 'conditional_gate', condition: {...}, onTrue: {...}, onFalse: {...} }` — `input.source` is undefined, the else branch (line 1285) reads `input?.sourceSpec` which is also undefined, producing `{ role: 'actual', metricField: 'unknown', expectedRange: null }`.
+
+`scoreColumnForRequirement` (line 1339) sees `!requirement.expectedRange` (true) and returns `{ score: 0.1, scaleFactor: 1 }` for every candidate. `distinctEnoughToBind` rejects a uniform-score distribution.
