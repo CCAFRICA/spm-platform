@@ -584,3 +584,18 @@ Both rule_sets have **10 `comprehension:plan_interpretation` signals each**; no 
 `extractInputRequirements` switch case `'scalar_multiply'` at convergence-service.ts:1277 reads `intent.input`. For both old and new rule_sets the top-level `intent.operation === 'scalar_multiply'`. In the old rule_set the `intent.input` is `{ source: 'ratio', sourceSpec: { numerator, denominator } }` — the `input?.source === 'ratio'` branch (line 1279) fires, populating `reqs` with role:numerator/denominator metricField:hub_total_loads/hub_total_capacity. In the new rule_set the `intent.input` is `{ operation: 'conditional_gate', condition: {...}, onTrue: {...}, onFalse: {...} }` — `input.source` is undefined, the else branch (line 1285) reads `input?.sourceSpec` which is also undefined, producing `{ role: 'actual', metricField: 'unknown', expectedRange: null }`.
 
 `scoreColumnForRequirement` (line 1339) sees `!requirement.expectedRange` (true) and returns `{ score: 0.1, scaleFactor: 1 }` for every candidate. `distinctEnoughToBind` rejects a uniform-score distribution.
+
+---
+
+## Phase 5 -- DIAG-045 Complete
+
+All four diagnostic phases executed. Output file contains:
+
+- **Phase 1** — metric requirement extraction logic from convergence-service.ts: `extractInputRequirements` switch (line 1245) has a `scalar_multiply` branch that only handles `input.source === 'ratio'` at the top level (line 1279) or treats `input` as a direct sourceSpec (else, line 1285); no nested-operation traversal. The standalone `walkNested` helper at line 765 only fires when the *top-level* intent carries onTrue/onFalse/condition, and produces a flat metrics list (not requirement records).
+- **Phase 2** — convergence internals: `convergeBindings` signature (line 175), full `generateAllComponentBindings` body (lines 1918–2081), `distinctEnoughToBind` body (lines 1906-1916), `scoreColumnForRequirement` body (lines 1339-1386). `scoreColumnForRequirement` returns a flat baseline `0.1` whenever `requirement.expectedRange` is null; with a uniform-score candidate set, `distinctEnoughToBind` computes `mean=0.1, stddev=0, top-next=0` and rejects with the `top=0.1000` log shape.
+- **Phase 3** — Meridian committed_data column inventory: `Cargas_Flota_Hub` (numerator-eligible, 201 transaction rows), `Capacidad_Flota_Hub` (denominator-eligible, 201 rows), `Volumen_Rutas_Hub`, `Tasa_Utilizacion_Hub`, `Tasa_Utilizacion`, plus string identifiers. The numeric Fleet/Hub measure columns are present on transaction rows and were the operative numerator/denominator targets in the pre-HF-223 binding.
+- **Phase 4** — old (`9ac467ba`) vs new (`6c98f209`) rule_set comparison:
+  - `convergence_bindings.component_4` old: `period + numerator(Cargas_Flota_Hub) + denominator(Capacidad_Flota_Hub) + entity_identifier`. New: `period + entity_identifier` only.
+  - `comprehension:plan_interpretation` signal `metric_inputs` for Fleet Utilization, old: `{ source: 'ratio', sourceSpec: { numerator, denominator } }` at top level. New: `{ onTrue: { source: 'ratio', sourceSpec: { numerator, denominator } }, ... }` — nested inside an `onTrue` branch.
+
+CC does not interpret findings. Architect dispositions in architect channel.
