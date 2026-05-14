@@ -180,20 +180,66 @@ function transformFromMetadata(
     operation = rawIntent as unknown as IntentOperation;
   }
 
+  // HF-223 Phase 1: validation-passthrough replaces reconstruction.
+  // Pre-HF-223 the transformer cherry-picked known fields from rawIntent.modifiers
+  // (modifier + maxValue/minValue), hardcoded scope='per_period', and silently
+  // dropped 'proration' and 'temporal_adjustment' discriminants entirely. That
+  // gated LLM expression at the transformer layer — Decision 153 (plan intelligence
+  // forward) was blocked. Validation-passthrough: carry LLM emission faithfully;
+  // default only when LLM omits or emits invalid values.
   const modifiers: IntentModifier[] = [];
 
   if (Array.isArray(rawIntent.modifiers)) {
     for (const mod of rawIntent.modifiers) {
       const m = mod as Record<string, unknown>;
-      if (m.modifier === 'cap' && m.maxValue != null) {
-        modifiers.push({ modifier: 'cap', maxValue: Number(m.maxValue), scope: 'per_period' });
+      const modType = m.modifier as string;
+
+      if (modType === 'cap' && m.maxValue != null) {
+        modifiers.push({
+          modifier: 'cap',
+          maxValue: Number(m.maxValue),
+          scope: (typeof m.scope === 'string' && ['per_period', 'per_entity', 'total'].includes(m.scope))
+            ? m.scope as 'per_period' | 'per_entity' | 'total'
+            : 'per_period',
+        });
+      } else if (modType === 'floor' && m.minValue != null) {
+        modifiers.push({
+          modifier: 'floor',
+          minValue: Number(m.minValue),
+          scope: (typeof m.scope === 'string' && ['per_period', 'per_entity', 'total'].includes(m.scope))
+            ? m.scope as 'per_period' | 'per_entity' | 'total'
+            : 'per_period',
+        });
+      } else if (modType === 'proration' && m.numerator != null && m.denominator != null) {
+        modifiers.push({
+          modifier: 'proration',
+          // IntentModifier.proration fields are typed as IntentSource; normalizeIntentInput
+          // accepts the broader IntentSource | IntentOperation union. Cast asserts the
+          // narrower type — runtime callers (applyModifiers via resolveSource) require
+          // IntentSource shape; if LLM emits a non-IntentSource shape here, the existing
+          // resolveSource fallback at intent-executor.ts handles the degenerate case.
+          numerator: normalizeIntentInput(m.numerator) as IntentSource,
+          denominator: normalizeIntentInput(m.denominator) as IntentSource,
+        });
+      } else if (modType === 'temporal_adjustment' && m.lookbackPeriods != null) {
+        modifiers.push({
+          modifier: 'temporal_adjustment',
+          lookbackPeriods: Number(m.lookbackPeriods),
+          triggerCondition: normalizeIntentInput(m.triggerCondition) as IntentSource,
+          adjustmentType: (typeof m.adjustmentType === 'string' && ['full_reversal', 'partial', 'prorated'].includes(m.adjustmentType))
+            ? m.adjustmentType as 'full_reversal' | 'partial' | 'prorated'
+            : 'full_reversal',
+        });
       }
-      if (m.modifier === 'floor' && m.minValue != null) {
-        modifiers.push({ modifier: 'floor', minValue: Number(m.minValue), scope: 'per_period' });
-      }
+      // Unrecognized modifier discriminants: not pushed to typed array.
+      // The LLM emission is preserved in rule_sets.components[].calculationIntent
+      // (source of record). The executor processes typed modifiers only.
+      // No data lost; the raw emission persists.
     }
   }
 
+  // Legacy shortcut: meta.cap / meta.floor (top-level fields outside modifiers array,
+  // pre-intent-architecture). Behavior preserved per DD-7. Future cleanup HF retires.
   if (meta.cap != null && Number(meta.cap) > 0) {
     modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
   }
