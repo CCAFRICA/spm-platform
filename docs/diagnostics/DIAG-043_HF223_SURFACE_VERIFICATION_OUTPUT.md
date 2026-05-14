@@ -245,3 +245,127 @@ Output (verbatim):
 ```
 
 The trace shape is `{ modifier: string; before: number; after: number }` — three fields per modifier event. No `applyTo` field; no input-vs-output discrimination at the trace surface.
+
+---
+
+## Phase 3.1 -- plan_interpretation prompt locator
+
+**File:** `web/src/lib/ai/providers/anthropic-adapter.ts`
+
+```
+$ grep -n "plan_interpretation" web/src/lib/ai/providers/anthropic-adapter.ts
+207:  plan_interpretation: `You are an expert at analyzing compensation and commission plan documents. Your task is to extract the COMPLETE structure of a compensation plan from the provided document content, INCLUDING ALL PAYOUT VALUES.
+892:    // plan_interpretation + document_analysis. Korean Test (E910) holds at the
+911:    if (pdfBase64 && (request.task === 'plan_interpretation' || request.task === 'document_analysis')) {
+1056:      case 'plan_interpretation': {
+```
+
+Prompt template starts at line 207. The full prompt is a single template literal extending through line 615 (closing backtick after `Return your analysis as valid JSON.`).
+
+## Phase 3.2 -- Plan-interpretation prompt cap/modifier section (current)
+
+**Cap example block, lines 600-611 (verbatim):**
+
+```typescript
+EXAMPLE calculationIntent for a linear_function with cap modifier:
+{
+  "calculationIntent": {
+    "operation": "linear_function",
+    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
+    "slope": 0.06,
+    "intercept": 200,
+    "modifiers": [
+      { "modifier": "cap", "maxValue": 5000 }
+    ]
+  }
+}
+```
+
+**Closing instruction, lines 613-615 (verbatim):**
+
+```typescript
+CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
+
+Return your analysis as valid JSON.`,
+```
+
+**Delta from DIAG-041 Phase 5.4 (which extracted lines 600-611):** byte-identical to the cap example currently at lines 600-611. No drift.
+
+## Phase 3.3 -- Primitive examples in prompt (scalar_multiply focus)
+
+Locator grep:
+```
+$ grep -n "EXAMPLE calculationIntent" web/src/lib/ai/providers/anthropic-adapter.ts
+459:EXAMPLE calculationIntent for bounded_lookup_1d (half-open partition, open-ended ceiling):
+475:EXAMPLE calculationIntent for bounded_lookup_2d (half-open partitions on both axes):
+500:EXAMPLE calculationIntent for scalar_multiply:
+509:EXAMPLE calculationIntent for conditional_gate (2 conditions, sorted by threshold descending):
+540:EXAMPLE calculationIntent for a linear_function:
+550:EXAMPLE calculationIntent for a piecewise_linear:
+564:EXAMPLE calculationIntent for a scope_aggregate:
+573:EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
+591:EXAMPLE calculationIntent for a scalar_multiply:
+600:EXAMPLE calculationIntent for a linear_function with cap modifier:
+```
+
+**scalar_multiply example at line 500-507 (verbatim — first instance, "warranty_sales"):**
+
+```typescript
+EXAMPLE calculationIntent for scalar_multiply:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "metric", "sourceSpec": { "field": "warranty_sales" } },
+    "rate": 0.04
+  }
+}
+```
+
+**scalar_multiply example at line 591-598 (verbatim — second instance, "sales_amount"):**
+
+```typescript
+EXAMPLE calculationIntent for a scalar_multiply:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "metric", "sourceSpec": { "field": "sales_amount" } },
+    "rate": 0.04
+  }
+}
+```
+
+**Observations on scalar_multiply teaching (verbatim from prompt structure, no interpretation):**
+- Both scalar_multiply examples take `input` as `{ source: "metric", sourceSpec: { field: <name> } }` — neither uses `ratio` as the input source.
+- Neither scalar_multiply example carries a `modifiers` array.
+- The only example combining a primitive with a cap modifier is the `linear_function` at lines 600-611, not a `scalar_multiply` with `ratio` input.
+- No example demonstrates a ratio-space cap (clamp before multiply); the single cap example caps the post-`linear_function` payout.
+
+## Phase 3.4 -- Modifier instruction section in prompt
+
+**All `modifier`/`cap`/`floor`/`proration` references inside the plan_interpretation prompt body (lines 207-615):**
+
+```
+$ grep -n "modifier\|cap\|floor\|proration" web/src/lib/ai/providers/anthropic-adapter.ts
+453:  - maxInclusive: true (capped; includes the ceiling)
+600:EXAMPLE calculationIntent for a linear_function with cap modifier:
+607:    "modifiers": [
+608:      { "modifier": "cap", "maxValue": 5000 }
+```
+
+(Lines 999 and beyond are outside the plan_interpretation template literal; they appear elsewhere in the file.)
+
+**Line 453 context (verbatim, lines 449-456 — covers the `maxInclusive` usage):**
+
+```typescript
+- min: lower boundary (inclusive unless minInclusive=false)
+- max: upper boundary (inclusive unless maxInclusive=false; null = unbounded ceiling)
+- minInclusive: defaults to true (typical case)
+- maxInclusive: defaults to false (half-open partitions)
+- maxInclusive: true (capped; includes the ceiling)
+- Boundaries must NOT overlap. Adjacent boundaries: previous max == next min (half-open avoids gap and overlap).
+- Boundary ordering: prefer ascending min; the engine doesn't require it, but Index 0 should be the lowest band.
+```
+
+(The `capped` reference at line 453 is about lookup-grid boundary `maxInclusive: true`, not about the cap modifier.)
+
+**Complete inventory of modifier instructions in the plan_interpretation prompt:** the cap example block at lines 600-611 is the **only** instruction the LLM receives about modifiers. There is no `floor`, `proration`, `temporal_adjustment`, or `applyTo`-related text in the prompt body. There is no narrative description of when to emit a cap modifier vs nesting a clamp inside the operation tree. The prompt teaches the cap pattern by example only.
