@@ -385,3 +385,132 @@ For HF-223's `scalar_multiply { input: conditional_gate {...}, rate: 800 }`:
 **Readiness:** YES. `transformFromMetadata` produces a structurally valid nested `ComponentIntent` for HF-223 emission. The `else` catch-all at line 109 of `normalizeIntentInput` passes nested operations through.
 
 **Modifier handling (HF-223 Phase 1, lines 183-249 post-edit):** validation-passthrough for all four `IntentModifier` discriminants (cap/floor/proration/temporal_adjustment). Already extracted in DIAG-043 Phase 4 + HF-223 PR (`9dbc0fea`). Confirms HF-223 closed the `scope` overwrite + `proration`/`temporal_adjustment` drop defects.
+
+---
+
+## Phase 5 -- Plan interpretation consumers
+
+### Phase 5.1 -- `anthropic-adapter.ts`
+
+```
+$ grep -n "calculationIntent\|\.operation\b\|\.input\b\|modifiers" web/src/lib/ai/providers/anthropic-adapter.ts | grep -v "EXAMPLE\|prompt\|//"
+435:  FOR EACH COMPONENT, also produce a "calculationIntent" field ...
+461,477,502,511,542,552,566,575,593,602,620:   "calculationIntent": { ... }   (prompt example blocks; not runtime reads)
+607:    "modifiers": [                                                          (prompt example)
+616:  When the plan document specifies a constraint on the OUTPUT value ...    (SEMANTIC PRINCIPLE text)
+636:  CRITICAL: Every component MUST include both "calculationMethod" ...
+930-931:  pdfBase64, pdfMediaType (runtime adapter logic — not intent reads)
+1043:  const input = request.input;                                            (adapter wiring; not intent shape)
+```
+
+**Readiness:** N/A for the runtime adapter — its role is constructing the prompt and dispatching to Anthropic. The 24 `calculationIntent` hits are all inside prompt template literals (EXAMPLE blocks teaching the LLM what to emit). HF-223 Phase 2 appended the SEMANTIC PRINCIPLE block + new conditional_gate-wrapped scalar_multiply example after line 611. Post-HF-223 verification confirmed the LLM now emits the new shape.
+
+### Phase 5.2 -- `ai-plan-interpreter.ts`
+
+```
+$ grep -n "calculationIntent\|\.operation\b\|\.input\b\|\.source\b\|\.sourceSpec\b" web/src/lib/compensation/ai-plan-interpreter.ts | head -25
+77:   calculationIntent?: Record<string, unknown>; // OB-77: AI-produced structural intent
+193:  calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
+194:    ? c.calculationIntent as Record<string, unknown>
+302:  // store tier data in calculationIntent.outputGrid (2d) / .outputs (1d) / .rate (scalar)
+307:  const intent = c.calculationIntent as Record<string, unknown> | undefined;
+308:  const op = (intent?.operation as string) ?? c.componentType;
+397:  calculationIntent: comp?.calculationIntent,
+405:  const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';
+409:  `(from calcMethod.type="${calcMethod?.type}", calculationIntent.operation="${base.calculationIntent?.operation}")`,
+431:  const intent = base.calculationIntent as Record<string, unknown> | undefined;
+473:  intent: base.calculationIntent, // copy for transformFromMetadata
+```
+
+ai-plan-interpreter reads `calculationIntent` at multiple sites for type/operation classification (line 308: `intent?.operation`; line 405: same as primary; line 431: similar). These are top-level operation reads — they do not traverse nested operation trees. They serve to dispatch tier-data storage paths (line 302 comment) based on the top-level primitive name. For HF-223 `scalar_multiply`, the top-level operation is `scalar_multiply` regardless of nested input shape, so these reads dispatch correctly to the scalar_multiply branch.
+
+**Readiness:** indirect / top-level-only. Reads `intent.operation` (the top-level primitive name) but not nested input trees. Behaviorally correct for top-level dispatch; does not interrogate input semantics.
+
+### Phase 5.3 -- `PlanComprehensionEmitter` (`web/src/lib/compensation/plan-comprehension-emitter.ts`, full file)
+
+```typescript
+/**
+ * HF-198 E5 — Plan-agent comprehension as L2 signal
+ * ...
+ * declared_readers: web/src/lib/intelligence/convergence-service.ts
+ *     (loadMetricComprehensionSignals)
+ */
+
+// OB-199 Phase 4: canonical writer migration. The load-bearing emitter for
+// comprehension:plan_interpretation now routes through DS-023 §5.1 single
+// entry point ...
+import { writeSignalBatch, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+
+interface PlanInterpretationLike {
+  components?: Array<Record<string, unknown>>;
+}
+
+interface ComponentLike {
+  id?: string;
+  name?: string;
+  type?: string;
+  calculationMethod?: { type?: string; [key: string]: unknown } | null;
+  calculationIntent?: Record<string, unknown> | null;
+  confidence?: number;
+  reasoning?: string;
+  expectedMetrics?: string[];
+  metrics?: Array<{ metric?: string; metricLabel?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+export async function emitPlanComprehensionSignals(
+  args: {
+    tenantId: string;
+    ruleSetId: string;
+    interpretation: PlanInterpretationLike;
+    planConfidence?: number;
+  },
+): Promise<{ emitted: number; errors: number }> {
+  try {
+    const components = Array.isArray(args.interpretation.components) ? args.interpretation.components : [];
+    if (components.length === 0) {
+      return { emitted: 0, errors: 0 };
+    }
+
+    const signals = components.map((rawComp) => {
+      const comp = rawComp as ComponentLike;
+      const calcMethod = (comp.calculationMethod ?? {}) as { type?: string };
+      const calcIntent = (comp.calculationIntent ?? null) as Record<string, unknown> | null;
+
+      // metric_op: prefer calculationIntent.calculationType (structural intent), then calculationMethod.type
+      const metricOp =
+        (calcIntent?.calculationType as string | undefined) ??
+        calcMethod?.type ??
+        comp.type ??
+        'unknown';
+
+      // metric_inputs: extract from calculationIntent.input, or fall back to expectedMetrics list
+      const metricInputs =
+        (calcIntent?.input as Record<string, unknown> | undefined) ??
+        (comp.expectedMetrics ? { expectedMetrics: comp.expectedMetrics } : null);
+
+      const signalValue: Record<string, unknown> = {
+        metric_label: comp.name ?? comp.id ?? 'unnamed_component',
+        metric_op: metricOp,
+        metric_inputs: metricInputs,
+        semantic_intent: comp.reasoning ?? null,
+        component_id: comp.id ?? null,
+        component_type: comp.type ?? null,
+        source_evidence: {
+          rule_set_id: args.ruleSetId,
+          plan_confidence: args.planConfidence ?? null,
+          component_confidence: comp.confidence ?? null,
+        },
+      };
+      ...
+    });
+    ...
+  }
+}
+```
+
+The emitter at line 86 reads `calcIntent?.input` and assigns it verbatim to `metric_inputs`. For pre-HF-223 emission (top-level ratio), `metric_inputs` is `{ source: 'ratio', sourceSpec: { numerator, denominator } }`. For post-HF-223 emission (conditional_gate-wrapped), `metric_inputs` is `{ operation: 'conditional_gate', condition: {...}, onTrue: {...}, onFalse: {...} }` — exactly the shape DIAG-045 Phase 4.2 observed in `comprehension:plan_interpretation.signal_value.metric_inputs` for the new rule_set.
+
+**Readiness:** passthrough. The emitter does not traverse or transform the input shape — it copies `calculationIntent.input` verbatim into the signal. Whether downstream consumers (convergence's `loadMetricComprehensionSignals` + extraction logic) handle the nested shape is the question.
+
+Cross-reference to Phase 2: `loadMetricComprehensionSignals` populates `observations.metricComprehension`, which is threaded into `generateAllComponentBindings` as input. The metric_comprehension signal's `metric_inputs` field is consumed at line 580+ inside the Pass 4 AI prompt construction (`metricContexts: MetricContext[] = unresolvedForAI.map(metricName => ...)`) — the consumer reads `intent.input.sourceSpec` at line 583, which for the new shape is undefined (`input.sourceSpec` is undefined when `input` is a conditional_gate operation).
