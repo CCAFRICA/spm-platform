@@ -69,3 +69,125 @@ Total hits: **116 lines** across the codebase.
 ```
 
 These 21 files are the population of consumers audited in Phases 2-7.
+
+---
+
+## Phase 2 -- Convergence consumers (`web/src/lib/intelligence/convergence-service.ts`)
+
+### Phase 2.1 -- `extractInputRequirements` (lines 1245-1320)
+
+Already extracted verbatim in DIAG-045 Phase 1 (commits `f28096ab`, file `docs/diagnostics/DIAG-045_C5_CONVERGENCE_BINDING_FAILURE_OUTPUT.md` §Phase 1). Function body unchanged at HEAD `ab76ae36`. Key shape: switch on `intent.operation`. **`scalar_multiply` branch (lines 1277-1290) checks `input?.source === 'ratio'` at top level only.** When `input.source` is undefined (input is itself an operation node, e.g., nested `conditional_gate`), falls through to else (line 1285), reads `input?.sourceSpec` (undefined for nested ops), returns `{ role: 'actual', metricField: 'unknown', expectedRange: null }`.
+
+**Readiness for nested operation trees:** does NOT handle. The `case 'conditional_gate'` (line 1291) only fires when `intent.operation === 'conditional_gate'` at the TOP level; it does not recurse into nested conditional_gate inside scalar_multiply's input.
+
+### Phase 2.2 -- Other intent-shape readers in convergence-service.ts
+
+**(a) `extractComponents` (around line 705-803):** reads `comp.calculationIntent` to build the flat `metrics: string[]` list. Handles ratio, inputs (plural), ratioInput/baseInput (piecewise_linear), and crucially includes a `walkNested` helper (lines 765-781) that recurses through `onTrue`/`onFalse` chains. **However:** the `walkNested` recursion is gated on `intent.onTrue || intent.onFalse || intent.condition` at line 781 — fires only when the TOP-LEVEL intent carries those fields. For HF-223 emission (top-level `scalar_multiply` with `conditional_gate` nested *inside `input`*), gate is false, recursion never runs.
+
+```typescript
+      // OB-185: Walk nested onTrue/onFalse for conditional_gate chains
+      const walkNested = (obj: Record<string, unknown>) => {
+        const spec = (obj.input as Record<string, unknown>)?.sourceSpec as Record<string, unknown> | undefined;
+        if (spec?.field) {
+          const f = String(spec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+        const condLeft = (obj.condition as Record<string, unknown>)?.left as Record<string, unknown> | undefined;
+        const condSpec = condLeft?.sourceSpec as Record<string, unknown> | undefined;
+        if (condSpec?.field) {
+          const f = String(condSpec.field).replace(/^metric:/, '');
+          if (!metrics.includes(f)) metrics.push(f);
+        }
+        if (obj.onTrue && typeof obj.onTrue === 'object') walkNested(obj.onTrue as Record<string, unknown>);
+        if (obj.onFalse && typeof obj.onFalse === 'object') walkNested(obj.onFalse as Record<string, unknown>);
+      };
+      if (intent.onTrue || intent.onFalse || intent.condition) walkNested(intent);
+```
+
+Additionally, `walkNested` only reads `obj.input.sourceSpec.field` and `obj.condition.left.sourceSpec.field` — it does not handle `numerator`/`denominator` in `sourceSpec` (the ratio case). So even if it fired, the C5 ratio inside `conditional_gate.onTrue` would not produce `numerator`/`denominator` entries in the `metrics` list.
+
+**Readiness:** partial. Recurses on `onTrue`/`onFalse` chains at the top level only; ignores nesting inside `scalar_multiply.input`; does not extract ratio numerator/denominator from sourceSpec inside the walk.
+
+**(b) `estimateSampleResult` (lines 1497-1620, scalar_multiply branch at 1506-1536):**
+
+```typescript
+function estimateSampleResult(
+  component: PlanComponent,
+  compBindings: Record<string, ComponentBinding>,
+  distributions: Record<string, ColumnDistribution>,
+): number {
+  const intent = component.calculationIntent;
+  const op = (intent?.operation || component.calculationOp) as string;
+
+  switch (op) {
+    case 'scalar_multiply': {
+      const rate = component.calculationRate ?? (intent?.rate as number | undefined) ?? 0;
+      if (rate === 0) return 0;
+
+      // Ratio input (numerator/denominator)
+      const numBinding = compBindings.numerator;
+      const denBinding = compBindings.denominator;
+      if (numBinding && denBinding) {
+        const numDist = distributions[numBinding.column];
+        const denDist = distributions[denBinding.column];
+        ...
+        return rate * ratio;
+      }
+
+      // Single input
+      const actualBinding = compBindings.actual;
+      if (actualBinding) { ... }
+      return 0;
+    }
+    ...
+  }
+}
+```
+
+**Readiness:** consumes `compBindings` (the OUTPUT of binding) rather than the intent directly. If binding produced no numerator/denominator/actual, estimateSampleResult returns 0 for scalar_multiply (regardless of nested-shape semantics).
+
+**(c) Line 2546 — `getBoundaryUpperBound` (inferred from grep context around `getRequiredMeasureCount`):**
+
+```typescript
+  const intent = comp.calculationIntent as Record<string, unknown> | undefined;
+  const boundaries = (intent?.boundaries as Array<Record<string, unknown>>) ?? [];
+  for (const b of boundaries) {
+    const min = b.min as number | null;
+    const max = b.max as number | null;
+    if ((min !== null && min > 1) || (max !== null && max > 1)) {
+      return 100;
+    }
+  }
+```
+
+Reads `intent.boundaries` only — does not traverse nested operations.
+
+**(d) `getRequiredMeasureCount` (line 2561-2574):**
+
+```typescript
+function getRequiredMeasureCount(operation: string): number {
+  switch (operation) {
+    case 'ratio':
+    case 'bounded_lookup_2d':
+      return 2;
+    case 'sum':
+    case 'count':
+    case 'bounded_lookup_1d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'aggregate':
+    default:
+      return 1;
+  }
+}
+```
+
+Takes only the top-level operation string. Returns `1` for `scalar_multiply` — does not know the input is a ratio (would need 2 measures: numerator + denominator). This baseline-count drives downstream pattern matching.
+
+**(e) Other intent-reading sites:** lines 574-583 (`metricContexts` for Pass 4 AI), line 1278 (the scalar_multiply branch of extractInputRequirements above), line 1292 (the top-level conditional_gate branch), lines 1299-1305 (piecewise_linear ratioInput/baseInput), line 1310 (linear_function input). None recurse into nested operations inside `input`.
+
+### Phase 2.3 -- `scoreColumnForRequirement` (lines 1339-1386)
+
+Already extracted verbatim in DIAG-045 Phase 2.4. Function body unchanged at HEAD. **Consumes the output of extractInputRequirements** (a `ComponentInputRequirement` with `expectedRange` field), not the intent shape directly. When `requirement.expectedRange` is null (which happens for HF-223 fallback C5 case where extractInputRequirements returned `{ role: 'actual', metricField: 'unknown', expectedRange: null }`), returns flat `{ score: 0.1, scaleFactor: 1 }` for every candidate column — producing the `top=0.1000` uniform-distribution failure observed in DIAG-045.
+
+**Readiness:** indirect dependency. Does not read intent. Inherits the nested-operation blindness via `extractInputRequirements`.
