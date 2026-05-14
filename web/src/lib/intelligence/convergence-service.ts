@@ -83,8 +83,12 @@ interface DataCapability {
 }
 
 // OB-162: Per-component convergence binding (Decision 111)
+// HF-222 Phase 3 (schema-class root closure): the prior single batch-id field that
+// collapsed learning-provenance and data-location semantics is retired. Audit
+// provenance is now carried by `learning_provenance` (period-agnostic, write-time
+// metadata only). Data-location resolution keys by column name across all
+// operative-period batches. See VG entry T1-E-PG3 for the class naming.
 export interface ComponentBinding {
-  source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
   match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
@@ -93,6 +97,11 @@ export interface ComponentBinding {
   scale_factor?: number;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
+  // HF-222 Phase 3: learning provenance (audit metadata only).
+  learning_provenance?: {
+    batch_id: string;
+    learned_at: string;
+  };
 }
 
 interface BindingMatch {
@@ -248,6 +257,14 @@ export async function convergeBindings(
         'classification:human_correction',
         // HF-198 E3 / F-011 closure: declared reader for convergence:dual_path_concordance.
         // Cross-run observation surface for dual-path agreement-rate trend.
+        // HF-222 Phase 4: signal classification is observation-only. The HF-218 Component 4b
+        // gate consumer was retired in Phase 1 (Korean Test compliance). This reader remains
+        // — it is read-only and feeds cross-run flywheel observation (IRA priors,
+        // ICA Mode 5 capture). Classification metadata lives at substrate (VG entry
+        // T2-E-signal-convergence-dual-path-concordance-observation-only), not at code comment;
+        // this comment is the runtime breadcrumb pointing to the substrate entry. The signal
+        // MUST NOT be re-introduced as a binding-gate consumer without satisfying AP-25 /
+        // IGF-T1-E910 (Korean Test).
         'convergence:dual_path_concordance',
       ])
       .not('calculation_run_id', 'is', null)
@@ -530,11 +547,14 @@ export async function convergeBindings(
       if (targetCap.batchIds.length > 0) {
         const targetFI = targetCap.fieldIdentities[targetCap.targetField];
         componentBindings[compKey]['target'] = {
-          source_batch_id: targetCap.batchIds[0],
           column: targetCap.targetField,
           field_identity: targetFI || { structuralType: 'measure', contextualIdentity: 'performance_target', confidence: 0.7 },
           match_pass: 2,
           confidence: bestCompMatch.score,
+          learning_provenance: {
+            batch_id: targetCap.batchIds[0],
+            learned_at: new Date().toISOString(),
+          },
         };
       }
 
@@ -1866,6 +1886,35 @@ export function computeStructuralBindingConfidence(
   };
 }
 
+// HF-222 Phase 2: distribution-derived distinguishability test.
+//
+// Replaces HF-218 Component 4b's tenant-adaptive boundary threshold (which carried
+// a developer-stated initial-state anchor value and signal-window size — both
+// Korean Test violations per AP-25 / IGF-T1-E910). The new test derives its acceptance
+// threshold from the candidate distribution itself at the moment of binding;
+// no developer-stated numerical constants in foundational binding-gate code.
+//
+// Properties verified algebraically (and via property-test proof in
+// scripts/hf222-phase2-3-distribution-test-proof.ts):
+//   - N=0: refuses to bind (empty distribution).
+//   - N=1: binds iff score > 0 (substrate eligibility floor: cardinality × intersection
+//          > 0 — already a substrate test, not a magnitude threshold).
+//   - N=2: binds iff scores differ at all (population stddev = |s1-s0|/2,
+//          top-next = |s1-s0|; the comparison holds whenever scores aren't equal).
+//   - N>=3: cluster cases (small dispersion relative to top-next gap) refuse to bind;
+//           clear-outlier cases bind. Invariant under linear scaling and translation.
+export function distinctEnoughToBind(scoredCandidates: Array<{ score: number }>): boolean {
+  if (scoredCandidates.length === 0) return false;
+  if (scoredCandidates.length === 1) {
+    return scoredCandidates[0].score > 0;
+  }
+  const scores = scoredCandidates.map(c => c.score);
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((s, x) => s + (x - mean) ** 2, 0) / scores.length;
+  const stddev = Math.sqrt(variance);
+  return scoredCandidates[0].score - scoredCandidates[1].score > stddev;
+}
+
 async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
@@ -1883,40 +1932,16 @@ async function generateAllComponentBindings(
   tenantId: string = '',
   supabase?: SupabaseClient,
 ): Promise<void> {
-  // HF-218 Component 4b: tenant-adaptive boundary-fallback threshold.
-  // Per ADR Decision 3 (composite): if recent-N (N=5) convergence:dual_path_concordance
-  // signals exist for tenant, threshold = average of those concordance values; otherwise
-  // fall back to 0.50 cold-start anchor (preserves existing operative behavior).
-  // N=5 anchor: minimum-statistical-distinguishability threshold (Bayesian prior shift).
-  let tenantAdaptiveBoundaryThreshold = 0.50;
-  if (supabase && tenantId) {
-    try {
-      const RECENT_N = 5;
-      const { data: concordanceSignals } = await supabase
-        .from('classification_signals')
-        .select('signal_value, confidence')
-        .eq('tenant_id', tenantId)
-        .eq('signal_type', 'convergence:dual_path_concordance')
-        .order('created_at', { ascending: false })
-        .limit(RECENT_N);
-      if (concordanceSignals && concordanceSignals.length >= RECENT_N) {
-        const rates: number[] = [];
-        for (const sig of concordanceSignals) {
-          const sv = sig.signal_value as Record<string, unknown> | null;
-          const rate = sv ? Number(sv.concordanceRate) : NaN;
-          if (!isNaN(rate) && rate >= 0 && rate <= 1) rates.push(rate);
-        }
-        if (rates.length >= RECENT_N) {
-          const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
-          // Clamp to [0, 1]
-          tenantAdaptiveBoundaryThreshold = Math.max(0, Math.min(1, avg));
-          console.log(`[Convergence] HF-218 Tenant-adaptive boundary threshold: ${tenantAdaptiveBoundaryThreshold.toFixed(4)} (avg of ${rates.length} recent dual_path_concordance signals)`);
-        }
-      }
-    } catch (err) {
-      console.warn(`[Convergence] HF-218 tenant-adaptive threshold read failed (non-blocking, using 0.50 anchor): ${err instanceof Error ? err.message : 'unknown'}`);
-    }
-  }
+  // HF-222 Phase 1: HF-218 Component 4b tenant-adaptive boundary threshold block
+  // RETIRED (Korean Test violation: developer-stated initial-state anchor value
+  // and signal-window size were introduced at HF-218 design lock and reviewed via
+  // an unfilled GP-2 citation slot). The boundary-fallback acceptance mechanism
+  // is replaced in Phase 2 by a distribution-derived distinguishability test that
+  // computes its threshold from the candidate distribution at decision time.
+  //
+  // The `convergence:dual_path_concordance` signal continues to be emitted by the
+  // engine (calculation/run/route.ts) and is classified observation-only per the
+  // VG substrate entry T2-E-signal-convergence-dual-path-concordance-observation-only.
 
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
@@ -2005,12 +2030,15 @@ async function generateAllComponentBindings(
           const isValidated = !req.expectedRange || boundaryScore > 0.1;
 
           bindings[compKey][req.role] = {
-            source_batch_id: mc.batchId,
             column: proposedColumnName,
             field_identity: mc.fi,
             match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
             confidence: isValidated ? 0.9 : 0.6,
             scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+            learning_provenance: {
+              batch_id: mc.batchId,
+              learned_at: new Date().toISOString(),
+            },
           };
           boundColumns.add(proposedColumnName);
           console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor})`);
@@ -2019,17 +2047,11 @@ async function generateAllComponentBindings(
       }
 
       // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-199 D2: structured threshold raised from `> 0` to `>= 0.50`. Below
-      // threshold, the boundary fallback is structurally too weak to bind reliably
-      // (DIAG evidence: New Accounts:actual → Año at score=0.10 produced
-      // 506× peer-median ratio anomaly). Below-threshold candidates are rejected
-      // and the requirement remains unbound; downstream gap detection records
-      // it as a convergence gap rather than silently binding the wrong column.
-      // HF-218 Component 4b: tenant-adaptive threshold per ADR Decision 3 (composite —
-      // recent-N average if N≥5, else 0.50 cold-start anchor). Per Disposition 4
-      // relative-confidence comparison. tenantAdaptiveBoundaryThreshold computed once
-      // per generateAllComponentBindings call (see top of function).
-      const BOUNDARY_FALLBACK_MIN_SCORE = tenantAdaptiveBoundaryThreshold;
+      // HF-222 Phase 2: boundary-fallback acceptance uses distribution-derived
+      // distinguishability (see distinctEnoughToBind). The threshold is computed
+      // from the candidate distribution at decision time — no developer-stated
+      // numerical constants. Cluster cases refuse to bind and surface convergence
+      // gaps; clear-outlier cases bind.
       const candidates = measureColumns
         .filter(mc => !boundColumns.has(mc.name))
         .map(mc => {
@@ -2038,20 +2060,23 @@ async function generateAllComponentBindings(
         })
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
+      if (candidates.length > 0 && distinctEnoughToBind(candidates)) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
-          source_batch_id: best.batchId,
           column: best.name,
           field_identity: best.fi,
-          match_pass: 3,  // Boundary-only fallback
+          match_pass: 3,  // Boundary-only fallback (distribution-derived acceptance)
           confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
           scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
+          learning_provenance: {
+            batch_id: best.batchId,
+            learned_at: new Date().toISOString(),
+          },
         };
         boundColumns.add(best.name);
-        console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
+        console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
       } else if (candidates.length > 0) {
-        console.log(`[Convergence] HF-199 D2: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} < ${BOUNDARY_FALLBACK_MIN_SCORE} threshold). Requirement left unbound; gap will be recorded.`);
+        console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
       }
     }
 
@@ -2121,11 +2146,14 @@ async function generateAllComponentBindings(
       const winnerScore = winner.conf.score > 0 ? winner.conf.score : winner.conf.cardinality_ratio;
 
       bindings[compKey]['entity_identifier'] = {
-        source_batch_id: batchId,
         column: winner.colName,
         field_identity: winner.fi,
         match_pass: 1,
         confidence: winnerScore,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
 
       // Emit convergence:binding_selection signal with full candidate provenance.
@@ -2171,11 +2199,14 @@ async function generateAllComponentBindings(
     if (temporalEntries.length > 0) {
       const [colName, fi] = temporalEntries[0];
       bindings[compKey]['period'] = {
-        source_batch_id: batchId,
         column: colName,
         field_identity: fi,
         match_pass: 1,
         confidence: match.matchConfidence,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
     }
   }
