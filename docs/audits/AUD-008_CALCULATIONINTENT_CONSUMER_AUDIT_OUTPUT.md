@@ -191,3 +191,121 @@ Takes only the top-level operation string. Returns `1` for `scalar_multiply` —
 Already extracted verbatim in DIAG-045 Phase 2.4. Function body unchanged at HEAD. **Consumes the output of extractInputRequirements** (a `ComponentInputRequirement` with `expectedRange` field), not the intent shape directly. When `requirement.expectedRange` is null (which happens for HF-223 fallback C5 case where extractInputRequirements returned `{ role: 'actual', metricField: 'unknown', expectedRange: null }`), returns flat `{ score: 0.1, scaleFactor: 1 }` for every candidate column — producing the `top=0.1000` uniform-distribution failure observed in DIAG-045.
 
 **Readiness:** indirect dependency. Does not read intent. Inherits the nested-operation blindness via `extractInputRequirements`.
+
+---
+
+## Phase 3 -- Executor consumers (`web/src/lib/calculation/intent-executor.ts`, 707 LOC)
+
+### Phase 3.1 -- Intent-shape readers per function
+
+```
+$ grep -nE "^function|^async function|^export function|^export async function|resolveValue\(|resolveSource\(" web/src/lib/calculation/intent-executor.ts | head -40
+68:   function resolveSource(
+159:  function resolveValue(
+170:  return resolveSource(sourceOrOp, data, inputLog);
+186:  export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+215:  function executeBoundedLookup1D(
+221:    const inputValue = resolveValue(op.input, data, inputLog, trace);
+257:  function executeBoundedLookup2D(
+263:    const rowValue = resolveValue(op.inputs.row, data, inputLog, trace);
+264:    const colValue = resolveValue(op.inputs.column, data, inputLog, trace);
+299:  function executeScalarMultiply(
+305:    const inputValue = resolveValue(op.input, data, inputLog, trace);
+308:      : resolveValue(op.rate, data, inputLog, trace);
+312:  function executeConditionalGate(
+318:    const leftVal = resolveSource(op.condition.left, data, inputLog);
+319:    const rightVal = resolveSource(op.condition.right, data, inputLog);
+336:  function executeAggregateOp(
+341:    return resolveSource(op.source, data, inputLog);
+344:  function executeRatioOp(
+349:    const num = resolveSource(op.numerator, data, inputLog);
+350:    const den = resolveSource(op.denominator, data, inputLog);
+357:  function executeConstantOp(op: ConstantOp): Decimal {
+365:  function executeWeightedBlend(
+383:    const value = resolveValue(input.source, data, inputLog, trace);
+399:  function executeTemporalWindow(
+405:    const currentValue = resolveValue(op.input, data, inputLog, trace);
+486:  export function executeOperation(
+520:  function executeLinearFunction(
+526:    const inputValue = resolveValue(op.input, data, inputLog, trace);
+535:  function executePiecewiseLinear(
+541:  let ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+542:  const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
+572:  function applyModifiers(
+596:    const num = resolveSource(mod.numerator, data, inputLog);
+597:    const den = resolveSource(mod.denominator, data, inputLog);
+617:  export function executeIntent(
+650:    attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
+```
+
+### Phase 3.2 -- `resolveValue` (lines 159-171, verbatim)
+
+```typescript
+// ──────────────────────────────────────────────
+// Composable Value Resolution — handles IntentSource or nested IntentOperation
+// ──────────────────────────────────────────────
+
+function resolveValue(
+  sourceOrOp: IntentSource | IntentOperation,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  if (isIntentOperation(sourceOrOp)) {
+    // Recursive: execute the nested operation to get a value
+    return executeOperation(sourceOrOp, data, inputLog, trace);
+  }
+  // Existing: resolve from entity data
+  return resolveSource(sourceOrOp, data, inputLog);
+}
+```
+
+**Readiness for nested operation trees:** YES. `resolveValue` discriminates on `isIntentOperation(sourceOrOp)` and recursively calls `executeOperation` for nested operations, or falls through to `resolveSource` for leaf `IntentSource`. The executor's recursive resolution is the structural mechanism that handles HF-223's `scalar_multiply { input: conditional_gate {...} }` shape correctly.
+
+### Phase 3.3 -- `executeScalarMultiply` (lines 299-310, verbatim)
+
+```typescript
+function executeScalarMultiply(
+  op: ScalarMultiply,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const inputValue = resolveValue(op.input, data, inputLog, trace);
+  const rateValue = typeof op.rate === 'number'
+    ? toDecimal(op.rate)
+    : resolveValue(op.rate, data, inputLog, trace);
+  return inputValue.mul(rateValue);
+}
+```
+
+**Readiness:** YES. Resolves `op.input` via `resolveValue` (recursive). For HF-223's `scalar_multiply { input: conditional_gate(...) }`, `resolveValue` recognises the nested `conditional_gate` operation, dispatches through `executeOperation` → `executeConditionalGate`, which resolves the condition and returns the matched branch's value. The cap-at-1.5 semantic is honored structurally inside the input resolution.
+
+### Phase 3.4 -- `resolveSource` (lines 68-153, verbatim)
+
+```typescript
+function resolveSource(
+  src: IntentSource,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
+): Decimal {
+  switch (src.source) {
+    case 'metric': { ... }
+    case 'ratio': { ... }
+    case 'aggregate': { ... }
+    case 'constant': { ... }
+    case 'entity_attribute': { ... }
+    case 'prior_component': { ... }
+    case 'cross_data': { ... }
+    case 'scope_aggregate': { ... }
+  }
+}
+```
+
+**Readiness:** N/A (leaf resolver). Handles only `IntentSource` leaves; nested operations are routed to `executeOperation` via `resolveValue` before reaching here.
+
+### Phase 3.5 -- Other executor functions
+
+All of `executeBoundedLookup1D`, `executeBoundedLookup2D`, `executeConditionalGate`, `executeLinearFunction`, `executePiecewiseLinear`, `executeTemporalWindow`, `executeWeightedBlend`, `executeScalarMultiply` route their inputs through `resolveValue` (which handles nesting) and their leaf operands through `resolveSource` (for IntentSource fields like ratio numerator/denominator). `executeConditionalGate` reads `op.condition.left` and `op.condition.right` via `resolveSource` directly (IntentSource shape only — not nested operations). `executeAggregateOp` and `executeRatioOp` similarly read from `resolveSource` only.
+
+**Readiness summary for executor layer:** the recursive `resolveValue` is the structural primitive that handles nested operation trees. The HF-223 nested shape (`scalar_multiply { input: conditional_gate(...) }`) flows correctly through the executor IF the binding layer has populated the necessary metric→column mappings AND if `op.condition.left.source === 'ratio'` resolves through `resolveSource`'s ratio branch (numerator/denominator keyed by `metric:` prefix; convergence binding maps `hub_total_loads`/`hub_total_capacity` to actual data columns). The executor itself is structurally ready.
