@@ -215,3 +215,262 @@ Engine output for Tyler Jan 1-15: 12352.52
   id=cb018a13-ee9b-489a-841c-332f3fe18a6e, data_type=entity
   id=b15a7b4f-d015-43e5-82d4-1541b87a0a6f, data_type=entity
 ```
+
+## Phase 3 -- Convergence derivation comparison
+
+Command: `cd web && set -a && source .env.local && set +a && npx tsx scripts/diag046-convergence-comparison.ts`
+
+The `CONTAINS FILTER REFERENCE` line is a substring match on the JSON of `input_bindings` against the literal strings `filter`, `product_category`, or `Capital Equipment` (so it returns `yes` whenever the JSON merely contains the key name `filters: []`, even when the `filters` array is empty).
+
+```
+=== District Override Plan (c8cca63b-aa09-4e3e-a2c5-8490ac2756a5, created: 2026-05-15T11:37:34.968088+00:00) ===
+  convergence_bindings: {
+  "component_0": {
+    "period": {
+      "column": "date",
+      "confidence": 0.775,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.9,
+        "structuralType": "temporal",
+        "contextualIdentity": "date"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:24.129Z"
+      }
+    },
+    "entity_identifier": {
+      "column": "sales_rep_id",
+      "confidence": 0.040955631399317405,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.95,
+        "structuralType": "identifier",
+        "contextualIdentity": "person_identifier"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:24.109Z"
+      }
+    }
+  }
+}
+  CONTAINS FILTER REFERENCE: no
+
+=== Cross-Sell Bonus Plan (d7b332e8-4f63-4708-ac53-ce6ca65eab96, created: 2026-05-15T11:36:58.229804+00:00) ===
+  convergence_bindings: {
+  "component_0": {
+    "actual": {
+      "column": "quantity",
+      "confidence": 0.9,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.7,
+        "structuralType": "measure",
+        "contextualIdentity": "count"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:31.698Z"
+      }
+    },
+    "period": {
+      "column": "date",
+      "confidence": 0.775,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.9,
+        "structuralType": "temporal",
+        "contextualIdentity": "date"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:31.781Z"
+      }
+    },
+    "entity_identifier": {
+      "column": "sales_rep_id",
+      "confidence": 0.040955631399317405,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.95,
+        "structuralType": "identifier",
+        "contextualIdentity": "person_identifier"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:31.757Z"
+      }
+    }
+  }
+}
+  metric_derivations: [
+  {
+    "metric": "equipment_deal_count",
+    "filters": [],
+    "operation": "sum",
+    "source_field": "total_amount",
+    "source_pattern": "transaction"
+  },
+  {
+    "metric": "cross_sell_count",
+    "filters": [],
+    "operation": "sum",
+    "source_field": "total_amount",
+    "source_pattern": "transaction"
+  }
+]
+  CONTAINS FILTER REFERENCE: yes
+
+=== Consumables Commission Plan (debe8763-2ff0-4a15-9956-787da822b242, created: 2026-05-15T11:36:21.72456+00:00) ===
+  convergence_bindings: {
+  "component_0": {
+    "actual": {
+      "column": "unit_price",
+      "confidence": 0.26349999999999996,
+      "match_pass": 3,
+      "field_identity": {
+        "confidence": 0.7,
+        "structuralType": "measure",
+        "contextualIdentity": "count"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:37.872Z"
+      }
+    },
+    "period": {
+      "column": "date",
+      "confidence": 0.775,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.9,
+        "structuralType": "temporal",
+        "contextualIdentity": "date"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:37.942Z"
+      }
+    },
+    "numerator": {
+      "column": "total_amount",
+      "confidence": 0.9,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.7,
+        "structuralType": "measure",
+        "contextualIdentity": "count"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:37.872Z"
+      }
+    },
+    "denominator": {
+      "column": "quantity",
+      "confidence": 0.9,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.7,
+        "structuralType": "measure",
+        "contextualIdentity": "count"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:37.872Z"
+      }
+    },
+    "entity_identifier": {
+      "column": "sales_rep_id",
+      "confidence": 0.040955631399317405,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.95,
+        "structuralType": "identifier",
+        "contextualIdentity": "person_identifier"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:43:37.925Z"
+      }
+    }
+  }
+}
+  metric_derivations: [
+  {
+    "metric": "consumable_revenue",
+    "filters": [],
+    "operation": "sum",
+    "source_field": "total_amount",
+    "source_pattern": "transaction"
+  },
+  {
+    "metric": "monthly_quota",
+    "filters": [],
+    "operation": "sum",
+    "source_field": "total_amount",
+    "source_pattern": "transaction"
+  }
+]
+  CONTAINS FILTER REFERENCE: yes
+
+=== Capital Equipment Commission Plan (7ae0fba1-83fe-4674-8664-e6516bb370c9, created: 2026-05-15T11:35:43.089993+00:00) ===
+  convergence_bindings: {
+  "component_0": {
+    "actual": {
+      "column": "total_amount",
+      "confidence": 0.9,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.7,
+        "structuralType": "measure",
+        "contextualIdentity": "count"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:42:00.447Z"
+      }
+    },
+    "period": {
+      "column": "date",
+      "confidence": 0.775,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.9,
+        "structuralType": "temporal",
+        "contextualIdentity": "date"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:42:00.540Z"
+      }
+    },
+    "entity_identifier": {
+      "column": "sales_rep_id",
+      "confidence": 0.040955631399317405,
+      "match_pass": 1,
+      "field_identity": {
+        "confidence": 0.95,
+        "structuralType": "identifier",
+        "contextualIdentity": "person_identifier"
+      },
+      "learning_provenance": {
+        "batch_id": "f1fc7bff-fa67-49a0-a1c1-fb62fa538821",
+        "learned_at": "2026-05-15T11:42:00.517Z"
+      }
+    }
+  }
+}
+  metric_derivations: [
+  {
+    "metric": "period_equipment_revenue",
+    "filters": [],
+    "operation": "sum",
+    "source_field": "total_amount",
+    "source_pattern": "transaction"
+  }
+]
+  CONTAINS FILTER REFERENCE: yes
+```
