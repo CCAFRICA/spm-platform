@@ -828,3 +828,87 @@ The output `derivedMetrics` is consumed downstream when each component's metrics
           }
         }
 ```
+
+## Phase 4 -- Prompt filter guidance
+
+### 4.1 Filter-related vocabulary searches
+
+`grep -n "filter\|product_category\|WHERE\|category\|subset\|segment.*data\|scope.*filter" web/src/lib/ai/providers/anthropic-adapter.ts | head -25`:
+
+```
+77:  const withExamples = getRegistry().filter((p) => typeof p.promptStructuralExample === 'string' && p.promptStructuralExample.length > 0);
+171:- category: A grouping label — department, division, segment, tier, type, class
+181:- attainment → achievement_pct, goal → amount, storeRange → category
+692:- category: Grouping label (department, segment, tier)
+702:- attainment → achievement_pct, goal → amount, storeRange → category
+723:Classification: role, product_code, product_name, category, status, boolean_flag
+1156:  "sheets": [{ "name": "", "classification": "", "classificationConfidence": 0-100, "matchedComponent": null, "detectedPrimaryKey": null, "suggestedFieldMappings": [{ "sourceColumn": "exact_column_name_from_headers", "targetField": "entity_id|entity_name|store_id|store_name|transaction_id|reference_id|date|period|amount|currency_code|rate|count_growth|count_reduction|quantity|achievement_pct|score|role|product_code|product_name|category|status|boolean_flag|text|unknown", "confidence": 0-100, "reasoning": "brief explanation" }] }],
+```
+
+Context for lines 171 and 692 (both `category` mentions land inside field-classification vocabulary for workbook column→target-field mapping):
+
+```
+- category: A grouping label — department, division, segment, tier, type, class
+- status: A status indicator — active, inactive, approved, pending, open, closed
+- boolean_flag: A boolean or binary value — 0/1, true/false, yes/no, si/no
+
+Other:
+- text: Free text, notes, comments, or descriptions
+- unknown: Cannot determine field type
+
+LEGACY ALIASES (accept these in input, return canonical types above):
+- entityId → entity_id, storeId → store_id, name → entity_name
+- attainment → achievement_pct, goal → amount, storeRange → category
+```
+
+```
+- category: Grouping label (department, segment, tier)
+- status: Status indicator (active, inactive, pending)
+- boolean_flag: Boolean (0/1, true/false, yes/no, si/no)
+
+Other:
+- text: Free text, notes, descriptions
+- unknown: Cannot determine
+
+LEGACY ALIASES (return the canonical types above):
+- entityId → entity_id, storeId → store_id, name → entity_name
+- attainment → achievement_pct, goal → amount, storeRange → category
+```
+
+### 4.2 Filter/derivation guidance for metric semantics
+
+`grep -n "metricSemantics\|metric_semantics\|metric.*filter\|derivation.*filter\|filters.*field" web/src/lib/ai/providers/anthropic-adapter.ts | head -15`:
+
+```
+(empty — no hits)
+```
+
+### 4.3 Raw LLM output persistence
+
+`grep -rn "raw.*interpretation\|llm.*output\|ai.*interpretation\|plan.*result" web/src/app/api/import/sci/execute/route.ts | head -10`:
+
+```
+(empty — no hits)
+```
+
+`grep -n "interpretation\.components\|response.components\|engineFormat" web/src/app/api/import/sci/execute/route.ts | head -15`:
+
+```
+1191:  const engineFormat = bridgeAIToEngineFormat(
+1199:  const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
+1214:      description: engineFormat.description || '',
+1220:      input_bindings: engineFormat.inputBindings as unknown as Json,
+1221:      components: engineFormat.components as unknown as Json,
+1247:  const variants = engineFormat.components.variants || [];
+1253:  // HF-201 Shape B: pass plan-agent's original output (interpretation.components) so the
+1255:  // reasoning during convertComponent; routing to interpretation.components preserves it.
+1258:    const componentsForSignals = (interpretation.components ?? []) as unknown as Array<Record<string, unknown>>;
+1445:  const engineFormat = bridgeAIToEngineFormat(
+1453:  const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
+1468:      description: engineFormat.description || '',
+1474:      input_bindings: engineFormat.inputBindings as unknown as Json,
+1475:      components: engineFormat.components as unknown as Json,
+1500:  const variants = engineFormat.components.variants || [];
+```
+
+The execute route consumes the AI `interpretation` in-memory, runs `bridgeAIToEngineFormat(...)` to produce `engineFormat`, and persists `engineFormat.components` (engine-shape) and `engineFormat.inputBindings` to the `rule_sets` row. The pre-bridge raw `interpretation` is passed to the `emitPlanComprehensionSignals` call (line 1258 / 1509) as the signal source, but the raw interpretation object itself is not stored as a row anywhere. The CRP Plan 1 `signal_value` content already pasted in Phase 1.3 is the only post-call record of plan-agent output retained for downstream consumers.
