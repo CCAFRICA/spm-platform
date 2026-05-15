@@ -1151,3 +1151,185 @@ function isValidColumnMapping(
 ```
 
 Parser (lines 1926-1933): iterates `Object.entries(result)`, retains only entries whose value is a string that appears in `columnNames`. Any other key/value pair in the AI response is dropped. The returned `mapping: Record<string, string>` is strictly a metric→column-name map with no auxiliary fields preserved.
+
+## Phase 6 -- Engine consumption stage
+
+### 6.1 `applyMetricDerivations` -- filter application
+
+(Full body already pasted in DIAG-047 Phase 3.2 from `web/src/lib/calculation/run-calculation.ts:111-196`.)
+
+`sum` branch (run-calculation.ts:138-149):
+
+```typescript
+    if (rule.operation === 'sum' && rule.source_field) {
+      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
+      let total = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') total += val;
+      }
+      derived[rule.metric] = total;
+    }
+```
+
+`rowMatchesFilters(rd, rule.filters)` is invoked on every row. `rowMatchesFilters` body (run-calculation.ts:91-109) returns `true` when `filters` is `null`/`undefined`/`[]`. The HF-172 filter-application code path is present and unchanged.
+
+### 6.2 `resolveMetricsFromConvergenceBindings` (route.ts:1247-1399)
+
+```typescript
+  function resolveMetricsFromConvergenceBindings(
+    compBindings: Record<string, unknown>,
+    component: PlanComponent,
+    entityExternalId: string,
+    componentIdx?: number,
+  ): Record<string, number> | null {
+    if (shouldEmitTrace(entityExternalId)) {
+      bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
+    }
+    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
+    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
+    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
+    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
+    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
+
+    if (!actualBinding?.column && !numBinding?.column) return null;
+
+    // HF-216 via-clause translation
+    const eidBinding = compBindings.entity_identifier as ConvergenceBindingEntry | undefined;
+    let lookupKey = entityExternalId;
+    if (eidBinding?.via?.roster_data_type && eidBinding.via.roster_field && eidBinding.via.entity_field) {
+      const viaKey = `${eidBinding.via.roster_data_type}|${eidBinding.via.entity_field}|${eidBinding.via.roster_field}`;
+      const map = rosterJoinIndex.get(viaKey);
+      const translated = map?.get(String(entityExternalId).trim());
+      if (translated) {
+        lookupKey = translated;
+        ...
+      } else {
+        addLog(`[CalcRecon-T3] EXCEPTION entity=${entityExternalId} type=via_join_unresolved viaKey=${viaKey}`);
+        currentEntityFlags.push('viaJoinUnresolved');
+        return null;
+      }
+    }
+
+    const expectedMetrics = getExpectedMetricNames(component);
+    if (expectedMetrics.length === 0) return null;
+
+    const metrics: Record<string, number> = {};
+
+    // Ratio branch (numBinding + denBinding):
+    if (numBinding?.column && denBinding?.column) {
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey);
+
+      let numValue = rawNumValue;
+      let denValue = rawDenValue;
+      if (numBinding.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
+      if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
+
+      // HF-224: Find the ratio leaf anywhere in the intent tree.
+      const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
+      const ratioSpec = ratioLeafForNames?.sourceSpec;
+      const numMetricName = typeof ratioSpec?.numerator === 'string'
+        ? ratioSpec.numerator.replace(/^metric:/, '')
+        : null;
+      const denMetricName = typeof ratioSpec?.denominator === 'string'
+        ? ratioSpec.denominator.replace(/^metric:/, '')
+        : null;
+
+      if (numMetricName && numValue !== null) {
+        metrics[numMetricName] = numValue;
+      }
+      if (denMetricName && denValue !== null) {
+        metrics[denMetricName] = denValue;
+      }
+      return Object.keys(metrics).length > 0 ? metrics : null;
+    }
+
+    // Single or dual input branch:
+    if (actualBinding?.column) {
+      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey);
+      if (rawActualValue === null) return null;
+
+      let actualValue = rawActualValue;
+      if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
+
+      metrics[expectedMetrics[0]] = actualValue;
+
+      if (targetBinding?.column) {
+        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey);
+        let targetValue = rawTargetValue;
+        if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
+
+        if (targetValue !== null && targetValue !== 0) {
+          const targetMetricName = expectedMetrics.length > 1
+            ? expectedMetrics[1]
+            : `${expectedMetrics[0]}_target`;
+          metrics[targetMetricName] = targetValue;
+
+          if (compBindings.actual && compBindings.target) {
+            metrics['attainment'] = actualValue / targetValue;
+          }
+        }
+      }
+    }
+
+    return Object.keys(metrics).length > 0 ? metrics : null;
+  }
+```
+
+`compBindings` fields read: `actual`, `row`, `target`, `column` (in binding keys), `numerator`, `denominator`, `entity_identifier`. Each binding entry's fields read: `column`, `scale_factor`, `via.{roster_data_type, roster_field, entity_field}`. No `filters` parameter. No filter parameter passed to `resolveColumnFromBatch`. No category subsetting. The returned `metrics` map enumerates only `expectedMetrics[0]`, optionally `expectedMetrics[1]` or `{expectedMetrics[0]}_target`, and `attainment` (for actual+target pair). Any other field on `compBindings` is unused.
+
+### 6.3 `resolveColumnFromBatch` (route.ts:1411-1454)
+
+```typescript
+  function resolveColumnFromBatch(
+    column: string,
+    entityExternalId: string,
+  ): number | null {
+    let entityRows: Array<Record<string, unknown>> | undefined;
+    for (const [, map] of Array.from(dataByBatch.entries())) {
+      const rows = map.get(entityExternalId);
+      if (rows && rows.length > 0) {
+        entityRows = rows;
+        break;
+      }
+    }
+    if (!entityRows) {
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reason=no_rows | returned=null`);
+      }
+      return null;
+    }
+
+    let sum = 0;
+    let found = false;
+    const perRowValues: unknown[] = [];
+    for (const rd of entityRows) {
+      const val = rd[column];
+      perRowValues.push(val);
+      if (val === null || val === undefined) continue;
+      if (typeof val === 'number') {
+        sum += val;
+        found = true;
+      } else if (typeof val === 'string') {
+        const parsed = parseFloat(val.replace(/[,$\s]/g, ''));
+        if (!isNaN(parsed)) {
+          sum += parsed;
+          found = true;
+        }
+      }
+    }
+
+    if (shouldEmitTrace(entityExternalId)) {
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+    }
+
+    return found ? sum : null;
+  }
+```
+
+Two parameters: `column: string`, `entityExternalId: string`. No filter parameter. The function iterates every row in `entityRows` (the entity's full row set from `dataByBatch`) and adds `rd[column]` to `sum` whenever it parses as a number, regardless of any other field on `rd`. There is no category gate, no `product_category` predicate, no `rowMatchesFilters` invocation.
