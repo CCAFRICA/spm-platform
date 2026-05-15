@@ -330,7 +330,7 @@ function executeConditionalGate(
   }
 
   const branch = conditionMet ? op.onTrue : op.onFalse;
-  return executeOperation(branch, data, inputLog, trace);
+  return resolveValue(branch, data, inputLog, trace);
 }
 
 function executeAggregateOp(

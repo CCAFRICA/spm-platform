@@ -438,3 +438,80 @@ grep -n "extractLeafSources" web/src/app/api/calculation/run/route.ts
 # S2 — circular dependency
 ( cd web && npm run build 2>&1 | grep -iE "warn.*circular|circular.*dependency" )
 ```
+
+## PATCH — executeConditionalGate resolveValue
+
+**Date:** 2026-05-14
+
+**Defect:** `executeConditionalGate` called `executeOperation(branch, ...)` for the resolved `onTrue` / `onFalse` branch. `executeOperation` dispatches on `op.operation`. When `branch` is an `IntentSource` (e.g. `{ source: 'ratio', sourceSpec: {...} }` or `{ source: 'constant', sourceSpec: {...} }`) it has no `operation` field; the dispatcher reads `undefined` and throws `IntentExecutorUnknownOperationError`. With HF-223 emitting `conditional_gate { onTrue: { source: 'ratio', ... }, onFalse: { source: 'constant', value: 0 } }`, every C5 entity execution failed at this site.
+
+**Fix:** Replace `executeOperation(branch, ...)` with `resolveValue(branch, ...)`. `resolveValue` is the existing IntentOperation-vs-IntentSource discriminator (`intent-executor.ts:159`) that dispatches to `executeOperation` for branches and to `resolveSource` for leaves. One line change. No new paths. `executeConditionalGate` now aligns with every other executor function that accepts either shape.
+
+**Evidence:**
+
+| Gate | PASS/FAIL | Evidence |
+|---|---|---|
+| `tsc --noEmit` clean | PASS | `EXIT=0` (see below) |
+| `npm run build` clean | PASS | Full route table emitted, no error frames (see below) |
+| `grep "executeOperation(branch"` in intent-executor.ts returns zero hits | PASS | `(zero hits)` |
+| `grep "resolveValue(branch"` in intent-executor.ts returns one hit at patched line | PASS | `333:  return resolveValue(branch, data, inputLog, trace);` |
+
+`cd web && npx tsc --noEmit; echo "EXIT=$?"`:
+
+```
+EXIT=0
+```
+
+`cd web && rm -rf .next && npm run build 2>&1 | tail -10`:
+
+```
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+
+ƒ Middleware                                  76 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+
+`grep -n "executeOperation(branch" web/src/lib/calculation/intent-executor.ts`:
+
+```
+(zero hits)
+```
+
+`grep -n "resolveValue(branch" web/src/lib/calculation/intent-executor.ts`:
+
+```
+333:  return resolveValue(branch, data, inputLog, trace);
+```
+
+Pasted post-patch function body for context:
+
+```typescript
+function executeConditionalGate(
+  op: ConditionalGate,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>
+): Decimal {
+  const leftVal = resolveSource(op.condition.left, data, inputLog);
+  const rightVal = resolveSource(op.condition.right, data, inputLog);
+
+  let conditionMet = false;
+  switch (op.condition.operator) {
+    case '>=': conditionMet = leftVal.gte(rightVal); break;
+    case '>':  conditionMet = leftVal.gt(rightVal);  break;
+    case '<=': conditionMet = leftVal.lte(rightVal); break;
+    case '<':  conditionMet = leftVal.lt(rightVal);  break;
+    case '=':  // AI plan interpreter produces single-equals for equality
+    case '==': conditionMet = leftVal.eq(rightVal);  break;
+    case '!=': conditionMet = !leftVal.eq(rightVal); break;
+  }
+
+  const branch = conditionMet ? op.onTrue : op.onFalse;
+  return resolveValue(branch, data, inputLog, trace);
+}
+```
