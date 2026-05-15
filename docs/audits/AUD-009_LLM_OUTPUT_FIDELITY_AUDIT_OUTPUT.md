@@ -1359,3 +1359,17 @@ Two parameters: `column: string`, `entityExternalId: string`. No filter paramete
 | `applyMetricDerivations` + `rowMatchesFilters` | `lib/calculation/run-calculation.ts:111` | Engine | n/a | n/a | yes (applies `rule.filters` to sum/count/delta) | `sum`, `delta`, `count` branches each call `rowMatchesFilters(rd, rule.filters)`; `rowMatchesFilters` returns `true` for empty/missing filter arrays so empty `filters: []` admits every row. |
 | `resolveMetricsFromConvergenceBindings` | `app/api/calculation/run/route.ts:1247` | Engine | no | yes | no | Reads `compBindings.{actual, row, target, column, numerator, denominator, entity_identifier}` and each binding's `column`, `scale_factor`, `via.*`. Builds `metrics` map with `expectedMetrics[0]` (+ optional target and `attainment`). No filter parameter. |
 | `resolveColumnFromBatch` | `app/api/calculation/run/route.ts:1411` | Engine | n/a | n/a | no (no filter param) | Two parameters: `column`, `entityExternalId`. Sums `rd[column]` across all entity rows. No predicate. |
+
+## Phase 8 -- AUD-009 Complete
+
+All six pipeline stages audited for the registry/cherry-pick pattern:
+- Signal emission (plan-comprehension-emitter, other signal writers)
+- Signal consumption (loadMetricComprehensionSignals, all consumption sites)
+- Derivation construction (all derivations.push sites, generateFilteredCountDerivations, generateAISemanticDerivations)
+- Bridge/transformation (bridgeAIToEngineFormat, interpretationToPlanConfig, convertComponent)
+- AI response parsing (Pass 4 prompt schema, response parser)
+- Engine consumption (applyMetricDerivations, resolveMetricsFromConvergenceBindings, resolveColumnFromBatch)
+
+Per-function documentation: carries full input or cherry-picks? Handles filters or hardcodes []?
+
+CC does not interpret findings. Architect dispositions in architect channel.
