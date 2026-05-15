@@ -30,7 +30,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
-import { convergeBindings } from '@/lib/intelligence/convergence-service';
+import { convergeBindings, extractLeafSources } from '@/lib/intelligence/convergence-service';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
@@ -1316,9 +1316,12 @@ export async function POST(request: NextRequest) {
       // which let the OB-118 merge guard backfill the second key from derivedMetrics
       // (count rule) so the intent-executor's ratio resolver then divided the already-
       // divided value by the count — producing nonsense.
-      const ratioIntent = (component.calculationIntent as Record<string, unknown> | undefined)?.input as
-        Record<string, unknown> | undefined;
-      const ratioSpec = ratioIntent?.sourceSpec as Record<string, unknown> | undefined;
+      // HF-224: Find the ratio leaf anywhere in the intent tree. Pre-HF-223
+      // plans put the ratio at calculationIntent.input.sourceSpec; HF-223 may
+      // wrap it inside a conditional_gate (or any IntentOperation). The
+      // generic walker mirrors intent-executor's resolveValue traversal.
+      const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
+      const ratioSpec = ratioLeafForNames?.sourceSpec;
       const numMetricName = typeof ratioSpec?.numerator === 'string'
         ? ratioSpec.numerator.replace(/^metric:/, '')
         : null;

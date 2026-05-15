@@ -580,8 +580,16 @@ export async function convergeBindings(
       const intent = ownerComp?.calculationIntent;
       let scope: string | undefined;
       if (intent) {
-        const inputSpec = (intent.input as Record<string, unknown> | undefined)?.sourceSpec as Record<string, unknown> | undefined;
-        if (inputSpec?.scope) scope = String(inputSpec.scope);
+        // HF-224: scope lives on any leaf IntentSource. Walk the intent tree
+        // and take the first leaf that declares it so HF-223 nested shapes
+        // (e.g. conditional_gate-wrapped ratio) still surface their scope.
+        for (const leaf of extractLeafSources(intent)) {
+          const leafScope = leaf.sourceSpec?.scope;
+          if (typeof leafScope === 'string') {
+            scope = leafScope;
+            break;
+          }
+        }
       }
       // HF-198 E5: Find matching metric_comprehension signal by metric label / component name.
       const matchedSignal = observations.metricComprehension.find(sig => {
@@ -1242,6 +1250,65 @@ interface ComponentInputRequirement {
   expectedRange: { min: number; max: number } | null;
 }
 
+// HF-224: Generic intent tree traversal.
+// Mirrors intent-executor's resolveValue: an IntentOperation has `operation`,
+// an IntentSource has `source`. Recurse through every operation child until
+// every leaf IntentSource is collected. Consumers that previously assumed a
+// flat `intent.input` (pre-HF-223) call this to find the leaf they need.
+export function extractLeafSources(
+  node: unknown
+): Array<{ source: string; sourceSpec?: Record<string, unknown> }> {
+  if (!node || typeof node !== 'object') return [];
+
+  const obj = node as Record<string, unknown>;
+
+  if (typeof obj.source === 'string') {
+    return [{
+      source: obj.source,
+      sourceSpec: obj.sourceSpec as Record<string, unknown> | undefined,
+    }];
+  }
+
+  if (typeof obj.operation === 'string') {
+    const leaves: Array<{ source: string; sourceSpec?: Record<string, unknown> }> = [];
+
+    const recurseField = (field: unknown) => {
+      if (field && typeof field === 'object') {
+        leaves.push(...extractLeafSources(field));
+      }
+    };
+
+    recurseField(obj.input);
+    recurseField(obj.onTrue);
+    recurseField(obj.onFalse);
+
+    if (obj.condition && typeof obj.condition === 'object') {
+      const cond = obj.condition as Record<string, unknown>;
+      recurseField(cond.left);
+      recurseField(cond.right);
+    }
+
+    if (obj.inputs && typeof obj.inputs === 'object') {
+      for (const val of Object.values(obj.inputs as Record<string, unknown>)) {
+        recurseField(val);
+      }
+    }
+
+    if (Array.isArray(obj.segments)) {
+      for (const seg of obj.segments) {
+        recurseField(seg);
+      }
+    }
+
+    recurseField(obj.ratioInput);
+    recurseField(obj.baseInput);
+
+    return leaves;
+  }
+
+  return [];
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
@@ -1276,16 +1343,46 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
     }
     case 'scalar_multiply': {
       const input = intent.input as Record<string, unknown> | undefined;
+
+      // Fast path: flat ratio IntentSource (pre-HF-223 shape).
       if (input?.source === 'ratio') {
         const spec = input.sourceSpec as Record<string, unknown> | undefined;
         const num = spec?.numerator ? String(spec.numerator).replace(/^metric:/, '') : 'unknown';
         const den = spec?.denominator ? String(spec.denominator).replace(/^metric:/, '') : 'unknown';
         reqs.push({ role: 'numerator', metricField: num, expectedRange: null });
         reqs.push({ role: 'denominator', metricField: den, expectedRange: null });
-      } else {
-        const spec = input?.sourceSpec as Record<string, unknown> | undefined;
-        reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
+        break;
       }
+
+      // Fast path: flat metric IntentSource.
+      if (typeof input?.source === 'string') {
+        const spec = input.sourceSpec as Record<string, unknown> | undefined;
+        reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
+        break;
+      }
+
+      // HF-224: Nested IntentOperation input (e.g. HF-223 conditional_gate-wrapped ratio).
+      // Walk every operation child until leaf IntentSources are found, then pick
+      // the ratio leaf (preferred) or the first metric leaf.
+      if (input && typeof input.operation === 'string') {
+        const leaves = extractLeafSources(input);
+        const ratioLeaf = leaves.find(l => l.source === 'ratio');
+        if (ratioLeaf) {
+          const spec = ratioLeaf.sourceSpec;
+          const num = spec?.numerator ? String(spec.numerator).replace(/^metric:/, '') : 'unknown';
+          const den = spec?.denominator ? String(spec.denominator).replace(/^metric:/, '') : 'unknown';
+          reqs.push({ role: 'numerator', metricField: num, expectedRange: null });
+          reqs.push({ role: 'denominator', metricField: den, expectedRange: null });
+          break;
+        }
+        const firstLeaf = leaves[0];
+        if (firstLeaf) {
+          reqs.push({ role: 'actual', metricField: getField(firstLeaf.sourceSpec), expectedRange: null });
+          break;
+        }
+      }
+
+      reqs.push({ role: 'actual', metricField: 'unknown', expectedRange: null });
       break;
     }
     case 'conditional_gate': {

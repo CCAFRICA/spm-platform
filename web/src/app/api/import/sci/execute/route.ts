@@ -10,7 +10,6 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { convergeBindings } from '@/lib/intelligence/convergence-service';
 // HF-196 Phase 1: post-commit construction unified via shared module.
 // Replaces direct call to resolveEntitiesFromCommittedData; the library function
 // is now invoked indirectly through the shared module to keep both import
@@ -174,96 +173,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // OB-160G: Run convergence ONCE after all pipelines complete (not per-pipeline)
-    // Collects convergence report for the execute response
-    let convergenceReport: SCIExecutionResult['convergence'] | undefined;
-    try {
-      const { data: allRuleSets } = await supabase
-        .from('rule_sets')
-        .select('id, name')
-        .eq('tenant_id', tenantId)
-        .in('status', ['active', 'draft']);
-
-      if (allRuleSets && allRuleSets.length > 0) {
-        const reports: NonNullable<SCIExecutionResult['convergence']>['reports'] = [];
-        let totalDerivations = 0;
-
-        for (const rs of allRuleSets) {
-          const result = await convergeBindings(tenantId, rs.id, supabase);
-
-          if (result.derivations.length > 0 || Object.keys(result.componentBindings).length > 0) {
-            // HF-108: convergence_bindings is the PRIMARY output (Decision 111)
-            // metric_derivations preserved as read-only fallback for pre-OB-162 data
-            // but no longer written for new convergence runs when convergence_bindings exist
-            const updatedBindings: Record<string, unknown> = {};
-
-            if (Object.keys(result.componentBindings).length > 0) {
-              // HF-109: convergence_bindings is THE sole output (DS-009 4.3)
-              // metric_derivations NOT written — single format, no dual write
-              updatedBindings.convergence_bindings = result.componentBindings;
-            } else {
-              // No convergence_bindings produced — write metric_derivations as primary
-              // (legacy path for data without field identities)
-              const { data: rsData } = await supabase
-                .from('rule_sets')
-                .select('input_bindings')
-                .eq('id', rs.id)
-                .single();
-
-              const existing = ((rsData?.input_bindings as Record<string, unknown>)?.metric_derivations ?? []) as Array<Record<string, unknown>>;
-              const merged = [...existing];
-
-              for (const d of result.derivations) {
-                if (!merged.some(e => e.metric === d.metric)) {
-                  merged.push(d as unknown as Record<string, unknown>);
-                }
-              }
-              updatedBindings.metric_derivations = merged;
-            }
-
-            // Preserve existing metric_mappings if present
-            const { data: currentRs } = await supabase
-              .from('rule_sets')
-              .select('input_bindings')
-              .eq('id', rs.id)
-              .single();
-            const currentBindings = (currentRs?.input_bindings as Record<string, unknown>) ?? {};
-            if (currentBindings.metric_mappings) {
-              updatedBindings.metric_mappings = currentBindings.metric_mappings;
-            }
-
-            await supabase
-              .from('rule_sets')
-              .update({ input_bindings: updatedBindings as unknown as Json })
-              .eq('id', rs.id);
-
-            totalDerivations += result.derivations.length;
-          }
-
-          reports.push({
-            ruleSetId: rs.id,
-            ruleSetName: rs.name,
-            derivations: result.derivations.length,
-            matches: result.matchReport,
-            gaps: result.gaps.map(g => ({
-              component: g.component,
-              reason: g.reason,
-              resolution: g.resolution,
-              referenceDataAvailable: g.referenceDataAvailable,
-            })),
-          });
-        }
-
-        convergenceReport = {
-          ruleSetsProcessed: allRuleSets.length,
-          totalDerivations,
-          reports,
-        };
-        console.log(`[SCI Execute] OB-160G: Convergence complete — ${totalDerivations} derivations across ${allRuleSets.length} rule sets`);
-      }
-    } catch (convErr) {
-      console.error('[SCI Execute] Post-execute convergence failed (non-blocking):', convErr);
-    }
+    // HF-224: Import-time convergence (OB-160G) removed. Convergence binding is
+    // performed at calc time (HF-165) so each calculation run sees a complete
+    // dataset and a fresh component-binding decision. Pre-HF-224 the partial
+    // bindings written here could prevent HF-165 from re-running cleanly.
 
     // HF-196 Phase 1: post-commit construction via shared module (Break #3 closure).
     // Entity resolution + entity_id back-link runs identically for both import endpoints.
@@ -358,7 +271,6 @@ export async function POST(req: NextRequest) {
       proposalId,
       results,
       overallSuccess: results.every(r => r.success),
-      convergence: convergenceReport,
     };
 
     // OB-160E/HF-094: Write classification signals via dedicated columns (fire-and-forget)
