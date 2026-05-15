@@ -710,3 +710,264 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
 ```
 
 AI response-schema fields requested by the prompt: `metric`, `operation`, `source_field`, `filters[{field, operator, value}]`, plus a `gaps[]` array. AI response parsing extracts only `metric`, `operation`, `source_field`, `filters`. Any other field in the AI's JSON output is silently discarded. The typed-rule construction at 2571 enumerates: `metric`, `operation`, `source_pattern`, `source_field`, `filters` — no spread of `d`, no carry of additional fields.
+
+## Phase 4 -- Bridge and transformation stage
+
+### 4.1 `bridgeAIToEngineFormat` (lines 502-526)
+
+```typescript
+export function bridgeAIToEngineFormat(
+  rawResult: Record<string, unknown>,
+  tenantId: string,
+  userId: string,
+): {
+  name: string;
+  description: string;
+  components: { variants: Array<{ variantId: string; variantName: string; description?: string; components: PlanComponent[] }> };
+  inputBindings: Record<string, unknown>;
+} {
+  // Step 1: Normalize the raw AI output through the same pipeline as the plan import page
+  // OB-199 Phase 1: standalone function call (no class indirection per architect Option (b))
+  const normalized = validateAndNormalizePlanInterpretation(rawResult);
+
+  // Step 2: Convert to engine format via interpretationToPlanConfig
+  const config = interpretationToPlanConfig(normalized, tenantId, userId);
+  const additiveLookup = config.configuration as AdditiveLookupConfig;
+
+  return {
+    name: normalized.ruleSetName,
+    description: normalized.description,
+    components: { variants: additiveLookup.variants },
+    inputBindings: {},
+  };
+}
+```
+
+Return literal enumerates four fields: `name`, `description`, `components`, `inputBindings`. `inputBindings: {}` is a hardcoded empty object. The full `rawResult` after `validateAndNormalizePlanInterpretation` flows through `interpretationToPlanConfig`; the resulting `additiveLookup.variants` is the only `rawResult`-derived data returned. The `normalized` value itself is not returned; `rawResult` fields not picked up by `validateAndNormalizePlanInterpretation` (e.g., any free-form LLM keys) are discarded.
+
+### 4.2 `interpretationToPlanConfig` (lines 275-380)
+
+```typescript
+export function interpretationToPlanConfig(
+  interpretation: PlanInterpretation,
+  tenantId: string,
+  userId: string
+): RuleSetConfig {
+  const now = new Date().toISOString();
+  const ruleSetId = crypto.randomUUID();
+
+  // Build variants from employee types
+  const employeeTypes = interpretation.employeeTypes || [];
+  const allComponents = interpretation.components || [];
+
+  const variants = employeeTypes.map((empType) => {
+    const components = allComponents
+      .filter(
+        (c) =>
+          (c.appliesToEmployeeTypes?.includes('all') ?? true) ||
+          (c.appliesToEmployeeTypes?.includes(empType.id) ?? false)
+      )
+      .map((comp, index) => {
+        const compCopy = JSON.parse(JSON.stringify(comp)) as InterpretedComponent;
+        return convertComponent(compCopy, index);
+      });
+    // ... (logging only) ...
+    return {
+      variantId: empType.id,
+      variantName: empType.name,
+      description: empType.nameEs || empType.name,
+      eligibilityCriteria: empType.eligibilityCriteria || {},
+      components,
+    };
+  });
+
+  if (variants.length === 0) {
+    variants.push({
+      variantId: 'default',
+      variantName: 'Default',
+      description: 'Default plan variant',
+      eligibilityCriteria: {},
+      components: allComponents.map((comp, index) => {
+        const compCopy = JSON.parse(JSON.stringify(comp)) as InterpretedComponent;
+        return convertComponent(compCopy, index);
+      }),
+    });
+  }
+
+  const config: AdditiveLookupConfig = {
+    type: 'additive_lookup',
+    variants,
+  };
+
+  return {
+    id: ruleSetId,
+    tenantId,
+    name: interpretation.ruleSetName,
+    description: interpretation.description,
+    ruleSetType: 'additive_lookup',
+    status: 'draft',
+    effectiveDate: now,
+    endDate: null,
+    eligibleRoles: [], // HF-161
+    version: 1,
+    previousVersionId: null,
+    createdBy: userId,
+    createdAt: now,
+    updatedBy: userId,
+    approvedBy: null,
+    approvedAt: null,
+    configuration: config,
+  };
+}
+```
+
+Input fields read: `interpretation.employeeTypes`, `interpretation.components`, `interpretation.ruleSetName`, `interpretation.description`. Each component flows through `convertComponent`. Each variant literal enumerates `variantId`, `variantName`, `description`, `eligibilityCriteria`, `components` — no spread of `empType`, no carry of other fields. Final `RuleSetConfig` literal enumerates 17 fields; `interpretation`-side input contributes only `ruleSetName` and `description`. Any field on `interpretation` outside `employeeTypes`, `components`, `ruleSetName`, `description` is discarded.
+
+### 4.3 `convertComponent` (lines 382-487)
+
+```typescript
+function convertComponent(comp: InterpretedComponent, order: number): PlanComponent {
+  const base: Omit<PlanComponent, 'componentType' | 'matrixConfig' | 'tierConfig' | 'percentageConfig' | 'conditionalConfig'> = {
+    id: comp?.id || `component-${order}`,
+    name: comp?.name || `Component ${order + 1}`,
+    description: comp?.nameEs || comp?.reasoning || '',
+    order: order + 1,
+    enabled: true,
+    measurementLevel: 'store',
+    // OB-77: Pass through AI-produced structural intent
+    calculationIntent: comp?.calculationIntent,
+  };
+
+  const calcMethod = comp?.calculationMethod;
+  const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';
+
+  if (!isRegisteredPrimitive(calcType)) {
+    throw new UnconvertibleComponentError(...);
+  }
+
+  // (boundary canonicalization for bounded_lookup primitives)
+
+  switch (calcType as FoundationalPrimitive) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+      return {
+        ...base,
+        componentType: calcType as FoundationalPrimitive,
+        metadata: {
+          ...(base.metadata || {}),
+          intent: base.calculationIntent, // copy for transformFromMetadata
+        },
+      };
+    default: {
+      // (exhaustive guard throw)
+    }
+  }
+}
+```
+
+`base` literal enumerates seven fields from `comp`: `id`, `name`, `description` (from `nameEs || reasoning`), `order`, `enabled`, `measurementLevel`, `calculationIntent`. No spread of `comp`. The `comp` fields NOT read here: `reasoning` (read only as fallback for `description`), `confidence`, `expectedMetrics`, `metrics[]`, `appliesToEmployeeTypes` (read earlier in `interpretationToPlanConfig` for variant filtering), plus any free-form LLM field. The returned object spreads `base` and adds `componentType` + `metadata.intent` — no other `comp` field flows through to the final `PlanComponent`.
+
+### 4.4 `transformVariant` / `normalizeIntentInput` / `transformFromMetadata` (intent-transformer.ts)
+
+`transformVariant` (lines 52-61) — pure delegation loop; carries every component result.
+
+`normalizeIntentInput` (lines 86-129) — discriminator with five branches:
+- `null` → `{ source: 'constant', value: 0 }`
+- `string` → `{ source: 'metric', sourceSpec: { field: raw } }`
+- `number` → `{ source: 'constant', value: raw }`
+- `'operation' in obj && obj.operation === 'ratio'` → `{ operation: 'ratio', numerator, denominator, zeroDenominatorBehavior }` (recurses)
+- `'operation' in obj` (other operations) → `return obj as IntentOperation` (full carry)
+- `obj.source === 'ratio'` → constructs ratio operation (recurses)
+- `obj.source ∈ { metric, constant, entity_attribute, prior_component, cross_data, scope_aggregate, aggregate }` → `return obj as IntentSource` (full carry)
+- fallback → `{ source: 'constant', value: 0 }`
+
+Non-`ratio` operation and recognized-source branches return `obj` directly (no field cherry-pick).
+
+`transformFromMetadata` (lines 131-268):
+
+```typescript
+function transformFromMetadata(
+  component: PlanComponent,
+  componentIndex: number
+): ComponentIntent | null {
+  const meta = (component.metadata || {}) as Record<string, unknown>;
+  const rawIntent = (meta?.intent || (component as unknown as Record<string, unknown>).calculationIntent) as Record<string, unknown> | undefined;
+  if (!rawIntent) return null;
+
+  let operation: IntentOperation;
+  if (rawIntent.additionalConstant != null && rawIntent.rate != null) {
+    operation = {
+      operation: 'linear_function',
+      input: normalizeIntentInput(rawIntent.input),
+      slope: Number(rawIntent.rate),
+      intercept: Number(rawIntent.additionalConstant),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'scalar_multiply' && rawIntent.rate != null) {
+    operation = {
+      operation: 'scalar_multiply',
+      input: normalizeIntentInput(rawIntent.input),
+      rate: Number(rawIntent.rate),
+    } as IntentOperation;
+  } else if (rawIntent.operation === 'piecewise_linear') {
+    // ... ratioInput/baseInput/targetValue/segments construction ...
+    operation = { operation: 'piecewise_linear', ratioInput, baseInput, ...(tv...), segments } as IntentOperation;
+  } else if (rawIntent.operation === 'conditional_gate') {
+    operation = {
+      operation: 'conditional_gate',
+      condition: { left, operator, right },
+      onTrue: normalizeIntentInput(rawIntent.onTrue) as IntentOperation,
+      onFalse: normalizeIntentInput(rawIntent.onFalse) as IntentOperation,
+    } as IntentOperation;
+  } else {
+    operation = rawIntent as unknown as IntentOperation;
+  }
+
+  // HF-223 Phase 1: validation-passthrough modifiers
+  const modifiers: IntentModifier[] = [];
+  if (Array.isArray(rawIntent.modifiers)) {
+    for (const mod of rawIntent.modifiers) {
+      // discriminator-specific construction for cap / floor / proration / temporal_adjustment
+      // ... 4 modifier discriminants ...
+      // Unrecognized modifier discriminants: not pushed to typed array.
+      // The LLM emission is preserved in rule_sets.components[].calculationIntent
+      // (source of record). The executor processes typed modifiers only.
+    }
+  }
+
+  // Legacy meta.cap / meta.floor shortcut
+  if (meta.cap != null && Number(meta.cap) > 0) {
+    modifiers.push({ modifier: 'cap', maxValue: Number(meta.cap), scope: 'per_period' });
+  }
+  if (meta.floor != null && Number(meta.floor) > 0) {
+    modifiers.push({ modifier: 'floor', minValue: Number(meta.floor), scope: 'per_period' });
+  }
+
+  return {
+    componentIndex,
+    label: component.name,
+    confidence: typeof meta.confidence === 'number' ? meta.confidence : 0.5,
+    dataSource: {
+      sheetClassification: 'transaction',
+      entityScope: entityScope(component.measurementLevel),
+      requiredMetrics: [],
+    },
+    intent: operation,
+    modifiers,
+    metadata: { ... },
+  };
+}
+```
+
+Construction pattern depends on the operation discriminant. Five named operations (`linear_function`, `scalar_multiply`, `piecewise_linear`, `conditional_gate`, plus the implicit chain) construct a new operation literal with cherry-picked fields. The fall-through branch (`else { operation = rawIntent as unknown as IntentOperation; }`) carries the full `rawIntent` for any unrecognized operation. Modifiers: four discriminants handled (cap, floor, proration, temporal_adjustment); unrecognized discriminants are dropped from the typed array (comment block lines 234-237 documents this; the unrecognized modifier remains visible only via `rule_sets.components[].calculationIntent` storage).
+
+Returned `ComponentIntent` literal enumerates `componentIndex`, `label`, `confidence`, `dataSource`, `intent`, `modifiers`, `metadata` — no spread of `component`, no carry of other PlanComponent fields.
