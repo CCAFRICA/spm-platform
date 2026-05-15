@@ -912,3 +912,15 @@ LEGACY ALIASES (return the canonical types above):
 ```
 
 The execute route consumes the AI `interpretation` in-memory, runs `bridgeAIToEngineFormat(...)` to produce `engineFormat`, and persists `engineFormat.components` (engine-shape) and `engineFormat.inputBindings` to the `rule_sets` row. The pre-bridge raw `interpretation` is passed to the `emitPlanComprehensionSignals` call (line 1258 / 1509) as the signal source, but the raw interpretation object itself is not stored as a row anywhere. The CRP Plan 1 `signal_value` content already pasted in Phase 1.3 is the only post-call record of plan-agent output retained for downstream consumers.
+
+## Phase 5 -- DIAG-047 Complete
+
+All four pipeline stages traced on current HEAD:
+- Stage 1: What plan-comprehension-emitter writes to signal_value (does it include filters?)
+- Stage 2: How convergence reads signals and constructs derivations (does it carry filters?)
+- Stage 3: How the engine applies filters from metric_derivations (does HF-172 fix survive?)
+- Stage 4: Does the prompt teach the LLM to emit filter predicates?
+
+Plus: actual CRP Plan 1 signal_value content from the database (does it contain product_category filter information?).
+
+CC does not interpret findings. Architect dispositions in architect channel.
