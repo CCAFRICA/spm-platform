@@ -617,3 +617,214 @@ Per-site filter-field documentation (per directive 2.3):
 | 518 — `ratio` derivation | `filters: []` | empty literal |
 | 624 — `derivations.push(...aiResult.derivations)` | Spreads AI-derived rules. Construction at site 2571. | derived from AI Pass 4 JSON response (see below) |
 | 2571 — Pass 4 typed-derivation construction | `filters` populated from `d.filters` on the AI JSON output via a typed copy. Only entries with both `f.field` and `f.value != null` are kept. | AI Pass 4 LLM response |
+
+## Phase 3 -- Engine filter application
+
+### 3.1 Locate `applyMetricDerivations`
+
+`grep -n "function applyMetricDerivations\|applyMetricDerivations" web/src/app/api/calculation/run/route.ts`:
+
+```
+(no hits in route.ts)
+```
+
+`grep -rn "function applyMetricDerivations\|applyMetricDerivations" web/src/ --include="*.ts"`:
+
+```
+web/src/lib/calculation/run-calculation.ts:111:export function applyMetricDerivations(
+web/src/lib/calculation/run-calculation.ts:1371:      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+```
+
+The function lives in `web/src/lib/calculation/run-calculation.ts`, not `route.ts`. The directive's expected path is route.ts; current location is run-calculation.ts (single export site, single call site, both in the same file).
+
+### 3.2 Full body of `applyMetricDerivations`
+
+```typescript
+export function applyMetricDerivations(
+  entitySheetData: Map<string, Array<{ row_data: Json }>>,
+  derivations: MetricDerivationRule[],
+  priorPeriodData?: Map<string, Array<{ row_data: Json }>>
+): Record<string, number> {
+  const derived: Record<string, number> = {};
+
+  for (const rule of derivations) {
+    // HF-172: source_pattern is provenance metadata, NOT a row filter.
+    // All entity rows within the period's date range are candidates.
+    // Content filtering is done by the filters array, not source_pattern.
+    let matchingRows: Array<{ row_data: Json }> = [];
+    for (const [, rows] of Array.from(entitySheetData.entries())) {
+      matchingRows = matchingRows.concat(rows);
+    }
+
+    // OB-128: Ratio operation works on already-derived metrics, not raw rows
+    if (rule.operation === 'ratio') {
+      const num = derived[rule.numerator_metric || ''] ?? 0;
+      const den = derived[rule.denominator_metric || ''] ?? 0;
+      derived[rule.metric] = den !== 0 ? (num / den) * (rule.scale_factor ?? 1) : 0;
+      continue;
+    }
+
+    if (matchingRows.length === 0) continue;
+
+    // Apply derivation operation
+    if (rule.operation === 'sum' && rule.source_field) {
+      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
+      let total = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') total += val;
+      }
+      derived[rule.metric] = total;
+    } else if (rule.operation === 'delta' && rule.source_field) {
+      // OB-121: Period-over-period delta = current_sum - prior_sum
+      // HF-172: Apply filters to both current and prior period loops
+      let currentTotal = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (!rowMatchesFilters(rd, rule.filters)) continue;
+        const val = rd[rule.source_field];
+        if (typeof val === 'number') currentTotal += val;
+      }
+
+      let priorTotal = 0;
+      if (priorPeriodData) {
+        // HF-172: Include ALL prior period rows, not just source_pattern matches
+        for (const [, rows] of Array.from(priorPeriodData.entries())) {
+          for (const row of rows) {
+            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+              ? row.row_data as Record<string, unknown>
+              : {};
+            if (!rowMatchesFilters(rd, rule.filters)) continue;
+            const val = rd[rule.source_field];
+            if (typeof val === 'number') priorTotal += val;
+          }
+        }
+      }
+
+      derived[rule.metric] = currentTotal - priorTotal;
+      if (!priorPeriodData) {
+        console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
+      }
+    } else if (rule.operation === 'count') {
+      // HF-172: Uses same rowMatchesFilters helper (was already correct, now DRY)
+      let count = 0;
+      for (const row of matchingRows) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown>
+          : {};
+        if (rowMatchesFilters(rd, rule.filters)) count++;
+      }
+      derived[rule.metric] = count;
+    }
+  }
+
+  return derived;
+}
+```
+
+The `sum` branch (operation === 'sum' && rule.source_field) calls `rowMatchesFilters(rd, rule.filters)` and skips non-matching rows before adding `rd[rule.source_field]` to the total. The HF-172 comment at line 139 documents that this filter application was originally missing.
+
+### 3.3 `rowMatchesFilters` body
+
+`grep -n "function rowMatchesFilters" web/src/lib/calculation/run-calculation.ts`:
+
+```
+91:export function rowMatchesFilters(
+```
+
+```typescript
+// HF-172 + OB-186: Filter check helper — exported for use in scope aggregate pre-computation
+export function rowMatchesFilters(
+  rd: Record<string, unknown>,
+  filters: MetricDerivationRule['filters'],
+): boolean {
+  if (!filters || filters.length === 0) return true;
+  return filters.every(filter => {
+    const fieldValue = rd[filter.field];
+    switch (filter.operator) {
+      case 'eq':       return fieldValue === filter.value;
+      case 'neq':      return fieldValue !== filter.value;
+      case 'gt':       return typeof fieldValue === 'number' && fieldValue > (filter.value as number);
+      case 'gte':      return typeof fieldValue === 'number' && fieldValue >= (filter.value as number);
+      case 'lt':       return typeof fieldValue === 'number' && fieldValue < (filter.value as number);
+      case 'lte':      return typeof fieldValue === 'number' && fieldValue <= (filter.value as number);
+      case 'contains': return typeof fieldValue === 'string' && fieldValue.includes(String(filter.value));
+      default:         return false;
+    }
+  });
+}
+```
+
+Line 95: `if (!filters || filters.length === 0) return true;` — when `filters` is `[]` (empty array), `rowMatchesFilters` returns `true` for every row. The caller's `if (!rowMatchesFilters(...)) continue;` therefore never skips any row, and the sum aggregates across all categories.
+
+### 3.4 `applyMetricDerivations` call sites
+
+`grep -n "applyMetricDerivations" web/src/lib/calculation/run-calculation.ts web/src/app/api/calculation/run/route.ts`:
+
+```
+web/src/lib/calculation/run-calculation.ts:111:export function applyMetricDerivations(
+web/src/lib/calculation/run-calculation.ts:1371:      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+```
+
+Single call site at `run-calculation.ts:1371`:
+
+```typescript
+          derivationInput.set(sheetName, rows);
+        } else {
+          // OB-148: Append store rows even when entity has same sheet name.
+          // Store data may have fields (e.g., Real_Venta_Tienda, Meta_Venta_Tienda)
+          // not present in entity rows. The derivation sum/ratio operations
+          // only aggregate fields that exist, so mixing is safe.
+          derivationInput.set(sheetName, [...derivationInput.get(sheetName)!, ...rows]);
+        }
+      }
+    }
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+      : {};
+
+    // Evaluate each component with sheet-aware metrics
+    const componentResults: ComponentResult[] = [];
+    let entityTotal = 0;
+
+    for (const component of selectedComponents) {
+      const metrics = buildMetricsForComponent(
+        component,
+        entitySheetData,
+        entityStoreData,
+        aiContextSheets
+      );
+```
+
+The output `derivedMetrics` is consumed downstream when each component's metrics map is built. `rowMatchesFilters` is also imported into route.ts and called at route.ts:2312 — the scope-aggregate pre-computation path (OB-186), which is a separate aggregation surface not part of the per-entity `applyMetricDerivations` path:
+
+```typescript
+        for (const [, rows] of Array.from(otherSheetMap.entries())) {
+          for (const row of rows) {
+            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+              ? row.row_data as Record<string, unknown> : {};
+
+            // Unfiltered: sum all numeric fields
+            for (const [key, val] of Object.entries(rd)) {
+              if (key.startsWith('_') || typeof val !== 'number') continue;
+              entityScopeAgg[`${scopePrefix}:${key}:sum`] = (entityScopeAgg[`${scopePrefix}:${key}:sum`] || 0) + val;
+            }
+
+            // OB-186: Filtered scope aggregates from metric_derivation rules
+            for (const rule of metricDerivations) {
+              if (rule.operation !== 'sum' || !rule.source_field) continue;
+              if (!rowMatchesFilters(rd, rule.filters)) continue;
+              const val = rd[rule.source_field];
+              if (typeof val === 'number') {
+                entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] = (entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] || 0) + val;
+              }
+            }
+          }
+        }
+```
