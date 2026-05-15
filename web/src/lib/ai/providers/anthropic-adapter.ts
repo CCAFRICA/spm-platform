@@ -345,21 +345,6 @@ PIECEWISE LINEAR (accelerator curve: rate changes at attainment breakpoints):
     }
   }
 
-SCOPE AGGREGATE (management override on team/district/region totals):
-- For managers who earn a percentage of their team's aggregate metric
-- Use when the plan describes: "1.5% of district total equipment revenue"
-- Example:
-  {
-    "type": "scope_aggregate",
-    "calculationMethod": {
-      "type": "scope_aggregate",
-      "scope": "district",
-      "metric": "equipment_revenue",
-      "metricLabel": "District Equipment Revenue",
-      "rate": 0.015
-    }
-  }
-
 SCALAR MULTIPLY (simple rate × base amount, no tiers or conditions):
 - For flat commission percentages without tiers, thresholds, or conditions
 - Example:
@@ -561,15 +546,6 @@ EXAMPLE calculationIntent for a piecewise_linear:
   }
 }
 
-EXAMPLE calculationIntent for a scope_aggregate:
-{
-  "calculationIntent": {
-    "operation": "scope_aggregate",
-    "input": { "source": "scope_aggregate", "sourceSpec": { "scope": "district", "field": "equipment_revenue", "aggregation": "sum" } },
-    "rate": 0.015
-  }
-}
-
 EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
 {
   "calculationIntent": {
@@ -630,6 +606,35 @@ EXAMPLE calculationIntent for scalar_multiply with input-constrained ratio (rati
       "onFalse": { "source": "constant", "value": 1.5 }
     },
     "rate": 800
+  }
+}
+
+COMPOSITION PRINCIPLE FOR COMPLEX OPERATIONS:
+The calculation engine supports these primitives: scalar_multiply, conditional_gate, bounded_lookup_1d, bounded_lookup_2d, piecewise_linear, linear_function, ratio, constant, aggregate, weighted_blend, temporal_window.
+
+ANY compensation concept must be expressed as a COMPOSITION of these primitives. Do NOT invent new operation names. If a plan describes a concept not directly matching a single primitive, compose multiple primitives.
+
+EXAMPLE — Manager override (percentage of team/district/region revenue):
+The plan says "District Manager earns 1.5% of district equipment revenue."
+This is: aggregate the metric (sum), then multiply by the rate.
+Express as:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "aggregate", "sourceSpec": { "metric": "equipment_revenue", "function": "sum" } },
+    "rate": 0.015
+  }
+}
+The scope (which district, which region) is resolved by the data binding layer, not by the operation. Do NOT include scope parameters in the operation. Do NOT use "scope_aggregate" or any other compound operation name.
+
+EXAMPLE — Tiered override (different rates by performance band):
+The plan says "Regional VP earns 0.5% of region revenue."
+Express as:
+{
+  "calculationIntent": {
+    "operation": "scalar_multiply",
+    "input": { "source": "aggregate", "sourceSpec": { "metric": "equipment_revenue", "function": "sum" } },
+    "rate": 0.005
   }
 }
 
@@ -1116,7 +1121,6 @@ Return a JSON object with:
         //   conditional_gate:   conditionMetric, conditions[] with {threshold, operator, rate}
         //   piecewise_linear:   ratioMetric, baseMetric, segments[] with {min, max, rate}, targetValue
         //   linear_function:    inputMetric, slope, intercept
-        //   scope_aggregate:    scope, metric, rate
       },
       "confidence": 0-100,
       "reasoning": "How you extracted this component"
