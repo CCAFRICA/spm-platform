@@ -424,3 +424,289 @@ export function recordSignal(
 `signalValue` is a new literal with exactly three fields: `domain`, `fieldName`, `semanticType`. Any other field on the input `signal` (other than `confidence`, `source`, `metadata`) is discarded.
 
 `recordAIClassificationBatch` (lines 109-147) maps over `mappings` (each `{ fieldName, semanticType, confidence }`) and produces `signalValue: { domain, fieldName, semanticType }` per row — identical three-field literal.
+
+## Phase 3 -- Signal consumption and derivation construction stage
+
+### 3.1 `loadMetricComprehensionSignals` consumption sites
+
+(`loadMetricComprehensionSignals` body already in DIAG-047 Phase 2.1 — unchanged on current HEAD.) Per-site consumption sites:
+
+| Site (line) | Code surface | Fields read from `signal_value` |
+|---|---|---|
+| 595-604 (Pass 4 metric-context build) | `MetricContext` literal builder | `metric_label`, `semantic_intent`, `metric_inputs` |
+| 1857-1873 (resolveColumnMappingsViaAI) | `semanticIntentByMetricField` map | `metric_label`, `semantic_intent`, `metric_inputs` |
+| 2447-2457 (Pass 4 AI prompt metric description) | `metricDescriptions` text | `metric_label`, `semantic_intent`, `metric_inputs` (carried through via `mc.*`) |
+
+No consumption site inspects keys outside `metric_label`, `semantic_intent`, `metric_inputs`. Other fields in `signal_value` (`component_id`, `component_type`, `source_evidence`) are not read.
+
+### 3.2 `derivations.push` sites — filters source
+
+Already enumerated in DIAG-047 Phase 2.3:
+
+| Push site | Filter field source |
+|---|---|
+| 297 — `derivations.push(...generated)` | Spreads from `generateDerivationsForMatch`. Inside the helper, both `rules.push` sites ship `filters: []` (empty literal). Delegate path via `generateFilteredCountDerivations` — see §3.3. |
+| 508 — `_target` derivation | `filters: []` empty literal |
+| 518 — `ratio` derivation | `filters: []` empty literal |
+| 624 — `derivations.push(...aiResult.derivations)` | Spreads AI-derived rules; construction at site 2571. |
+| 2571 — Pass 4 typed-derivation construction | `filters` populated from `d.filters` on AI JSON response, copied via typed loop. Only entries with `f.field && f.value != null` admitted. |
+
+### 3.3 `generateFilteredCountDerivations` -- full body (lines 2324-2389)
+
+```typescript
+function generateFilteredCountDerivations(
+  component: PlanComponent,
+  dataType: string,
+  capability: DataCapability
+): MetricDerivationRule[] {
+  const rules: MetricDerivationRule[] = [];
+  const compTokens = tokenize(component.name);
+
+  let bestCatField: { field: string; matchedValue: string } | null = null;
+  let bestCatScore = 0;
+
+  for (const catField of capability.categoricalFields) {
+    for (const value of catField.distinctValues) {
+      const valueTokens = tokenize(value);
+      const overlap = compTokens.filter(t =>
+        valueTokens.some(v => v.includes(t) || t.includes(v))
+      );
+      const score = overlap.length / Math.max(valueTokens.length, 1);
+      if (score > bestCatScore) {
+        bestCatScore = score;
+        bestCatField = { field: catField.field, matchedValue: value };
+      }
+    }
+  }
+
+  if (!bestCatField || bestCatScore < 0.3) {
+    for (const metricName of component.expectedMetrics) {
+      const metricTokens = tokenize(metricName);
+      for (const catField of capability.categoricalFields) {
+        for (const value of catField.distinctValues) {
+          const valueTokens = tokenize(value);
+          const overlap = metricTokens.filter(t =>
+            valueTokens.some(v => v.includes(t) || t.includes(v))
+          );
+          const score = overlap.length / Math.max(metricTokens.length, 1);
+          if (score > bestCatScore) {
+            bestCatScore = score;
+            bestCatField = { field: catField.field, matchedValue: value };
+          }
+        }
+      }
+    }
+  }
+
+  if (!bestCatField) return rules;
+
+  const filters: MetricDerivationRule['filters'] = [
+    { field: bestCatField.field, operator: 'eq', value: bestCatField.matchedValue },
+  ];
+
+  if (capability.booleanFields.length > 0) {
+    const qualField = capability.booleanFields[0];
+    filters.push({ field: qualField.field, operator: 'eq', value: qualField.trueValue });
+  }
+
+  for (const metricName of component.expectedMetrics) {
+    rules.push({
+      metric: metricName,
+      operation: 'count',
+      source_pattern: dataType,
+      filters,
+    });
+  }
+
+  return rules;
+}
+```
+
+Trigger condition (from `generateDerivationsForMatch` at line 1191): `if (isSharedBase && capability.categoricalFields.length > 0) return generateFilteredCountDerivations(...);` — fires only when two or more matched components share the same `dataType` and the capability exposes at least one categorical field. The `rules.push` at line 2380 unconditionally uses `operation: 'count'`. The function never produces `operation: 'sum'` derivations and therefore never produces filtered sum derivations from this path. Filter values are derived from token overlap between component name (or metric name) and `capability.categoricalFields[*].distinctValues` — not from LLM output or signals.
+
+### 3.4 `generateAISemanticDerivations` -- full body (lines 2400-2615)
+
+```typescript
+async function generateAISemanticDerivations(
+  metricContexts: MetricContext[],
+  capabilities: DataCapability[],
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<{ derivations: MetricDerivationRule[]; gaps: Array<{ metric: string; reason: string; resolution: string }> }> {
+  const derivations: MetricDerivationRule[] = [];
+  const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
+
+  if (metricContexts.length === 0) return { derivations, gaps };
+  const unresolvedMetrics = metricContexts.map(mc => mc.name);
+
+  // 1. Build column inventory for AI
+  const columnDescriptions: string[] = [];
+  for (const cap of capabilities) {
+    columnDescriptions.push(`Data type: "${cap.dataType}" (${cap.rowCount} rows)`);
+    for (const nf of cap.numericFields) {
+      const stats = cap.columnStats[nf.field];
+      columnDescriptions.push(`  - ${nf.field}: numeric (avg=${nf.avg.toFixed(2)}${stats ? `, min=${stats.min}, max=${stats.max}` : ''})`);
+    }
+    for (const cf of cap.categoricalFields) {
+      columnDescriptions.push(`  - ${cf.field}: categorical (values: ${cf.distinctValues.join(', ')})`);
+    }
+    for (const bf of cap.booleanFields) {
+      columnDescriptions.push(`  - ${bf.field}: boolean (true="${bf.trueValue}", false="${bf.falseValue}")`);
+    }
+  }
+
+  // 2. Get sample rows
+  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+  const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
+  const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
+  let q3 = supabase
+    .from('committed_data')
+    .select('row_data')
+    .eq('tenant_id', tenantId)
+    .not('row_data', 'is', null)
+    .limit(3);
+  if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
+  const { data: sampleRows } = await q3;
+
+  const sampleData = (sampleRows || []).map(r => r.row_data);
+
+  // 3. Build AI prompt — enriched with metric labels, component context (OB-191),
+  // and HF-198 E5 plan-agent semantic intent from comprehension:plan_interpretation
+  // signals (read before derive per AUD-004 v3 §2 E5).
+  // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
+  const metricDescriptions = metricContexts.map(mc => {
+    let desc = `- ${mc.name} (label: "${mc.label}", used in: ${mc.operation}, component: "${mc.componentName}")`;
+    if (mc.scope) desc += `\n  NOTE: This metric should be aggregated at the ${mc.scope} scope level`;
+    if (mc.semanticIntent) desc += `\n  PLAN-AGENT INTENT: ${mc.semanticIntent}`;
+    if (mc.metricInputs && Object.keys(mc.metricInputs).length > 0) {
+      try {
+        desc += `\n  PLAN-AGENT INPUTS: ${JSON.stringify(mc.metricInputs).slice(0, 240)}`;
+      } catch {}
+    }
+    return desc;
+  }).join('\n');
+
+  const userPrompt = `You are a data analyst bridging calculation plan metrics to available data columns.
+
+You receive:
+1. Required metrics with semantic labels describing what each metric represents
+2. Available data columns with types, statistics, and categorical values
+
+Your task: For each required metric, determine how to derive it from the available data.
+
+IMPORTANT RULES:
+- Match the metric's semantic label to available data fields. If the label suggests a subset of a broader numeric field (e.g., "Equipment Revenue" from a general "total_amount"), identify the categorical field and value that filters to the correct subset.
+- Use the categorical field's distinct values to find exact filter matches. The filter value must be one of the listed distinct values.
+- For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
+- For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
+
+Operations:
+- sum: SUM a numeric field, optionally filtered by a categorical field value
+- count: COUNT rows, optionally filtered by a categorical field value
+- ratio: Divide one derived metric by another
+- delta: Difference between two values
+
+Respond with ONLY valid JSON, no markdown, no explanation:
+{
+  "derivations": [
+    {
+      "metric": "the_metric_name",
+      "operation": "sum",
+      "source_field": "column_name_to_aggregate",
+      "filters": [
+        { "field": "column_name", "operator": "eq", "value": "filter_value" }
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "metric": "the_metric_name",
+      "reason": "Why this metric cannot be derived",
+      "resolution": "What data the user should import"
+    }
+  ]
+}
+
+Required metrics:
+${metricDescriptions}
+
+Available data columns:
+${columnDescriptions.join('\n')}
+
+Data sample (first ${sampleData.length} rows):
+${JSON.stringify(sampleData, null, 2)}
+
+Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
+
+  // 4. Call AI
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'natural_language_query',
+      input: { question: userPrompt, context: {} },
+      options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
+    }, false);
+
+    // 5. Parse response — handle different response shapes
+    let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
+    // If wrapped in natural_language_query response format, extract from answer
+    if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
+      try {
+        parsedResult = JSON.parse(parsedResult.answer);
+      } catch {
+        // answer might already be an object or unparseable
+      }
+    }
+    // If the result itself has derivations, use it directly
+    const aiDerivations = (parsedResult?.derivations as Array<Record<string, unknown>>) ?? [];
+    const aiGaps = (parsedResult?.gaps as Array<Record<string, unknown>>) ?? [];
+
+    if (Array.isArray(aiDerivations)) {
+      for (const d of aiDerivations) {
+        const metric = String(d.metric || '');
+        const operation = String(d.operation || 'sum');
+        if (!metric || !unresolvedMetrics.includes(metric)) continue;
+
+        // Validate operation is a valid MetricDerivationRule operation
+        const validOps = ['sum', 'count', 'ratio', 'delta'];
+        if (!validOps.includes(operation)) continue;
+
+        // Find the data_type that contains the source_field
+        let sourcePattern = '.*';
+        for (const cap of capabilities) {
+          const hasField = cap.numericFields.some(f => f.field === d.source_field) ||
+            cap.categoricalFields.some(f => f.field === d.source_field) ||
+            (Array.isArray(d.filters) && d.filters.some((df: Record<string, unknown>) =>
+              cap.categoricalFields.some(f => f.field === df.field)
+            ));
+          if (hasField) {
+            sourcePattern = cap.dataType;
+            break;
+          }
+        }
+
+        const filters: MetricDerivationRule['filters'] = [];
+        if (Array.isArray(d.filters)) {
+          for (const f of d.filters as Array<Record<string, unknown>>) {
+            if (f.field && f.value != null) {
+              filters.push({
+                field: String(f.field),
+                operator: (String(f.operator || 'eq') as MetricDerivationRule['filters'][0]['operator']),
+                value: f.value as string | number | boolean,
+              });
+            }
+          }
+        }
+
+        derivations.push({
+          metric,
+          operation: operation as MetricDerivationRule['operation'],
+          source_pattern: sourcePattern,
+          source_field: d.source_field ? String(d.source_field) : undefined,
+          filters,
+        });
+      }
+    }
+```
+
+AI response-schema fields requested by the prompt: `metric`, `operation`, `source_field`, `filters[{field, operator, value}]`, plus a `gaps[]` array. AI response parsing extracts only `metric`, `operation`, `source_field`, `filters`. Any other field in the AI's JSON output is silently discarded. The typed-rule construction at 2571 enumerates: `metric`, `operation`, `source_pattern`, `source_field`, `filters` — no spread of `d`, no carry of additional fields.
