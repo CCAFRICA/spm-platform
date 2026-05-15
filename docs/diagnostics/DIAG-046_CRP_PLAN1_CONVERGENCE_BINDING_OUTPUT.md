@@ -113,3 +113,105 @@ top-level keys: [ 'variants' ]
   }
 }
 ```
+
+## Phase 2 -- Tyler Morrison data
+
+NOTE — The first run of `diag046-tyler-data.ts` shadowed the JSONB field detection: the inspection loop set `dataFieldName` to the LAST object-valued column (`metadata`) instead of `row_data`, and the per-row dump returned all zeros / "MISSING" for `total_amount` / `product_category`. The script was rewritten to pin the payload column to `row_data` (the schema-correct column for committed-data source-row payload), and to dump row 0's `row_data` verbatim so the architect can inspect the shape directly. The pasted output below is the v2 authoritative read.
+
+Command: `cd web && set -a && source .env.local && set +a && npx tsx scripts/diag046-tyler-data.ts`
+
+```
+=== ENTITY ===
+Tyler Morrison (CRP-6007, id=79e8f66b-ecad-4d87-a1e4-ecc03a5bfc8b)
+
+=== COMMITTED_DATA for Jan 1-15 (13 rows) ===
+Row top-level keys: [
+  'id',
+  'tenant_id',
+  'import_batch_id',
+  'entity_id',
+  'period_id',
+  'data_type',
+  'row_data',
+  'metadata',
+  'created_at',
+  'source_date'
+]
+  JSONB field "row_data" sub-keys: [
+  'date',
+  'quantity',
+  '_rowIndex',
+  '_sheetName',
+  'order_type',
+  'unit_price',
+  'product_name',
+  'sales_rep_id',
+  'total_amount',
+  'customer_name',
+  'sales_rep_name',
+  'transaction_id',
+  'product_category'
+]
+  JSONB field "metadata" sub-keys: [
+  'source',
+  'proposalId',
+  'semantic_roles',
+  'entity_id_field',
+  'field_identities',
+  'resolved_data_type',
+  'informational_label'
+]
+
+Reading payload from JSONB column: "row_data"
+
+=== ROW 0 row_data verbatim ===
+{
+  "date": 46023,
+  "quantity": 1,
+  "_rowIndex": 0,
+  "_sheetName": "02_CRP_Sales_20260101_20260115",
+  "order_type": "New Sale",
+  "unit_price": 25897,
+  "product_name": "MRI Scanner",
+  "sales_rep_id": "CRP-6007",
+  "total_amount": 25897,
+  "customer_name": "Hospital-132",
+  "sales_rep_name": "Tyler Morrison",
+  "transaction_id": "EQ-0003",
+  "product_category": "Capital Equipment"
+}
+
+=== PER-ROW DETAIL ===
+  date=2026-01-01 | amt=25897 | cat="Capital Equipment" | order="New Sale" | product="MRI Scanner"
+  date=2026-01-02 | amt=36465 | cat="Capital Equipment" | order="New Sale" | product="Surgical Robot"
+  date=2026-01-02 | amt=1754 | cat="Consumables" | order="New Sale" | product="Imaging Plates"
+  date=2026-01-03 | amt=1296 | cat="Consumables" | order="New Sale" | product="Surgical Gloves"
+  date=2026-01-04 | amt=2039 | cat="Consumables" | order="New Sale" | product="Sterilization Pack"
+  date=2026-01-05 | amt=2187 | cat="Consumables" | order="New Sale" | product="Catheter Kit"
+  date=2026-01-05 | amt=919 | cat="Consumables" | order="New Sale" | product="Catheter Kit"
+  date=2026-01-05 | amt=95000 | cat="Capital Equipment" | order="New Sale" | product="MRI Scanner"
+  date=2026-01-06 | amt=6943 | cat="Consumables" | order="New Sale" | product="Contrast Agent"
+  date=2026-01-08 | amt=3368 | cat="Consumables" | order="New Sale" | product="Catheter Kit"
+  date=2026-01-11 | amt=22165 | cat="Capital Equipment" | order="New Sale" | product="CT Unit"
+  date=2026-01-12 | amt=4062 | cat="Consumables" | order="New Sale" | product="Catheter Kit"
+  date=2026-01-13 | amt=447 | cat="Consumables" | order="Cross-Sell" | product="Consumable Bundle"
+
+=== TOTALS ===
+All categories: 202542
+Capital Equipment only: 179527
+Consumables only: 23015
+Other/Missing: 0
+
+=== BY CATEGORY ===
+  "Capital Equipment": count=4, sum=179527
+  "Consumables": count=9, sum=23015
+
+=== REFERENCE VALUES ===
+GT Equipment Revenue for Tyler Jan 1-15: 179527
+GT Commission: 0.06 * 179527 + 200 = 10971.619999999999
+Engine output for Tyler Jan 1-15: 12352.52
+
+=== PERIOD-AGNOSTIC ROWS (source_date IS NULL): 2 ===
+  id=cb018a13-ee9b-489a-841c-332f3fe18a6e, data_type=entity
+  id=b15a7b4f-d015-43e5-82d4-1541b87a0a6f, data_type=entity
+```
