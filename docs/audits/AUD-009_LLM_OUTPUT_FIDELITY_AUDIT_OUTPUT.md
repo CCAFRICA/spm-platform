@@ -971,3 +971,183 @@ function transformFromMetadata(
 Construction pattern depends on the operation discriminant. Five named operations (`linear_function`, `scalar_multiply`, `piecewise_linear`, `conditional_gate`, plus the implicit chain) construct a new operation literal with cherry-picked fields. The fall-through branch (`else { operation = rawIntent as unknown as IntentOperation; }`) carries the full `rawIntent` for any unrecognized operation. Modifiers: four discriminants handled (cap, floor, proration, temporal_adjustment); unrecognized discriminants are dropped from the typed array (comment block lines 234-237 documents this; the unrecognized modifier remains visible only via `rule_sets.components[].calculationIntent` storage).
 
 Returned `ComponentIntent` literal enumerates `componentIndex`, `label`, `confidence`, `dataSource`, `intent`, `modifiers`, `metadata` — no spread of `component`, no carry of other PlanComponent fields.
+
+## Phase 5 -- AI response parsing stage
+
+### 5.1 Convergence Pass 4 AI prompt response format
+
+Hits from `grep -n "JSON.*response\|response.*format\|Return.*JSON\|respond.*with\|schema.*response\|Respond with ONLY valid JSON"`:
+
+```
+2479:Respond with ONLY valid JSON, no markdown, no explanation:
+2522:    // If wrapped in natural_language_query response format, extract from answer
+```
+
+Both hits are inside `generateAISemanticDerivations`. Prompt schema definition (lines 2479-2498) — already pasted in Phase 3.4. The schema requested by the prompt:
+
+```
+{
+  "derivations": [
+    {
+      "metric": "the_metric_name",
+      "operation": "sum",
+      "source_field": "column_name_to_aggregate",
+      "filters": [
+        { "field": "column_name", "operator": "eq", "value": "filter_value" }
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "metric": "the_metric_name",
+      "reason": "Why this metric cannot be derived",
+      "resolution": "What data the user should import"
+    }
+  ]
+}
+```
+
+Derivation schema asks the LLM for: `metric`, `operation`, `source_field`, `filters[{field, operator, value}]`. The prompt actively encourages filters via rule statements at lines 2468-2472:
+
+```
+- Match the metric's semantic label to available data fields. If the label suggests a subset of a broader numeric field (e.g., "Equipment Revenue" from a general "total_amount"), identify the categorical field and value that filters to the correct subset.
+- Use the categorical field's distinct values to find exact filter matches. The filter value must be one of the listed distinct values.
+- For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
+- For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
+```
+
+Final-line instruction at 2509: `Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`
+
+### 5.2 AI response parser for Pass 4
+
+Hits from `grep -n "parse.*response\|JSON\.parse\|aiResult\.\|mapping\["`:
+
+```
+624:      derivations.push(...aiResult.derivations);
+625:      for (const g of aiResult.gaps) {
+635:      console.log(`[Convergence] OB-185 Pass 4: ${aiResult.derivations.length} derivations, ${aiResult.gaps.length} gaps`);
+636:      for (const d of aiResult.derivations) {
+1929:        mapping[key] = val;
+2521:    let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
+2525:        parsedResult = JSON.parse(parsedResult.answer);
+```
+
+Pass 4 parser body (lines 2520-2578) — already pasted in Phase 3.4. The parser:
+1. Pulls `parsedResult` from `response.result`, optionally unwrapping `.answer` and re-parsing.
+2. Reads `parsedResult.derivations` and `parsedResult.gaps`.
+3. For each `d`: reads `d.metric`, `d.operation`, `d.source_field`, `d.filters`. Validates operation against `['sum', 'count', 'ratio', 'delta']`. Validates each filter has `f.field && f.value != null` before typed-copying `field`, `operator`, `value`.
+4. Constructs `derivations.push({ metric, operation, source_pattern, source_field, filters })` — five-field literal.
+
+Any field on the AI's `d` beyond those four is discarded. No spread of `d`. No carry of LLM-extension fields.
+
+### 5.3 `resolveColumnMappingsViaAI` -- full body (lines 1843-1939)
+
+Used by HF-114 column-name → metric-field mapping (the AI call whose log line was `[Convergence] HF-114 AI mapping: {...}`):
+
+```typescript
+async function resolveColumnMappingsViaAI(
+  components: PlanComponent[],
+  allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
+  measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
+  metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
+): Promise<Record<string, string>> {
+  const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
+  const columnNames = measureColumns.map(c => c.name);
+
+  // HF-199 D2: Build per-metric semantic intent map from comprehension signals.
+  const semanticIntentByMetricField = new Map<string, { intent: string; inputs: string }>();
+  for (const r of allRequirements) {
+    const ownerComp = components.find(c => c.name === r.compName);
+    const matchedSignal = metricComprehension.find(sig => {
+      const sv = sig.signal_value as Record<string, unknown> | null;
+      if (!sv) return false;
+      const sigLabel = (sv.metric_label as string | undefined) ?? '';
+      return sigLabel === r.compName || sigLabel === ownerComp?.name;
+    });
+    if (matchedSignal) {
+      const sv = (matchedSignal.signal_value ?? {}) as Record<string, unknown>;
+      const intent = (sv.semantic_intent as string | undefined) ?? '';
+      const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
+      if (intent || inputs) {
+        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs });
+      }
+    }
+  }
+
+  const metricList = metricFields.map((f, i) => {
+    const ctx = semanticIntentByMetricField.get(f);
+    if (ctx) {
+      const parts = [`${i + 1}. "${f}"`];
+      if (ctx.intent) parts.push(`   plan-agent intent: ${ctx.intent}`);
+      if (ctx.inputs) parts.push(`   plan-agent inputs: ${ctx.inputs}`);
+      return parts.join('\n');
+    }
+    return `${i + 1}. "${f}"`;
+  }).join('\n');
+
+  const columnList = measureColumns.map((c, i) =>
+    `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
+  ).join('\n');
+
+  const userPrompt = `Match each metric field to the best data column. Each column used at most once.
+Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
+satisfy the stated intent over columns that merely share contextual labels.
+
+METRIC FIELDS:
+${metricList}
+
+DATA COLUMNS:
+${columnList}
+
+EXAMPLE OUTPUT:
+{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
+
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
+      options: { maxTokens: 500, responseFormat: 'json' as const },
+    }, false);
+
+    const result = response.result as Record<string, unknown>;
+
+    if (!isValidColumnMapping(result, metricFields, columnNames)) {
+      console.error(`[Convergence] HF-114 AI response invalid (keys: ${Object.keys(result).join(', ')}). Falling back to boundary matching.`);
+      return {};
+    }
+
+    const mapping: Record<string, string> = {};
+    for (const [key, val] of Object.entries(result)) {
+      if (typeof val === 'string' && columnNames.includes(val)) {
+        mapping[key] = val;
+      }
+    }
+    console.log(`[Convergence] HF-114 AI mapping: ${JSON.stringify(mapping)}`);
+    return mapping;
+  } catch (err) {
+    console.error('[Convergence] HF-114 AI mapping failed:', err);
+  }
+
+  return {};
+}
+```
+
+Prompt example output schema: `{"metric_field_name": "column_name"}` — string→string map. No `filters` field. No category subsetting. No structured filter predicate vocabulary.
+
+Validator (`isValidColumnMapping` lines 1830-1840):
+
+```typescript
+function isValidColumnMapping(
+  result: Record<string, unknown>,
+  metricFields: string[],
+  columnNames: string[],
+): boolean {
+  const mappedCount = metricFields.filter(m =>
+    typeof result[m] === 'string' && columnNames.includes(result[m] as string)
+  ).length;
+  return mappedCount >= Math.ceil(metricFields.length * 0.5);
+}
+```
+
+Parser (lines 1926-1933): iterates `Object.entries(result)`, retains only entries whose value is a string that appears in `columnNames`. Any other key/value pair in the AI response is dropped. The returned `mapping: Record<string, string>` is strictly a metric→column-name map with no auxiliary fields preserved.
