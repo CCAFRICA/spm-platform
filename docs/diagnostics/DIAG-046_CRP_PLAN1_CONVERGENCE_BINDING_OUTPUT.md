@@ -474,3 +474,13 @@ The `CONTAINS FILTER REFERENCE` line is a substring match on the JSON of `input_
 ]
   CONTAINS FILTER REFERENCE: yes
 ```
+
+## Phase 4 -- DIAG-046 Complete
+
+All three diagnostic phases executed. Output file contains:
+- Plan 1 calculationIntent shape (what operation, what rate, what intercept the LLM emitted)
+- Input bindings (convergence derivation rules including any product_category filters)
+- Tyler Morrison per-row data (total_amount per category, equipment-only vs all-category sum)
+- Convergence derivation comparison (filter presence across all CRP rule_sets)
+
+CC does not interpret findings. Architect dispositions in architect channel.
