@@ -208,3 +208,69 @@
 ```
 
 (route.ts no longer calls `applyMetricDerivations` directly — the single call is at run-calculation.ts:1379. The route.ts hit is a comment reference.)
+
+## Phase 2 — Plan 3 source_pattern vs entitySheetData keys
+
+Command: `cd web && set -a && source .env.local && set +a && npx tsx scripts/diag048-phase2.ts`
+
+### 2.1 CRP rule_sets metric_derivations + convergence_bindings (current state on `main`, post-HF-227)
+
+```
+--- Cross-Sell Bonus Plan (0875d691-992b-4518-a4ad-2c2863ff589a) ---
+metric_derivations (2):
+  metric=equipment_deal_count op=count source_pattern="transaction" source_field=transaction_id filters=[{"field":"product_category","value":"Capital Equipment","operator":"eq"}]
+  metric=cross_sell_count op=count source_pattern="transaction" source_field=transaction_id filters=[{"field":"order_type","value":"Cross-Sell","operator":"eq"}]
+convergence_bindings keys: component_0
+  component_0.actual → column=quantity filters=[{"field":"product_category","value":"Capital Equipment","operator":"eq"}]
+
+--- Capital Equipment Commission Plan (ddc0d6de-0f3b-4e3a-ad42-e1f731ffe003) ---
+metric_derivations (1):
+  metric=period_equipment_revenue op=sum source_pattern="transaction" source_field=total_amount filters=[{"field":"product_category","value":"Capital Equipment","operator":"eq"}]
+convergence_bindings keys: component_0
+  component_0.actual → column=total_amount filters=[{"field":"product_category","value":"Capital Equipment","operator":"eq"}]
+
+--- Consumables Commission Plan (0aac0860-ad84-4e16-bc36-559be57b5f21) ---
+metric_derivations (1):
+  metric=consumable_revenue op=sum source_pattern="transaction" source_field=total_amount filters=[{"field":"product_category","value":"Consumables","operator":"eq"}]
+convergence_bindings keys: component_0
+  component_0.actual → column=quantity filters=[]
+  component_0.numerator → column=total_amount filters=[{"field":"product_category","value":"Consumables","operator":"eq"}]
+  component_0.denominator → column=unit_price filters=[]
+
+--- District Override Plan (b648c9dd-09ad-4908-bec1-7ac4d18ae5dd) ---
+metric_derivations (0):
+convergence_bindings keys: component_0
+```
+
+### 2.2 Distinct `data_type` values + Tyler Morrison sample
+
+```
+Distinct data_type values (2):
+  "entity" → 57 rows
+  "transaction" → 756 rows
+```
+
+```
+Tyler Morrison ext=CRP-6007 id=dfcc8e89-8025-4f61-b807-c83c03557895
+
+  data_type="transaction" source_date=2026-02-22 keys=_rowIndex,_sheetName,customer_name,date,order_type,product_category,product_name,quantity,sales_rep_id,sales_rep_name,total_amount,transaction_id,unit_price
+    product_category=Consumables
+    order_type=New Sale
+  data_type="transaction" source_date=2026-02-20 keys=...  product_category=Consumables  order_type=New Sale
+  data_type="transaction" source_date=2026-02-27 keys=...  product_category=Capital Equipment  order_type=New Sale
+  data_type="transaction" source_date=2026-02-18 keys=...  product_category=Consumables  order_type=New Sale
+  data_type="transaction" source_date=2026-02-28 keys=...  product_category=Consumables  order_type=New Sale
+  data_type="transaction" source_date=2026-02-26 keys=...  product_category=Consumables  order_type=New Sale
+  data_type="transaction" source_date=2026-02-20 keys=...  product_category=Consumables  order_type=Cross-Sell
+  data_type="transaction" source_date=2026-02-17 keys=...  product_category=Capital Equipment  order_type=New Sale
+```
+
+### 2.3 Regex test (`new RegExp(source_pattern, 'i')` against each `data_type`)
+
+```
+pattern="transaction"
+  vs "entity" → false
+  vs "transaction" → true
+```
+
+(Note: per Phase 1.1 `applyMetricDerivations` body, `source_pattern` is NOT used as a row filter post-HF-172. The Phase 1.1 paste shows `matchingRows = matchingRows.concat(rows)` aggregates every `entitySheetData` value regardless of pattern. The regex test above is informational only — the gate the directive asked about no longer exists at line 130-133 of `applyMetricDerivations`. Per directive §1.1 instruction to answer "Does `source_pattern` regex still gate row collection?" — the answer is visible in the pasted body: no. CC offers no further interpretation.)
