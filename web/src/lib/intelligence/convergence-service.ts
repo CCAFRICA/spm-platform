@@ -47,6 +47,13 @@ interface MetricContext {
   scope?: string;        // Scope level for scope_aggregate (e.g., "district")
   semanticIntent?: string;             // HF-198 E5: AI plan-agent reasoning text (per metric_comprehension signal)
   metricInputs?: Record<string, unknown> | null;  // HF-198 E5: input shape from plan-agent (per metric_comprehension signal)
+  // HF-226 Phase 2A — Carry Everything from the plan-agent signal (T1-E902).
+  // The full signal_value flows through so downstream prompt builders can
+  // surface any field the LLM emitted (filters, expectedMetrics, calculationMethod,
+  // free-form predicate vocabulary). semanticIntent and metricInputs above are
+  // retained for backward compatibility with existing extractions; new consumers
+  // read directly off signalContext.
+  signalContext?: Record<string, unknown> | null;
 }
 
 /** Convert programmatic metric name to human-readable label */
@@ -602,6 +609,9 @@ export async function convergeBindings(
       const sigValue = (matchedSignal?.signal_value ?? {}) as Record<string, unknown>;
       const semanticIntent = (sigValue.semantic_intent as string | undefined) ?? undefined;
       const metricInputs = (sigValue.metric_inputs as Record<string, unknown> | null | undefined) ?? null;
+      // HF-226 Phase 2A: carry full signal_value as signalContext so the
+      // Pass 4 prompt builder can surface any field the plan-agent emitted
+      // beyond the three already-extracted keys.
       return {
         name: metricName,
         label: humanizeMetricName(metricName),
@@ -610,6 +620,7 @@ export async function convergeBindings(
         scope,
         semanticIntent,
         metricInputs,
+        signalContext: matchedSignal ? sigValue : null,
       };
     });
 
@@ -1853,7 +1864,15 @@ async function resolveColumnMappingsViaAI(
   // Match by component name (signal.metric_label) and then by metricField. Per
   // AUD-004 v3 §2 E5, plan-agent semantic intent is authoritative; AI prompt
   // includes it so column-to-metric binding has structured plan context.
-  const semanticIntentByMetricField = new Map<string, { intent: string; inputs: string }>();
+  // HF-226 Phase 2A: each map entry now carries the full signal_value via
+  // signalContext alongside the three derived strings, so the prompt builder
+  // can surface any field the plan-agent emitted (filters, expectedMetrics,
+  // calculationMethod, free-form predicate vocabulary).
+  const semanticIntentByMetricField = new Map<string, {
+    intent: string;
+    inputs: string;
+    signalContext: Record<string, unknown> | null;
+  }>();
   for (const r of allRequirements) {
     const ownerComp = components.find(c => c.name === r.compName);
     const matchedSignal = metricComprehension.find(sig => {
@@ -1867,7 +1886,7 @@ async function resolveColumnMappingsViaAI(
       const intent = (sv.semantic_intent as string | undefined) ?? '';
       const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
       if (intent || inputs) {
-        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs });
+        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs, signalContext: sv });
       }
     }
   }
@@ -2452,6 +2471,26 @@ async function generateAISemanticDerivations(
       try {
         desc += `\n  PLAN-AGENT INPUTS: ${JSON.stringify(mc.metricInputs).slice(0, 240)}`;
       } catch {}
+    }
+    // HF-226 Phase 2A: surface the full plan-agent signal_value (minus already-
+    // emitted keys) so the AI sees any extension fields the LLM expressed —
+    // calculationMethod, filters, expectedMetrics, free-form predicate
+    // vocabulary, etc. Pass-4 already instructs the AI to identify categorical
+    // subsets; richer context strengthens that determination.
+    if (mc.signalContext) {
+      const sc = mc.signalContext;
+      const skip = new Set(['metric_label', 'metric_op', 'metric_inputs', 'semantic_intent', 'component_id', 'component_type', 'source_evidence']);
+      const extras: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(sc)) {
+        if (skip.has(k)) continue;
+        if (v == null) continue;
+        extras[k] = v;
+      }
+      if (Object.keys(extras).length > 0) {
+        try {
+          desc += `\n  PLAN-AGENT FULL CONTEXT: ${JSON.stringify(extras).slice(0, 480)}`;
+        } catch {}
+      }
     }
     return desc;
   }).join('\n');
