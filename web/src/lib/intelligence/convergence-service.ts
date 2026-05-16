@@ -109,6 +109,12 @@ export interface ComponentBinding {
     batch_id: string;
     learned_at: string;
   };
+  // HF-227: filters live on the binding. Decision 111 ratifies convergence_bindings
+  // as the sole engine output; the engine reads filter applicability natively from
+  // the binding entry rather than via a metric_derivations cross-structure lookup
+  // bridge (findMetricFilters, retired in HF-227 Phase 3). An empty / absent array
+  // means "no filter" — rowMatchesFilters returns true for empty filter arrays.
+  filters?: Array<{ field: string; operator: string; value: string | number | boolean }>;
 }
 
 interface BindingMatch {
@@ -1865,17 +1871,38 @@ function hasCompleteBindings(
   return true;
 }
 
-// HF-113: Validate that AI response is a metric→column mapping (not a narrative)
+// HF-113: Validate that AI response is a metric→column mapping (not a narrative).
+// HF-227: accepts both the plain-string form (backward compatible) and the
+// enriched object form `{ column: string; filters?: [...] }` introduced by the
+// HF-227 prompt evolution.
 function isValidColumnMapping(
   result: Record<string, unknown>,
   metricFields: string[],
   columnNames: string[],
 ): boolean {
-  const mappedCount = metricFields.filter(m =>
-    typeof result[m] === 'string' && columnNames.includes(result[m] as string)
-  ).length;
+  const mappedCount = metricFields.filter(m => {
+    const val = result[m];
+    if (typeof val === 'string') return columnNames.includes(val);
+    if (typeof val === 'object' && val !== null) {
+      const col = (val as Record<string, unknown>).column;
+      return typeof col === 'string' && columnNames.includes(col);
+    }
+    return false;
+  }).length;
   return mappedCount >= Math.ceil(metricFields.length * 0.5);
 }
+
+// HF-227: Return shape of resolveColumnMappingsViaAI. Each metric maps to
+// either the column name as a plain string (backward-compatible) or to an
+// enriched object carrying the column plus an optional filters array. The
+// engine treats the absence of filters and the empty-filters array
+// identically (rowMatchesFilters returns true for empty arrays).
+export type ColumnMappingFilter = {
+  field: string;
+  operator: string;
+  value: string | number | boolean;
+};
+export type ColumnMappingValue = string | { column: string; filters?: ColumnMappingFilter[] };
 
 // One AI call: match plan metric field names to data column contextual identities
 async function resolveColumnMappingsViaAI(
@@ -1883,7 +1910,11 @@ async function resolveColumnMappingsViaAI(
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
   metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
-): Promise<Record<string, string>> {
+  // HF-227: Categorical fields with distinct values so the AI can identify
+  // categorical-subset opportunities at column-mapping time. Source comes from
+  // DataCapability.categoricalFields (Korean Test: runtime data, not code).
+  categoricalFields: Array<{ field: string; distinctValues: unknown[] }> = [],
+): Promise<Record<string, ColumnMappingValue>> {
   const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
   const columnNames = measureColumns.map(c => c.name);
 
@@ -1935,9 +1966,24 @@ async function resolveColumnMappingsViaAI(
     `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
   ).join('\n');
 
+  // HF-227: categorical-context block. When categorical fields are available
+  // they are listed with their distinct values so the AI can identify
+  // subsetting opportunities (e.g., a metric labelled as "revenue from a
+  // specific class" can be bound to a broader numeric column with a filter
+  // on the categorical class). Korean Test (E910): field names and values
+  // come from DataCapability at runtime, never from code literals.
+  const categoricalContext = categoricalFields.length > 0
+    ? `\n\nCATEGORICAL FIELDS (available for filtering):\n${
+        categoricalFields.map((cf, i) =>
+          `${i + 1}. "${cf.field}" — distinct values: ${JSON.stringify(cf.distinctValues.slice(0, 20))}`
+        ).join('\n')
+      }\n\nIf a metric label suggests a subset of a broader numeric field (e.g., a revenue metric that applies only to one product class, a sale count restricted to a specific transaction type), use a categorical field together with one of its distinct values as a filter. The filter value MUST be one of the listed distinct values. Use a plain string mapping when no filter is needed; use the object form when the metric requires categorical subsetting.`
+    : '';
+
   // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
   // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
   // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
+  // HF-227: enriched output schema admits {column, filters} per mapping.
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
 Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
 satisfy the stated intent over columns that merely share contextual labels.
@@ -1946,10 +1992,10 @@ METRIC FIELDS:
 ${metricList}
 
 DATA COLUMNS:
-${columnList}
+${columnList}${categoricalContext}
 
-EXAMPLE OUTPUT:
-{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
+EXAMPLE OUTPUT (plain string when no filter; object with filters when categorical subset applies):
+{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": {"column": "${columnNames[1] || 'Column_B'}", "filters": [{"field": "${categoricalFields[0]?.field || 'Category_Col'}", "operator": "eq", "value": ${JSON.stringify(categoricalFields[0]?.distinctValues?.[0] ?? 'Some_Category')}}]}}`;
 
   try {
     const aiService = getAIService();
@@ -1969,10 +2015,30 @@ EXAMPLE OUTPUT:
       return {};
     }
 
-    const mapping: Record<string, string> = {};
+    // HF-227: accept both string (legacy) and { column, filters? } (enriched)
+    // forms. Plain string remains valid output — Korean Test compliant because
+    // the parser inspects shape, not content. Empty filters arrays are
+    // equivalent to absent filters for the engine (rowMatchesFilters returns
+    // true on empty arrays).
+    const mapping: Record<string, ColumnMappingValue> = {};
     for (const [key, val] of Object.entries(result)) {
       if (typeof val === 'string' && columnNames.includes(val)) {
         mapping[key] = val;
+      } else if (typeof val === 'object' && val !== null) {
+        const obj = val as Record<string, unknown>;
+        const col = obj.column;
+        if (typeof col === 'string' && columnNames.includes(col)) {
+          const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
+            ? (obj.filters as Array<Record<string, unknown>>)
+                .filter(f => typeof f.field === 'string' && f.value != null)
+                .map(f => ({
+                  field: String(f.field),
+                  operator: typeof f.operator === 'string' ? f.operator : 'eq',
+                  value: f.value as string | number | boolean,
+                }))
+            : [];
+          mapping[key] = filters.length > 0 ? { column: col, filters } : col;
+        }
       }
     }
     console.log(`[Convergence] HF-114 AI mapping: ${JSON.stringify(mapping)}`);
@@ -2144,8 +2210,28 @@ async function generateAllComponentBindings(
 
   // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
   // signals as authoritative semantic intent.
+  // HF-227: aggregate categorical fields across matched capabilities and pass
+  // them to the AI so it can identify categorical-subset opportunities
+  // (filters) at column-mapping time. Dedup by field name across capabilities.
+  const seenCategoricalFields = new Set<string>();
+  const aggregatedCategoricalFields: Array<{ field: string; distinctValues: unknown[] }> = [];
+  for (const match of matches) {
+    const cap = capabilities.find(c => c.dataType === match.dataType);
+    if (!cap) continue;
+    for (const cf of cap.categoricalFields || []) {
+      if (seenCategoricalFields.has(cf.field)) continue;
+      seenCategoricalFields.add(cf.field);
+      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+    }
+  }
   console.log('[Convergence] HF-112 Requesting AI column mapping');
-  const aiMapping = await resolveColumnMappingsViaAI(components, allRequirements, measureColumns, metricComprehension);
+  const aiMapping = await resolveColumnMappingsViaAI(
+    components,
+    allRequirements,
+    measureColumns,
+    metricComprehension,
+    aggregatedCategoricalFields,
+  );
   console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
 
   // Build bindings using AI mapping + boundary validation
@@ -2163,7 +2249,16 @@ async function generateAllComponentBindings(
     const requirements = extractInputRequirements(comp);
 
     for (const req of requirements) {
-      const proposedColumnName = aiMapping[req.metricField];
+      // HF-227: the AI mapping value may be a plain column-name string
+      // (backward compatible) or the enriched shape { column, filters? }.
+      // Extract both so filters land on the binding entry below.
+      const proposedMapping = aiMapping[req.metricField];
+      const proposedColumnName = typeof proposedMapping === 'string'
+        ? proposedMapping
+        : proposedMapping?.column;
+      const proposedFilters = typeof proposedMapping === 'object' && proposedMapping !== null && Array.isArray(proposedMapping.filters)
+        ? proposedMapping.filters
+        : [];
 
       if (proposedColumnName) {
         const mc = measureColumns.find(c => c.name === proposedColumnName);
@@ -2182,9 +2277,14 @@ async function generateAllComponentBindings(
               batch_id: mc.batchId,
               learned_at: new Date().toISOString(),
             },
+            // HF-227: filters live on the binding (Decision 111 single-structure
+            // completion). Empty array preserves byte-identical pre-HF-227
+            // engine behavior; populated array activates filter-respecting
+            // sum at the engine.
+            filters: proposedFilters,
           };
           boundColumns.add(proposedColumnName);
-          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor})`);
+          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length})`);
           continue;
         }
       }
