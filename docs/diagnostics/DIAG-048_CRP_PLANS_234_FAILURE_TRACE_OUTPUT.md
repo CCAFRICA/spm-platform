@@ -814,3 +814,107 @@ calculationMethod: undefined  (no legacy calculationMethod payload)
 ```
 
 (For Cross-Sell intent above: `getExpectedMetricNames` walks the tree → harvests `equipment_deal_count` (condition.left) and `cross_sell_count` (onTrue.input). Returns `['equipment_deal_count', 'cross_sell_count']`.)
+
+## Phase 6 — Plan 2 piecewise_linear intent and quota resolution
+
+### 6.1 Consumables Commission Plan calculationIntent (current state on `main`)
+
+The query returned 2 component entries (one per variant). Both have an identical intent shape:
+
+```json
+{
+  "operation": "piecewise_linear",
+  "segments": [
+    { "min": 0,    "max": 0.9999, "rate": 0.03, "maxInclusive": true, "minInclusive": true },
+    { "min": 1,    "max": 1.1999, "rate": 0.05, "maxInclusive": true, "minInclusive": true },
+    { "min": 1.2,  "max": null,   "rate": 0.08, "maxInclusive": true, "minInclusive": true }
+  ],
+  "baseInput": {
+    "source": "metric",
+    "sourceSpec": { "field": "consumable_revenue" }
+  },
+  "ratioInput": {
+    "source": "ratio",
+    "sourceSpec": {
+      "numerator":   "consumable_revenue",
+      "denominator": "monthly_quota"
+    }
+  },
+  "modifiers": [
+    { "modifier": "cap", "maxValue": 5000 }
+  ]
+}
+```
+
+```
+expectedMetrics: undefined
+```
+
+### 6.2 `executePiecewiseLinear` body — `web/src/lib/calculation/intent-executor.ts:535–566`
+
+```typescript
+535  function executePiecewiseLinear(
+536    op: import('./intent-types').PiecewiseLinearOp,
+537    data: EntityData,
+538    inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+539    trace: Partial<ExecutionTrace>
+540  ): Decimal {
+541    let ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
+542    const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
+543
+544    // OB-186: If ratio resolved to 0 (missing denominator metric) and component
+545    // has a targetValue (quota), compute attainment = baseValue / targetValue.
+546    // This handles plans where quota is a plan parameter, not in transaction data.
+547    if (ratio === 0 && op.targetValue && op.targetValue > 0 && toNumber(baseValue) > 0) {
+548      ratio = toNumber(baseValue) / op.targetValue;
+549      inputLog['piecewise_linear:targetValue'] = {
+550        source: 'component_parameter',
+551        rawValue: op.targetValue,
+552        resolvedValue: ratio,
+553      };
+554    }
+555
+556    // Find the matching segment
+557    for (const seg of op.segments) {
+558      const inRange = ratio >= seg.min && (seg.max === null || ratio < seg.max);
+559    if (inRange) {
+560        return baseValue.mul(seg.rate);
+561      }
+562    }
+563
+564    // No segment matched — return zero
+565    return ZERO;
+566  }
+```
+
+`grep -n "case 'piecewise_linear'" web/src/lib/calculation/intent-executor.ts`:
+
+```
+503:    case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
+```
+
+### 6.3 `resolveSource` ratio branch — how `ratioInput` reads numerator and denominator
+
+```typescript
+ 88      case 'ratio': {
+ 89        const numKey = src.sourceSpec.numerator.startsWith('metric:')
+ 90          ? src.sourceSpec.numerator.slice(7) : src.sourceSpec.numerator;
+ 91        const denKey = src.sourceSpec.denominator.startsWith('metric:')
+ 92          ? src.sourceSpec.denominator.slice(7) : src.sourceSpec.denominator;
+ 93        const num = toDecimal(data.metrics[numKey] ?? 0);
+ 94        const den = toDecimal(data.metrics[denKey] ?? 0);
+ 95        const val = den.isZero() ? ZERO : num.div(den);
+ 96        inputLog[`ratio(${numKey}/${denKey})`] = {
+ 97          source: 'ratio',
+ 98          rawValue: { numerator: toNumber(num), denominator: toNumber(den) },
+ 99          resolvedValue: toNumber(val),
+100        };
+101        return val;
+102      }
+```
+
+(The `piecewise_linear` executor at line 541 calls `resolveValue(op.ratioInput, …)` which routes to `resolveSource` because `ratioInput.source === 'ratio'`. That case reads `data.metrics['consumable_revenue']` and `data.metrics['monthly_quota']`. If `monthly_quota` is undefined the ratio resolves to `ZERO` because `den.isZero()` at line 95.
+
+Per Phase 3.1: CRP transaction data has no `monthly_quota` column. Per Phase 2.1: the Consumables `convergence_bindings.component_0.denominator → column=unit_price filters=[]` — convergence bound `monthly_quota` to `unit_price`. Per `resolveMetricsFromConvergenceBindings` ratio branch (HF-217/HF-224 quoted in earlier DIAG-047 §6.2, current state at route.ts ~1308-1357): the ratio branch writes `metrics[numMetricName]` and `metrics[denMetricName]` — i.e. `metrics['consumable_revenue']` and `metrics['monthly_quota']` — where `monthly_quota`'s value is the sum of `unit_price` across the entity's rows.
+
+Per directive §6.3 question — `getExpectedMetricNames` on this intent harvests both metric names from the `ratio` source: `consumable_revenue`, `monthly_quota`. The ratio branch of `resolveMetricsFromConvergenceBindings` writes both metric keys; the `piecewise_linear` executor reads both via `resolveValue(op.ratioInput)` (which itself takes the ratio branch in `resolveSource`).)
