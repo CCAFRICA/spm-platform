@@ -73,6 +73,14 @@ export interface MetricDerivationRule {
   numerator_metric?: string;   // metric name to use as numerator (must be derived earlier)
   denominator_metric?: string; // metric name to use as denominator (must be derived earlier)
   scale_factor?: number;       // multiply ratio result (e.g., 100 for percentage)
+  // HF-226 Phase 2C — Carry Everything (T1-E902). Unenumerated AI-emitted
+  // fields are spread into ai_context by generateAISemanticDerivations so
+  // downstream intelligence consumers (signals, observatory, debugging) can
+  // read what the AI expressed beyond the typed contract. The engine's
+  // deterministic execution path ignores this field; it consumes only the
+  // typed fields above. New AI schema fields land here without an interface
+  // change, closing the registry/cherry-pick defect class at the type layer.
+  ai_context?: Record<string, unknown>;
 }
 
 /**
