@@ -274,3 +274,225 @@ pattern="transaction"
 ```
 
 (Note: per Phase 1.1 `applyMetricDerivations` body, `source_pattern` is NOT used as a row filter post-HF-172. The Phase 1.1 paste shows `matchingRows = matchingRows.concat(rows)` aggregates every `entitySheetData` value regardless of pattern. The regex test above is informational only — the gate the directive asked about no longer exists at line 130-133 of `applyMetricDerivations`. Per directive §1.1 instruction to answer "Does `source_pattern` regex still gate row collection?" — the answer is visible in the pasted body: no. CC offers no further interpretation.)
+
+## Phase 3 — Plan 2 quota column resolution
+
+### 3.1 `import_batches` + `committed_data` per-data_type column inventory (CRP)
+
+Command: `cd web && set -a && source .env.local && set +a && npx tsx scripts/diag048-phase3.ts`
+
+```
+=== 3.1 import_batches ===
+(empty — `import_batches` table returned zero rows for the CRP tenant)
+
+=== 3.1 committed_data per-data_type column inventory ===
+
+data_type="transaction" (467 sampled rows):
+  columns: _rowIndex, _sheetName, customer_name, date, order_type, product_category, product_name, quantity, sales_rep_id, sales_rep_name, total_amount, transaction_id, unit_price
+  categorical fields:
+    order_type: ["New Sale","Cross-Sell"]
+    product_name: ["Surgical Gloves","Imaging Plates","Ultrasound Pro","Bandage Supply","Supply Package","Sterilization Pack","Contrast Agent","CT Unit","Catheter Kit","Maintenance Kit","Surgical Robot","X-Ray System","MRI Scanner","Consumable Bundle"]
+    product_category: ["Consumables","Capital Equipment"]
+  numeric fields: date, quantity, unit_price, total_amount
+
+data_type="entity" (33 sampled rows):
+  columns: _rowIndex, _sheetName, department, district, employee_id, full_name, hire_date, job_title, region, reports_to, status
+  categorical fields:
+    region: ["NE","SE",""]
+    status: ["Active"]
+    district: ["NE-NE","NE-MA","SE-CR","SE-GS",""]
+    job_title: ["Senior Rep","Rep","Sales Operations","Regional VP","District Manager"]
+    department: ["Sales","Sales Operations"]
+    reports_to: ["James Whitfield","Sarah Okonkwo","Robert Vasquez","Elena Marchetti","CRP-6006","","Marcus Chen","Diana Reeves"]
+  numeric fields: hire_date
+```
+
+(No `monthly_quota` column appears in either `data_type`. There is no `data_type=quota` or `data_type=performance_target`. The 500-row sample exhausted the dataset visible to convergence-time inventory.)
+
+### 3.2 `inventoryData` full body — `web/src/lib/intelligence/convergence-service.ts:898`
+
+```typescript
+898  async function inventoryData(
+899    tenantId: string,
+900    supabase: SupabaseClient
+901  ): Promise<DataCapability[]> {
+902    const capabilities: DataCapability[] = [];
+903
+904    // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+905    const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+906    const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+907
+908    // OB-162: Also read import_batch_id for convergence bindings
+909    let q = supabase
+910      .from('committed_data')
+911      .select('data_type, row_data, metadata, import_batch_id')
+912      .eq('tenant_id', tenantId)
+913      .not('data_type', 'is', null)
+914      .limit(500);
+915    if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+916    const { data: rows } = await q;
+917
+918    // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
+919    let q2 = supabase
+920      .from('committed_data')
+921      .select('data_type, row_data, metadata, import_batch_id')
+922      .eq('tenant_id', tenantId)
+923      .not('data_type', 'is', null)
+924      .not('metadata->semantic_roles', 'is', null)
+925      .limit(50);
+926    if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+927    const { data: sciRows } = await q2;
+928
+929    const allRows = [...(rows || [])];
+930    if (sciRows) {
+931      for (const sr of sciRows) {
+932        const dt = sr.data_type as string;
+933        if (!allRows.some(r => (r.data_type as string) === dt)) {
+934          allRows.push(sr);
+935        }
+936      }
+937    }
+938
+939    if (!allRows.length) return capabilities;
+940
+941    // Group by data_type
+942    const byType = new Map<string, Array<Record<string, unknown>>>();
+943    const countByType = new Map<string, number>();
+944    const rolesByType = new Map<string, Record<string, string>>();
+945    // OB-162: Collect field identities and batch IDs per data_type
+946    const fieldIdentitiesByType = new Map<string, Record<string, FieldIdentity>>();
+947    const batchIdsByType = new Map<string, Set<string>>();
+948
+949    for (const row of allRows) {
+950      const dt = row.data_type as string;
+951      if (!byType.has(dt)) byType.set(dt, []);
+952      countByType.set(dt, (countByType.get(dt) || 0) + 1);
+953      const samples = byType.get(dt)!;
+954      if (samples.length < 30) {
+955        const rd = row.row_data as Record<string, unknown> | null;
+956        if (rd) samples.push(rd);
+957      }
+958
+959      // Collect batch IDs
+960      const batchId = row.import_batch_id as string | null;
+961      if (batchId) {
+962        if (!batchIdsByType.has(dt)) batchIdsByType.set(dt, new Set());
+963        batchIdsByType.get(dt)!.add(batchId);
+964      }
+965
+966      // Extract semantic_roles from metadata
+967      if (!rolesByType.has(dt)) {
+968        const meta = row.metadata as Record<string, unknown> | null;
+969        const rawRoles = meta?.semantic_roles as Record<string, unknown> | undefined;
+970        if (rawRoles && Object.keys(rawRoles).length > 0) {
+971          const normalized: Record<string, string> = {};
+972          for (const [field, val] of Object.entries(rawRoles)) {
+973            if (typeof val === 'string') {
+974              normalized[field] = val;
+975            } else if (val && typeof val === 'object' && 'role' in val) {
+976              normalized[field] = String((val as Record<string, unknown>).role);
+977            }
+978          }
+979          if (Object.keys(normalized).length > 0) {
+980            rolesByType.set(dt, normalized);
+981          }
+982        }
+983
+984        // OB-162: Extract field_identities from metadata (Decision 111)
+985        const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
+986        if (fieldIds && Object.keys(fieldIds).length > 0) {
+987          const identities: Record<string, FieldIdentity> = {};
+988          for (const [colName, fi] of Object.entries(fieldIds)) {
+989            identities[colName] = {
+990              structuralType: (fi.structuralType || 'unknown') as FieldIdentity['structuralType'],
+991              contextualIdentity: fi.contextualIdentity || 'unknown',
+992              confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
+993              };
+994            }
+995          fieldIdentitiesByType.set(dt, identities);
+996          }
+997        }
+998      }
+999    }
+```
+
+(Function continues — building `DataCapability` per data_type via `for (const [dataType, samples] of Array.from(byType.entries()))` loop starting at line 1000. Body shown to line 998 covers query and grouping; remaining body classifies columns into `numericFields` / `categoricalFields` / `booleanFields`.)
+
+### 3.3 `measureColumns` construction inside `generateAllComponentBindings` — `convergence-service.ts:2181–2252`
+
+```typescript
+2181    // Collect all measure columns across matched capabilities
+2182    const measureColumns: Array<{
+2183      name: string;
+2184      fi: FieldIdentity;
+2185      stats: ColumnValueStats;
+2186      batchId: string;
+2187    }> = [];
+2188    let primaryCap: DataCapability | undefined;
+2189
+2190    for (const match of matches) {
+2191      const cap = capabilities.find(c => c.dataType === match.dataType);
+2192      if (!cap) continue;
+2193      if (!primaryCap) {
+2194        primaryCap = cap;
+2195      }
+2196
+2197      for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
+2198        if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
+2199          if (!measureColumns.some(mc => mc.name === colName)) {
+2200            measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '' });
+2201          }
+2202        }
+2203      }
+2204      // Also include numeric columns with stats but no field identity
+2205      for (const nf of cap.numericFields) {
+2206        if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+2207          measureColumns.push({
+2208            name: nf.field,
+2209            fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
+2210            stats: cap.columnStats[nf.field],
+2211            batchId: cap.batchIds[0] || '',
+2212          });
+2213        }
+2214      }
+2215    }
+2216
+2217    if (measureColumns.length === 0 || !primaryCap) return;
+2218
+2219    // Collect all input requirements across all matched components
+2220    const allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }> = [];
+2221    for (const match of matches) {
+2222      const reqs = extractInputRequirements(match.component);
+2223      for (const req of reqs) {
+2224        allRequirements.push({ compIndex: match.component.index, compName: match.component.name, req });
+2225      }
+2226    }
+2227
+2228    // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
+2229    // signals as authoritative semantic intent.
+2230    // HF-227: aggregate categorical fields across matched capabilities and pass
+2231    // them to the AI so it can identify categorical-subset opportunities
+2232    // (filters) at column-mapping time. Dedup by field name across capabilities.
+2233    const seenCategoricalFields = new Set<string>();
+2234    const aggregatedCategoricalFields: Array<{ field: string; distinctValues: unknown[] }> = [];
+2235    for (const match of matches) {
+2236      const cap = capabilities.find(c => c.dataType === match.dataType);
+2237      if (!cap) continue;
+2238      for (const cf of cap.categoricalFields || []) {
+2239        if (seenCategoricalFields.has(cf.field)) continue;
+2240        seenCategoricalFields.add(cf.field);
+2241        aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+2242      }
+2243    }
+2244    console.log('[Convergence] HF-112 Requesting AI column mapping');
+2245    const aiMapping = await resolveColumnMappingsViaAI(
+2246      components,
+2247      allRequirements,
+2248      measureColumns,
+2249      metricComprehension,
+2250      aggregatedCategoricalFields,
+2251    );
+2252    console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
+```
+
+(Per Phase 3.1: no `monthly_quota` column appears in either CRP data_type. Per Phase 2.1: Consumables convergence binding sets `component_0.denominator → column=unit_price filters=[]` and `component_0.actual → column=quantity filters=[]`. The Consumables `metric_derivations` rule has `metric=consumable_revenue op=sum source_field=total_amount filters=[product_category eq Consumables]` only — no `monthly_quota` derivation rule.)
