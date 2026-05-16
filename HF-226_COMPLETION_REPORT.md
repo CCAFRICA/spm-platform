@@ -437,4 +437,66 @@ $ grep -lE "'product_category'|'Capital Equipment'|'Consumables'|'Cross-Sell'" \
 (zero hits across all four files)
 ```
 
-Final `npm run build` output: appended below in a follow-up commit per the directive's step 10.
+Final `npm run build` output (appended per directive step 10):
+
+```
+$ cd ~/spm-platform && rm -rf web/.next && cd web && npm run build
+
+> @vialuce/platform@0.1.0 prebuild
+> bash scripts/verify-korean-test.sh
+
+[korean-test-gate] PASS: zero hardcoded legacy primitive-name string literals outside registry
+
+> @vialuce/platform@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (133kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+(lint warnings preserved from pre-HF-226 baseline — non-blocking; full warning list in /tmp/hf226-final-build-report.log lines 19–~250)
+
+   Collecting page data ...
+   Generating static pages (...)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+   (full route table emitted; tail follows)
+
+├ ƒ /spm/alerts                               7.72 kB         204 kB
+├ ƒ /stream                                   19.7 kB         302 kB
+├ ƒ /test-ds                                  8.03 kB         152 kB
+├ ƒ /unauthorized                             780 B          97.6 kB
+├ ƒ /upgrade                                  6.82 kB         155 kB
+├ ƒ /workforce/permissions                    11 kB           240 kB
+├ ƒ /workforce/personnel                      212 B           214 kB
+├ ƒ /workforce/roles                          13.3 kB         238 kB
+└ ƒ /workforce/teams                          11.5 kB         213 kB
++ First Load JS shared by all                 88.1 kB
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+
+ƒ Middleware                                  76 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+BUILD EXIT: 0
+```
+
+Build outcomes:
+
+| Surface | Outcome |
+|---|---|
+| `prebuild` Korean-test gate (`scripts/verify-korean-test.sh`) | PASS — zero hardcoded legacy primitive-name string literals outside registry |
+| TypeScript type-check | Clean — no errors |
+| ESLint | Pre-HF-226 warnings preserved (image-element, react-hooks/exhaustive-deps); no new warnings introduced by HF-226 |
+| Page compilation | All routes compiled successfully (full route table emitted at build tail) |
+| Exit code | `0` |
