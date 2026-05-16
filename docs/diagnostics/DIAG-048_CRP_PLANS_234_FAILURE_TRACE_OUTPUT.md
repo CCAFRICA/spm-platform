@@ -496,3 +496,187 @@ data_type="entity" (33 sampled rows):
 ```
 
 (Per Phase 3.1: no `monthly_quota` column appears in either CRP data_type. Per Phase 2.1: Consumables convergence binding sets `component_0.denominator → column=unit_price filters=[]` and `component_0.actual → column=quantity filters=[]`. The Consumables `metric_derivations` rule has `metric=consumable_revenue op=sum source_field=total_amount filters=[product_category eq Consumables]` only — no `monthly_quota` derivation rule.)
+
+## Phase 4 — Plan 4 TypeError crash
+
+### 4.1 `startsWith` call sites in `web/src/app/api/calculation/run/route.ts`
+
+`grep -n "startsWith" web/src/app/api/calculation/run/route.ts`:
+
+```
+1002:      const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+1077:          if (typeof value === 'number' && !key.startsWith('_') && key !== 'date') {
+1874:                  if (colName.startsWith('_')) continue; // skip metadata fields (_rowIndex, _sheetName)
+2295:            if (key.startsWith('_') || typeof val !== 'number') continue;
+2336:            if (key.startsWith('_') || typeof val !== 'number') continue;
+```
+
+Context around each hit (5 lines each):
+
+```typescript
+// 1002 — roster parent-sheet heuristic
+1000      for (const candidate of Array.from(allSheetNames)) {
+1001        const prefix = candidate + '__';
+1002        const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+1003        if (isParent) {
+1004          rosterSheetName = candidate;
+
+// 1077 — store-sheet numeric aggregation
+1074            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+1075              ? row.row_data as Record<string, unknown> : {};
+1076            for (const [key, value] of Object.entries(rd)) {
+1077              if (typeof value === 'number' && !key.startsWith('_') && key !== 'date') {
+1078                existing[key] = (existing[key] ?? 0) + value;
+
+// 1874 — entity-identifier candidate scoring
+1872                for (const [colName, v] of Object.entries(rd)) {
+1873                  if (colName === eidColumn) continue; // skip stored binding column (already verified)
+1874                  if (colName.startsWith('_')) continue; // skip metadata fields (_rowIndex, _sheetName)
+1875                  if (v == null) continue;
+
+// 2295 — entity-scoped cross-data aggregation
+2293              ? row.row_data as Record<string, unknown> : {};
+2294            for (const [key, val] of Object.entries(rd)) {
+2295              if (key.startsWith('_') || typeof val !== 'number') continue;
+2296              const sumKey = `${dataType}:sum:${key}`;
+2297              entityCrossData[sumKey] = (entityCrossData[sumKey] || 0) + val;
+
+// 2336 — scope-aggregate sum
+2334            // Unfiltered: sum all numeric fields
+2335            for (const [key, val] of Object.entries(rd)) {
+2336              if (key.startsWith('_') || typeof val !== 'number') continue;
+2337              entityScopeAgg[`${scopePrefix}:${key}:sum`] = (entityScopeAgg[`${scopePrefix}:${key}:sum`] || 0) + val;
+```
+
+### 4.2 Minified bundle context around the architect-cited offset
+
+```bash
+$ head -c 35000 web/.next/server/app/api/calculation/run/route.js | tail -c 400
+or:eZ(o),denominator:eZ(a)},resolvedValue:eZ(s)},s}case"aggregate":{let i=e.sourceSpec.field,r=i.startsWith("metric:")?i.slice(7):i;if("group"===e.sourceSpec.scope&&t.groupMetrics){let e=t.groupMetrics[r]??0;return n[`aggregate:group:${r}`]={source:"aggregate:group",rawValue:e,resolvedValue:e},eW(e)}let o=t.metrics[r]??0;return n[`aggregate:${e.sourceSpec.scope}:${r}`]={source:`aggregate:${e.sourc
+```
+
+The minified context shows `case "aggregate"` body inside `resolveSource` with `i.startsWith("metric:")` against `e.sourceSpec.field`. Unminified source — `web/src/lib/calculation/intent-executor.ts:73–117`:
+
+```typescript
+ 73    switch (src.source) {
+ 74      case 'metric': {
+ 75        const field = src.sourceSpec.field;
+ 76        // Strip "metric:" prefix if present
+ 77        const key = field.startsWith('metric:') ? field.slice(7) : field;
+ 78        const raw = data.metrics[key] ?? 0;
+ 79        inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
+ 80        ...
+ 86        return toDecimal(raw);
+ 87      }
+ 88      case 'ratio': {
+ 89        const numKey = src.sourceSpec.numerator.startsWith('metric:')
+ 90          ? src.sourceSpec.numerator.slice(7) : src.sourceSpec.numerator;
+ 91        const denKey = src.sourceSpec.denominator.startsWith('metric:')
+ 92          ? src.sourceSpec.denominator.slice(7) : src.sourceSpec.denominator;
+ 93        const num = toDecimal(data.metrics[numKey] ?? 0);
+ 94        const den = toDecimal(data.metrics[denKey] ?? 0);
+ 95        const val = den.isZero() ? ZERO : num.div(den);
+ 96        ...
+101        return val;
+102      }
+103      case 'aggregate': {
+104        const field = src.sourceSpec.field;
+105        const key = field.startsWith('metric:') ? field.slice(7) : field;
+106        if (src.sourceSpec.scope === 'group' && data.groupMetrics) {
+107          const raw = data.groupMetrics[key] ?? 0;
+108          inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: raw, resolvedValue: raw };
+109          return toDecimal(raw);
+110        }
+111        const raw = data.metrics[key] ?? 0;
+112        inputLog[`aggregate:${src.sourceSpec.scope}:${key}`] = {
+113          source: `aggregate:${src.sourceSpec.scope}`,
+114          rawValue: raw,
+115          resolvedValue: raw,
+116        };
+117        return toDecimal(raw);
+118      }
+```
+
+(The crashing `startsWith` is in `resolveSource` inside `intent-executor.ts`, lines 77, 89, 91, 105. The aggregate case at line 105 calls `field.startsWith('metric:')` where `field = src.sourceSpec.field` — if `src.sourceSpec.field` is `undefined` (e.g. when an `aggregate` IntentSource lacks `sourceSpec.field`), this throws TypeError. Same shape for the metric and ratio cases.)
+
+### 4.3 `buildMetricsForComponent` full body (excerpt — entity-sheet matching) — `run-calculation.ts:551–595`
+
+```typescript
+551  export function buildMetricsForComponent(
+552    component: PlanComponent,
+553    entityRowsBySheet: Map<string, Array<{ row_data: Json }>>,
+554    storeDataBySheet?: Map<string, Array<{ row_data: Json }>>,
+555    aiContextSheets?: AIContextSheet[],
+556    entitySheetStoreAggregates?: Map<string, Record<string, number>>,
+557    metricMappings?: Record<string, string>
+558  ): Record<string, number> {
+559    // Step 1: Match entity-level sheet for this component
+560    const entitySheets = Array.from(entityRowsBySheet.keys());
+561    const entityMatch = findMatchingSheet(component.name, entitySheets, aiContextSheets);
+562    let entityRows = entityMatch ? (entityRowsBySheet.get(entityMatch) || []) : [];
+563
+564    // OB-157: Semantic metric matching fallback — when name matching fails,
+565    // find the sheet whose data columns best overlap the component's expected metrics.
+566    // Korean Test: uses inferSemanticType (pattern-based), not field names.
+567    if (entityRows.length === 0 && entitySheets.length > 0) {
+568      const expectedTypes = getExpectedMetricNames(component)
+569        .map(n => inferSemanticType(n))
+570        .filter(t => t !== 'unknown');
+571      if (expectedTypes.length > 0) {
+572        let bestSheet: string | null = null;
+573        let bestOverlap = 0;
+574        for (const sheetName of entitySheets) {
+575          const rows = entityRowsBySheet.get(sheetName) || [];
+576          if (rows.length === 0) continue;
+577          const rd = (rows[0].row_data && typeof rows[0].row_data === 'object' && !Array.isArray(rows[0].row_data))
+578            ? rows[0].row_data as Record<string, unknown> : {};
+579          const sheetTypes = new Set(
+580            Object.keys(rd)
+581              .filter(k => !k.startsWith('_'))
+582              .map(k => inferSemanticType(k))
+583              .filter(t => t !== 'unknown')
+584          );
+585          const overlap = expectedTypes.filter(t => sheetTypes.has(t)).length;
+586          if (overlap > bestOverlap) {
+587            bestOverlap = overlap;
+588            bestSheet = sheetName;
+589          }
+590          ...
+593        if (bestSheet) {
+594          entityRows = entityRowsBySheet.get(bestSheet) || [];
+595        }
+```
+
+(Body line 581 contains `startsWith('_')` against `Object.keys(rd)` — protected by the `Object.keys(rd)` shape guard at line 577. No bare `field.startsWith(...)` against possibly-undefined values inside this function.)
+
+### 4.4 Elena Marchetti entity + committed_data
+
+```
+entities row keys: id,tenant_id,entity_type,status,external_id,display_name,profile_id,temporal_attributes,metadata,created_at,updated_at
+
+Marchetti entities:
+[
+  {
+    "id": "d42f8017-20bb-48da-852d-db1525dc6ba9",
+    "tenant_id": "e44bbcb1-2710-4880-8c7d-a1bd902720b7",
+    "entity_type": "individual",
+    "status": "active",
+    "external_id": "CRP-6006",
+    "display_name": "Elena Marchetti",
+    "metadata": {
+      "role": "District Manager",
+      "region": "SE",
+      "status": "Active",
+      "district": "SE-GS",
+      "job_title": "District Manager",
+      "department": "Sales"
+    }
+    ...
+  }
+]
+
+committed_data for Elena Marchetti (entity_id=d42f8017-20bb-48da-852d-db1525dc6ba9): 1 rows
+  data_type="entity" source_date=null keys=_rowIndex,_sheetName,department,district,employee_id,full_name,hire_date,job_title,region,reports_to,status
+```
+
+(Elena has exactly one committed_data row — the entity/roster row — and ZERO `data_type="transaction"` rows. The District Override Plan's `convergence_bindings.component_0` exists per Phase 2.1 but lists no roles (the Phase 2.1 dump showed `convergence_bindings keys: component_0` with no role detail).)
