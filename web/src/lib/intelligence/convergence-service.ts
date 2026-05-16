@@ -287,6 +287,13 @@ export async function convergeBindings(
   const matches = matchComponentsToData(components, capabilities);
 
   // 5. Generate derivation rules
+  // HF-226 Phase 2B (IRA DS-025 Option D): generateDerivationsForMatch was the
+  // routing gate that hardcoded filters: [] on every produced rule, then
+  // populated `derivations` and pre-resolved metrics so the AI-mediated Pass 4
+  // never saw them. Removing the call here means ALL metrics fall through to
+  // the unified Pass 4 (generateAISemanticDerivations) which carries the
+  // categorical-subset prompt and produces filter populated rules. The
+  // matchReport / signals emissions for deterministic matches are preserved.
   for (const match of matches) {
     const cap = capabilities.find(c => c.dataType === match.dataType);
     if (!cap) continue;
@@ -300,18 +307,23 @@ export async function convergeBindings(
 
     if (match.matchConfidence < 0.5) continue;
 
-    const generated = generateDerivationsForMatch(match, cap, components, matches);
-    derivations.push(...generated);
+    // HF-226 Phase 2B: generateDerivationsForMatch call commented out
+    // (superseded by unified Pass 4 below). Function body retained for
+    // rollback safety; remove after three-tenant verification per directive
+    // §"Do NOT delete superseded functions yet".
+    //   const generated = generateDerivationsForMatch(match, cap, components, matches);
+    //   derivations.push(...generated);
+    //   for (const d of generated) signals.push({ ... });
 
-    for (const d of generated) {
-      signals.push({
-        domain: match.dataType,
-        fieldName: d.source_field || 'row_count',
-        semanticType: d.operation === 'sum' ? 'amount' : 'count',
-        confidence: match.matchConfidence,
-      });
-    }
-
+    // Emit per-match signal (preserving HF-219 surface) without a synthesized
+    // derivation. The signal records the structural match outcome; the
+    // derivation comes from Pass 4 with the full LLM-derived filter context.
+    signals.push({
+      domain: match.dataType,
+      fieldName: 'match_outcome',
+      semanticType: 'match',
+      confidence: match.matchConfidence,
+    });
     // Note: per-component bindings generated in bulk below (HF-111)
   }
 
@@ -569,10 +581,18 @@ export async function convergeBindings(
     }
   }
 
-  // OB-185 Pass 4: AI Semantic Derivation for unresolved metrics
-  // When Passes 1-3 leave metrics unresolved, invoke AI to bridge the gap.
-  // This handles transaction-level data where plan metric names (e.g., "consumable_revenue")
-  // don't match column names (e.g., "total_amount") — AI reasons about the semantic bridge.
+  // HF-226 Phase 2B (IRA DS-025 Option D): Pass 4 is now the SOLE derivation
+  // authority. Pre-HF-226 it fired only for metrics the deterministic Path
+  // 1-3 (generateDerivationsForMatch, removed above) had failed to resolve.
+  // Removing that path means the `derivations` array entering this point
+  // contains ONLY the targets-pair ratio derivations (from the actuals+target
+  // capability detection block). All remaining required metrics now flow
+  // through Pass 4 which carries the categorical-subset prompt and produces
+  // filter-populated rules — closing the filter-loss class identified in
+  // DIAG-046/047/AUD-009. The variable name `unresolvedForAI` is retained
+  // for backward git-blame readability; the set now spans "every required
+  // metric except those produced as a ratio above" rather than "unresolved
+  // by the deterministic match path".
   const allResolvedMetrics = new Set(derivations.map(d => d.metric));
   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
   const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
@@ -1187,6 +1207,13 @@ function matchComponentsToData(
 // Step 4: Generate Derivation Rules
 // ──────────────────────────────────────────────
 
+// HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
+// The hardcoded `filters: []` literals at lines 1245, 1253 are the routing-gate
+// instance of the registry/cherry-pick defect class (AUD-009). Call site at
+// convergeBindings line ~310 commented out. Function body retained for
+// rollback safety; remove after three-tenant verification per directive
+// "Do NOT delete superseded functions yet" section.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateDerivationsForMatch(
   match: BindingMatch,
   capability: DataCapability,
@@ -2339,6 +2366,14 @@ async function generateAllComponentBindings(
 
 /**
  * Generate COUNT derivation rules with category+boolean filters.
+ *
+ * HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
+ * Korean Test (E910) violation: filter-value selection uses token-overlap
+ * scoring between component-name and capability.categoricalFields[*].distinctValues,
+ * which fails for non-English data. Pass 4 derives filters via structural
+ * heuristics (column distributions, categorical-value statistics) per the
+ * AI prompt at lines 2476-2528. Function body retained for rollback safety;
+ * remove after three-tenant verification.
  */
 function generateFilteredCountDerivations(
   component: PlanComponent,
@@ -2607,7 +2642,15 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
           }
         }
 
+        // HF-226 Phase 2B — Carry Everything (T1-E902). Spread the AI's raw
+        // derivation output first; overlay the validated typed fields. Any
+        // additional fields the AI emitted (confidence, reasoning, scope, or
+        // future schema extensions) land on the rule via the spread; the
+        // engine's deterministic execution path reads only the typed fields
+        // it knows. Future intelligence consumers (signals, observatory,
+        // debugging) can read the carried context without an emitter change.
         derivations.push({
+          ...d,
           metric,
           operation: operation as MetricDerivationRule['operation'],
           source_pattern: sourcePattern,

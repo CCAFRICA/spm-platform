@@ -227,8 +227,16 @@ export async function POST(request: NextRequest) {
     const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
     const hasMetricDerivations = Array.isArray(rawBindings?.metric_derivations) && (rawBindings.metric_derivations as unknown[]).length > 0;
     const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+    // HF-226 Phase 2B: convergence_version marker. Pre-HF-226 bindings were
+    // produced by generateDerivationsForMatch which hardcoded filters: [] —
+    // they look "complete" but never carry filter information. Re-derive
+    // when the marker is absent so the unified Pass 4 path runs fresh and
+    // produces filters for metrics that semantically require categorical
+    // subsetting.
+    const convergenceVersion = typeof rawBindings?.convergence_version === 'string' ? rawBindings.convergence_version : null;
+    const bindingsAreCurrent = convergenceVersion === 'HF-226';
 
-    if (!hasMetricDerivations && !hasConvergenceBindings) {
+    if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
       try {
         const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
@@ -248,6 +256,11 @@ export async function POST(request: NextRequest) {
           if (derivationCount > 0) {
             updatedBindings.metric_derivations = convResult.derivations;
           }
+
+          // HF-226 Phase 2B: stamp the convergence_version so the reuse gate
+          // at line ~228 can distinguish pre-HF-226 (filters=[] defect) from
+          // post-HF-226 (filters populated by unified Pass 4) bindings.
+          updatedBindings.convergence_version = 'HF-226';
 
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
