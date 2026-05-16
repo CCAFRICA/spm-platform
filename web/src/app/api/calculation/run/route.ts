@@ -227,8 +227,16 @@ export async function POST(request: NextRequest) {
     const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
     const hasMetricDerivations = Array.isArray(rawBindings?.metric_derivations) && (rawBindings.metric_derivations as unknown[]).length > 0;
     const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+    // HF-226 Phase 2B: convergence_version marker. Pre-HF-226 bindings were
+    // produced by generateDerivationsForMatch which hardcoded filters: [] —
+    // they look "complete" but never carry filter information. Re-derive
+    // when the marker is absent so the unified Pass 4 path runs fresh and
+    // produces filters for metrics that semantically require categorical
+    // subsetting.
+    const convergenceVersion = typeof rawBindings?.convergence_version === 'string' ? rawBindings.convergence_version : null;
+    const bindingsAreCurrent = convergenceVersion === 'HF-226';
 
-    if (!hasMetricDerivations && !hasConvergenceBindings) {
+    if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
       try {
         const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
@@ -248,6 +256,11 @@ export async function POST(request: NextRequest) {
           if (derivationCount > 0) {
             updatedBindings.metric_derivations = convResult.derivations;
           }
+
+          // HF-226 Phase 2B: stamp the convergence_version so the reuse gate
+          // at line ~228 can distinguish pre-HF-226 (filters=[] defect) from
+          // post-HF-226 (filters populated by unified Pass 4) bindings.
+          updatedBindings.convergence_version = 'HF-226';
 
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
@@ -1292,11 +1305,35 @@ export async function POST(request: NextRequest) {
 
     const metrics: Record<string, number> = {};
 
+    // HF-226 Phase 3B — unified engine filter contract. Look up filters by
+    // metric name from metric_derivations (filters are produced by the
+    // unified Pass 4 derivation; convergence_bindings stores column-to-role
+    // mappings only). When a metric_derivation rule exists for the metric
+    // and carries a non-empty filter array, pass it to resolveColumnFromBatch
+    // so the sum is filter-respecting. Absent rule or empty filters yields
+    // byte-identical pre-HF-226 behavior (every row counted).
+    const findMetricFilters = (metricName: string | null): MetricDerivationRule['filters'] | undefined => {
+      if (!metricName) return undefined;
+      const rule = metricDerivations.find(r => r.metric === metricName);
+      return rule?.filters && rule.filters.length > 0 ? rule.filters : undefined;
+    };
+
     // HF-111: Ratio input — resolve both numerator and denominator
     // HF-222 Phase 3: gate on column; resolveColumnFromBatch is column-name-keyed.
     if (numBinding?.column && denBinding?.column) {
-      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey);
-      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey);
+      // HF-224 / HF-226: extract ratio leaf names BEFORE the column reads so
+      // the filter lookup can flow through to resolveColumnFromBatch.
+      const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
+      const ratioSpec = ratioLeafForNames?.sourceSpec;
+      const numMetricName = typeof ratioSpec?.numerator === 'string'
+        ? ratioSpec.numerator.replace(/^metric:/, '')
+        : null;
+      const denMetricName = typeof ratioSpec?.denominator === 'string'
+        ? ratioSpec.denominator.replace(/^metric:/, '')
+        : null;
+
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, findMetricFilters(numMetricName));
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, findMetricFilters(denMetricName));
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1306,28 +1343,6 @@ export async function POST(request: NextRequest) {
       if (shouldEmitTrace(entityExternalId)) {
         bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
       }
-
-      // HF-217: Write raw numerator and denominator to their declared metric names.
-      // The intent-executor's source:'ratio' resolver divides them at execution time.
-      // Reads metric names from the binding-declared intent (component.calculationIntent
-      // .input.sourceSpec.{numerator,denominator}), not from expectedMetrics position,
-      // to avoid fragility against AST walk order. Pre-HF-217 the function wrote the
-      // pre-divided ratio to expectedMetrics[0] and left expectedMetrics[1] unfilled,
-      // which let the OB-118 merge guard backfill the second key from derivedMetrics
-      // (count rule) so the intent-executor's ratio resolver then divided the already-
-      // divided value by the count — producing nonsense.
-      // HF-224: Find the ratio leaf anywhere in the intent tree. Pre-HF-223
-      // plans put the ratio at calculationIntent.input.sourceSpec; HF-223 may
-      // wrap it inside a conditional_gate (or any IntentOperation). The
-      // generic walker mirrors intent-executor's resolveValue traversal.
-      const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
-      const ratioSpec = ratioLeafForNames?.sourceSpec;
-      const numMetricName = typeof ratioSpec?.numerator === 'string'
-        ? ratioSpec.numerator.replace(/^metric:/, '')
-        : null;
-      const denMetricName = typeof ratioSpec?.denominator === 'string'
-        ? ratioSpec.denominator.replace(/^metric:/, '')
-        : null;
 
       if (numMetricName && numValue !== null) {
         metrics[numMetricName] = numValue;
@@ -1345,7 +1360,9 @@ export async function POST(request: NextRequest) {
     // Single or dual input (actual + target, or row + column)
     // HF-222 Phase 3: gate on column.
     if (actualBinding?.column) {
-      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey);
+      // HF-226 Phase 3B: pass the actual metric's filters (looked up by
+      // expectedMetrics[0] which the engine writes the value to).
+      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, findMetricFilters(expectedMetrics[0]));
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1366,7 +1383,13 @@ export async function POST(request: NextRequest) {
       // Resolve target/column value if binding exists
       // HF-222 Phase 3: gate on column.
       if (targetBinding?.column) {
-        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey);
+        // HF-226 Phase 3B: target metric name matches expectedMetrics[1] when
+        // present, else fallback `${expectedMetrics[0]}_target`. The filter
+        // lookup uses whichever the convergence-produced rule keyed.
+        const targetMetricNameForFilters = expectedMetrics.length > 1
+          ? expectedMetrics[1]
+          : `${expectedMetrics[0]}_target`;
+        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, findMetricFilters(targetMetricNameForFilters));
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
@@ -1411,6 +1434,7 @@ export async function POST(request: NextRequest) {
   function resolveColumnFromBatch(
     column: string,
     entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
   ): number | null {
     let entityRows: Array<Record<string, unknown>> | undefined;
     for (const [, map] of Array.from(dataByBatch.entries())) {
@@ -1427,10 +1451,24 @@ export async function POST(request: NextRequest) {
       return null;
     }
 
+    // HF-226 Phase 3A — unified filter contract. Pre-HF-226 this function had
+    // no filter parameter and summed every row, while the parallel engine path
+    // (applyMetricDerivations in run-calculation.ts) respected filters via
+    // rowMatchesFilters. The two paths differed on the filter contract, which
+    // is the engine-side manifestation of the filter-loss class (DIAG-047).
+    // rowMatchesFilters returns true for empty/missing filter arrays, so this
+    // is a pure capability addition: callers that don't pass filters get
+    // byte-identical behavior to today (Meridian / BCL preserved).
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
     let sum = 0;
     let found = false;
+    let filteredOut = 0;
     const perRowValues: unknown[] = [];
     for (const rd of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+        filteredOut += 1;
+        continue;
+      }
       const val = rd[column];
       perRowValues.push(val);
       if (val === null || val === undefined) continue;
@@ -1447,7 +1485,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldEmitTrace(entityExternalId)) {
-      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | filteredOut=${filteredOut} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
     }
 
     return found ? sum : null;
