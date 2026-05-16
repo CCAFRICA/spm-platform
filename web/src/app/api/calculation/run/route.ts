@@ -1305,24 +1305,21 @@ export async function POST(request: NextRequest) {
 
     const metrics: Record<string, number> = {};
 
-    // HF-226 Phase 3B — unified engine filter contract. Look up filters by
-    // metric name from metric_derivations (filters are produced by the
-    // unified Pass 4 derivation; convergence_bindings stores column-to-role
-    // mappings only). When a metric_derivation rule exists for the metric
-    // and carries a non-empty filter array, pass it to resolveColumnFromBatch
-    // so the sum is filter-respecting. Absent rule or empty filters yields
-    // byte-identical pre-HF-226 behavior (every row counted).
-    const findMetricFilters = (metricName: string | null): MetricDerivationRule['filters'] | undefined => {
-      if (!metricName) return undefined;
-      const rule = metricDerivations.find(r => r.metric === metricName);
-      return rule?.filters && rule.filters.length > 0 ? rule.filters : undefined;
-    };
+    // HF-227 — Decision 111 single-structure completion. Pre-HF-227 the engine
+    // looked up filters from metric_derivations via the findMetricFilters
+    // bridge (HF-226 Phase 3B), which depended on metric-name matching across
+    // two independently produced structures. Post-HF-227 each binding entry
+    // carries its own filters: resolveColumnMappingsViaAI produces them and
+    // generateAllComponentBindings writes them to the binding. The engine
+    // reads binding.filters natively. Empty / absent arrays preserve byte-
+    // identical pre-HF-227 behavior via rowMatchesFilters returning true on
+    // empty filter arrays.
 
     // HF-111: Ratio input — resolve both numerator and denominator
     // HF-222 Phase 3: gate on column; resolveColumnFromBatch is column-name-keyed.
     if (numBinding?.column && denBinding?.column) {
       // HF-224 / HF-226: extract ratio leaf names BEFORE the column reads so
-      // the filter lookup can flow through to resolveColumnFromBatch.
+      // the metric-name resolution flows through to the metrics map below.
       const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
       const ratioSpec = ratioLeafForNames?.sourceSpec;
       const numMetricName = typeof ratioSpec?.numerator === 'string'
@@ -1332,8 +1329,9 @@ export async function POST(request: NextRequest) {
         ? ratioSpec.denominator.replace(/^metric:/, '')
         : null;
 
-      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, findMetricFilters(numMetricName));
-      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, findMetricFilters(denMetricName));
+      // HF-227: filters read from the binding entry, not from metric_derivations.
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters);
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1360,9 +1358,9 @@ export async function POST(request: NextRequest) {
     // Single or dual input (actual + target, or row + column)
     // HF-222 Phase 3: gate on column.
     if (actualBinding?.column) {
-      // HF-226 Phase 3B: pass the actual metric's filters (looked up by
-      // expectedMetrics[0] which the engine writes the value to).
-      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, findMetricFilters(expectedMetrics[0]));
+      // HF-227: filters live on the binding entry (Decision 111 single-
+      // structure completion; replaces HF-226's findMetricFilters bridge).
+      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, actualBinding.filters);
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1383,13 +1381,8 @@ export async function POST(request: NextRequest) {
       // Resolve target/column value if binding exists
       // HF-222 Phase 3: gate on column.
       if (targetBinding?.column) {
-        // HF-226 Phase 3B: target metric name matches expectedMetrics[1] when
-        // present, else fallback `${expectedMetrics[0]}_target`. The filter
-        // lookup uses whichever the convergence-produced rule keyed.
-        const targetMetricNameForFilters = expectedMetrics.length > 1
-          ? expectedMetrics[1]
-          : `${expectedMetrics[0]}_target`;
-        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, findMetricFilters(targetMetricNameForFilters));
+        // HF-227: filters read from the binding entry directly.
+        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, targetBinding.filters);
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 

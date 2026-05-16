@@ -41,5 +41,11 @@ export interface ConvergenceBindingEntry {
   // resolveColumnFromBatch; the HF-226 findMetricFilters cross-structure
   // bridge is retired. Empty / absent means "no filter" — rowMatchesFilters
   // returns true for empty arrays.
-  filters?: Array<{ field: string; operator: string; value: string | number | boolean }>;
+  // Operator union mirrors MetricDerivationRule['filters'][number]['operator']
+  // so binding.filters can pass directly to resolveColumnFromBatch.
+  filters?: Array<{
+    field: string;
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
 }

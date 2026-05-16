@@ -114,7 +114,13 @@ export interface ComponentBinding {
   // the binding entry rather than via a metric_derivations cross-structure lookup
   // bridge (findMetricFilters, retired in HF-227 Phase 3). An empty / absent array
   // means "no filter" — rowMatchesFilters returns true for empty filter arrays.
-  filters?: Array<{ field: string; operator: string; value: string | number | boolean }>;
+  // Operator union mirrors MetricDerivationRule['filters'][number]['operator']
+  // so binding.filters can pass directly to resolveColumnFromBatch.
+  filters?: Array<{
+    field: string;
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
 }
 
 interface BindingMatch {
@@ -1897,9 +1903,14 @@ function isValidColumnMapping(
 // enriched object carrying the column plus an optional filters array. The
 // engine treats the absence of filters and the empty-filters array
 // identically (rowMatchesFilters returns true for empty arrays).
+// Operator union matches MetricDerivationRule['filters'][number]['operator']
+// so the binding can be passed directly to resolveColumnFromBatch without a
+// cast — closing the bridge entirely (filters ARE binding state, not
+// derived per-call).
+export type ColumnMappingFilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
 export type ColumnMappingFilter = {
   field: string;
-  operator: string;
+  operator: ColumnMappingFilterOperator;
   value: string | number | boolean;
 };
 export type ColumnMappingValue = string | { column: string; filters?: ColumnMappingFilter[] };
@@ -2028,14 +2039,20 @@ EXAMPLE OUTPUT (plain string when no filter; object with filters when categorica
         const obj = val as Record<string, unknown>;
         const col = obj.column;
         if (typeof col === 'string' && columnNames.includes(col)) {
+          const validOps: ColumnMappingFilterOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'];
           const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
             ? (obj.filters as Array<Record<string, unknown>>)
                 .filter(f => typeof f.field === 'string' && f.value != null)
-                .map(f => ({
-                  field: String(f.field),
-                  operator: typeof f.operator === 'string' ? f.operator : 'eq',
-                  value: f.value as string | number | boolean,
-                }))
+                .map(f => {
+                  const op = typeof f.operator === 'string' && (validOps as string[]).includes(f.operator)
+                    ? (f.operator as ColumnMappingFilterOperator)
+                    : 'eq';
+                  return {
+                    field: String(f.field),
+                    operator: op,
+                    value: f.value as string | number | boolean,
+                  };
+                })
             : [];
           mapping[key] = filters.length > 0 ? { column: col, filters } : col;
         }
