@@ -36,4 +36,16 @@ export interface ConvergenceBindingEntry {
     batch_id: string;
     learned_at: string;
   };
+  // HF-227: filters live on the binding (Decision 111 single-structure
+  // completion). Engine consumers pass binding.filters directly to
+  // resolveColumnFromBatch; the HF-226 findMetricFilters cross-structure
+  // bridge is retired. Empty / absent means "no filter" — rowMatchesFilters
+  // returns true for empty arrays.
+  // Operator union mirrors MetricDerivationRule['filters'][number]['operator']
+  // so binding.filters can pass directly to resolveColumnFromBatch.
+  filters?: Array<{
+    field: string;
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
 }
