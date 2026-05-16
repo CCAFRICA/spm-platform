@@ -680,3 +680,137 @@ committed_data for Elena Marchetti (entity_id=d42f8017-20bb-48da-852d-db1525dc6b
 ```
 
 (Elena has exactly one committed_data row — the entity/roster row — and ZERO `data_type="transaction"` rows. The District Override Plan's `convergence_bindings.component_0` exists per Phase 2.1 but lists no roles (the Phase 2.1 dump showed `convergence_bindings keys: component_0` with no role detail).)
+
+## Phase 5 — Plan 3 conditional_gate intent structure
+
+### 5.1 Cross-Sell Bonus calculationIntent (current state on `main`)
+
+```json
+{
+  "operation": "conditional_gate",
+  "condition": {
+    "left":  { "source": "metric",   "sourceSpec": { "field": "equipment_deal_count" } },
+    "right": { "value": 1,           "source": "constant" },
+    "operator": ">="
+  },
+  "onTrue": {
+    "operation": "scalar_multiply",
+    "rate": 50,
+    "input": { "source": "metric", "sourceSpec": { "field": "cross_sell_count" } },
+    "modifiers": [
+      { "modifier": "cap", "maxValue": 1000 }
+    ]
+  },
+  "onFalse": { "operation": "constant", "value": 0 }
+}
+```
+
+```
+expectedMetrics:   undefined  (no top-level expectedMetrics array on the component)
+calculationMethod: undefined  (no legacy calculationMethod payload)
+```
+
+### 5.2 `executeConditionalGate` body — `web/src/lib/calculation/intent-executor.ts:312–334`
+
+```typescript
+312  function executeConditionalGate(
+313    op: ConditionalGate,
+314    data: EntityData,
+315    inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+316    trace: Partial<ExecutionTrace>
+317  ): Decimal {
+318    const leftVal = resolveSource(op.condition.left, data, inputLog);
+319    const rightVal = resolveSource(op.condition.right, data, inputLog);
+320
+321    let conditionMet = false;
+322    switch (op.condition.operator) {
+323      case '>=': conditionMet = leftVal.gte(rightVal); break;
+324      case '>':  conditionMet = leftVal.gt(rightVal);  break;
+325      case '<=': conditionMet = leftVal.lte(rightVal); break;
+326      case '<':  conditionMet = leftVal.lt(rightVal);  break;
+327      case '=':  // AI plan interpreter produces single-equals for equality
+328      case '==': conditionMet = leftVal.eq(rightVal);  break;
+329      case '!=': conditionMet = !leftVal.eq(rightVal); break;
+330    }
+331
+332    const branch = conditionMet ? op.onTrue : op.onFalse;
+333    return resolveValue(branch, data, inputLog, trace);
+334  }
+```
+
+`grep -n "case 'conditional_gate'" web/src/lib/calculation/intent-executor.ts`:
+
+```
+496:    case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
+```
+
+(`resolveSource` is the metric-name reader at intent-executor.ts:73-152 — `case 'metric'` at line 74-87 reads `data.metrics[field.startsWith('metric:') ? field.slice(7) : field]`. If `data.metrics['equipment_deal_count']` or `data.metrics['cross_sell_count']` is undefined, line 78 falls through to `?? 0`. Same for the onTrue branch's `cross_sell_count` lookup.)
+
+### 5.3 `getExpectedMetricNames` body — `web/src/lib/calculation/run-calculation.ts:460–521`
+
+```typescript
+460  export function getExpectedMetricNames(component: PlanComponent): string[] {
+461    const names = new Set<string>();
+462    const intent = (component as unknown as Record<string, unknown>).calculationIntent as Record<string, unknown> | undefined;
+463    if (!intent) return [];
+464    visitNode(intent, names);
+465    return Array.from(names);
+466  }
+467
+468  function visitNode(node: unknown, names: Set<string>): void {
+469    if (node === null || node === undefined) return;
+470    if (typeof node !== 'object') return;
+471
+472    if (Array.isArray(node)) {
+473      for (const child of node) visitNode(child, names);
+474      return;
+475    }
+476
+477    const obj = node as Record<string, unknown>;
+478
+479    // IntentSource of source='metric' — harvest field reference.
+480    if (obj.source === 'metric' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+481      const spec = obj.sourceSpec as Record<string, unknown>;
+482      if (typeof spec.field === 'string') {
+483        names.add(spec.field.replace(/^metric:/, ''));
+484      }
+485      return;
+486    }
+487
+488    // IntentSource of source='ratio' — harvest both operand field names.
+489    if (obj.source === 'ratio' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+490      const spec = obj.sourceSpec as Record<string, unknown>;
+491      if (typeof spec.numerator === 'string') {
+492        names.add(spec.numerator.replace(/^metric:/, ''));
+493      }
+494      if (typeof spec.denominator === 'string') {
+495        names.add(spec.denominator.replace(/^metric:/, ''));
+496      }
+497      return;
+498    }
+499
+500    // IntentSource of source='aggregate' — harvest field (entity scope reads data.metrics).
+501    if (obj.source === 'aggregate' && obj.sourceSpec && typeof obj.sourceSpec === 'object') {
+502      const spec = obj.sourceSpec as Record<string, unknown>;
+503      if (typeof spec.field === 'string') {
+504        names.add(spec.field.replace(/^metric:/, ''));
+505      }
+506      return;
+507    }
+508
+509    // IntentSource of other kinds (constant, entity_attribute, prior_component,
+510    // cross_data, scope_aggregate) do not resolve via data.metrics — skip harvest
+511    // but do not recurse into sourceSpec (they don't carry nested operations).
+512    if (typeof obj.source === 'string') {
+513      return;
+514    }
+515
+516    // Generic node — could be an IntentOperation, modifier, route, or plain
+517    // object with nested fields. Recurse into all values.
+518    for (const value of Object.values(obj)) {
+519      visitNode(value, names);
+520    }
+521  }
+```
+
+(For Cross-Sell intent above: `getExpectedMetricNames` walks the tree → harvests `equipment_deal_count` (condition.left) and `cross_sell_count` (onTrue.input). Returns `['equipment_deal_count', 'cross_sell_count']`.)
