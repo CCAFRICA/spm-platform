@@ -1083,3 +1083,180 @@ Per directive §6.3 question — `getExpectedMetricNames` on this intent harvest
 | Does matching use metric_comprehension signal context? | Function signature on line 1106 takes only `components` and `capabilities`. No `metricComprehension` parameter. |
 | If a component's metric exists in a DIFFERENT data_type than the primary match, is that data_type included? | Function returns one `BindingMatch` per component (lines 1175-1180 in Pass 1-2, lines 1206-1211 in Pass 3). One `dataType` per match. |
 | Is there any cross-data-type fallback for unmatched metrics? | Within `matchComponentsToData`: no — each component matches at most one capability. Outside: per Phase 3.3, downstream `measureColumns` aggregation only includes capabilities from `matches`. |
+
+## Phase 8 — SCI classification path: how data_type is assigned during bulk import
+
+### 8.1 `data_type` assignment inside SCI bulk pipeline — `web/src/app/api/import/sci/execute-bulk/route.ts`
+
+Dispatcher (line 315–335):
+
+```typescript
+315  ): Promise<ContentUnitResult> {
+316    switch (unit.confirmedClassification) {
+317      case 'entity':
+318        return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256);
+319      case 'target':
+320        return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256);
+321      case 'transaction':
+322        return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256);
+323      case 'reference':
+324        return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
+325      default:
+326        return {
+327          contentUnitId: unit.contentUnitId,
+328          classification: unit.confirmedClassification,
+329          success: false,
+330          rowsProcessed: 0,
+331          pipeline: unit.confirmedClassification,
+332          error: `Unsupported classification for bulk processing: ${unit.confirmedClassification}`,
+333        };
+334      }
+335    }
+```
+
+Per-pipeline `data_type` derivation (entity at line 539, target/transaction at 654, reference at 827):
+
+```typescript
+539  const dataType = resolveDataTypeFromClassification('entity');     // entity pipeline (line 539)
+654  const dataType = resolveDataTypeFromClassification(classification); // target / transaction pipeline (line 654)
+827  const dataType = resolveDataTypeFromClassification('reference');   // reference pipeline (line 827)
+```
+
+`resolveDataTypeFromClassification` — `web/src/lib/sci/data-type-resolver.ts:25–46`:
+
+```typescript
+ 15  export type SemanticDataType = 'entity' | 'transaction' | 'target' | 'reference' | 'plan';
+ 17  export type SCIClassification = 'entity' | 'transaction' | 'target' | 'reference' | 'plan';
+...
+ 25  export function resolveDataTypeFromClassification(
+ 26    classification: SCIClassification,
+ 27  ): SemanticDataType {
+ 28    // Exhaustiveness via discriminated union — TS compile-time guard
+ 29    switch (classification) {
+ 30      case 'entity':
+ 31        return 'entity';
+ 32      case 'transaction':
+ 33        return 'transaction';
+ 34      case 'target':
+ 35        return 'target';
+ 36      case 'reference':
+ 37        return 'reference';
+ 38      case 'plan':
+ 39        return 'plan';
+ 40      default: {
+ 41        // Compile-time exhaustiveness check (Rule 28 from HF-195)
+ 42        case '...
+ 43        throw new Error(`Unrecognized SCI classification: ${_exhaustive}`);
+ 44      }
+ 45    }
+ 46  }
+```
+
+(Identity mapping: `data_type === confirmedClassification`. Five categories: `entity | transaction | target | reference | plan`.)
+
+### 8.2 SCI classification agent scoring — `web/src/lib/sci/agents.ts:25–108`
+
+`AGENT_WEIGHTS` (line 102):
+
+```typescript
+102  const AGENT_WEIGHTS: Record<AgentType, WeightRule[]> = {
+103    plan: PLAN_WEIGHTS,
+104    entity: ENTITY_WEIGHTS,
+105    target: TARGET_WEIGHTS,
+106    transaction: TRANSACTION_WEIGHTS,
+107    reference: REFERENCE_WEIGHTS,
+108  };
+```
+
+`TARGET_WEIGHTS` (line 52–66) — the classification that quota-style data is expected to match:
+
+```typescript
+ 52  const TARGET_WEIGHTS: WeightRule[] = [
+ 53    { signal: 'has_entity_id', weight: 0.20, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
+ 54    // OB-159: REMOVED containsTarget (+0.25) — Korean Test violation.
+ 55    // Target agent now relies on structural signals: numeric fields + low repeat + no temporal.
+ 56    { signal: 'has_numeric_fields', weight: 0.15, test: p => p.structure.numericFieldRatio > 0.30, evidence: p => `${(p.structure.numericFieldRatio * 100).toFixed(0)}% numeric fields (>30%)` },
+ 57    { signal: 'single_or_few_per_entity', weight: 0.15, test: p => p.patterns.volumePattern === 'single' || p.patterns.volumePattern === 'few', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (${p.patterns.volumePattern})` },
+ 58    { signal: 'no_date', weight: 0.10, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
+ 59    { signal: 'has_currency', weight: 0.10, test: p => p.patterns.hasCurrencyColumns > 0 && p.patterns.hasCurrencyColumns <= 3, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (1-3)` },
+ 60    { signal: 'clean_headers', weight: 0.05, test: p => p.structure.headerQuality === 'clean', evidence: () => 'clean headers' },
+ 61    { signal: 'no_entity_id', weight: -0.25, test: p => !p.patterns.hasEntityIdentifier, evidence: () => 'no entity identifier' },
+ 62    { signal: 'many_per_entity', weight: -0.20, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — not targets)` },
+ 63    { signal: 'auto_generated_headers', weight: -0.15, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
+ 64    { signal: 'high_sparsity', weight: -0.10, test: p => p.structure.sparsity > 0.30, evidence: p => `sparsity ${(p.structure.sparsity * 100).toFixed(0)}% > 30%` },
+ 65    { signal: 'has_temporal', weight: -0.15, test: p => p.patterns.hasDateColumn || p.patterns.hasTemporalColumns, evidence: () => 'temporal dimension present — data varies over time' },
+ 66  ];
+```
+
+`ENTITY_WEIGHTS` (line 38–50):
+
+```typescript
+ 38  const ENTITY_WEIGHTS: WeightRule[] = [
+ 39    { signal: 'has_entity_id', weight: 0.25, test: p => p.patterns.hasEntityIdentifier, evidence: () => 'entity identifier column present' },
+ 40    { signal: 'has_structural_name', weight: 0.20, test: p => p.patterns.hasStructuralNameColumn, evidence: () => 'structural name column detected (identifier-relative cardinality)' },
+ 41    { signal: 'single_per_entity', weight: 0.15, test: p => p.patterns.volumePattern === 'single', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (single — roster pattern)` },
+ 42    { signal: 'categorical_attributes', weight: 0.10, test: p => p.structure.categoricalFieldCount >= 2, evidence: p => `${p.structure.categoricalFieldCount} categorical text fields` },
+ 43    { signal: 'no_date', weight: 0.05, test: p => !p.patterns.hasDateColumn, evidence: () => 'no date column' },
+ 44    { signal: 'high_currency', weight: -0.10, test: p => p.patterns.hasCurrencyColumns > 2, evidence: p => `${p.patterns.hasCurrencyColumns} currency columns (>2)` },
+ 45    { signal: 'many_per_entity', weight: -0.15, test: p => p.patterns.volumePattern === 'many', evidence: p => `${p.structure.identifierRepeatRatio.toFixed(1)} rows/entity (many — not a roster)` },
+ 46    { signal: 'auto_generated_headers', weight: -0.20, test: p => p.structure.headerQuality === 'auto_generated', evidence: () => 'auto-generated headers' },
+ 47    { signal: 'high_numeric_ratio', weight: -0.10, test: p => p.structure.numericFieldRatio > 0.50, evidence: p => `${(p.structure.numericFieldRatio * 100).toFixed(0)}% numeric fields (>50%)` },
+ 48  ];
+```
+
+(A `target` classification exists in the agent registry, separate from `entity`. The `target` pipeline routes via `processDataUnit(... 'target' ...)` at execute-bulk:320 which writes `data_type='target'` per the resolver above.)
+
+### 8.3 `processReferenceUnit` body — `web/src/app/api/import/sci/execute-bulk/route.ts:788–908`
+
+```bash
+$ grep -n "function processReferenceUnit\|processReference" web/src/app/api/import/sci/execute-bulk/route.ts
+788:async function processReferenceUnit(
+805:    return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: 0, pipeline: 'reference' };
+822:    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
+825:  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
+826:  // Identity: data_type === informational_label === 'reference' for this pipeline.
+827:  const dataType = resolveDataTypeFromClassification('reference');
+860:      data_type: dataType,
+866:        resolved_data_type: dataType,
+868:        informational_label: 'reference',
+882:      return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: totalInserted, pipeline: 'reference', error: insertErr.message };
+893:  console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
+908:  return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
+```
+
+(A reference pipeline exists. It writes rows to `committed_data` with `data_type='reference'` per line 827 → 860. The Phase 8.4 query below shows whether CRP's quota file was classified as `reference`, `target`, or `entity`.)
+
+### 8.4 Current CRP classification_signals + import_batches
+
+```
+=== classification:outcome signals: 8 ===
+  classification=entity      | file=06_CRP_Roster_Update_20260201.csv  | 2026-05-16T15:59:43Z
+  classification=entity      | file=04_CRP_Roster_Update_20260120.csv  | 2026-05-16T15:59:22Z
+  classification=entity      | file=05_CRP_Quotas_20260101.csv         | 2026-05-16T15:58:52Z
+  classification=transaction | file=02_CRP_Sales_20260101_20260115.csv | 2026-05-16T15:58:02Z
+  classification=transaction | file=07_CRP_Sales_20260216_20260228.csv | 2026-05-16T15:58:02Z
+  classification=transaction | file=05_CRP_Sales_20260201_20260215.csv | 2026-05-16T15:58:02Z
+  classification=transaction | file=03_CRP_Sales_20260116_20260131.csv | 2026-05-16T15:58:02Z
+  classification=entity      | file=01_CRP_Employee_Roster_20260101.csv | 2026-05-16T15:56:10Z
+
+Signal-type tally:
+  engine:exception:                       55
+  classification:outcome:                  8
+  cost:event:                              8
+  lifecycle:synaptic_consolidation:        8
+  comprehension:plan_interpretation:       6
+  classification:ai_document_analysis:     4
+  comprehension:ai_plan_interpretation:    4
+  convergence:binding_selection:           4
+  lifecycle:stream:                        1
+
+import_batches: 0 rows (table empty for this tenant)
+```
+
+(`05_CRP_Quotas_20260101.csv` carries `classification=entity` per the `classification:outcome` signal at 2026-05-16T15:58:52Z. Per the dispatcher at execute-bulk:316–334, classification → pipeline:
+- `entity` → `processEntityUnit` → `data_type='entity'`
+- `transaction` → `processDataUnit('transaction')` → `data_type='transaction'`
+- `target` → `processDataUnit('target')` → `data_type='target'`
+- `reference` → `processReferenceUnit` → `data_type='reference'`
+
+Quota file's classification is `entity` per signal record; its `committed_data.data_type` is therefore `entity` per the resolver. Per Phase 3.1: `data_type='entity'` columns are `_rowIndex,_sheetName,department,district,employee_id,full_name,hire_date,job_title,region,reports_to,status` — `monthly_quota` is not among the entity-sample columns.)
