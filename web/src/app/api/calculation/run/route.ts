@@ -1424,6 +1424,7 @@ export async function POST(request: NextRequest) {
   function resolveColumnFromBatch(
     column: string,
     entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
   ): number | null {
     let entityRows: Array<Record<string, unknown>> | undefined;
     for (const [, map] of Array.from(dataByBatch.entries())) {
@@ -1440,10 +1441,24 @@ export async function POST(request: NextRequest) {
       return null;
     }
 
+    // HF-226 Phase 3A — unified filter contract. Pre-HF-226 this function had
+    // no filter parameter and summed every row, while the parallel engine path
+    // (applyMetricDerivations in run-calculation.ts) respected filters via
+    // rowMatchesFilters. The two paths differed on the filter contract, which
+    // is the engine-side manifestation of the filter-loss class (DIAG-047).
+    // rowMatchesFilters returns true for empty/missing filter arrays, so this
+    // is a pure capability addition: callers that don't pass filters get
+    // byte-identical behavior to today (Meridian / BCL preserved).
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
     let sum = 0;
     let found = false;
+    let filteredOut = 0;
     const perRowValues: unknown[] = [];
     for (const rd of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+        filteredOut += 1;
+        continue;
+      }
       const val = rd[column];
       perRowValues.push(val);
       if (val === null || val === undefined) continue;
@@ -1460,7 +1475,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldEmitTrace(entityExternalId)) {
-      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | filteredOut=${filteredOut} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
     }
 
     return found ? sum : null;
