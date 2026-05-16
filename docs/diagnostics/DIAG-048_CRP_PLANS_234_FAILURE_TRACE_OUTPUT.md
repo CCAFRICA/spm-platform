@@ -918,3 +918,168 @@ expectedMetrics: undefined
 Per Phase 3.1: CRP transaction data has no `monthly_quota` column. Per Phase 2.1: the Consumables `convergence_bindings.component_0.denominator → column=unit_price filters=[]` — convergence bound `monthly_quota` to `unit_price`. Per `resolveMetricsFromConvergenceBindings` ratio branch (HF-217/HF-224 quoted in earlier DIAG-047 §6.2, current state at route.ts ~1308-1357): the ratio branch writes `metrics[numMetricName]` and `metrics[denMetricName]` — i.e. `metrics['consumable_revenue']` and `metrics['monthly_quota']` — where `monthly_quota`'s value is the sum of `unit_price` across the entity's rows.
 
 Per directive §6.3 question — `getExpectedMetricNames` on this intent harvests both metric names from the `ratio` source: `consumable_revenue`, `monthly_quota`. The ratio branch of `resolveMetricsFromConvergenceBindings` writes both metric keys; the `piecewise_linear` executor reads both via `resolveValue(op.ratioInput)` (which itself takes the ratio branch in `resolveSource`).)
+
+---
+
+# Addendum (Phases 7-10)
+
+## Phase 7 — matchComponentsToData: the gate that determines which data_types feed measureColumns
+
+### 7.1 `matchComponentsToData` full body — `web/src/lib/intelligence/convergence-service.ts:1106–1216`
+
+```typescript
+1106  function matchComponentsToData(
+1107    components: PlanComponent[],
+1108    capabilities: DataCapability[]
+1109  ): BindingMatch[] {
+1110    const matches: BindingMatch[] = [];
+1111    const matchedComponents = new Set<number>();
+1112
+1113    // OB-162 Pass 1+2: Field identity matching
+1114    // Find capabilities that have field identities with measure columns
+1115    const capsWithFI = capabilities.filter(c => Object.keys(c.fieldIdentities).length > 0);
+1116
+1117    if (capsWithFI.length > 0) {
+1118      for (const comp of components) {
+1119        if (matchedComponents.has(comp.index)) continue;
+1120
+1121        // Pass 1: Structural match — capability must have a 'measure' structuralType
+1122        const structuralCandidates = capsWithFI.filter(cap => {
+1123          const hasMeasure = Object.values(cap.fieldIdentities).some(fi => fi.structuralType === 'measure');
+1124          const hasIdentifier = Object.values(cap.fieldIdentities).some(fi => fi.structuralType === 'identifier');
+1125          return hasMeasure && hasIdentifier;
+1126        });
+1127
+1128        if (structuralCandidates.length === 0) continue;
+1129
+1130        // HF-109 Pass 2: Structural co-location — disambiguate by component structural pattern (DS-009 4.2)
+1131        // Uses measure count + contextual type diversity, NOT token overlap with component names
+1132        const requiredMeasures = getRequiredMeasureCount(comp.calculationOp);
+1133
+1134        let bestMatch: { cap: DataCapability; score: number; reason: string } | null = null;
+1135
+1136        for (const cap of structuralCandidates) {
+1137          let score = 0;
+1138          const reasons: string[] = [];
+1139
+1140          // Count measure columns in this capability
+1141          const measureFIs = Object.entries(cap.fieldIdentities)
+1142            .filter(([, fi]) => fi.structuralType === 'measure');
+1143          const measureCount = measureFIs.length;
+1144
+1145          // Does the batch have the right number of measures for this component?
+1146          if (measureCount >= requiredMeasures) {
+1147            score += 0.5;
+1148            reasons.push(`${measureCount} measures (need ${requiredMeasures})`);
+1149          }
+1150
+1151          // Does the batch have a temporal column?
+1152          const hasTemporal = Object.values(cap.fieldIdentities)
+1153            .some(fi => fi.structuralType === 'temporal');
+1154          if (hasTemporal) {
+1155            score += 0.25;
+1156            reasons.push('has temporal');
+1157          }
+1158
+1159          // For ratio/2D components needing 2+ measures: check contextual type diversity
+1160          // (e.g., one currency_amount and one percentage — likely actual + target pair)
+1161          if (requiredMeasures >= 2 && measureCount >= 2) {
+1162            const contextualTypes = new Set(measureFIs.map(([, fi]) => fi.contextualIdentity));
+1163            if (contextualTypes.size >= 2) {
+1164              score += 0.25;
+1165              reasons.push('diverse measure types');
+1166            }
+1167          }
+1168
+1169          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+1170            bestMatch = { cap, score, reason: reasons.join(', ') };
+1171          }
+1172        }
+1173
+1174        if (bestMatch && bestMatch.score > 0.3) {
+1175          matches.push({
+1176            component: comp,
+1177            dataType: bestMatch.cap.dataType,
+1178            matchConfidence: Math.min(0.90, 0.4 + bestMatch.score * 0.5),
+1179            matchReason: `HF-109 structural: ${bestMatch.reason}`,
+1180          });
+1181          matchedComponents.add(comp.index);
+1182        }
+1183      }
+1184    }
+1185
+1186    // Pass 3: Token overlap fallback for unmatched components
+1187    const dataTypes = capabilities.map(c => c.dataType);
+1188    for (const comp of components) {
+1189      if (matchedComponents.has(comp.index)) continue;
+1190
+1191      const compTokens = tokenize(comp.name);
+1192      let bestDt = '';
+1193      let bestScore = 0;
+1194
+1195      for (const dt of dataTypes) {
+1196        const dtTokens = tokenize(dt);
+1197        const overlap = compTokens.filter(t => dtTokens.some(d => d.includes(t) || t.includes(d)));
+1198        const score = overlap.length / Math.max(compTokens.length, 1);
+1199        if (score > bestScore) {
+1200          bestScore = score;
+1201          bestDt = dt;
+1202        }
+1203      }
+1204
+1205      if (bestDt && bestScore > 0.2) {
+1206        matches.push({
+1207          component: comp,
+1208          dataType: bestDt,
+1209          matchConfidence: Math.min(0.80, 0.4 + bestScore * 0.4),
+1210          matchReason: `Token overlap: ${(bestScore * 100).toFixed(0)}%`,
+1211        });
+1212      }
+1213    }
+1214
+1215    return matches;
+1216  }
+```
+
+### 7.2 `matches` production + `generateAllComponentBindings` call — `convergence-service.ts:298–380`
+
+```typescript
+298    // 4. OB-162: 3-pass matching — field identities first, token overlap fallback
+299    const matches = matchComponentsToData(components, capabilities);
+300
+301    // 5. Generate derivation rules
+302    // HF-226 Phase 2B (IRA DS-025 Option D): generateDerivationsForMatch was the
+303    // routing gate that hardcoded filters: [] on every produced rule, then
+304    // populated `derivations` and pre-resolved metrics so the AI-mediated Pass 4
+305    // never saw them. Removing the call here means ALL metrics fall through to
+306    // the unified Pass 4 (generateAISemanticDerivations) which carries the
+307    // categorical-subset prompt and produces filter populated rules. The
+308    // matchReport / signals emissions for deterministic matches are preserved.
+309    for (const match of matches) {
+310      const cap = capabilities.find(c => c.dataType === match.dataType);
+311      ...
+...
+370    await generateAllComponentBindings(
+371      components,
+372      matches,
+373      capabilities,           // <-- ALL capabilities passed (not filtered by `matches`)
+374      componentBindings,
+375      existingConvergenceBindings,
+376      observations.metricComprehension,
+377      tenantEntityExternalIds,
+378      tenantId,
+379      supabase,
+380    );
+```
+
+(`generateAllComponentBindings` receives `matches` AND the FULL `capabilities` array. Per Phase 3.3 line 2190-2215, `measureColumns` is then built ONLY from capabilities whose `dataType` appears in `matches`: `for (const match of matches) { const cap = capabilities.find(c => c.dataType === match.dataType); if (!cap) continue; ... }`. Capabilities not represented in `matches` contribute no columns to `measureColumns` and are therefore not surfaced to the AI in `resolveColumnMappingsViaAI`.)
+
+### 7.3 Cross-data-type fallback analysis (from pasted code above)
+
+| Question | Answer (from pasted code, no interpretation) |
+|---|---|
+| Does matching use token overlap between component name and data_type string? | Lines 1186-1213 (Pass 3) yes — only for components unmatched by Passes 1-2. |
+| Does matching use field identity structural types? | Lines 1117-1184 (Passes 1-2) yes — `hasMeasure && hasIdentifier`, measureCount, temporal column, contextualIdentity diversity. |
+| Does matching use metric_comprehension signal context? | Function signature on line 1106 takes only `components` and `capabilities`. No `metricComprehension` parameter. |
+| If a component's metric exists in a DIFFERENT data_type than the primary match, is that data_type included? | Function returns one `BindingMatch` per component (lines 1175-1180 in Pass 1-2, lines 1206-1211 in Pass 3). One `dataType` per match. |
+| Is there any cross-data-type fallback for unmatched metrics? | Within `matchComponentsToData`: no — each component matches at most one capability. Outside: per Phase 3.3, downstream `measureColumns` aggregation only includes capabilities from `matches`. |
