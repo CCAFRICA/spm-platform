@@ -2265,6 +2265,41 @@ async function generateAllComponentBindings(
       aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
     }
   }
+
+  // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
+  // was built only from capabilities whose data_type appears in `matches`;
+  // unmatched capabilities contributed no columns and were invisible to
+  // resolveColumnMappingsViaAI. For plans that combine transaction-style
+  // measures with reference/target-style metrics from a different data_type
+  // (e.g., a per-entity quota living on `target` data alongside revenue on
+  // `transaction` data), the cross-source metric could not be resolved.
+  // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
+  // with lower confidence (0.4) so the AI naturally prefers primary
+  // (matched-capability) columns for principal metrics and uses cross-source
+  // columns only for supplementary metrics. Categorical fields from
+  // unmatched capabilities also flow through for filter discovery.
+  // Korean Test: structural type classification + numeric-field discovery,
+  // no column-name matching.
+  const matchedDataTypes = new Set(matches.map(m => m.dataType));
+  for (const cap of capabilities) {
+    if (matchedDataTypes.has(cap.dataType)) continue;
+    for (const nf of cap.numericFields) {
+      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+        measureColumns.push({
+          name: nf.field,
+          fi: { structuralType: 'measure', contextualIdentity: 'cross_source_numeric', confidence: 0.4 },
+          stats: cap.columnStats[nf.field],
+          batchId: cap.batchIds[0] || '',
+        });
+      }
+    }
+    for (const cf of cap.categoricalFields || []) {
+      if (seenCategoricalFields.has(cf.field)) continue;
+      seenCategoricalFields.add(cf.field);
+      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+    }
+  }
+
   console.log('[Convergence] HF-112 Requesting AI column mapping');
   const aiMapping = await resolveColumnMappingsViaAI(
     components,
