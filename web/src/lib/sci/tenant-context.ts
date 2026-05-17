@@ -243,6 +243,34 @@ export function computeTenantContextAdjustments(
     });
   }
 
+  // HF-228: referential-vs-definitional discrimination. The existing 'high' branch
+  // above fires at overlapPercentage > 0.80 unconditionally. HF-228 strengthens
+  // the target classification specifically for sheets that both (a) reference
+  // existing entities at threshold > 0.70 AND (b) carry numeric non-identifier
+  // content (the structural marker of target/quota/rebate-rate data — files
+  // ASSOCIATING numeric values WITH existing entities rather than DEFINING new
+  // entities). Korean Test: matches on identifier-value-set membership and
+  // structural numeric ratio, not on column names. Architect deviation: the
+  // directive prescribed adding these signals to TARGET_WEIGHTS /
+  // ENTITY_WEIGHTS WeightRule arrays directly; the same intent is achieved
+  // here because the value-matching infrastructure (computeEntityIdOverlap)
+  // lives at this layer and the WeightRule tests do not receive tenant
+  // context. Surfaced for architect disposition in the completion report.
+  if (overlap && overlap.overlapPercentage > 0.70 && profile.structure.numericFieldRatio > 0.10) {
+    adjustments.push({
+      agent: 'target',
+      adjustment: +0.15,
+      signal: 'referential_identifiers',
+      evidence: `${overlap.matchingEntityIds.size}/${overlap.sheetUniqueValues.size} identifiers match existing entities — referential data pattern`,
+    });
+    adjustments.push({
+      agent: 'entity',
+      adjustment: -0.15,
+      signal: 'referential_not_definitional',
+      evidence: 'Most identifiers already exist — file references entities rather than defining them',
+    });
+  }
+
   // --- SIGNAL 2: Plan exists + numeric content ---
   if (tenantContext.existingPlanCount > 0 && profile.structure.numericFieldRatio > 0.30) {
     adjustments.push({
