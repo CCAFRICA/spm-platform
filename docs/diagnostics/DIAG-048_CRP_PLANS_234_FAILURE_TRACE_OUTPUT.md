@@ -1318,3 +1318,93 @@ CRP-6019 Nathan Brooks:
 ```
 
 (`entities.metadata` carries `plan` field but no `monthly_quota`. Quota values live only in `committed_data.row_data.monthly_quota` for the 24 quota rows from batch `5290ebac-327d-4418-a6bb-d052ec20e5f8`.)
+
+## Phase 10 — HF-220 R2 merge retirement: what exactly was removed
+
+### 10.1 HF-220 retirement annotations in `web/src/app/api/calculation/run/route.ts`
+
+```
+100:  // HF-220 R2: ob118MergeGuardFiredCount retired (merge-guard removed; counter vestigial).
+1781:      // post-HF-220. Convergence bindings tell us exactly which batch + column has each
+2161:          // HF-220 R1 / ADR Decision 2: legacy buildMetricsForComponent fallback retired
+2168:        // HF-220 R1 / ADR Decision 2: no convergence_bindings for this component.
+2195:      // HF-220 R2 / ADR Decision 1: OB-118 merge-guard retired. With legacy derivation
+2257:      // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding
+2795:  // HF-220 R3: concordance rate retired (Decision 151 sole authority); IAP confidence
+```
+
+Context around the OB-118 merge-guard retirement (already pasted in Phase 1.3 at lines 2185-2210). Context around the legacy-fallback retirement (line 2161):
+
+```typescript
+2155              confidence: 0,
+2156              source: 'system',
+2157              calculationRunId,
+2158              ruleSetId,
+2159              context: { trigger: 'engine_fallback', binding_role: 'entity_identifier' },
+2160            }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
+2161            // HF-220 R1 / ADR Decision 2: legacy buildMetricsForComponent fallback retired
+2162            // (Decision 153 atomic cutover completion). Component evaluates to zero per
+2163            // existing refuse-with-empty-metrics semantics; HF-218 Component 4a signal
+2164            // above preserves observability.
+2165            metrics = {};
+2166          }
+2167        } else {
+2168          // HF-220 R1 / ADR Decision 2: no convergence_bindings for this component.
+2169          // Emit engine:exception signal for observability (HF-218 Component 4a pattern);
+```
+
+Context around the evaluateComponent retirement (line 2257):
+
+```typescript
+2257        // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding
+2258        // retired. Intent executor (below) is sole authority for component payout +
+2259        // rounding; this loop's residual responsibility is to populate perComponentMetrics
+2260        // (HF-205 Shape C invariant target) and seed ComponentResult slots with metadata.
+2261        // Intent executor overwrites placeholder.payout at the index-assignment site.
+2262        componentResults.push({
+2263          componentId: component.id,
+2264          componentName: component.name,
+2265          componentType: component.componentType,
+2266          payout: 0,
+2267          metricValues: metrics,
+2268          details: {},
+2269        });
+2270        perComponentMetrics.push(metrics);
+2271      }
+```
+
+### 10.2 `derivedMetrics` / `applyMetricDerivations` references in `web/src/app/api/calculation/run/route.ts`
+
+```bash
+$ grep -n "derivedMetrics\|applyMetricDerivations" web/src/app/api/calculation/run/route.ts
+1449:    // (applyMetricDerivations in run-calculation.ts) respected filters via
+```
+
+(Single hit, inside a comment block at line 1449. No live call to `applyMetricDerivations` in `route.ts`. No live reference to `derivedMetrics` in `route.ts`. The single live call to `applyMetricDerivations` is at `run-calculation.ts:1379` per Phase 1.2.)
+
+### 10.3 Production entity loop in `web/src/app/api/calculation/run/route.ts`
+
+```
+1488:  const entityResults: Array<{           // production result accumulator declaration
+1734:      if (entityResults.length < 3) {    // logging guard
+1773:    const componentResults: ComponentResult[] = [];  // per-entity per-component slots
+1787:      let usedConvergenceBindings = false;            // resolution-path tracker
+2131:        if (cbMetrics && Object.keys(cbMetrics).length > 0) usedConvergenceBindings = true;
+2138:          usedConvergenceBindings = true;
+2191:      if (entityResults.length === 0 && compIdx === 0) {
+2192:        addLog(`HF-108 Resolution path: ${usedConvergenceBindings ? 'convergence_bindings (Decision 111)' : 'sheet-matching (fallback)'}`);
+2203:      if (!usedConvergenceBindings) {                  // band-normalization path
+2258:      // retired. Intent executor (below) is sole authority for component payout +
+2262:      componentResults.push({                          // placeholder slot
+2273:    // ── INTENT ENGINE PATH (authoritative — Decision 151 sole authority) ──
+2357:    // Intent executor is sole authority (Decision 151). Rounding applied here.
+2401:      // Override componentResults payout with intent-authority value
+2402:      if (componentResults[ci.componentIndex]) {
+2403:        componentResults[ci.componentIndex].payout = roundedValue;
+2431:    const entityTotal = intentTotal;                   // final entity total
+2475:    entityResults.push({                               // accumulate per-entity
+2479:      total_payout: entityTotal,
+2480:      components: componentResults,
+```
+
+(`route.ts` has a single per-entity loop. Inside that loop, the component metrics map is populated through `convergence_bindings` (per Phase 2 path B) at line ~2131. The legacy `buildMetricsForComponent` fallback at line ~2161 sets `metrics = {}` when convergence_bindings cannot resolve. The intent executor at line 2273+ is annotated "authoritative — Decision 151 sole authority"; its result overwrites `componentResults[ci].payout` at line 2403 and the entity total at line 2431 (`entityTotal = intentTotal`) is what gets pushed to `entityResults` at line 2475 and persisted downstream. The legacy evaluateComponent path is retired per HF-220 R1; no merge of `derivedMetrics` happens in this loop because `derivedMetrics` is not produced inside `route.ts`.)
