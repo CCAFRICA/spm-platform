@@ -220,4 +220,50 @@ web/src/app/api/import/sci/analyze/route.ts:299:        const hcResult = classif
 web/src/lib/sci/hc-pattern-classifier.ts:50:export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | null {
 ```
 
-Final `npm run build`: appended below in a follow-up commit per the directive.
+Final `npm run build`:
+
+```
+> @vialuce/platform@0.1.0 prebuild
+> bash scripts/verify-korean-test.sh
+
+[korean-test-gate] PASS: zero hardcoded legacy primitive-name string literals outside registry
+
+> @vialuce/platform@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+(lint warnings preserved from pre-HF-230 baseline)
+
+   Collecting page data ...
+   Generating static pages (...)
+   Finalizing page optimization ...
+
+   (route table tail)
+
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+
+ƒ Middleware                                  76 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+BUILD EXIT: 0
+```
+
+| Surface | Outcome |
+|---|---|
+| `prebuild` Korean-test gate | PASS |
+| TypeScript type-check | Clean |
+| ESLint | Pre-HF-230 warnings preserved; no new warnings |
+| Page compilation | All routes compiled successfully |
+| Exit code | `0` |
