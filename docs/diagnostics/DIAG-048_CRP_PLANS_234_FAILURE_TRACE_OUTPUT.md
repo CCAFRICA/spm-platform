@@ -1260,3 +1260,61 @@ import_batches: 0 rows (table empty for this tenant)
 - `reference` → `processReferenceUnit` → `data_type='reference'`
 
 Quota file's classification is `entity` per signal record; its `committed_data.data_type` is therefore `entity` per the resolver. Per Phase 3.1: `data_type='entity'` columns are `_rowIndex,_sheetName,department,district,employee_id,full_name,hire_date,job_title,region,reports_to,status` — `monthly_quota` is not among the entity-sample columns.)
+
+## Phase 9 — Quota row_data verification
+
+### 9.1 `committed_data` rows containing `monthly_quota`
+
+Scan over `data_type='entity'` rows for the `monthly_quota` key in `row_data`:
+
+```
+=== Fallback scan: entity-type rows for monthly_quota key ===
+  id=d065e806-1310-4896-b761-6d66f8407114  entity_id=5b405346-be30-4123-bce9-fabf0efe4c90  source_date=null  import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8
+    row_data keys: _rowIndex, _sheetName, effective_date, entity_id, monthly_quota, name, plan, role
+    monthly_quota=18000
+  id=4ff717f0-ad37-4f93-bf4f-3f3a844cd68f  entity_id=c53fb44c-e1cf-4106-9a56-c8d676e9b6d5  source_date=null  import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8
+    row_data keys: _rowIndex, _sheetName, effective_date, entity_id, monthly_quota, name, plan, role
+    monthly_quota=18000
+  id=4ac3128c-a9e2-46da-b6db-ad1229ef6144  entity_id=0baf6d8d-f760-4399-9dea-0b52416a9ffd  source_date=null  import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8
+    row_data keys: _rowIndex, _sheetName, effective_date, entity_id, monthly_quota, name, plan, role
+    monthly_quota=18000
+  id=a251e116-92e9-4227-a8d3-6f6f4ecbccbe  entity_id=367ad636-0e10-4a1c-9158-3640afeb5cd5  source_date=null  import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8
+    row_data keys: _rowIndex, _sheetName, effective_date, entity_id, monthly_quota, name, plan, role
+    monthly_quota=25000
+  id=8b201d2f-d527-427c-a066-a9b72d8d2b00  entity_id=12d3a87c-2bd3-48cf-937b-eef2edb69547  source_date=null  import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8
+    row_data keys: _rowIndex, _sheetName, effective_date, entity_id, monthly_quota, name, plan, role
+    monthly_quota=25000
+Total entity rows scanned: 57, containing monthly_quota: 24
+```
+
+(`committed_data` contains 24 entity rows with `monthly_quota` populated, all from `import_batch_id=5290ebac-327d-4418-a6bb-d052ec20e5f8`. Row_data keys differ from the roster rows: `effective_date, entity_id, monthly_quota, name, plan, role` vs `department, district, employee_id, full_name, hire_date, job_title, region, reports_to, status`.)
+
+### 9.1 (continued) `inventoryData` 30-row sample of `data_type='entity'`
+
+```
+30-sample columns: _rowIndex, _sheetName, department, district, employee_id, full_name, hire_date, job_title, region, reports_to, status
+rows with monthly_quota in 30-sample: 0/30
+```
+
+(Per Phase 3.2 `inventoryData` body lines 909-914: query is `from('committed_data').select('data_type, row_data, metadata, import_batch_id').eq('tenant_id', tenantId).not('data_type', 'is', null).limit(500)`. The 30-row-per-data_type sample loop at lines 949-957 keeps the first 30 rows of each data_type. The total entity rows are 57 (33 roster + 24 quota per Phase 3.1 / Phase 9 scan); the 30-row sample taken by `inventoryData` lands on the roster rows because they come first in default sort order — none of the 24 quota rows reach the sample. `monthly_quota` is therefore absent from `DataCapability(data_type='entity').numericFields` and `DataCapability(data_type='entity').categoricalFields`.)
+
+### 9.2 Entity metadata for selected CRP entities
+
+```
+CRP-6007 Tyler Morrison:
+  metadata keys: department, district, job_title, plan, region, role, status
+  plan=Consumables
+  full metadata: {"plan":"Consumables","role":"Senior Rep","region":"NE","status":"Active","district":"NE-NE","job_title":"Senior Rep","department":"Sales"}
+
+CRP-6009 Kevin O'Brien:
+  metadata keys: department, district, job_title, plan, region, role, status
+  plan=Consumables
+  full metadata: {"plan":"Consumables","role":"Senior Rep","region":"NE","status":"Active","district":"NE-NE","job_title":"Senior Rep","department":"Sales"}
+
+CRP-6019 Nathan Brooks:
+  metadata keys: department, district, job_title, plan, region, role, status
+  plan=Consumables
+  full metadata: {"plan":"Consumables","role":"Senior Rep","region":"SE","status":"Active","district":"SE-CR","job_title":"Senior Rep","department":"Sales"}
+```
+
+(`entities.metadata` carries `plan` field but no `monthly_quota`. Quota values live only in `committed_data.row_data.monthly_quota` for the 24 quota rows from batch `5290ebac-327d-4418-a6bb-d052ec20e5f8`.)
