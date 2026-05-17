@@ -56,9 +56,27 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
 
   // ────────────────────────────────────────────────────────
   // ENTITY: HAS identifier AND HAS name AND idRepeatRatio ≤ 1.5
+  //         AND NOT HAS measure                              (HF-229)
   // "One row per person with categorical attributes"
+  //
+  // HF-229 — Decision 108 (HC Override Authority, LOCKED 2026-03-07)
+  // enforced at the pattern layer. Pre-HF-229 the entity_roster
+  // pattern locked classification at 0.90 from three structural
+  // conditions (HAS identifier, HAS name, idRepeatRatio<=1.5) without
+  // consulting whether HC also identified a `measure` column at
+  // HC_ROLE_THRESHOLD (0.80). A file with all three structural
+  // conditions AND a high-confidence measure column carries
+  // PERFORMANCE DATA ABOUT entities (target / quota / rebate), not
+  // entity DEFINITIONS. The system that UNDERSTANDS (HC at >=0.80)
+  // wins over the system that GUESSES (structural arms). When
+  // hasMeasure is true the pattern falls through; downstream
+  // patterns (per_entity_benchmarks for !hasTemporal at line ~113,
+  // or Level-2 CRR Bayesian + HF-228 referential signal) resolve
+  // the classification. Same defect class as HF-095 (content-profile)
+  // and HF-196 Phase 1B (agents.ts) — closes the last unenforced
+  // surface for Decision 108.
   // ────────────────────────────────────────────────────────
-  if (hasIdentifier && hasName && idRepeatRatio > 0 && idRepeatRatio <= 1.5) {
+  if (hasIdentifier && hasName && !hasMeasure && idRepeatRatio > 0 && idRepeatRatio <= 1.5) {
     return {
       classification: 'entity',
       confidence: 0.90,
@@ -66,6 +84,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       matchedConditions: [
         'HAS identifier',
         'HAS name',
+        'NOT HAS measure (HF-229 Decision 108 enforcement)',
         `idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5)`,
       ],
     };
