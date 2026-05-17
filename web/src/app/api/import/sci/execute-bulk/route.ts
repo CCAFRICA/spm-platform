@@ -16,29 +16,21 @@ import type {
   AgentType,
   SemanticBinding,
 } from '@/lib/sci/sci-types';
-import {
-  extractSourceDate,
-  findDateColumnFromBindings,
-  buildSemanticRolesMap,
-  detectPeriodMarkerColumns,
-} from '@/lib/sci/source-date-extraction';
-// HF-194: extracted helper — also used by execute/route.ts
-import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
-// HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
-// derived from SCI classification via the shared resolver. No private copies.
-import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
-// HF-196 Phase 1F — supersession trigger via SHA-256 content hash (replaces 1E fingerprint trigger).
-// HF-213 — Supersession scope changed from file-level to content-unit-level.
-// file_hash_sha256 retained for file-level audit (HF-196 Phase 1F audit intent preserved).
-import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
+// HF-231: source_date extraction, supersession, hashing, field_identities, and
+// data_type resolution all moved into commitContentUnit. Only the file-hash
+// helper is still needed at this layer (computed once over the raw file bytes
+// and threaded into commitContentUnit per content unit).
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
-import { computeContentUnitHashSha256 } from '@/lib/sci/content-unit-hash';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
 // This restores OB-182's stated calc-time intent at the import side AND closes
 // Break #2 by ensuring entity_id is populated for bulk-imported rows.
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+// HF-231: unified committed_data writer — sole write surface across all four
+// classifications. Replaces 4 inline write sites in this route (plus 4 in
+// execute/route.ts). Closes AP-17 (parallel metadata construction).
+import { commitContentUnit } from '@/lib/sci/commit-content-unit';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -514,89 +506,22 @@ async function processEntityUnit(
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
 
-  // HF-184: Unified committed_data write — entity pipeline also writes to committed_data.
-  // Classification is a hint, not a gate. All pipelines carry everything.
-  // Entity creation above is a side effect. committed_data is the uniform data store.
-  const cdBatchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: cdBatchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  // Entity creation above is a side effect; committed_data is the uniform store.
+  // Classification is a hint, not a gate — all four pipelines carry the same
+  // metadata shape through this single writer.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification: 'entity',
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
-
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === 'entity' for this pipeline.
-  const dataType = resolveDataTypeFromClassification('entity');
-
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  // Idempotent + non-blocking. Returns null on supersession failure.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, cdBatchId, contentUnitHashSha256, rows);
-
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  const entityIdField = idBinding.sourceField;
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
-    return {
-      tenant_id: tenantId,
-      import_batch_id: cdBatchId,
-      entity_id: null,
-      period_id: null,
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null,
-        informational_label: 'entity',
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
-    };
-  });
-
-  const CD_CHUNK = 2000;
-  let cdInserted = 0;
-  for (let i = 0; i < insertRows.length; i += CD_CHUNK) {
-    const slice = insertRows.slice(i, i + CD_CHUNK);
-    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
-    if (insertErr) {
-      console.warn(`[SCI Bulk] Entity→committed_data insert failed (non-blocking): ${insertErr.message}`);
-      break;
-    }
-    cdInserted += slice.length;
-  }
-
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: cdInserted,
-  }).eq('id', cdBatchId);
-
-  console.log(`[SCI Bulk] Entity→committed_data: ${cdInserted} rows, entity_id_field="${entityIdField || 'none'}"`);
+  const cdInserted = commitResult.totalInserted;
 
   // OB-195 Layer 4: Invalidate cached convergence bindings
   if (cdInserted > 0) {
@@ -631,125 +556,19 @@ async function processDataUnit(
     return { contentUnitId: unit.contentUnitId, classification, success: true, rowsProcessed: 0, pipeline: classification };
   }
 
-  // Create import batch
-  const batchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: batchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification,
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
-
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === classification ('target' | 'transaction').
-  const dataType = resolveDataTypeFromClassification(classification);
-
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
-
-  // Build semantic_roles map
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  // OB-182: Entity identifier field detected for semantic role tagging (NOT for binding).
-  // Entity binding deferred to calculation time per sequence-independence principle.
-  // committed_data.entity_id is NULL at import — engine resolves at calc time.
-  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const entityIdField = entityIdBinding?.sourceField;
-
-  // OB-152/OB-157: Source date extraction with period marker composition
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  // OB-182: Build committed_data rows — entity_id NULL (resolved at calc time)
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
-
-    return {
-      tenant_id: tenantId,
-      import_batch_id: batchId,
-      entity_id: null, // OB-182: deferred to calculation time
-      period_id: null,  // Decision 92: engine binds at calc time
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null, // preserve which field is the entity identifier
-        // HF-196 Phase 1D — D155 boundary parity: informational_label was missing
-        // here while present at processEntityUnit/processReferenceUnit. Now uniformly
-        // recorded across all 3 execute-bulk pipelines.
-        informational_label: classification,
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
-    };
-  });
-
-  // OB-174 Phase 5: Nanobatch commitment — chunked insert with progress tracking
-  // Chunks of 2000 rows (DS-016 §3.4). Each chunk committed independently.
-  // Failed chunks retried up to 3 times before skip.
-  const CHUNK = 2000;
-  let totalInserted = 0;
-  let chunksCompleted = 0;
-  const totalChunks = Math.ceil(insertRows.length / CHUNK);
-
-  for (let i = 0; i < insertRows.length; i += CHUNK) {
-    const slice = insertRows.slice(i, i + CHUNK);
-    let chunkSuccess = false;
-    let lastErr = '';
-
-    // Retry up to 3 times per chunk
-    for (let retry = 0; retry < 3 && !chunkSuccess; retry++) {
-      const { error: insertErr } = await supabase.from('committed_data').insert(slice);
-      if (insertErr) {
-        lastErr = insertErr.message;
-        console.warn(`[SCI Bulk] Chunk ${chunksCompleted + 1}/${totalChunks} failed (attempt ${retry + 1}): ${lastErr}`);
-        if (retry < 2) await new Promise(r => setTimeout(r, 500 * (retry + 1))); // backoff
-      } else {
-        chunkSuccess = true;
-      }
-    }
-
-    if (chunkSuccess) {
-      totalInserted += slice.length;
-      chunksCompleted++;
-    } else {
-      console.error(`[SCI Bulk] Chunk ${chunksCompleted + 1}/${totalChunks} permanently failed after 3 retries: ${lastErr}`);
-      // Log to import_batches but continue with next chunk (don't lose prior chunks)
-    }
-
-    // Update chunk_progress on processing_jobs if a job context exists
-    // (The processing_job_id is passed via the proposalId when called from async path)
-    console.log(`[SCI Bulk] Chunk ${chunksCompleted}/${totalChunks}: ${totalInserted}/${insertRows.length} rows committed`);
-  }
-
-  // Update batch status
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: totalInserted,
-  }).eq('id', batchId);
-
-  console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
+  const totalInserted = commitResult.totalInserted;
 
   // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
   if (totalInserted > 0) {
@@ -805,92 +624,29 @@ async function processReferenceUnit(
     return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: 0, pipeline: 'reference' };
   }
 
-  const batchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: batchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification: 'reference',
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
-
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === 'reference' for this pipeline.
-  const dataType = resolveDataTypeFromClassification('reference');
-
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
-
-  // Build semantic_roles map
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  // Entity identifier for calc-time resolution (OB-182/OB-183)
-  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const entityIdField = entityIdBinding?.sourceField;
-
-  // Source date extraction (Decision 92)
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  // Build committed_data rows (same structure as processDataUnit)
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
+  if (!commitResult.success && commitResult.totalInserted === 0) {
     return {
-      tenant_id: tenantId,
-      import_batch_id: batchId,
-      entity_id: null, // OB-182: deferred to calculation time
-      period_id: null,  // Decision 92: engine binds at calc time
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null,
-        informational_label: 'reference',
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
+      contentUnitId: unit.contentUnitId,
+      classification: 'reference',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'reference',
+      error: commitResult.error,
     };
-  });
-
-  // Insert in chunks (same as processDataUnit)
-  const CHUNK = 2000;
-  let totalInserted = 0;
-  for (let i = 0; i < insertRows.length; i += CHUNK) {
-    const slice = insertRows.slice(i, i + CHUNK);
-    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
-    if (insertErr) {
-      return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: totalInserted, pipeline: 'reference', error: insertErr.message };
-    }
-    totalInserted += slice.length;
   }
-
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: totalInserted,
-  }).eq('id', batchId);
-
-  const sourceDates = insertRows.filter(r => r.source_date).map(r => r.source_date);
-  console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
+  const totalInserted = commitResult.totalInserted;
 
   // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
   if (totalInserted > 0) {
