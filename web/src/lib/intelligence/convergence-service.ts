@@ -997,6 +997,30 @@ async function inventoryData(
     }
   }
 
+  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
+  // above can land entirely on rows of one row-data schema even when a
+  // data_type carries rows from multiple imports with different column sets
+  // (e.g., roster rows + quota rows both classified `entity`). Walk the
+  // remaining rows in `allRows` and admit at most one extra row per unseen
+  // column-key signature, capped at 50 samples per data_type. Korean Test:
+  // discrimination is by column-key structural signature, not by column
+  // name semantics or values.
+  for (const [dt, samples] of Array.from(byType.entries())) {
+    const sigOf = (rd: Record<string, unknown>) =>
+      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
+    for (const row of allRows) {
+      if (samples.length >= 50) break;
+      if ((row.data_type as string) !== dt) continue;
+      const rd = row.row_data as Record<string, unknown> | null;
+      if (!rd) continue;
+      const sig = sigOf(rd);
+      if (seenSignatures.has(sig)) continue;
+      samples.push(rd);
+      seenSignatures.add(sig);
+    }
+  }
+
   for (const [dataType, samples] of Array.from(byType.entries())) {
     const roles = rolesByType.get(dataType) || {};
     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
