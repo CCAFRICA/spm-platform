@@ -22,6 +22,10 @@ import {
   type AIContextSheet,
   type MetricDerivationRule,
   rowMatchesFilters,
+  // HF-228 Phase 4: production entity loop now executes convergence-produced
+  // metric_derivations rules so derived metrics (e.g. filtered counts,
+  // cross-category sums) reach the intent executor's data.metrics map.
+  applyMetricDerivations,
 } from '@/lib/calculation/run-calculation';
 import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
@@ -1774,6 +1778,24 @@ export async function POST(request: NextRequest) {
     const perComponentMetrics: Record<string, number>[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
+    // HF-228 Phase 4: execute convergence-produced metric_derivations to make
+    // derived metrics available to the intent executor. Convergence produces
+    // derivation rules (operation + filter + source_field per
+    // MetricDerivationRule) that the engine's binding-based path
+    // (resolveMetricsFromConvergenceBindings) cannot express — filtered
+    // counts (Cross-Sell conditional_gate), cross-category sums, ratio
+    // derivations, prior-period deltas. Pre-HF-228 the production loop
+    // bypassed applyMetricDerivations entirely (DIAG-048 Phase 10 evidence):
+    // the convergence pipeline produced correct rules but the engine never
+    // executed them, so dependent metrics (equipment_deal_count,
+    // cross_sell_count, etc.) were undefined when the intent executor
+    // read data.metrics. Runs once per entity (rules are entity-agnostic);
+    // results merge into each component's metrics map below.
+    const perEntitySheetData = dataByEntity.get(entityId);
+    const derivedMetrics: Record<string, number> = perEntitySheetData && metricDerivations.length > 0
+      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+      : {};
+
     for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
       const component = selectedComponents[compIdx];
 
@@ -2259,6 +2281,18 @@ export async function POST(request: NextRequest) {
       // rounding; this loop's residual responsibility is to populate perComponentMetrics
       // (HF-205 Shape C invariant target) and seed ComponentResult slots with metadata.
       // Intent executor overwrites placeholder.payout at the index-assignment site.
+      // HF-228 Phase 4: merge derived metrics into the component's metrics map.
+      // Derived metrics (from convergence metric_derivations executed once
+      // above per entity) carry operation+filter rules that produce metrics
+      // the convergence_bindings cannot express (filtered counts, cross-
+      // category sums, ratio derivations, prior-period deltas). Merge order:
+      // binding-resolved values populate metrics first; derivation outputs
+      // overlay so a derivation rule for a given metric name takes
+      // precedence over an incomplete binding-resolved value for the same
+      // name. Empty derivedMetrics ({}) is a no-op.
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        metrics[key] = value;
+      }
       componentResults.push({
         componentId: component.id,
         componentName: component.name,
