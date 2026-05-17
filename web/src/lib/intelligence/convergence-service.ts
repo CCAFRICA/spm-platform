@@ -997,6 +997,30 @@ async function inventoryData(
     }
   }
 
+  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
+  // above can land entirely on rows of one row-data schema even when a
+  // data_type carries rows from multiple imports with different column sets
+  // (e.g., roster rows + quota rows both classified `entity`). Walk the
+  // remaining rows in `allRows` and admit at most one extra row per unseen
+  // column-key signature, capped at 50 samples per data_type. Korean Test:
+  // discrimination is by column-key structural signature, not by column
+  // name semantics or values.
+  for (const [dt, samples] of Array.from(byType.entries())) {
+    const sigOf = (rd: Record<string, unknown>) =>
+      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
+    for (const row of allRows) {
+      if (samples.length >= 50) break;
+      if ((row.data_type as string) !== dt) continue;
+      const rd = row.row_data as Record<string, unknown> | null;
+      if (!rd) continue;
+      const sig = sigOf(rd);
+      if (seenSignatures.has(sig)) continue;
+      samples.push(rd);
+      seenSignatures.add(sig);
+    }
+  }
+
   for (const [dataType, samples] of Array.from(byType.entries())) {
     const roles = rolesByType.get(dataType) || {};
     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
@@ -2241,6 +2265,41 @@ async function generateAllComponentBindings(
       aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
     }
   }
+
+  // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
+  // was built only from capabilities whose data_type appears in `matches`;
+  // unmatched capabilities contributed no columns and were invisible to
+  // resolveColumnMappingsViaAI. For plans that combine transaction-style
+  // measures with reference/target-style metrics from a different data_type
+  // (e.g., a per-entity quota living on `target` data alongside revenue on
+  // `transaction` data), the cross-source metric could not be resolved.
+  // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
+  // with lower confidence (0.4) so the AI naturally prefers primary
+  // (matched-capability) columns for principal metrics and uses cross-source
+  // columns only for supplementary metrics. Categorical fields from
+  // unmatched capabilities also flow through for filter discovery.
+  // Korean Test: structural type classification + numeric-field discovery,
+  // no column-name matching.
+  const matchedDataTypes = new Set(matches.map(m => m.dataType));
+  for (const cap of capabilities) {
+    if (matchedDataTypes.has(cap.dataType)) continue;
+    for (const nf of cap.numericFields) {
+      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+        measureColumns.push({
+          name: nf.field,
+          fi: { structuralType: 'measure', contextualIdentity: 'cross_source_numeric', confidence: 0.4 },
+          stats: cap.columnStats[nf.field],
+          batchId: cap.batchIds[0] || '',
+        });
+      }
+    }
+    for (const cf of cap.categoricalFields || []) {
+      if (seenCategoricalFields.has(cf.field)) continue;
+      seenCategoricalFields.add(cf.field);
+      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+    }
+  }
+
   console.log('[Convergence] HF-112 Requesting AI column mapping');
   const aiMapping = await resolveColumnMappingsViaAI(
     components,

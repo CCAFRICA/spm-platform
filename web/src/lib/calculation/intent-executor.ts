@@ -72,7 +72,13 @@ function resolveSource(
 ): Decimal {
   switch (src.source) {
     case 'metric': {
-      const field = src.sourceSpec.field;
+      // HF-228 Phase 5: null guard. An IntentSource may reach resolveSource
+      // with an incomplete sourceSpec (e.g. AI-emitted intent missing the
+      // 'field' property). Pre-HF-228 `field.startsWith('metric:')` threw
+      // TypeError on the entire calculation run. Coerce to '' so the metric
+      // lookup misses (data.metrics[''] is undefined, `?? 0` produces 0).
+      // Incomplete intent → component pays $0; no crash.
+      const field = src.sourceSpec?.field ?? '';
       // Strip "metric:" prefix if present
       const key = field.startsWith('metric:') ? field.slice(7) : field;
       const raw = data.metrics[key] ?? 0;
@@ -86,10 +92,14 @@ function resolveSource(
       return toDecimal(raw);
     }
     case 'ratio': {
-      const numKey = src.sourceSpec.numerator.startsWith('metric:')
-        ? src.sourceSpec.numerator.slice(7) : src.sourceSpec.numerator;
-      const denKey = src.sourceSpec.denominator.startsWith('metric:')
-        ? src.sourceSpec.denominator.slice(7) : src.sourceSpec.denominator;
+      // HF-228 Phase 5: null-guard the numerator/denominator metric names.
+      // See metric case above for rationale.
+      const numerator = src.sourceSpec?.numerator ?? '';
+      const denominator = src.sourceSpec?.denominator ?? '';
+      const numKey = numerator.startsWith('metric:')
+        ? numerator.slice(7) : numerator;
+      const denKey = denominator.startsWith('metric:')
+        ? denominator.slice(7) : denominator;
       const num = toDecimal(data.metrics[numKey] ?? 0);
       const den = toDecimal(data.metrics[denKey] ?? 0);
       const val = den.isZero() ? ZERO : num.div(den);
@@ -101,15 +111,19 @@ function resolveSource(
       return val;
     }
     case 'aggregate': {
-      const field = src.sourceSpec.field;
+      // HF-228 Phase 5: null guard. DIAG-048 Phase 4.2 traced the production
+      // crash to this line — an aggregate IntentSource missing
+      // sourceSpec.field threw TypeError in resolveSource, halting the
+      // entire calculation run. Coerce to '' for safe startsWith call.
+      const field = src.sourceSpec?.field ?? '';
       const key = field.startsWith('metric:') ? field.slice(7) : field;
-      if (src.sourceSpec.scope === 'group' && data.groupMetrics) {
+      if (src.sourceSpec?.scope === 'group' && data.groupMetrics) {
         const raw = data.groupMetrics[key] ?? 0;
         inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: raw, resolvedValue: raw };
         return toDecimal(raw);
       }
       const raw = data.metrics[key] ?? 0;
-      inputLog[`aggregate:${src.sourceSpec.scope}:${key}`] = {
+      inputLog[`aggregate:${src.sourceSpec?.scope ?? 'unknown'}:${key}`] = {
         source: `aggregate:${src.sourceSpec.scope}`,
         rawValue: raw,
         resolvedValue: raw,

@@ -21,6 +21,7 @@ import { checkPromotedPatterns } from './promoted-patterns';
 import { computeStructuralFingerprint, fingerprintToSignature } from './classification-signal-service';
 import type { PriorSignal } from './classification-signal-service';
 import type { EntityIdOverlap } from './tenant-context';
+import { computeTenantContextAdjustments } from './tenant-context';
 
 // ============================================================
 // SYNAPTIC INGESTION STATE
@@ -193,6 +194,35 @@ export function classifyContentUnits(state: SynapticIngestionState): void {
 
     // STEP 2: Additive scoring with signature floors (Round 1)
     const scores = computeAdditiveScores(profile);
+
+    // HF-228 STEP 2.4: entity-id overlap adjustments — referential-vs-
+    // definitional discrimination. Phase C scoring previously bypassed this
+    // signal (declared on state at line ~54 but never applied). Wiring it in
+    // here mirrors the resolver.ts:121-144 path used by the legacy Phase B
+    // resolver, so the production pipeline now sees the same tenant-context
+    // adjustments. Korean Test: VALUE matching (entity external_ids), not
+    // column names.
+    const unitOverlap = state.entityIdOverlaps?.get(unitId);
+    if (unitOverlap) {
+      const minimalTenantContext = {
+        existingEntityCount: 0, existingEntityExternalIds: new Set<string>(),
+        existingPlanCount: 0, existingPlanComponentNames: [],
+        existingPlanInputRequirements: [], committedDataRowCount: 0,
+        committedDataTypes: [], referenceDataExists: false,
+      };
+      const overlapAdjustments = computeTenantContextAdjustments(minimalTenantContext, unitOverlap, profile);
+      for (const adj of overlapAdjustments) {
+        const agentScore = scores.find(s => s.agent === adj.agent);
+        if (agentScore) {
+          agentScore.confidence = Math.max(0, Math.min(1, agentScore.confidence + adj.adjustment));
+          agentScore.signals.push({
+            signal: adj.signal,
+            weight: adj.adjustment,
+            evidence: adj.evidence,
+          });
+        }
+      }
+    }
 
     // STEP 2.5: OB-160L — Apply promoted patterns from foundational signals
     if (state.promotedPatterns && state.promotedPatterns.size > 0) {
