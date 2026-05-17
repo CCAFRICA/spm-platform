@@ -156,4 +156,50 @@ $ grep -nE "'quota'|'monthly_quota'|'target_amount'|'product_category'|'Capital 
 (zero hits)
 ```
 
-Final `npm run build`: appended below in a follow-up commit per the directive.
+Final `npm run build`:
+
+```
+> @vialuce/platform@0.1.0 prebuild
+> bash scripts/verify-korean-test.sh
+
+[korean-test-gate] PASS: zero hardcoded legacy primitive-name string literals outside registry
+
+> @vialuce/platform@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+(lint warnings preserved from pre-HF-229 baseline — non-blocking)
+
+   Collecting page data ...
+   Generating static pages (...)
+   Finalizing page optimization ...
+
+   (full route table emitted; tail follows)
+
+  ├ chunks/2117-a743d72d939a4854.js           31.9 kB
+  ├ chunks/fd9d1056-5bd80ebceecc0da8.js       53.7 kB
+  └ other shared chunks (total)               2.59 kB
+
+
+ƒ Middleware                                  76 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+BUILD EXIT: 0
+```
+
+| Surface | Outcome |
+|---|---|
+| `prebuild` Korean-test gate (`scripts/verify-korean-test.sh`) | PASS |
+| TypeScript type-check | Clean — no errors |
+| ESLint | Pre-HF-229 warnings preserved; no new warnings |
+| Page compilation | All routes compiled successfully |
+| Exit code | `0` |
