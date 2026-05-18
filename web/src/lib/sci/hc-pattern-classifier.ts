@@ -116,31 +116,46 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   }
 
   // ── Branches 3 & 4: measure present ──────────────────────
-  // Distinguish target (entity-level — one value set per entity) from
-  // transaction (event-level — repeating events per entity) by identifier
-  // count. One identifier = entity-keyed; two+ = event-keyed (entity ID
-  // + transaction/event ID).
-  if (identifierCount === 1) {
-    return {
-      classification: 'target',
-      confidence: 0.85,
-      patternName: 'entity_targets',
-      matchedConditions: [
-        'HAS measure',
-        '1 identifier — entity-level',
-        `${measureCount} measure column(s)`,
-      ],
-    };
-  }
+  // HF-232: Discriminate target from transaction by `hasReferenceKey`, not
+  // by `identifierCount`. The LLM distinguishes two kinds of ID columns:
+  //   `identifier`    — the row's own identity (transaction_id, employee_id)
+  //   `reference_key` — a foreign key to another entity (sales_rep_id)
+  // HF-230 counted only `identifier` roles, so a sales file with
+  // `transaction_id:identifier@0.95 + sales_rep_id:reference_key@0.95`
+  // landed in `identifierCount === 1` → target. Wrong: the presence of a
+  // reference_key is the semantic signal that the file RECORDS events
+  // referencing entities (transactional), not entity-level records (target).
 
-  if (identifierCount >= 2) {
+  // Branch 3: Transaction data — events that REFERENCE entities.
+  // Has a per-row identifier AND a reference_key (foreign key to another entity).
+  // "Each row is an event with its own ID, linked to an entity via foreign key."
+  if (identifierCount >= 1 && hasReferenceKey) {
     return {
       classification: 'transaction',
       confidence: 0.85,
       patternName: 'event_transactions',
       matchedConditions: [
         'HAS measure',
-        `${identifierCount} identifier(s) — event-level`,
+        'HAS reference_key — event references entities',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
+      ],
+    };
+  }
+
+  // Branch 4: Target/reference data — entity-level records with measures.
+  // Has an identifier but NO reference_key — this IS the entity record, not
+  // referencing another. "One value set per entity — quotas, targets,
+  // thresholds, rates."
+  if (identifierCount >= 1 && !hasReferenceKey) {
+    return {
+      classification: 'target',
+      confidence: 0.85,
+      patternName: 'entity_targets',
+      matchedConditions: [
+        'HAS measure',
+        'NO reference_key — entity-level record',
+        `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
     };
