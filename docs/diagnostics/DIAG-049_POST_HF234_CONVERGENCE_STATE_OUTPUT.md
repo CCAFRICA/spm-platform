@@ -1240,3 +1240,301 @@ data_type="target" (24 rows):
 
 `metricContexts` is built in `convergeBindings` and passed to `generateAISemanticDerivations` as the first parameter. Construction code in Phase 2.2 above, lines 627-667. Each `MetricContext` object carries `name`, `label`, `componentName`, `operation`, optional `scope`, optional `semanticIntent`, optional `metricInputs`, optional `signalContext`. No data-column references are added at this layer — the AI sees them via the second parameter (`capabilities`) which `generateAISemanticDerivations` formats into `columnDescriptions` at lines 2635-2648.
 
+---
+
+## Phase 5 — HF-228 and HF-234 diffs
+
+### 5.1 HF-228 merge commit list (from `git log --all --oneline | grep -iE 'hf.?228'`)
+
+```
+eba2cfc4 Merge pull request #406 from CCAFRICA/hf-228-platform-data-aperture
+55a040c7 HF-228: completion report -- append final build output
+258a7b90 HF-228: completion report per Rules 25-28
+df14075d HF-228 Phase 5: null safety in resolveSource
+3b9981b9 HF-228 Phase 4: metric_derivations execution in production entity loop
+be1e6ec3 HF-228 Phase 3: cross-data-type column discovery in generateAllComponentBindings
+ca12978e HF-228 Phase 2: inventoryData schema-aware sampling
+ff23c183 HF-228 Phase 1: SCI referential classification signal
+3550d5de HF-228 Phase 0: diagnostic -- read current state
+8e557460 HF-228 Phase 0: commit directive prompt (Rule 5)
+```
+
+### 5.2 HF-228 diff against parent, for `convergence-service.ts` only (`git diff eba2cfc4^1..eba2cfc4 -- web/src/lib/intelligence/convergence-service.ts | head -200`)
+
+```diff
+diff --git a/web/src/lib/intelligence/convergence-service.ts b/web/src/lib/intelligence/convergence-service.ts
+index d9469001..d0484ecc 100644
+--- a/web/src/lib/intelligence/convergence-service.ts
++++ b/web/src/lib/intelligence/convergence-service.ts
+@@ -997,6 +997,30 @@ async function inventoryData(
+     }
+   }
+
++  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
++  // above can land entirely on rows of one row-data schema even when a
++  // data_type carries rows from multiple imports with different column sets
++  // (e.g., roster rows + quota rows both classified `entity`). Walk the
++  // remaining rows in `allRows` and admit at most one extra row per unseen
++  // column-key signature, capped at 50 samples per data_type. Korean Test:
++  // discrimination is by column-key structural signature, not by column
++  // name semantics or values.
++  for (const [dt, samples] of Array.from(byType.entries())) {
++    const sigOf = (rd: Record<string, unknown>) =>
++      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
++    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
++    for (const row of allRows) {
++      if (samples.length >= 50) break;
++      if ((row.data_type as string) !== dt) continue;
++      const rd = row.row_data as Record<string, unknown> | null;
++      if (!rd) continue;
++      const sig = sigOf(rd);
++      if (seenSignatures.has(sig)) continue;
++      samples.push(rd);
++      seenSignatures.add(sig);
++    }
++  }
++
+   for (const [dataType, samples] of Array.from(byType.entries())) {
+     const roles = rolesByType.get(dataType) || {};
+     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
+@@ -2241,6 +2265,41 @@ async function generateAllComponentBindings(
+       aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+     }
+   }
++
++  // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
++  // was built only from capabilities whose data_type appears in `matches`;
++  // unmatched capabilities contributed no columns and were invisible to
++  // resolveColumnMappingsViaAI. For plans that combine transaction-style
++  // measures with reference/target-style metrics from a different data_type
++  // (e.g., a per-entity quota living on `target` data alongside revenue on
++  // `transaction` data), the cross-source metric could not be resolved.
++  // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
++  // with lower confidence (0.4) so the AI naturally prefers primary
++  // (matched-capability) columns for principal metrics and uses cross-source
++  // columns only for supplementary metrics. Categorical fields from
++  // unmatched capabilities also flow through for filter discovery.
++  // Korean Test: structural type classification + numeric-field discovery,
++  // no column-name matching.
++  const matchedDataTypes = new Set(matches.map(m => m.dataType));
++  for (const cap of capabilities) {
++    if (matchedDataTypes.has(cap.dataType)) continue;
++    for (const nf of cap.numericFields) {
++      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
++        measureColumns.push({
++          name: nf.field,
++          fi: { structuralType: 'measure', contextualIdentity: 'cross_source_numeric', confidence: 0.4 },
++          stats: cap.columnStats[nf.field],
++          batchId: cap.batchIds[0] || '',
++        });
++      }
++    }
++    for (const cf of cap.categoricalFields || []) {
++      if (seenCategoricalFields.has(cf.field)) continue;
++      seenCategoricalFields.add(cf.field);
++      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
++    }
++  }
++
+   console.log('[Convergence] HF-112 Requesting AI column mapping');
+   const aiMapping = await resolveColumnMappingsViaAI(
+     components,
+```
+
+(Diff captured at default 3-line context; truncated by `head -200` as the directive specified.)
+
+### 5.3 HF-234 merge commit list (from `git log --all --oneline | grep -iE 'hf.?234'`)
+
+```
+241c60af Merge pull request #412 from CCAFRICA/hf-234-convergence-separation-of-concerns
+4c76f04a HF-234 Phase 4: completion report + CRP binding clear
+5792e38f HF-234 Phase 3: convergence writes both bindings and derivations
+36c0ac7d HF-234 Phase 2: Pass 4 fires for ALL metrics when categorical data exists
+13727921 HF-234 Phase 1: remove categorical fields from Call 1 prompt
+15c492df HF-234 Phase 0: diagnostic — convergence separation of concerns
+```
+
+### 5.4 HF-234 diff against parent, for `convergence-service.ts` only (`git diff 241c60af^1..241c60af -- web/src/lib/intelligence/convergence-service.ts | head -200`)
+
+```diff
+diff --git a/web/src/lib/intelligence/convergence-service.ts b/web/src/lib/intelligence/convergence-service.ts
+index d0484ecc..7844d298 100644
+--- a/web/src/lib/intelligence/convergence-service.ts
++++ b/web/src/lib/intelligence/convergence-service.ts
+@@ -598,16 +598,26 @@ export async function convergeBindings(
+   // 1-3 (generateDerivationsForMatch, removed above) had failed to resolve.
+   // Removing that path means the `derivations` array entering this point
+   // contains ONLY the targets-pair ratio derivations (from the actuals+target
+-  // capability detection block). All remaining required metrics now flow
+-  // through Pass 4 which carries the categorical-subset prompt and produces
+-  // filter-populated rules — closing the filter-loss class identified in
+-  // DIAG-046/047/AUD-009. The variable name `unresolvedForAI` is retained
+-  // for backward git-blame readability; the set now spans "every required
+-  // metric except those produced as a ratio above" rather than "unresolved
+-  // by the deterministic match path".
++  // capability detection block).
++  //
++  // HF-234 — when capabilities carry categorical fields, ALL required metrics
++  // flow through Pass 4 regardless of whether earlier code added a derivation
++  // for them. Pass 4 is the surface where filter discovery happens, and any
++  // metric on data with categorical dimensions may need subsetting. Tenants
++  // without categorical data (e.g., Meridian — one metric per column) keep
++  // the prior gate so Pass 4 fires only for metrics not already resolved by
++  // the targets-pair ratio block.
++  //
++  // The variable name `unresolvedForAI` is retained for git-blame readability;
++  // its membership semantics depend on the categorical-data branch below.
++  const hasCategoricalData = capabilities.some(cap =>
++    (cap.categoricalFields?.length ?? 0) > 0,
++  );
+   const allResolvedMetrics = new Set(derivations.map(d => d.metric));
+   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
+-  const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
++  const unresolvedForAI = hasCategoricalData
++    ? allRequiredMetrics
++    : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+
+   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
+     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
+@@ -656,7 +666,7 @@ export async function convergeBindings(
+       };
+     });
+
+-    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} unresolved metrics — invoking AI semantic derivation`);
++    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} metrics for AI semantic derivation (hasCategoricalData=${hasCategoricalData})`);
+     for (const mc of metricContexts) {
+       console.log(`[Convergence] Pass 4 metric: ${mc.name} (label: "${mc.label}", op: ${mc.operation}${mc.scope ? ', scope: ' + mc.scope : ''})`);
+     }
+@@ -1939,16 +1949,21 @@ export type ColumnMappingFilter = {
+ };
+ export type ColumnMappingValue = string | { column: string; filters?: ColumnMappingFilter[] };
+
+-// One AI call: match plan metric field names to data column contextual identities
++// One AI call: match plan metric field names to data column contextual identities.
++//
++// HF-234 — separation of concerns: this call is the STRUCTURAL column-mapping
++// authority. It returns `{metric: column}` mappings only. Categorical-subset
++// filter discovery has moved to Pass 4 (generateAISemanticDerivations), which
++// produces metric_derivations rules that the engine applies AFTER role-bound
++// metric resolution. The prompt below no longer mentions categorical fields or
++// filter forms, so the LLM consistently returns the flat string shape that
++// `isValidColumnMapping` expects. Defensive object-form parsing in
++// `generateAllComponentBindings` is retained for backward compatibility.
+ async function resolveColumnMappingsViaAI(
+   components: PlanComponent[],
+   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
+   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
+   metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
+-  // HF-227: Categorical fields with distinct values so the AI can identify
+-  // categorical-subset opportunities at column-mapping time. Source comes from
+-  // DataCapability.categoricalFields (Korean Test: runtime data, not code).
+-  categoricalFields: Array<{ field: string; distinctValues: unknown[] }> = [],
+ ): Promise<Record<string, ColumnMappingValue>> {
+   const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
+   const columnNames = measureColumns.map(c => c.name);
+@@ -2001,24 +2016,14 @@ async function resolveColumnMappingsViaAI(
+     `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
+   ).join('\n');
+
+-  // HF-227: categorical-context block. When categorical fields are available
+-  // they are listed with their distinct values so the AI can identify
+-  // subsetting opportunities (e.g., a metric labelled as "revenue from a
+-  // specific class" can be bound to a broader numeric column with a filter
+-  // on the categorical class). Korean Test (E910): field names and values
+-  // come from DataCapability at runtime, never from code literals.
+-  const categoricalContext = categoricalFields.length > 0
+-    ? `\n\nCATEGORICAL FIELDS (available for filtering):\n${
+-        categoricalFields.map((cf, i) =>
+-          `${i + 1}. "${cf.field}" — distinct values: ${JSON.stringify(cf.distinctValues.slice(0, 20))}`
+-        ).join('\n')
+-      }\n\nIf a metric label suggests a subset of a broader numeric field (e.g., a revenue metric that applies only to one product class, a sale count restricted to a specific transaction type), use a categorical field together with one of its distinct values as a filter. The filter value MUST be one of the listed distinct values. Use a plain string mapping when no filter is needed; use the object form when the metric requires categorical subsetting.`
+-    : '';
+-
+   // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
+   // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
+   // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
+-  // HF-227: enriched output schema admits {column, filters} per mapping.
++  //
++  // HF-234 — categorical-context block REMOVED. Column mapping is structural;
++  // filter discovery belongs to Pass 4 (generateAISemanticDerivations) which
++  // produces metric_derivations rules consumed by the engine alongside these
++  // bindings. The prompt now asks for a single concern — pure column mapping.
+   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
+ Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
+ satisfy the stated intent over columns that merely share contextual labels.
+@@ -2027,10 +2032,10 @@ METRIC FIELDS:
+ ${metricList}
+
+ DATA COLUMNS:
+-${columnList}${categoricalContext}
++${columnList}
+
+-EXAMPLE OUTPUT (plain string when no filter; object with filters when categorical subset applies):
+-{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": {"column": "${columnNames[1] || 'Column_B'}", "filters": [{"field": "${categoricalFields[0]?.field || 'Category_Col'}", "operator": "eq", "value": ${JSON.stringify(categoricalFields[0]?.distinctValues?.[0] ?? 'Some_Category')}}]}}`;
++EXAMPLE OUTPUT (flat metric-to-column map):
++{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
+
+   try {
+     const aiService = getAIService();
+@@ -2251,20 +2256,14 @@ async function generateAllComponentBindings(
+
+   // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
+   // signals as authoritative semantic intent.
+-  // HF-227: aggregate categorical fields across matched capabilities and pass
+-  // them to the AI so it can identify categorical-subset opportunities
+-  // (filters) at column-mapping time. Dedup by field name across capabilities.
+-  const seenCategoricalFields = new Set<string>();
+-  const aggregatedCategoricalFields: Array<{ field: string; distinctValues: unknown[] }> = [];
+-  for (const match of matches) {
+-    const cap = capabilities.find(c => c.dataType === match.dataType);
+-    if (!cap) continue;
+-    for (const cf of cap.categoricalFields || []) {
+-      if (seenCategoricalFields.has(cf.field)) continue;
+-      seenCategoricalFields.add(cf.field);
+-      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+-    }
+-  }
++  //
++  // HF-234 — categorical-field aggregation REMOVED from this call site.
++  // Categorical-subset filter discovery has moved to Pass 4
++  // (generateAISemanticDerivations), which reads categoricalFields directly
++  // from the `capabilities` parameter and produces metric_derivations rules.
++  // The cross-data-type measure-column discovery below (HF-228) is preserved
++  // — it serves Call 1's structural column mapping for plans whose metrics
++  // span multiple capability data types.
+
+   // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
+   // was built only from capabilities whose data_type appears in `matches`;
+@@ -2276,8 +2275,7 @@ async function generateAllComponentBindings(
+   // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
+   // with lower confidence (0.4) so the AI naturally prefers primary
+   // (matched-capability) columns for principal metrics and uses cross-source
+-  // columns only for supplementary metrics. Categorical fields from
+-  // unmatched capabilities also flow through for filter discovery.
++  // columns only for supplementary metrics.
+   // Korean Test: structural type classification + numeric-field discovery,
+   // no column-name matching.
+   const matchedDataTypes = new Set(matches.map(m => m.dataType));
+@@ -2293,11 +2291,6 @@ async function generateAllComponentBindings(
+         });
+       }
+     }
+-    for (const cf of cap.categoricalFields || []) {
+-      if (seenCategoricalFields.has(cf.field)) continue;
+-      seenCategoricalFields.add(cf.field);
+-      aggregatedCategoricalFields.push({ field: cf.field, distinctValues: cf.distinctValues });
+-    }
+   }
+
+   console.log('[Convergence] HF-112 Requesting AI column mapping');
+@@ -2306,7 +2299,6 @@ async function generateAllComponentBindings(
+     allRequirements,
+     measureColumns,
+     metricComprehension,
+-    aggregatedCategoricalFields,
+   );
+   console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
+```
+
+(Diff captured at default 3-line context; truncated by `head -200` as the directive specified.)
+
