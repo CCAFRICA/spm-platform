@@ -464,7 +464,231 @@ The arm that matters for binding count is FULL vs PARTIAL, not fresh-LLM vs flyw
 
 ## Phase 4: commitContentUnit Consumption
 
-[populated by Phase 4]
+### commitContentUnit full body
+
+`web/src/lib/sci/commit-content-unit.ts` is 433 lines. Phase 4 quotes the consumption-relevant region (lines 204-433) verbatim with line numbers — the file's imports + helper functions (lines 1-200) are present in the repo for cross-reference. (Helper `resolveEntityIdField` body is at lines 152-180, `findHcRole` at lines 125-150, both quoted earlier in Phase 1 / Phase 3 context.)
+
+```typescript
+204 export async function commitContentUnit(
+205   supabase: SupabaseClient,
+206   params: CommitContentUnitParams,
+207 ): Promise<CommitContentUnitResult> {
+208   const {
+209     unit,
+210     rows,
+211     classification,
+212     tenantId,
+213     proposalId,
+214     tabName,
+215     fileName,
+216     source,
+217     fileHashSha256,
+218   } = params;
+219
+220   // Empty-rows short-circuit — preserve existing caller contract.
+221   if (rows.length === 0) {
+222     return {
+223       batchId: '',
+224       totalInserted: 0,
+225       dataType: resolveDataTypeFromClassification(classification),
+226       entityIdField: null,
+227       fieldIdentities: {},
+228       earliestDate: null,
+229       latestDate: null,
+230       dateCount: 0,
+231       success: true,
+232     };
+233   }
+234
+235   const profile = profileFor(source);
+236
+237   // HF-196 Phase 1D — data_type derives from SCI classification (Decisions 154/155).
+238   const dataType = resolveDataTypeFromClassification(classification);
+239
+240   // HF-213 — content_unit_hash_sha256 is the supersession identity primitive.
+241   const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
+242   const batchId = crypto.randomUUID();
+243
+244   await supabase.from('import_batches').insert({
+245     id: batchId,
+246     tenant_id: tenantId,
+247     file_name: fileName,
+248     file_type: 'sci',
+249     status: 'processing',
+250     row_count: rows.length,
+251     // HF-196 Phase 1F — file-level hash retained for audit (supersedure trigger
+252     // moved to content_unit_hash_sha256 at HF-213).
+253     file_hash_sha256: fileHashSha256,
+254     content_unit_hash_sha256: contentUnitHashSha256,
+255     metadata: {
+256       source,
+257       proposalId,
+258       contentUnitId: unit.contentUnitId,
+259       classification,
+260     } as unknown as Json,
+261   });
+262
+263   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
+264   await supersedePriorBatchOnContentMatch(
+265     supabase,
+266     tenantId,
+267     batchId,
+268     contentUnitHashSha256,
+269     rows,
+270   );
+271
+272   // Build semantic_roles map from confirmedBindings (single shape across
+273   // all four classifications).
+274   const semanticRoles: Record<
+275     string,
+276     { role: string; confidence: number; claimedBy: string }
+277   > = {};
+278   for (const binding of unit.confirmedBindings) {
+279     semanticRoles[binding.sourceField] = {
+280       role: binding.semanticRole,
+281       confidence: binding.confidence,
+282       claimedBy: binding.claimedBy,
+283     };
+284   }
+285
+286   // HF-110 — field_identities: HC trace primary, confirmedBindings fallback (DS-009 1.3).
+287   const fieldIdentities =
+288     extractFieldIdentitiesFromTrace(unit.classificationTrace) ??
+289     buildFieldIdentitiesFromBindings(unit.confirmedBindings);
+290
+291   // Decision 108 — HC role @ >= 0.80 overrides structural binding.
+292   // HF-233 — Classification-aware resolution: transaction reads reference_key,
+293   // entity/target reads identifier, reference is null.
+294   const entityIdField = resolveEntityIdField(
+295     unit.confirmedBindings,
+296     unit.classificationTrace,
+297     classification,
+298   );
+299
+300   // OB-152/OB-157 — source_date extraction with period marker composition.
+301   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+302   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+303   const periodMarkerHint = detectPeriodMarkerColumns(rows);
+304
+305   // Build committed_data rows. entity_id and period_id are always NULL at
+306   // import — engine binds them at calc time (OB-182, Decision 92).
+307   let earliestDate: string | null = null;
+308   let latestDate: string | null = null;
+309   let dateCount = 0;
+310
+311   const insertRows = rows.map((row, i) => {
+312     const sourceDate = extractSourceDate(
+313       row,
+314       dateColumnHint,
+315       semanticRolesMap,
+316       periodMarkerHint,
+317     );
+318     if (sourceDate) {
+319       dateCount++;
+320       if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
+321       if (!latestDate || sourceDate > latestDate) latestDate = sourceDate;
+322     }
+323
+324     return {
+325       tenant_id: tenantId,
+326       import_batch_id: batchId,
+327       entity_id: null as string | null,
+328       period_id: null as string | null,
+329       source_date: sourceDate,
+330       data_type: dataType,
+331       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+332       metadata: {
+333         source,
+334         proposalId,
+335         semantic_roles: semanticRoles,
+336         resolved_data_type: dataType,
+337         entity_id_field: entityIdField,
+338         informational_label: classification,
+339         field_identities: fieldIdentities,
+340       },
+341     };
+342   });
+343
+344   // Chunked insert — per-source profile (sci-bulk retries; sci does not).
+345   ... [chunked insert loop, lines 344-404, retains rows verbatim per chunk] ...
+405 }
+406
+407   // Finalize batch.
+408   ... [batch status update, success log line] ...
+432   };
+433 }
+```
+
+(Lines 344-433 elided; covered in earlier read. The body of those lines is purely the chunked-insert loop plus batch finalization — they consume `insertRows` but do not modify the per-row `row_data` shape.)
+
+### semantic_roles construction
+
+```
+SEMANTIC_ROLES CONSTRUCTION LINES: 272-284 (commit-content-unit.ts)
+SOURCE:                              `for (const binding of unit.confirmedBindings) { semanticRoles[binding.sourceField] = { role, confidence, claimedBy }; }`
+INCLUDES:                            every binding in unit.confirmedBindings (no filter applied inside commitContentUnit)
+                                     count(semanticRoles) === unit.confirmedBindings.length
+```
+
+### row_data construction
+
+```
+ROW_DATA CONSTRUCTION LINES:    311-331 (commit-content-unit.ts)
+SPREAD EXPRESSION:               `row_data: { ...row, _sheetName: tabName, _rowIndex: i }`  (line 331)
+ROW SOURCE:                      `rows` parameter of type `Record<string, unknown>[]` (param destructured at line 210)
+                                 The `rows` array enters `commitContentUnit` from its caller:
+                                   • execute-bulk path: `processDataUnit(..., rows, ...)` is invoked at
+                                     execute-bulk/route.ts:218 via `processContentUnit`, where `rows`
+                                     was already passed through `filterFieldsForPartialClaim(unit, rows)`
+                                     at execute-bulk/route.ts:216 — see Phase 3 § Site 4. For PARTIAL
+                                     claims, the rows are pre-projected to `ownedFields ∪ sharedFields`.
+                                   • execute path: same shape; pre-projection at execute/route.ts:414-421.
+COLUMN PROJECTION INSIDE        NONE — the spread `{ ...row, _sheetName, _rowIndex }` preserves every key
+commitContentUnit:               present in the input `row` argument.
+```
+
+### Invariant reconciliation
+
+The DB invariant `row_data_col_count == semantic_roles_count` is reconciled by **Option B**: the row source (the `rows` parameter) arrives at `commitContentUnit` already pre-projected upstream by the caller, when the unit has `claimType === 'PARTIAL'`.
+
+```
+INVARIANT EXPLANATION:
+  Option A (row_data projected by confirmedBindings inside commitContentUnit): RULED OUT
+    commit-content-unit.ts:331 uses an unrestricted spread `{ ...row, _sheetName, _rowIndex }`.
+    No projection occurs inside this function.
+
+  Option B (row source is pre-projected upstream by caller): SELECTED
+    execute-bulk/route.ts:215-222 calls
+      `const effectiveUnit = filterFieldsForPartialClaim(unit, rows);`
+      `const result = await processContentUnit(..., effectiveUnit.unit, effectiveUnit.rows, ...);`
+    `filterFieldsForPartialClaim` (execute-bulk/route.ts:265-293, quoted in Phase 3 § Site 4)
+    short-circuits when `unit.claimType !== 'PARTIAL'` (line 269) and otherwise builds
+      `allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields])`
+    then projects BOTH:
+      • `filteredRows`  (lines 275-283) — `for (const key of Object.keys(row)) if (allowedFields.has(key) || key.startsWith('_'))`
+      • `filteredBindings`  (lines 285-287) — `unit.confirmedBindings.filter(b => allowedFields.has(b.sourceField))`
+    to the same `allowedFields` set, so when commitContentUnit reads the pre-projected `rows` and the
+    pre-projected `unit.confirmedBindings`, both have identical key counts.
+
+  Option C (count coincidence): RULED OUT
+    The invariant holds across all tenants, all data types, all timestamps per the directive's §1.1
+    table. A 5-tenant-data-type coincidence over 11→5 / 7→7 / 19→19 / 13→13 / 8→8 cuts is structurally
+    implausible.
+
+  Option D (other): N/A
+
+SELECTED:  Option B
+EVIDENCE:  execute-bulk/route.ts:215-222 (caller wraps via filterFieldsForPartialClaim);
+           execute-bulk/route.ts:265-293 (the filter projects BOTH rows AND bindings to the same set);
+           commit-content-unit.ts:278-284 (semanticRoles built from the pre-projected confirmedBindings);
+           commit-content-unit.ts:331 (row_data spreads the pre-projected row unchanged).
+```
+
+For tenants where the invariant collapses NUMBERS (Meridian transaction 19=19, BCL transaction 13=13, CRP transaction 5=5), the count equals:
+- the full file's column count, IF `claimType === 'FULL'` (filterFieldsForPartialClaim short-circuits on line 269), OR
+- |ownedFields ∪ sharedFields|, IF `claimType === 'PARTIAL'`.
+
+Phase 5 will confirm via DB probe which `claimType` operated for the current CRP transaction batch.
 
 ## Phase 5: Database State Evidence
 
