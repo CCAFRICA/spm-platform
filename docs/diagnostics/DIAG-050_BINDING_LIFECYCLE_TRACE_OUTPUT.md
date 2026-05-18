@@ -871,4 +871,164 @@ The 11-column HC trace and the 5-binding `confirmedBindings` are both present on
 
 ## Phase 6: Binding Lifecycle Map and Attrition Point
 
-[populated by Phase 6]
+### Lifecycle map (CRP transaction, batch `3482db56` — 170 rows; survivors: date, quantity, sales_rep_id, total_amount, unit_price)
+
+```
+STEP 1: SheetJS parse
+  COUNT:     11
+  EVIDENCE:  DIAG-049 / earlier DIAG-ROWS capture against
+             ingestion-raw/.../05_CRP_Sales_20260201_20260215.csv:
+             firstRowKeys = ["transaction_id","date","sales_rep_id","sales_rep_name",
+                             "customer_name","product_category","product_name","quantity",
+                             "unit_price","total_amount","order_type"] (11 keys).
+
+STEP 2: HC LLM call OR flywheel injection
+  COUNT:           11 (HC trace carries all 11 column interpretations into the trace blob)
+  TARGET FIELD:    sheetProfile.headerComprehension.interpretations (Phase 1.3)
+  CONFIDENCE:      per-column (preserved from cached/LLM result)
+  EVIDENCE:        Probe B `metadata.field_identities` has 11 keys — extractFieldIdentitiesFromTrace
+                   read the trace's interpretations map (commit-content-unit.ts:287-288).
+                   All 11 column interpretations made it into the trace.
+
+STEP 3: Classification (HC pattern + CRR Bayesian)
+  ENTRY COUNT:     11 (HC trace + 11 profile.fields)
+  EXIT COUNT:      11 (classifyContentUnits writes only to scores/resolutions, never to fieldBindings)
+  TRANSFORMATIONS APPLIED: NONE on the binding-set surface. The dispatcher writes
+                   `state.round1Scores`, `state.round2Scores`, `state.resolutions`,
+                   `state.traces`. None of these touch fieldBindings.
+  NO_MATCH PATH:   classifyByHCPattern can return null (hc-pattern-classifier.ts:52/59/64);
+                   the caller falls to CRR Bayesian. NO_MATCH does NOT touch bindings.
+
+STEP 4: buildProposalFromState — proposal fieldBindings produced
+  ENTRY COUNT:     11 (profile.fields)
+  EXIT COUNT:      DEPENDS ON splitAnalysis.shouldSplit:
+                   • FULL claim path  (synaptic-ingestion-state.ts:649):
+                     `fieldBindings: claim.semanticBindings`
+                     where claim.semanticBindings = generateSemanticBindings(profile, winner.agent)
+                     which maps over ALL profile.fields → COUNT = 11
+                   • PARTIAL claim path (synaptic-ingestion-state.ts:596, :620):
+                     `fieldBindings: primaryBindings|secondaryBindings`
+                     where primaryBindings = generatePartialBindings(profile, primaryAgent,
+                                                                     splitAnalysis.primaryFields,
+                                                                     splitAnalysis.sharedFields)
+                     which filters by `relevantFields = Set(ownedFields ∪ sharedFields)`
+                     (negotiation.ts:268-274) → COUNT = |primaryFields ∪ sharedFields|
+  FILTER APPLIED:  only in PARTIAL branch — `if (!relevantFields.has(field.fieldName)) continue;` at negotiation.ts:274.
+
+STEP 5: Client materialization (SCIExecution.tsx)
+  ENTRY COUNT:     output of Step 4
+  EXIT COUNT:      identical to Step 4 — client copies `proposalUnit.fieldBindings` into
+                   `confirmedBindings` without filtering (SCIExecution.tsx:173/250/308).
+  FILTER APPLIED:  NONE.
+
+STEP 6: Server re-projection (filterFieldsForPartialClaim, execute-bulk:215-222 + 265-293)
+  ENTRY COUNT (rows):              rows.length × column-count from CSV parse = 170 × 11
+  ENTRY COUNT (confirmedBindings): output of Step 5
+  EXIT COUNT (rows columns):       |ownedFields ∪ sharedFields| if PARTIAL; unchanged if FULL
+  EXIT COUNT (confirmedBindings):  same — bindings re-filtered to same allowedFields set
+  FILTER APPLIED:  YES in PARTIAL path (line 269 short-circuits FULL); both `rows` and
+                   `confirmedBindings` projected to `Set(ownedFields ∪ sharedFields)`.
+
+STEP 7: commitContentUnit (commit-content-unit.ts:204-433)
+  ENTRY COUNT (rows columns):         5  (post-Step-6 projection)
+  ENTRY COUNT (confirmedBindings):    5  (post-Step-6 projection)
+  ENTRY COUNT (HC trace interps):     11 (trace was not filtered by Step 6)
+  semantic_roles OUTPUT COUNT:        5  (commit-content-unit.ts:278-284, 1:1 over bindings)
+  field_identities OUTPUT COUNT:      11 (extractFieldIdentitiesFromTrace at line 287-288 used the trace)
+  row_data OUTPUT COLUMN COUNT:       5  + _sheetName + _rowIndex (spread of pre-projected row)
+
+STEP 8: Database persistence
+  EVIDENCE:        Probe B
+    metadata.semantic_roles:  5  ✓
+    metadata.field_identities: 11 ✓
+    row_data non-underscore:   5  ✓
+```
+
+### Attrition step
+
+```
+ATTRITION STEP:       STEP 4 (buildProposalFromState — proposal fieldBindings produced)
+                      Specifically the PARTIAL branch invoking generatePartialBindings (negotiation.ts:262-292).
+                      Mechanism: synaptic-ingestion-state.ts:580-583 + negotiation.ts:268, 274.
+
+ATTRITION MECHANISM (verbatim from negotiation.ts:262-274):
+
+  262 export function generatePartialBindings(
+  263   profile: ContentProfile,
+  264   agent: AgentType,
+  265   ownedFields: string[],
+  266   sharedFields: string[]
+  267 ): SemanticBinding[] {
+  268   const relevantFields = new Set([...ownedFields, ...sharedFields]);
+  269   const bindings: SemanticBinding[] = [];
+  270   const hc = profile.headerComprehension;
+  271   const rowCount = profile.structure.rowCount ?? profile.fields.length;
+  272
+  273   for (const field of profile.fields) {
+  274     if (!relevantFields.has(field.fieldName)) continue;          ← THE FILTER
+
+  Triggered when `splitAnalysis.shouldSplit === true` at synaptic-ingestion-state.ts:570.
+  `splitAnalysis` is computed by `analyzeSplit(fieldAffinities, scores, log)` (negotiation.ts).
+  The CRP transaction proposal landed in the PARTIAL branch — evidenced by the DB invariant
+  `row_data_col_count == semantic_roles_count == 5 < |profile.fields| = 11` and the
+  filterFieldsForPartialClaim having ran (it short-circuits when claimType !== 'PARTIAL').
+
+ATTRITION ASYMMETRY (in structural terms, not by tenant field name):
+  The 5 SURVIVORS correspond to fields that the field-affinity computation
+  (`computeFieldAffinities(profile)` at synaptic-ingestion-state.ts:300) assigned to the
+  winning agent (transaction) as ownedFields OR to sharedFields. The 6 LOST correspond to
+  fields whose affinity went to a different agent (e.g., entity, reference) or to a partner
+  in the split. The split logic is the discriminator. Field-affinity reads HC `columnRole`
+  (`profile.headerComprehension?.interpretations.get(fieldName).columnRole`) as one of its
+  inputs — fields whose HC role is `attribute` typically attract to a different agent than
+  fields whose HC role is `measure` / `identifier` / `temporal`.
+
+RECONCILES WITH FRESH-LLM SUCCESS?:  Conditionally — full reconciliation requires architect
+  interpretation. The flywheel→HC mapping at analyze/route.ts:174-182 covers only 8 of the
+  semanticRoles a cached binding may carry, and falls back to `columnRole: 'unknown'` for any
+  other semanticRole. If the flywheel cache for the CRP transaction file carried bindings whose
+  semanticRoles fell outside the 8-key map, those bindings reached classification with
+  columnRole='unknown' and contributed weakly to field affinities. The fresh-LLM path emits
+  the columnRole directly into HeaderInterpretation without an intermediate semanticRole→
+  columnRole mapping, so all roles flow through with their native confidence. This explains
+  WHY flywheel-replay could land in a PARTIAL split while fresh-LLM lands in FULL. The DIAG
+  produces the mechanism; architect dispositions whether this is intentional design (HF-181 /
+  HF-197B preserved the per-sheet flywheel injection contract; the roleMap was authored when
+  fewer semanticRoles existed) or unintentional drift.
+```
+
+### Adjacent confirmedBindings consumers
+
+`grep -rn "confirmedBindings" --include="*.ts" src/` (test-excluded; non-comment occurrences):
+
+| File:Line | Match | Classification |
+|---|---|---|
+| `src/app/api/import/sci/execute-bulk/route.ts:57` | type declaration | declaration |
+| `src/app/api/import/sci/execute-bulk/route.ts:285` | `.filter` in `filterFieldsForPartialClaim` | runtime (PARTIAL re-projection) |
+| `src/app/api/import/sci/execute-bulk/route.ts:290` | `confirmedBindings: filteredBindings` | runtime (assignment) |
+| `src/app/api/import/sci/execute-bulk/route.ts:345-368` | `processEntityUnit` reads (find/filter/iterate) for entity creation side effect | persistence-adjacent (writes to `entities` table; reads bindings to identify name/license/enrichment columns) |
+| `src/app/api/import/sci/execute/route.ts:326-341` | `executeReferencePipeline` reads bindings, copies to `fieldBindings` field on classification signal flywheel write | persistence (writes `classification_signals.flywheel`) |
+| `src/app/api/import/sci/execute/route.ts:414, 421` | `filterFieldsForPartialClaim` mirror | runtime (PARTIAL re-projection) |
+| `src/lib/sci/commit-content-unit.ts:58` | type declaration on CommitContentUnitInput | declaration |
+| `src/lib/sci/commit-content-unit.ts:278` | semantic_roles build loop | persistence (`committed_data.metadata.semantic_roles`) |
+| `src/lib/sci/commit-content-unit.ts:289` | `buildFieldIdentitiesFromBindings` fallback | persistence (`committed_data.metadata.field_identities` when no HC trace) |
+| `src/lib/sci/commit-content-unit.ts:295` | `resolveEntityIdField` input | persistence (`committed_data.metadata.entity_id_field`) |
+| `src/lib/sci/commit-content-unit.ts:301` | `findDateColumnFromBindings` input | persistence (`committed_data.source_date` per row) |
+| `src/lib/sci/commit-content-unit.ts:302` | `buildSemanticRolesMap` input | persistence (consumed by source_date extraction) |
+| `src/lib/sci/sci-types.ts:342` | type declaration on `ContentUnitExecution` | declaration |
+| `src/lib/sci/field-identities.ts:15` | comment | comment |
+| `src/lib/sci/commit-content-unit.ts:27, 165, 272, 286` | comments | comment |
+
+**Persistence consumers** (write to DB based on `confirmedBindings`):
+
+- `execute-bulk/route.ts:345-368` — entity-creation side effect in `processEntityUnit`. Reads bindings for `entity_identifier`, `entity_name`, `entity_license`, `entity_attribute` / `descriptive_label`. **Same attrition risk:** if bindings are filtered to 5 by the PARTIAL split, missing `entity_name` / `entity_license` bindings → entity records created with `display_name` falling back to external_id (line ~440-450 in HF-231 diff) and licenses/role metadata missing.
+- `execute/route.ts:326-341` — flywheel write at `classification_signals`. Persists the filtered `confirmedBindings` as `fieldBindings`, which becomes the cached bindings the NEXT Tier-1 replay injects (analyze/route.ts:167). **Feedback loop:** PARTIAL-filtered bindings cache → next replay injects pre-filtered set → tighter `headerComprehension.interpretations` → analyzeSplit may again decide PARTIAL → repeats.
+- `commit-content-unit.ts:278-302` — every per-row write to `committed_data` (already analyzed in Phase 4/5). 5 of the 11 columns reach `semantic_roles`.
+
+**Runtime consumers** (read bindings during request handling without persisting):
+
+- `execute-bulk/route.ts:285-290` and `execute/route.ts:414-421` — `filterFieldsForPartialClaim` (Phase 3 Site 4/5). Already characterized.
+
+**Declaration / comment sites:** type definitions in `sci-types.ts`, `commit-content-unit.ts`, `execute-bulk/route.ts` and the helper-fallback in `field-identities.ts:15`. No code action.
+
+The persistence consumer at `execute/route.ts:341` is the surface that closes the loop: the same filtered bindings written to `committed_data` are also written to `classification_signals.flywheel.fieldBindings` for next-Tier-1 replay. That write happens AFTER `filterFieldsForPartialClaim` re-projected, so the cached set is already the 5-binding subset. The flywheel cache for this CRP fingerprint now contains 5 bindings, not 11.
