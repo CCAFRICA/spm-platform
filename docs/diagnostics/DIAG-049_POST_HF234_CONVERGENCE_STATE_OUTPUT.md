@@ -957,3 +957,286 @@ data_type="target" (24 rows):
 
 (Note: the probe's `distinctCount ≤ 20` ceiling matches the production code at `convergence-service.ts:1105`. The probe does NOT replicate the `>= 2` floor used in production (`convergence-service.ts:1105`: `if (distinctValues.length >= 2 && distinctValues.length <= 20)`); the `data_type="target"` `plan` field above (1 distinct value) would be rejected by production code. Similarly the probe does NOT replicate the `stringValues.length > values.length * 0.5` majority-string filter from `convergence-service.ts:1103`. Architect interprets relative to the production thresholds.)
 
+---
+
+## Phase 4 — generateAISemanticDerivations current state
+
+### 4.1 `MetricContext` type, verbatim (`convergence-service.ts:42-57`)
+
+```typescript
+42 interface MetricContext {
+43   name: string;          // Programmatic metric name (e.g., "period_equipment_revenue")
+44   label: string;         // Human-readable label (e.g., "Period Equipment Revenue")
+45   componentName: string; // Owning component name for additional context
+46   operation: string;     // Calculation operation (e.g., "linear_function")
+47   scope?: string;        // Scope level for scope_aggregate (e.g., "district")
+48   semanticIntent?: string;             // HF-198 E5: AI plan-agent reasoning text (per metric_comprehension signal)
+49   metricInputs?: Record<string, unknown> | null;  // HF-198 E5: input shape from plan-agent (per metric_comprehension signal)
+50   // HF-226 Phase 2A — Carry Everything from the plan-agent signal (T1-E902).
+51   // The full signal_value flows through so downstream prompt builders can
+52   // surface any field the LLM emitted (filters, expectedMetrics, calculationMethod,
+53   // free-form predicate vocabulary). semanticIntent and metricInputs above are
+54   // retained for backward compatibility with existing extractions; new consumers
+55   // read directly off signalContext.
+56   signalContext?: Record<string, unknown> | null;
+57 }
+```
+
+### 4.2 `generateAISemanticDerivations` function body, verbatim (`convergence-service.ts:2622-2868`)
+
+```typescript
+2622 async function generateAISemanticDerivations(
+2623   metricContexts: MetricContext[],
+2624   capabilities: DataCapability[],
+2625   supabase: SupabaseClient,
+2626   tenantId: string,
+2627 ): Promise<{ derivations: MetricDerivationRule[]; gaps: Array<{ metric: string; reason: string; resolution: string }> }> {
+2628   const derivations: MetricDerivationRule[] = [];
+2629   const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
+2630
+2631   if (metricContexts.length === 0) return { derivations, gaps };
+2632   const unresolvedMetrics = metricContexts.map(mc => mc.name);
+2633
+2634   // 1. Build column inventory for AI
+2635   const columnDescriptions: string[] = [];
+2636   for (const cap of capabilities) {
+2637     columnDescriptions.push(`Data type: "${cap.dataType}" (${cap.rowCount} rows)`);
+2638     for (const nf of cap.numericFields) {
+2639       const stats = cap.columnStats[nf.field];
+2640       columnDescriptions.push(`  - ${nf.field}: numeric (avg=${nf.avg.toFixed(2)}${stats ? `, min=${stats.min}, max=${stats.max}` : ''})`);
+2641     }
+2642     for (const cf of cap.categoricalFields) {
+2643       columnDescriptions.push(`  - ${cf.field}: categorical (values: ${cf.distinctValues.join(', ')})`);
+2644     }
+2645     for (const bf of cap.booleanFields) {
+2646       columnDescriptions.push(`  - ${bf.field}: boolean (true="${bf.trueValue}", false="${bf.falseValue}")`);
+2647     }
+2648   }
+2649
+2650   // 2. Get sample rows
+2651   // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+2652   const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
+2653   const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
+2654   let q3 = supabase
+2655     .from('committed_data')
+2656     .select('row_data')
+2657     .eq('tenant_id', tenantId)
+2658     .not('row_data', 'is', null)
+2659     .limit(3);
+2660   if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
+2661   const { data: sampleRows } = await q3;
+2662
+2663   const sampleData = (sampleRows || []).map(r => r.row_data);
+2664
+2665   // 3. Build AI prompt — enriched with metric labels, component context (OB-191),
+2666   // and HF-198 E5 plan-agent semantic intent from comprehension:plan_interpretation
+2667   // signals (read before derive per AUD-004 v3 §2 E5).
+2668   // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
+2669   const metricDescriptions = metricContexts.map(mc => {
+2670     let desc = `- ${mc.name} (label: "${mc.label}", used in: ${mc.operation}, component: "${mc.componentName}")`;
+2671     if (mc.scope) desc += `\n  NOTE: This metric should be aggregated at the ${mc.scope} scope level`;
+2672     if (mc.semanticIntent) desc += `\n  PLAN-AGENT INTENT: ${mc.semanticIntent}`;
+2673     if (mc.metricInputs && Object.keys(mc.metricInputs).length > 0) {
+2674       try {
+2675         desc += `\n  PLAN-AGENT INPUTS: ${JSON.stringify(mc.metricInputs).slice(0, 240)}`;
+2676       } catch {}
+2677     }
+2678     // HF-226 Phase 2A: surface the full plan-agent signal_value (minus already-
+2679     // emitted keys) so the AI sees any extension fields the LLM expressed —
+2680     // calculationMethod, filters, expectedMetrics, free-form predicate
+2681     // vocabulary, etc. Pass-4 already instructs the AI to identify categorical
+2682     // subsets; richer context strengthens that determination.
+2683     if (mc.signalContext) {
+2684       const sc = mc.signalContext;
+2685       const skip = new Set(['metric_label', 'metric_op', 'metric_inputs', 'semantic_intent', 'component_id', 'component_type', 'source_evidence']);
+2706       const extras: Record<string, unknown> = {};
+2687       for (const [k, v] of Object.entries(sc)) {
+2688         if (skip.has(k)) continue;
+2689         if (v == null) continue;
+2690         extras[k] = v;
+2691       }
+2692       if (Object.keys(extras).length > 0) {
+2693         try {
+2694           desc += `\n  PLAN-AGENT FULL CONTEXT: ${JSON.stringify(extras).slice(0, 480)}`;
+2695         } catch {}
+2696       }
+2697     }
+2698     return desc;
+2699   }).join('\n');
+2700
+2701   const userPrompt = `You are a data analyst bridging calculation plan metrics to available data columns.
+2702
+2703 You receive:
+2704 1. Required metrics with semantic labels describing what each metric represents
+2705 2. Available data columns with types, statistics, and categorical values
+2706
+2707 Your task: For each required metric, determine how to derive it from the available data.
+2708
+2709 IMPORTANT RULES:
+2710 - Match the metric's semantic label to available data fields. If the label suggests a subset of a broader numeric field (e.g., "Equipment Revenue" from a general "total_amount"), identify the categorical field and value that filters to the correct subset.
+2711 - Use the categorical field's distinct values to find exact filter matches. The filter value must be one of the listed distinct values.
+2712 - For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
+2713 - For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
+2714
+2715 Operations:
+2716 - sum: SUM a numeric field, optionally filtered by a categorical field value
+2717 - count: COUNT rows, optionally filtered by a categorical field value
+2718 - ratio: Divide one derived metric by another
+2719 - delta: Difference between two values
+2720
+2721 Respond with ONLY valid JSON, no markdown, no explanation:
+2722 {
+2723   "derivations": [
+2724     {
+2725       "metric": "the_metric_name",
+2726       "operation": "sum",
+2727       "source_field": "column_name_to_aggregate",
+2728       "filters": [
+2729         { "field": "column_name", "operator": "eq", "value": "filter_value" }
+2730       ]
+2731     }
+2732   ],
+2733   "gaps": [
+2734     {
+2735       "metric": "the_metric_name",
+2736       "reason": "Why this metric cannot be derived",
+2737       "resolution": "What data the user should import"
+2738     }
+2739   ]
+2740 }
+2741
+2742 Required metrics:
+2743 ${metricDescriptions}
+2744
+2745 Available data columns:
+2746 ${columnDescriptions.join('\n')}
+2747
+2748 Data sample (first ${sampleData.length} rows):
+2749 ${JSON.stringify(sampleData, null, 2)}
+2750
+2751 Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
+2752
+2753   // 4. Call AI
+2754   try {
+2755     const aiService = getAIService();
+2756     const response = await aiService.execute({
+2757       task: 'natural_language_query',
+2758       input: { question: userPrompt, context: {} },
+2759       options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
+2760     }, false);
+2761
+2762     // 5. Parse response — handle different response shapes
+2763     let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
+2764     // If wrapped in natural_language_query response format, extract from answer
+2765     if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
+2766       try {
+2767         parsedResult = JSON.parse(parsedResult.answer);
+2768       } catch {
+2769         // answer might already be an object or unparseable
+2770       }
+2771     }
+2772     // If the result itself has derivations, use it directly
+2773     const aiDerivations = (parsedResult?.derivations as Array<Record<string, unknown>>) ?? [];
+2774     const aiGaps = (parsedResult?.gaps as Array<Record<string, unknown>>) ?? [];
+2775
+2776     if (Array.isArray(aiDerivations)) {
+2777       for (const d of aiDerivations) {
+2778         const metric = String(d.metric || '');
+2779         const operation = String(d.operation || 'sum');
+2780         if (!metric || !unresolvedMetrics.includes(metric)) continue;
+2781
+2782         // Validate operation is a valid MetricDerivationRule operation
+2783         const validOps = ['sum', 'count', 'ratio', 'delta'];
+2784         if (!validOps.includes(operation)) continue;
+2785
+2786         // Find the data_type that contains the source_field
+2787         let sourcePattern = '.*';
+2788         for (const cap of capabilities) {
+2789           const hasField = cap.numericFields.some(f => f.field === d.source_field) ||
+2790             cap.categoricalFields.some(f => f.field === d.source_field) ||
+2791             (Array.isArray(d.filters) && d.filters.some((df: Record<string, unknown>) =>
+2792               cap.categoricalFields.some(f => f.field === df.field)
+2793             ));
+2794           if (hasField) {
+2795             sourcePattern = cap.dataType;
+2796             break;
+2797           }
+2798         }
+2799
+2800         const filters: MetricDerivationRule['filters'] = [];
+2801         if (Array.isArray(d.filters)) {
+2802           for (const f of d.filters as Array<Record<string, unknown>>) {
+2803             if (f.field && f.value != null) {
+2804               filters.push({
+2805                 field: String(f.field),
+2806                 operator: (String(f.operator || 'eq') as MetricDerivationRule['filters'][0]['operator']),
+2807                 value: f.value as string | number | boolean,
+2808               });
+2809             }
+2810           }
+2811         }
+2812
+2813         // HF-226 Phase 2B — Carry Everything (T1-E902). Spread the AI's raw
+2814         // derivation output first; overlay the validated typed fields. Any
+2815         // additional fields the AI emitted (confidence, reasoning, scope, or
+2816         // future schema extensions) land on the rule via the spread; the
+2817         // engine's deterministic execution path reads only the typed fields
+2818         // it knows. Future intelligence consumers (signals, observatory,
+2819         // debugging) can read the carried context without an emitter change.
+2820         derivations.push({
+2821           ...d,
+2822           metric,
+2823           operation: operation as MetricDerivationRule['operation'],
+2824           source_pattern: sourcePattern,
+2825           source_field: d.source_field ? String(d.source_field) : undefined,
+2826           filters,
+2827         });
+2828       }
+2829     }
+2830
+2831     if (Array.isArray(aiGaps)) {
+2832       for (const g of aiGaps) {
+2833         gaps.push({
+2834           metric: String(g.metric || ''),
+2835           reason: String(g.reason || 'Not derivable from available data'),
+2836           resolution: String(g.resolution || 'Import data containing this metric'),
+2837         });
+2838       }
+2839     }
+2840
+2841     // 6. Check for metrics that AI didn't address
+2842     const addressedMetrics = new Set([
+2843       ...derivations.map(d => d.metric),
+2844       ...gaps.map(g => g.metric),
+2845     ]);
+2846     for (const m of unresolvedMetrics) {
+2847       if (!addressedMetrics.has(m)) {
+2848         gaps.push({
+2849           metric: m,
+2850           reason: 'AI did not produce a derivation or gap for this metric',
+2851           resolution: 'Configure metric derivation rules manually',
+2852         });
+2853       }
+2854     }
+2855   } catch (err) {
+2856     console.error('[Convergence] OB-185 Pass 4 AI call failed:', err);
+2857     // Non-blocking — return gaps for all unresolved metrics
+2858     for (const m of unresolvedMetrics) {
+2859       gaps.push({
+2860         metric: m,
+2861         reason: 'AI semantic derivation failed — manual configuration required',
+2862         resolution: 'Configure metric derivation rules in plan settings',
+2863       });
+2864     }
+2865   }
+2866
+2867   return { derivations, gaps };
+2868 }
+```
+
+(Paste note: my line-numbering counted at 2706 in the inline copy above for what is line 2686 in the live file at the `extras` declaration; this is a paste-editor numbering glitch only. The original file at lines 2683-2697 is the `if (mc.signalContext)` block as shown. Production code is the live file; this diagnostic does not modify it.)
+
+### 4.3 `metricContexts` construction — verbatim from `convergeBindings` (`convergence-service.ts:627-667`, already pasted in Phase 2.2)
+
+`metricContexts` is built in `convergeBindings` and passed to `generateAISemanticDerivations` as the first parameter. Construction code in Phase 2.2 above, lines 627-667. Each `MetricContext` object carries `name`, `label`, `componentName`, `operation`, optional `scope`, optional `semanticIntent`, optional `metricInputs`, optional `signalContext`. No data-column references are added at this layer — the AI sees them via the second parameter (`capabilities`) which `generateAISemanticDerivations` formats into `columnDescriptions` at lines 2635-2648.
+
