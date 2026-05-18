@@ -473,3 +473,218 @@ Notes on function-body completeness: lines 2498-2500 in the live file contain an
  84:   targetField?: string;                   // field name with 'performance_target' role
 ```
 
+---
+
+## Phase 2 — convergeBindings capabilities flow
+
+### 2.1 convergeBindings entry, capabilities construction, and `generateAllComponentBindings` invocation
+
+```
+convergence-service.ts:194  export async function convergeBindings(
+convergence-service.ts:236    const capabilities = await inventoryData(tenantId, supabase);
+convergence-service.ts:299    const matches = matchComponentsToData(components, capabilities);
+convergence-service.ts:370    await generateAllComponentBindings(...);
+convergence-service.ts:674    const aiResult = await generateAISemanticDerivations(...);
+```
+
+Verbatim function header and capabilities build (lines 194-249):
+
+```typescript
+194 export async function convergeBindings(
+195   tenantId: string,
+196   ruleSetId: string,
+197   supabase: SupabaseClient,
+198   calculationRunId?: string,  // OB-197 G11: scope signals emitted by this convergence to a calculation run
+199 ): Promise<ConvergenceResult> {
+200   const derivations: MetricDerivationRule[] = [];
+201   const matchReport: ConvergenceResult['matchReport'] = [];
+202   const signals: ConvergenceResult['signals'] = [];
+203   const gaps: ConvergenceGap[] = [];
+204   const componentBindings: Record<string, Record<string, ComponentBinding>> = {};
+205   // OB-197 G11: observations populated from the canonical signal surface
+206   // before matching begins. Empty when no calculationRunId is supplied.
+207   // HF-196 Phase 3: metricComprehension is read unconditionally (not gated on
+208   // calculationRunId) because it is the operative input replacing seeds.
+209   const observations: ConvergenceResult['observations'] = { withinRun: [], crossRun: [], metricComprehension: [] };
+210
+211   // 1. Fetch rule set
+212   const { data: ruleSet } = await supabase
+213     .from('rule_sets')
+214     .select('id, name, components, input_bindings')
+215     .eq('id', ruleSetId)
+216     .single();
+217
+218   if (!ruleSet) return { derivations, matchReport, signals, gaps, componentBindings, observations };
+219
+220   // 2. Extract plan requirements
+221   const components = extractComponents(ruleSet.components);
+222   if (components.length === 0) return { derivations, matchReport, signals, gaps, componentBindings, observations };
+223
+224   // HF-196 Phase 3: D153 B-E4 atomic cutover — read metric_comprehension signals
+225   // as the operative signal-surface input. These signals (signal_type=
+226   // 'comprehension:plan_interpretation') carry plan-agent metric semantics that
+227   // the eradicated seeds path used to provide. Read scoped to (tenant_id, rule_set_id).
+228   // Per D153 B-E4: "signal surface as the operative path. No parallel paths."
+229   const metricComprehensionSignals = await loadMetricComprehensionSignals(tenantId, ruleSetId, supabase);
+230   observations.metricComprehension = metricComprehensionSignals;
+231   if (metricComprehensionSignals.length > 0) {
+232     console.log(`[Convergence] HF-196 D153 cutover: ${metricComprehensionSignals.length} metric_comprehension signals loaded as operative input (rule_set=${ruleSetId})`);
+233   }
+234
+235   // 3. Inventory data capabilities (OB-162: includes field identities)
+236   const capabilities = await inventoryData(tenantId, supabase);
+237   if (capabilities.length === 0) {
+238     for (const comp of components) {
+239       gaps.push({
+240         component: comp.name,
+241         componentIndex: comp.index,
+242         requiredMetrics: comp.expectedMetrics,
+243         calculationOp: comp.calculationOp,
+244         reason: 'No committed data found for this tenant',
+245         resolution: `Import data for this plan's components`,
+246       });
+247     }
+248     return { derivations, matchReport, signals, gaps, componentBindings, observations };
+249   }
+```
+
+Verbatim `generateAllComponentBindings` invocation (lines 370-380):
+
+```typescript
+370   await generateAllComponentBindings(
+371     components,
+372     matches,
+373     capabilities,
+374     componentBindings,
+375     existingConvergenceBindings,
+376     observations.metricComprehension,
+377     tenantEntityExternalIds,
+378     tenantId,
+379     supabase,
+380   );
+```
+
+### 2.2 Pass 4 trigger and invocation, verbatim (`convergence-service.ts:595-694`)
+
+```typescript
+595
+596   // HF-226 Phase 2B (IRA DS-025 Option D): Pass 4 is now the SOLE derivation
+597   // authority. Pre-HF-226 it fired only for metrics the deterministic Path
+598   // 1-3 (generateDerivationsForMatch, removed above) had failed to resolve.
+599   // Removing that path means the `derivations` array entering this point
+600   // contains ONLY the targets-pair ratio derivations (from the actuals+target
+601   // capability detection block).
+602   //
+603   // HF-234 — when capabilities carry categorical fields, ALL required metrics
+604   // flow through Pass 4 regardless of whether earlier code added a derivation
+605   // for them. Pass 4 is the surface where filter discovery happens, and any
+606   // metric on data with categorical dimensions may need subsetting. Tenants
+607   // without categorical data (e.g., Meridian — one metric per column) keep
+608   // the prior gate so Pass 4 fires only for metrics not already resolved by
+609   // the targets-pair ratio block.
+610   //
+611   // The variable name `unresolvedForAI` is retained for git-blame readability;
+612   // its membership semantics depend on the categorical-data branch below.
+613   const hasCategoricalData = capabilities.some(cap =>
+614     (cap.categoricalFields?.length ?? 0) > 0,
+615   );
+616   const allResolvedMetrics = new Set(derivations.map(d => d.metric));
+617   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
+618   const unresolvedForAI = hasCategoricalData
+619     ? allRequiredMetrics
+620     : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+621
+622   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
+623     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
+624     // and from comprehension:plan_interpretation signals (read before derive).
+625     // The metric_comprehension signals carry plan-agent semantic intent that the
+626     // legacy private-JSONB path used to provide; consumed here per AUD-004 v3 §2 E5.
+627     const metricContexts: MetricContext[] = unresolvedForAI.map(metricName => {
+628       const ownerComp = components.find(c => c.expectedMetrics.includes(metricName));
+629       const intent = ownerComp?.calculationIntent;
+630       let scope: string | undefined;
+631       if (intent) {
+632         // HF-224: scope lives on any leaf IntentSource. Walk the intent tree
+633         // and take the first leaf that declares it so HF-223 nested shapes
+634         // (e.g. conditional_gate-wrapped ratio) still surface their scope.
+635         for (const leaf of extractLeafSources(intent)) {
+636           const leafScope = leaf.sourceSpec?.scope;
+637           if (typeof leafScope === 'string') {
+638             scope = leafScope;
+639             break;
+640           }
+641         }
+642       }
+643       // HF-198 E5: Find matching metric_comprehension signal by metric label / component name.
+644       const matchedSignal = observations.metricComprehension.find(sig => {
+645         const sv = sig.signal_value as Record<string, unknown> | null;
+646         if (!sv) return false;
+647         const sigLabel = (sv.metric_label as string | undefined) ?? '';
+648         const ownerName = ownerComp?.name ?? '';
+649         return sigLabel === ownerName || sigLabel === metricName;
+650       });
+651       const sigValue = (matchedSignal?.signal_value ?? {}) as Record<string, unknown>;
+652       const semanticIntent = (sigValue.semantic_intent as string | undefined) ?? undefined;
+653       const metricInputs = (sigValue.metric_inputs as Record<string, unknown> | null | undefined) ?? null;
+654       // HF-226 Phase 2A: carry full signal_value as signalContext so the
+655       // Pass 4 prompt builder can surface any field the plan-agent emitted
+656       // beyond the three already-extracted keys.
+657       return {
+658         name: metricName,
+659         label: humanizeMetricName(metricName),
+660         componentName: ownerComp?.name || 'Unknown',
+661         operation: ownerComp?.calculationOp || 'unknown',
+662         scope,
+663         semanticIntent,
+664         metricInputs,
+665         signalContext: matchedSignal ? sigValue : null,
+666       };
+667     });
+668
+669     console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} metrics for AI semantic derivation (hasCategoricalData=${hasCategoricalData})`);
+670     for (const mc of metricContexts) {
+671       console.log(`[Convergence] Pass 4 metric: ${mc.name} (label: "${mc.label}", op: ${mc.operation}${mc.scope ? ', scope: ' + mc.scope : ''})`);
+672     }
+673     try {
+674       const aiResult = await generateAISemanticDerivations(
+675         metricContexts, capabilities, supabase, tenantId
+676       );
+677       derivations.push(...aiResult.derivations);
+678       for (const g of aiResult.gaps) {
+679         gaps.push({
+680           component: components.find(c => c.expectedMetrics.includes(g.metric))?.name || 'Unknown',
+681           componentIndex: components.find(c => c.expectedMetrics.includes(g.metric))?.index || 0,
+682           requiredMetrics: [g.metric],
+683           calculationOp: 'derived',
+684           reason: g.reason,
+685           resolution: g.resolution,
+686         });
+687       }
+688       console.log(`[Convergence] OB-185 Pass 4: ${aiResult.derivations.length} derivations, ${aiResult.gaps.length} gaps`);
+689       for (const d of aiResult.derivations) {
+690         console.log(`[Convergence] Pass 4 derivation: ${d.metric} → ${d.operation}(${d.source_field || ''}) filters=${JSON.stringify(d.filters || [])}`);
+691       }
+692     } catch (aiErr) {
+693       console.error('[Convergence] OB-185 Pass 4 AI call failed:', aiErr);
+694       // Non-blocking — gaps will be detected below
+```
+
+### 2.3 Same `capabilities` array reference across call sites
+
+The `capabilities` local in `convergeBindings` (assigned at line 236 from `inventoryData`) is the same object reference passed to:
+
+- `matchComponentsToData(components, capabilities)` at `convergence-service.ts:299`.
+- `generateAllComponentBindings(..., capabilities, ...)` at `convergence-service.ts:373`.
+- `generateAISemanticDerivations(metricContexts, capabilities, supabase, tenantId)` at `convergence-service.ts:675`.
+
+`grep -nE 'capabilities\s*=|capabilities = \[|capabilities\.filter' web/src/lib/intelligence/convergence-service.ts` returns:
+
+```
+236:  const capabilities = await inventoryData(tenantId, supabase);
+486:  const targetCapabilities = capabilities.filter(c => c.hasTargetData);
+510:        const nonTargetCaps = capabilities.filter(c => !c.hasTargetData);
+1149:  const capsWithFI = capabilities.filter(c => Object.keys(c.fieldIdentities).length > 0);
+```
+
+Line 486 (`targetCapabilities`) and line 510 (`nonTargetCaps`) are local subset arrays inside the targets-pair detection block; line 1149 (`capsWithFI`) is inside `matchComponentsToData`. The `capabilities` parameter passed to `generateAISemanticDerivations` at line 675 is the original array assigned at line 236, unmodified.
+
