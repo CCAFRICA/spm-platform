@@ -672,7 +672,7 @@ export async function convergeBindings(
     }
     try {
       const aiResult = await generateAISemanticDerivations(
-        metricContexts, capabilities, supabase, tenantId
+        metricContexts, capabilities
       );
       derivations.push(...aiResult.derivations);
       for (const g of aiResult.gaps) {
@@ -2622,8 +2622,10 @@ function generateFilteredCountDerivations(
 async function generateAISemanticDerivations(
   metricContexts: MetricContext[],
   capabilities: DataCapability[],
-  supabase: SupabaseClient,
-  tenantId: string,
+  // HF-235 — `supabase` and `tenantId` parameters dropped from the signature
+  // after the in-function sample-row fetch was removed. The function now
+  // operates purely on its `metricContexts` + `capabilities` inputs and the
+  // shared AI service.
 ): Promise<{ derivations: MetricDerivationRule[]; gaps: Array<{ metric: string; reason: string; resolution: string }> }> {
   const derivations: MetricDerivationRule[] = [];
   const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
@@ -2647,22 +2649,18 @@ async function generateAISemanticDerivations(
     }
   }
 
-  // 2. Get sample rows
-  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
-  const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
-  const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
-  let q3 = supabase
-    .from('committed_data')
-    .select('row_data')
-    .eq('tenant_id', tenantId)
-    .not('row_data', 'is', null)
-    .limit(3);
-  if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
-  const { data: sampleRows } = await q3;
+  // HF-235: Sample rows REMOVED from Pass 4 prompt.
+  // Column descriptions from capabilities (built above) provide complete
+  // metadata — numeric stats, categorical distinct values, boolean labels —
+  // sufficient for filter derivation. The previous 3-row sample query was
+  // non-deterministic (.limit(3), no ordering, no data_type filter) and
+  // could contradict the column descriptions by returning rows from a
+  // different data_type than the metrics reference (e.g., roster rows
+  // when the metric needs transaction-level filter discovery). Removing
+  // the sample eliminates the source of Pass-4 derivation non-determinism
+  // observed post-HF-234. Token budget freed for richer metric context.
 
-  const sampleData = (sampleRows || []).map(r => r.row_data);
-
-  // 3. Build AI prompt — enriched with metric labels, component context (OB-191),
+  // 2. Build AI prompt — enriched with metric labels, component context (OB-191),
   // and HF-198 E5 plan-agent semantic intent from comprehension:plan_interpretation
   // signals (read before derive per AUD-004 v3 §2 E5).
   // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
@@ -2745,12 +2743,9 @@ ${metricDescriptions}
 Available data columns:
 ${columnDescriptions.join('\n')}
 
-Data sample (first ${sampleData.length} rows):
-${JSON.stringify(sampleData, null, 2)}
-
 Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
 
-  // 4. Call AI
+  // 3. Call AI
   try {
     const aiService = getAIService();
     const response = await aiService.execute({
@@ -2759,7 +2754,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
       options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
     }, false);
 
-    // 5. Parse response — handle different response shapes
+    // 4. Parse response — handle different response shapes
     let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
     // If wrapped in natural_language_query response format, extract from answer
     if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
@@ -2838,7 +2833,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
       }
     }
 
-    // 6. Check for metrics that AI didn't address
+    // 5. Check for metrics that AI didn't address
     const addressedMetrics = new Set([
       ...derivations.map(d => d.metric),
       ...gaps.map(g => g.metric),
