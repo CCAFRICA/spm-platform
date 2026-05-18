@@ -692,7 +692,182 @@ Phase 5 will confirm via DB probe which `claimType` operated for the current CRP
 
 ## Phase 5: Database State Evidence
 
-[populated by Phase 5]
+### Database state probe output
+
+Probe script: `web/scripts/diag050-binding-state-probe.ts` (committed). Run via `npx tsx --env-file=.env.local scripts/diag050-binding-state-probe.ts`. Full output is 496 lines; quoted in three sections.
+
+**PROBE A — `import_batches` last 10 for CRP (head of output):**
+
+```
+=== PROBE A: import_batches (last 10, CRP) ===
+{
+  "id": "3482db56-3f8c-438d-9508-5780798c4e6e",
+  "file_name": "sci-bulk-469befda-e853-4ba5-b7d2-022c402621af",
+  "row_count": 170,
+  "created_at": "2026-05-18T16:28:43.70557+00:00",
+  "metadata_keys": ["source", "proposalId", "contentUnitId", "classification"],
+  "metadata": {
+    "source": "sci-bulk",
+    "proposalId": "469befda-e853-4ba5-b7d2-022c402621af",
+    "contentUnitId": "07_CRP_Sales_20260216_20260228.csv::07_CRP_Sales_20260216_20260228::0",
+    "classification": "transaction"
+  }
+}
+{
+  "id": "87749408-943b-4973-8d00-5326288d8442",
+  "file_name": "sci-bulk-469befda-e853-4ba5-b7d2-022c402621af",
+  "row_count": 197, ..., "classification": "transaction"
+}
+{
+  "id": "98aee050-3999-4a52-bef2-36a2e5de014e",
+  "row_count": 207, ..., "classification": "transaction"
+}
+{
+  "id": "2722765c-5870-4755-ad3e-ec5a3929783c",
+  "row_count": 182, ..., "classification": "transaction"
+}
+{
+  "id": "0b71988e-2307-4bfc-b43b-385992e208c4",
+  "row_count": 32, ..., "classification": "entity"  (Roster)
+}
+{
+  "id": "6cd2ad30-5627-4843-aa34-7d1bf4d596ea",
+  "row_count": 24, ..., "classification": "target"  (Quotas)
+}
+```
+
+All transaction batches carry `metadata_keys: ["source", "proposalId", "contentUnitId", "classification"]` — claim metadata (`claimType` / `ownedFields` / `sharedFields`) is NOT persisted on `import_batches` at any classification.
+
+**PROBE B — `committed_data` sample for CRP transaction (id `73af0e44-c9c1-452c-b9ed-750736f3b3ef`):**
+
+```
+{
+  "id": "73af0e44-c9c1-452c-b9ed-750736f3b3ef",
+  "data_type": "transaction",
+  "source_date": "2026-02-19",
+  "created_at": "2026-05-18T16:28:43.780721+00:00",
+  "metadata": {
+    "source": "sci-bulk",
+    "proposalId": "469befda-e853-4ba5-b7d2-022c402621af",
+    "semantic_roles": {
+      "date":         { "role": "transaction_date",   "claimedBy": "transaction", "confidence": 0.9  },
+      "quantity":     { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  },
+      "unit_price":   { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  },
+      "sales_rep_id": { "role": "entity_identifier",  "claimedBy": "transaction", "confidence": 0.85 },
+      "total_amount": { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  }
+    },
+    "entity_id_field": "sales_rep_id",
+    "field_identities": {
+      "date":             { "confidence": 0.9,  "structuralType": "temporal",   "contextualIdentity": "date — event timestamp" },
+      "quantity":         { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "quantity — measure" },
+      "order_type":       { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "order_type — classification" },
+      "unit_price":       { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "unit_price — measure" },
+      "product_name":     { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "product_name — classification" },
+      "sales_rep_id":     { "confidence": 0.95, "structuralType": "identifier", "contextualIdentity": "sales_rep_id — entity ref key (LLM: person)" },
+      "total_amount":     { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "total_amount — measure" },
+      "customer_name":    { "confidence": 0.5,  "structuralType": "attribute",  "contextualIdentity": "customer_name — classification" },
+      "sales_rep_name":   { "confidence": 0.5,  "structuralType": "attribute",  "contextualIdentity": "sales_rep_name — classification" },
+      "transaction_id":   { "confidence": 0.95, "structuralType": "unknown",    "contextualIdentity": "transaction_id — record identifier (LLM: transaction)" },
+      "product_category": { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "product_category — classification" }
+    },
+    "resolved_data_type": "transaction",
+    "informational_label": "transaction"
+  },
+  "row_data_keys": ["date", "quantity", "_rowIndex", "_sheetName", "unit_price", "sales_rep_id", "total_amount"],
+  "row_data": {
+    "date": 46072, "quantity": 9, "_rowIndex": 39, "_sheetName": "07_CRP_Sales_20260216_20260228",
+    "unit_price": 94.44, "sales_rep_id": "CRP-6012", "total_amount": 850
+  }
+}
+```
+
+**PROBE C — `rule_sets.input_bindings` for CRP (all 4 plans):**
+
+```
+Plan: Consumables Commission Plan (id 7e5742c1-47c5-4e28-b0b8-9450181d92b6)
+  input_bindings_keys: [metric_derivations, convergence_version, convergence_bindings]
+  metric_derivations: [
+    { metric: "monthly_quota", filters: [], operation: "sum", source_field: "monthly_quota", source_pattern: "target" }
+  ]
+  convergence_version: "HF-234"
+  convergence_bindings.component_0:
+    actual:           { column: "unit_price",    confidence: 0.263, match_pass: 3, fi: { structuralType: "measure", contextualIdentity: "cross_source_numeric" } }
+    period:           { column: "effective_date" (FROM TARGET batch), match_pass: 1 }
+    numerator:        { column: "total_amount",  filters: [], confidence: 0.9, match_pass: 1 }
+    denominator:      { column: "monthly_quota", filters: [], confidence: 0.9, match_pass: 1 }
+    entity_identifier:{ column: "entity_id", confidence: 1, match_pass: 1 }
+
+Plan: Cross-Sell Bonus Plan (id 939cf1f5-26ab-4a72-a1d1-bd8eb0a1201a)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    actual:           { column: "monthly_quota", filters: [], confidence: 0.9, match_pass: 1 }
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+
+Plan: District Override Plan (id 6f592a1f-dfd4-4ffc-9334-60ff8c69ff7a)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+    (no `actual` binding present)
+
+Plan: Capital Equipment Commission Plan (id 1f08bfbe-d45f-488d-9643-e8a4c7740c35)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    actual:           { column: "total_amount", filters: [], confidence: 0.9, match_pass: 1 }
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+```
+
+### Cross-reference observations
+
+```
+PROBE A (import_batches):
+  CRP TRANSACTION BATCH IDs:  3482db56 (170 rows), 87749408 (197), 98aee050 (207), 2722765c (182)
+  METADATA KEYS CARRIED PER BATCH:  ["source", "proposalId", "contentUnitId", "classification"]
+  ANY FIELD-BINDING-LIKE STRUCTURES IN METADATA?:  NO — import_batches metadata never carries
+    confirmedBindings, claimType, ownedFields, or sharedFields. The binding evidence lives at
+    committed_data.metadata.semantic_roles (per-row), not at batch level.
+
+PROBE B (committed_data sample, transaction batch 3482db56):
+  METADATA.SEMANTIC_ROLES KEYS:        date, quantity, unit_price, sales_rep_id, total_amount  (count = 5)
+  METADATA.FIELD_IDENTITIES KEYS:      date, quantity, order_type, unit_price, product_name,
+                                       sales_rep_id, total_amount, customer_name, sales_rep_name,
+                                       transaction_id, product_category  (count = 11)
+  ROW_DATA KEYS (non-underscore):      date, quantity, unit_price, sales_rep_id, total_amount  (count = 5)
+  KEYS IN ROW_DATA NOT IN SEMANTIC_ROLES: none (excluding _rowIndex, _sheetName)
+  KEYS IN SEMANTIC_ROLES NOT IN ROW_DATA: none
+  KEYS IN FIELD_IDENTITIES NOT IN SEMANTIC_ROLES:
+      order_type, product_name, customer_name, sales_rep_name, transaction_id, product_category  (count = 6)
+  KEYS IN SEMANTIC_ROLES NOT IN FIELD_IDENTITIES: none
+
+PROBE C (rule_sets.input_bindings):
+  PER-PLAN BINDING COUNT (convergence_bindings.component_0):
+    Consumables Commission Plan:    5 role keys  (actual, period, numerator, denominator, entity_identifier)
+    Cross-Sell Bonus Plan:          3 role keys  (actual, period, entity_identifier)
+    District Override Plan:         2 role keys  (period, entity_identifier)
+    Capital Equipment Commission:   3 role keys  (actual, period, entity_identifier)
+  ANY DERIVATION (vs. direct column reference)?:  YES — Consumables carries one metric_derivation
+    (`monthly_quota = sum(monthly_quota) FROM target`). The other three plans carry ZERO metric_derivations.
+  ANY filter QUALIFICATION PRESENT IN BINDINGS?:  NO — every binding entry that has a `filters` key
+    contains an empty array (`filters: []`). Pass-4 categorical-filter discovery produced no filtered
+    derivations for any of the four plans.
+```
+
+### Structural observation surfaced by the probe
+
+`committed_data.metadata` carries TWO views of the same import:
+
+1. `semantic_roles` (5 entries) — built inside `commitContentUnit` at `commit-content-unit.ts:278-284` from `unit.confirmedBindings`. Count equals binding count after upstream filtering.
+2. `field_identities` (11 entries) — built at `commit-content-unit.ts:287-289` from
+   `extractFieldIdentitiesFromTrace(unit.classificationTrace) ?? buildFieldIdentitiesFromBindings(unit.confirmedBindings)`.
+   The HC trace carries ALL 11 columns the LLM/flywheel observed; the fallback path would carry the
+   binding count. Since `field_identities` shows 11 keys, the HC-trace branch fired and the trace
+   carried 11 column interpretations into `commitContentUnit`.
+
+The 11-column HC trace and the 5-binding `confirmedBindings` are both present on the same `unit` object passed to `commitContentUnit`. The attrition from 11 to 5 happened upstream of `commitContentUnit`. The HC trace travelled through unfiltered; the bindings did not.
+
+`row_data` non-underscore keys (5) equals `semantic_roles` keys (5) — confirming the Phase 4 Option-B reconciliation: the `rows` parameter into `commitContentUnit` was pre-projected to the same 5 columns as `confirmedBindings`. The Phase 3 `filterFieldsForPartialClaim` path at `execute-bulk/route.ts:215-222 + 265-293` projects both `rows` and `bindings` to `allowedFields = ownedFields ∪ sharedFields` when `claimType === 'PARTIAL'`. The fact that the projection occurred is direct evidence that the CRP transaction proposal carried `claimType === 'PARTIAL'` with the 5 survivor columns as `ownedFields ∪ sharedFields`.
 
 ## Phase 6: Binding Lifecycle Map and Attrition Point
 
