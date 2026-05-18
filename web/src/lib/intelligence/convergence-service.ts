@@ -598,16 +598,26 @@ export async function convergeBindings(
   // 1-3 (generateDerivationsForMatch, removed above) had failed to resolve.
   // Removing that path means the `derivations` array entering this point
   // contains ONLY the targets-pair ratio derivations (from the actuals+target
-  // capability detection block). All remaining required metrics now flow
-  // through Pass 4 which carries the categorical-subset prompt and produces
-  // filter-populated rules — closing the filter-loss class identified in
-  // DIAG-046/047/AUD-009. The variable name `unresolvedForAI` is retained
-  // for backward git-blame readability; the set now spans "every required
-  // metric except those produced as a ratio above" rather than "unresolved
-  // by the deterministic match path".
+  // capability detection block).
+  //
+  // HF-234 — when capabilities carry categorical fields, ALL required metrics
+  // flow through Pass 4 regardless of whether earlier code added a derivation
+  // for them. Pass 4 is the surface where filter discovery happens, and any
+  // metric on data with categorical dimensions may need subsetting. Tenants
+  // without categorical data (e.g., Meridian — one metric per column) keep
+  // the prior gate so Pass 4 fires only for metrics not already resolved by
+  // the targets-pair ratio block.
+  //
+  // The variable name `unresolvedForAI` is retained for git-blame readability;
+  // its membership semantics depend on the categorical-data branch below.
+  const hasCategoricalData = capabilities.some(cap =>
+    (cap.categoricalFields?.length ?? 0) > 0,
+  );
   const allResolvedMetrics = new Set(derivations.map(d => d.metric));
   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
-  const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+  const unresolvedForAI = hasCategoricalData
+    ? allRequiredMetrics
+    : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
@@ -656,7 +666,7 @@ export async function convergeBindings(
       };
     });
 
-    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} unresolved metrics — invoking AI semantic derivation`);
+    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} metrics for AI semantic derivation (hasCategoricalData=${hasCategoricalData})`);
     for (const mc of metricContexts) {
       console.log(`[Convergence] Pass 4 metric: ${mc.name} (label: "${mc.label}", op: ${mc.operation}${mc.scope ? ', scope: ' + mc.scope : ''})`);
     }
