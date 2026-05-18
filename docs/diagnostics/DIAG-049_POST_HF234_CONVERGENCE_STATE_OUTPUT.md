@@ -688,3 +688,272 @@ The `capabilities` local in `convergeBindings` (assigned at line 236 from `inven
 
 Line 486 (`targetCapabilities`) and line 510 (`nonTargetCaps`) are local subset arrays inside the targets-pair detection block; line 1149 (`capsWithFI`) is inside `matchComponentsToData`. The `capabilities` parameter passed to `generateAISemanticDerivations` at line 675 is the original array assigned at line 236, unmodified.
 
+---
+
+## Phase 3 — inventoryData capabilities
+
+### 3.1 inventoryData function body, verbatim (`convergence-service.ts:908-1133`)
+
+```typescript
+908 async function inventoryData(
+909   tenantId: string,
+910   supabase: SupabaseClient
+911 ): Promise<DataCapability[]> {
+912   const capabilities: DataCapability[] = [];
+913
+914   // HF-196 Phase 1E: filter out superseded batches per Rule 30.
+915   const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
+916   const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+917
+918   // OB-162: Also read import_batch_id for convergence bindings
+919   let q = supabase
+920     .from('committed_data')
+921     .select('data_type, row_data, metadata, import_batch_id')
+922     .eq('tenant_id', tenantId)
+923     .not('data_type', 'is', null)
+924     .limit(500);
+925   if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+926   const { data: rows } = await q;
+927
+928   // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
+929   let q2 = supabase
+930     .from('committed_data')
+931     .select('data_type, row_data, metadata, import_batch_id')
+932     .eq('tenant_id', tenantId)
+933     .not('data_type', 'is', null)
+934     .not('metadata->semantic_roles', 'is', null)
+935     .limit(50);
+936   if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+937   const { data: sciRows } = await q2;
+938
+939   const allRows = [...(rows || [])];
+940   if (sciRows) {
+941     for (const sr of sciRows) {
+942       const dt = sr.data_type as string;
+943       if (!allRows.some(r => (r.data_type as string) === dt)) {
+944         allRows.push(sr);
+945       }
+946     }
+947   }
+948
+949   if (!allRows.length) return capabilities;
+950
+951   // Group by data_type
+952   const byType = new Map<string, Array<Record<string, unknown>>>();
+953   const countByType = new Map<string, number>();
+954   const rolesByType = new Map<string, Record<string, string>>();
+955   // OB-162: Collect field identities and batch IDs per data_type
+956   const fieldIdentitiesByType = new Map<string, Record<string, FieldIdentity>>();
+957   const batchIdsByType = new Map<string, Set<string>>();
+958
+959   for (const row of allRows) {
+960     const dt = row.data_type as string;
+961     if (!byType.has(dt)) byType.set(dt, []);
+962     countByType.set(dt, (countByType.get(dt) || 0) + 1);
+963     const samples = byType.get(dt)!;
+964     if (samples.length < 30) {
+965       const rd = row.row_data as Record<string, unknown> | null;
+966       if (rd) samples.push(rd);
+967     }
+968
+969     // Collect batch IDs
+970     const batchId = row.import_batch_id as string | null;
+971     if (batchId) {
+972       if (!batchIdsByType.has(dt)) batchIdsByType.set(dt, new Set());
+973       batchIdsByType.get(dt)!.add(batchId);
+974     }
+975
+976     // Extract semantic_roles from metadata
+977     if (!rolesByType.has(dt)) {
+978       const meta = row.metadata as Record<string, unknown> | null;
+979       const rawRoles = meta?.semantic_roles as Record<string, unknown> | undefined;
+980       if (rawRoles && Object.keys(rawRoles).length > 0) {
+981         const normalized: Record<string, string> = {};
+982         for (const [field, val] of Object.entries(rawRoles)) {
+983           if (typeof val === 'string') {
+984             normalized[field] = val;
+985           } else if (val && typeof val === 'object' && 'role' in val) {
+986             normalized[field] = String((val as Record<string, unknown>).role);
+987           }
+988         }
+989         if (Object.keys(normalized).length > 0) {
+990           rolesByType.set(dt, normalized);
+991         }
+992       }
+993
+994       // OB-162: Extract field_identities from metadata (Decision 111)
+995       const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
+996       if (fieldIds && Object.keys(fieldIds).length > 0) {
+997         const identities: Record<string, FieldIdentity> = {};
+998         for (const [colName, fi] of Object.entries(fieldIds)) {
+999           identities[colName] = {
+1000             structuralType: (fi.structuralType || 'unknown') as FieldIdentity['structuralType'],
+1001             contextualIdentity: fi.contextualIdentity || 'unknown',
+1002             confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
+1003           };
+1004         }
+1005         fieldIdentitiesByType.set(dt, identities);
+1006       }
+1007     }
+1008   }
+1009
+1010   // HF-228 — schema-coverage extension. The 30-row insertion-order sample
+1011   // above can land entirely on rows of one row-data schema even when a
+1012   // data_type carries rows from multiple imports with different column sets
+1013   // (e.g., roster rows + quota rows both classified `entity`). Walk the
+1014   // remaining rows in `allRows` and admit at most one extra row per unseen
+1015   // column-key signature, capped at 50 samples per data_type. Korean Test:
+1016   // discrimination is by column-key structural signature, not by column
+1017   // name semantics or values.
+1018   for (const [dt, samples] of Array.from(byType.entries())) {
+1019     const sigOf = (rd: Record<string, unknown>) =>
+1020       Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+1021     const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
+1022     for (const row of allRows) {
+1023       if (samples.length >= 50) break;
+1024       if ((row.data_type as string) !== dt) continue;
+1025       const rd = row.row_data as Record<string, unknown> | null;
+1026       if (!rd) continue;
+1027       const sig = sigOf(rd);
+1028       if (seenSignatures.has(sig)) continue;
+1029       samples.push(rd);
+1030       seenSignatures.add(sig);
+1031     }
+1032   }
+1033
+1034   for (const [dataType, samples] of Array.from(byType.entries())) {
+1035     const roles = rolesByType.get(dataType) || {};
+1036     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
+1037     const fieldIdentities = fieldIdentitiesByType.get(dataType) || {};
+1038     const batchIds = Array.from(batchIdsByType.get(dataType) || new Set<string>());
+1039
+1040     const cap: DataCapability = {
+1041       dataType,
+1042       rowCount: countByType.get(dataType) || 0,
+1043       numericFields: [],
+1044       categoricalFields: [],
+1045       booleanFields: [],
+1046       semanticRoles: roles,
+1047       hasTargetData: !!targetFieldEntry,
+1048       targetField: targetFieldEntry?.[0],
+1049       fieldIdentities,
+1050       batchIds,
+1051       columnStats: {},
+1052     };
+1053
+1054     if (samples.length === 0) {
+1055       capabilities.push(cap);
+1056       continue;
+1057     }
+1058
+1059     const allKeys = new Set<string>();
+1060     for (const sample of samples) {
+1061       for (const key of Object.keys(sample)) {
+1062         if (!key.startsWith('_')) allKeys.add(key);
+1063       }
+1064     }
+1065
+1066     for (const key of Array.from(allKeys)) {
+1067       const values = samples.map(s => s[key]).filter(v => v !== null && v !== undefined);
+1068       if (values.length === 0) continue;
+1069
+1070       const numericValues = values.filter(v => typeof v === 'number') as number[];
+1071       const stringValues = values.filter(v => typeof v === 'string') as string[];
+1072
+1073       if (numericValues.length > values.length * 0.5) {
+1074         const avg = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
+1075         if (avg > 100 && (avg < 43000 || avg > 48000)) {
+1076           cap.numericFields.push({ field: key, avg, nonNullCount: numericValues.length });
+1077         }
+1078         // HF-111: Collect per-column value stats for boundary matching
+1079         // Include ALL numeric columns (not just the filtered ones above)
+1080         const minVal = Math.min(...numericValues);
+1081         const maxVal = Math.max(...numericValues);
+1082         cap.columnStats[key] = { min: minVal, max: maxVal, mean: avg, sampleCount: numericValues.length };
+1083       }
+1084
+1085       // HF-111: Also parse numeric strings (e.g., "0.85", "265625")
+1086       if (numericValues.length <= values.length * 0.5 && stringValues.length > 0) {
+1087         const parsedNums: number[] = [];
+1088         for (const sv of stringValues) {
+1089           const p = parseFloat(sv.replace(/[,$\s]/g, ''));
+1090           if (!isNaN(p)) parsedNums.push(p);
+1091         }
+1092         if (parsedNums.length > values.length * 0.5) {
+1093           const avg = parsedNums.reduce((a, b) => a + b, 0) / parsedNums.length;
+1094           cap.columnStats[key] = {
+1095             min: Math.min(...parsedNums),
+1096             max: Math.max(...parsedNums),
+1097             mean: avg,
+1098             sampleCount: parsedNums.length,
+1099           };
+1100         }
+1101       }
+1102
+1103       if (stringValues.length > values.length * 0.5) {
+1104         const distinctValues = Array.from(new Set(stringValues));
+1105         if (distinctValues.length >= 2 && distinctValues.length <= 20) {
+1106           if (distinctValues.length === 2) {
+1107             const lower = distinctValues.map(v => v.toLowerCase());
+1108             const isBoolLike = lower.some(v => ['yes', 'no', 'sí', 'si', 'true', 'false', 'qualified', 'not qualified'].includes(v));
+1109             if (isBoolLike) {
+1110               const trueVal = distinctValues.find(v => ['yes', 'sí', 'si', 'true', 'qualified'].includes(v.toLowerCase()));
+1111               const falseVal = distinctValues.find(v => v !== trueVal);
+1112               cap.booleanFields.push({
+1113                 field: key,
+1114                 trueValue: trueVal || distinctValues[0],
+1115                 falseValue: falseVal || distinctValues[1],
+1116               });
+1117               continue;
+1118             }
+1119           }
+1120           cap.categoricalFields.push({
+1121             field: key,
+1122             distinctValues,
+1123             count: stringValues.length,
+1124           });
+1125         }
+1126       }
+1127     }
+1128
+1129     capabilities.push(cap);
+1130   }
+1131
+1132   return capabilities;
+1133 }
+```
+
+### 3.2 Runtime CRP probe output (verbatim from `npx tsx scripts/diag049-probe.ts` against tenant `e44bbcb1-2710-4880-8c7d-a1bd902720b7`)
+
+Script source: `web/scripts/diag049-probe.ts` (committed as part of this DIAG). Replicates `inventoryData`'s 500-row fetch + grouping but uses a simpler categorical/numeric heuristic (string values with distinct count ≤ 20 → categorical; >30% numeric → numeric). Supersession filter not applied — this is a raw read of `committed_data` for the tenant.
+
+```
+data_type="transaction" (444 rows):
+  categorical fields (6):
+    order_type (2 values): ["New Sale","Cross-Sell"]
+    product_name (9 values): ["Catheter Kit","Contrast Agent","CT Unit","Consumable Bundle","Imaging Plates","Surgical Robot","Maintenance Kit","Sterilization Pack","Bandage Supply"]
+    customer_name (16 values): ["Clinic-653","Clinic-559","Clinic-216","Clinic-492","Hospital-381","Hospital-716","Clinic-163","Clinic-651","Hospital-204","Clinic-794","Clinic-856","Clinic-520","Hospital-925","Clinic-890","Clinic-583","Clinic-202"]
+    sales_rep_name (8 values): ["Jason Wu","Tyler Morrison","Fatima Al-Rashid","Samuel Osei","Rachel Green","Maya Johnson","Brian Foster","Priya Sharma"]
+    transaction_id (16 values): ["CN-0247","CN-0254","CN-0253","CN-0005","EQ-0001","XS-0002","CN-0008","CN-0013","EQ-0002","CN-0307","CN-0369","CN-0382","XS-0075","CN-0426","CN-0142","CN-0174"]
+    product_category (2 values): ["Consumables","Capital Equipment"]
+  numeric fields: date, quantity, unit_price, total_amount
+
+data_type="entity" (32 rows):
+  categorical fields (6):
+    region (3 values): ["SE","NE",""]
+    status (1 values): ["Active"]
+    district (5 values): ["SE-GS","NE-NE","NE-MA","SE-CR",""]
+    job_title (5 values): ["District Manager","Senior Rep","Rep","Sales Operations","Regional VP"]
+    department (2 values): ["Sales","Sales Operations"]
+    reports_to (8 values): ["Diana Reeves","James Whitfield","Sarah Okonkwo","Robert Vasquez","Elena Marchetti","CRP-6006","","Marcus Chen"]
+  numeric fields: hire_date
+
+data_type="target" (24 rows):
+  categorical fields (2):
+    plan (1 values): ["Consumables"]
+    role (2 values): ["Rep","Senior Rep"]
+  numeric fields: monthly_quota, effective_date
+```
+
+(Note: the probe's `distinctCount ≤ 20` ceiling matches the production code at `convergence-service.ts:1105`. The probe does NOT replicate the `>= 2` floor used in production (`convergence-service.ts:1105`: `if (distinctValues.length >= 2 && distinctValues.length <= 20)`); the `data_type="target"` `plan` field above (1 distinct value) would be rejected by production code. Similarly the probe does NOT replicate the `stringValues.length > values.length * 0.5` majority-string filter from `convergence-service.ts:1103`. Architect interprets relative to the production thresholds.)
+
