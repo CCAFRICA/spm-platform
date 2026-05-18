@@ -95,39 +95,86 @@ export interface CommitContentUnitResult {
 // HC-FIRST ENTITY_ID_FIELD RESOLUTION (Decision 108)
 // ============================================================
 
-// Identifier role threshold for HC override (mirrors HC_ROLE_THRESHOLD in
+// Role-confidence threshold for HC override (mirrors HC_ROLE_THRESHOLD in
 // hc-pattern-classifier.ts). Below this, fall back to the structural binding.
 const HC_IDENTIFIER_THRESHOLD = 0.80;
+
+// HF-233: Classification-aware entity_id_field resolution.
+//
+// The semantic relationship between HC column roles and entity association
+// depends on the file's classification:
+//
+//   classification  identifier role means      reference_key role means       entity_id_field is
+//   --------------  ------------------------   ----------------------------   ------------------
+//   entity          this row IS the entity     n/a (or org hierarchy ref)     identifier
+//   target          this row is ABOUT entity   n/a                            identifier
+//   transaction     this row's own event ID    this row BELONGS TO entity     reference_key
+//   reference       dimensional lookup key     n/a                            null
+//
+// HF-231 collapsed all 8 import write paths through commitContentUnit but
+// hardcoded `columnRole === 'identifier'` in resolveEntityIdField. Sales
+// files (`transaction_id:identifier@0.95` + `sales_rep_id:reference_key@0.95`)
+// resolved entity_id_field to `transaction_id`, causing post-import Entity
+// Resolution to create 389 ghost entities (one per transaction_id) and the
+// engine to fall back to sheet-matching against 421 "entities".
+//
+// The fix is domain-agnostic: ANY transaction file's entity association is
+// its reference_key, by the HC LLM's definition of those roles. Quota /
+// roster / capacity tables are unaffected.
+
+function findHcRole(
+  classificationTrace: Record<string, unknown> | undefined,
+  targetRole: 'identifier' | 'reference_key',
+): string | null {
+  if (!classificationTrace) return null;
+  const hcData = classificationTrace.headerComprehension as
+    | {
+        interpretations?: Record<
+          string,
+          { columnRole?: string; confidence?: number }
+        >;
+      }
+    | undefined;
+  const interpretations = hcData?.interpretations;
+  if (!interpretations) return null;
+  for (const [colName, interp] of Object.entries(interpretations)) {
+    if (
+      interp.columnRole === targetRole &&
+      typeof interp.confidence === 'number' &&
+      interp.confidence >= HC_IDENTIFIER_THRESHOLD
+    ) {
+      return colName;
+    }
+  }
+  return null;
+}
 
 function resolveEntityIdField(
   bindings: SemanticBinding[],
   classificationTrace: Record<string, unknown> | undefined,
+  classification: Exclude<AgentType, 'plan'>,
 ): string | null {
-  // Layer 1 — HC identifier role at >= 0.80 (Decision 108 override authority).
-  if (classificationTrace) {
-    const hcData = classificationTrace.headerComprehension as
-      | {
-          interpretations?: Record<
-            string,
-            { columnRole?: string; confidence?: number }
-          >;
-        }
-      | undefined;
-    const interpretations = hcData?.interpretations;
-    if (interpretations) {
-      for (const [colName, interp] of Object.entries(interpretations)) {
-        if (
-          interp.columnRole === 'identifier' &&
-          typeof interp.confidence === 'number' &&
-          interp.confidence >= HC_IDENTIFIER_THRESHOLD
-        ) {
-          return colName;
-        }
-      }
-    }
+  // Reference data has no entity association — Decision 111 dimensional
+  // lookup semantics. Skip both HC and structural lookups.
+  if (classification === 'reference') {
+    return null;
   }
 
-  // Layer 2 — structural fallback: confirmedBindings entity_identifier role.
+  // Transaction files: the entity association is the reference_key (foreign
+  // key to the entity the event belongs to), NOT the row's own identifier.
+  // Structural fallback still consults confirmedBindings.entity_identifier in
+  // case HC didn't assign a reference_key role above threshold.
+  if (classification === 'transaction') {
+    const hcReferenceKey = findHcRole(classificationTrace, 'reference_key');
+    if (hcReferenceKey) return hcReferenceKey;
+    const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
+    return binding?.sourceField ?? null;
+  }
+
+  // Entity and target files: the identifier IS the entity (entity files) or
+  // IS ABOUT the entity (target files). Existing HF-231 behavior preserved.
+  const hcIdentifier = findHcRole(classificationTrace, 'identifier');
+  if (hcIdentifier) return hcIdentifier;
   const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
   return binding?.sourceField ?? null;
 }
@@ -241,10 +288,13 @@ export async function commitContentUnit(
     extractFieldIdentitiesFromTrace(unit.classificationTrace) ??
     buildFieldIdentitiesFromBindings(unit.confirmedBindings);
 
-  // Decision 108 — HC `identifier` role @ >= 0.80 overrides structural binding.
+  // Decision 108 — HC role @ >= 0.80 overrides structural binding.
+  // HF-233 — Classification-aware resolution: transaction reads reference_key,
+  // entity/target reads identifier, reference is null.
   const entityIdField = resolveEntityIdField(
     unit.confirmedBindings,
     unit.classificationTrace,
+    classification,
   );
 
   // OB-152/OB-157 — source_date extraction with period marker composition.
