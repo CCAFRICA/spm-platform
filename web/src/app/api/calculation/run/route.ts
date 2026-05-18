@@ -238,7 +238,13 @@ export async function POST(request: NextRequest) {
     // produces filters for metrics that semantically require categorical
     // subsetting.
     const convergenceVersion = typeof rawBindings?.convergence_version === 'string' ? rawBindings.convergence_version : null;
-    const bindingsAreCurrent = convergenceVersion === 'HF-226';
+    // HF-234: separation of concerns moved filter discovery from Call 1's
+    // binding output to Pass 4's metric_derivations. Pre-HF-234 bindings may
+    // carry filters on the binding entry from Call 1's object-form return;
+    // those are now stale because Pass 4 also produces filters for the same
+    // metric (different key) and the engine consumes BOTH. Force re-derive
+    // for any rule_set not yet at HF-234.
+    const bindingsAreCurrent = convergenceVersion === 'HF-234';
 
     if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
@@ -261,10 +267,12 @@ export async function POST(request: NextRequest) {
             updatedBindings.metric_derivations = convResult.derivations;
           }
 
-          // HF-226 Phase 2B: stamp the convergence_version so the reuse gate
-          // at line ~228 can distinguish pre-HF-226 (filters=[] defect) from
-          // post-HF-226 (filters populated by unified Pass 4) bindings.
-          updatedBindings.convergence_version = 'HF-226';
+          // HF-234: stamp the convergence_version so the reuse gate at line
+          // ~228 can distinguish pre-HF-234 (filters on binding) from
+          // post-HF-234 (filters on metric_derivations only) outputs. Bumped
+          // from 'HF-226' once the Call-1 prompt stopped requesting filters
+          // and Pass 4 became the sole filter-discovery surface.
+          updatedBindings.convergence_version = 'HF-234';
 
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
