@@ -391,6 +391,11 @@ async function executeContentUnit(
 }
 
 // OB-134: Field filtering for PARTIAL claims
+// HF-236 (DIAG-050 closure): Per T1-E902 v2 + T2-E06 v2 (locked 2026-05-18),
+// PARTIAL narrows agent ownership semantics only. rawData persists
+// unconditionally; confirmedBindings narrow to the agent's owned + shared
+// field set. See execute-bulk/route.ts:filterFieldsForPartialClaim for the
+// mirror site and full substrate citation.
 function filterFieldsForPartialClaim(unit: ContentUnitExecution): ContentUnitExecution {
   if (unit.claimType !== 'PARTIAL' || !unit.ownedFields || !unit.sharedFields) {
     return unit; // FULL claim — no filtering
@@ -398,26 +403,13 @@ function filterFieldsForPartialClaim(unit: ContentUnitExecution): ContentUnitExe
 
   const allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields]);
 
-  // Filter rawData rows to only include allowed fields
-  const filteredRows = unit.rawData.map(row => {
-    const filtered: Record<string, unknown> = {};
-    for (const key of Object.keys(row)) {
-      if (allowedFields.has(key) || key.startsWith('_')) {
-        // Keep allowed fields + internal metadata keys (_sheetName, _rowIndex)
-        filtered[key] = row[key];
-      }
-    }
-    return filtered;
-  });
-
-  // Filter bindings to only allowed fields
+  // Filter bindings to only allowed fields. rawData passes through unchanged.
   const filteredBindings = unit.confirmedBindings.filter(
     b => allowedFields.has(b.sourceField)
   );
 
   return {
     ...unit,
-    rawData: filteredRows,
     confirmedBindings: filteredBindings,
   };
 }
