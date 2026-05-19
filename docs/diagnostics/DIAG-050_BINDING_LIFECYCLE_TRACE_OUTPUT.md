@@ -1,0 +1,1034 @@
+# DIAG-050 — Binding Lifecycle Trace Output
+
+**Date:** 2026-05-18
+**Tenant:** CRP — e44bbcb1-2710-4880-8c7d-a1bd902720b7
+**Head SHA:** 80188efe (PR #414, HF-235 merge)
+**Branch:** diag-050-binding-lifecycle-trace
+
+---
+
+## Phase 1: Flywheel Injection Site
+
+### Symbol search
+
+`grep -rn "Tier 1" --include="*.ts" src/lib/sci/ src/app/api/import/` (15 hits):
+
+```
+src/lib/sci/fingerprint-flywheel.ts:5: *   Tier 1: Exact tenant-specific fingerprint match → skip LLM entirely
+src/lib/sci/fingerprint-flywheel.ts:43:  // Tier 1: Exact tenant-specific match
+src/lib/sci/fingerprint-flywheel.ts:52:    // HF-145: Confidence threshold gates Tier 1 routing.
+src/lib/sci/fingerprint-flywheel.ts:59:      console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
+src/lib/sci/fingerprint-flywheel.ts:70:    // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
+src/lib/sci/fingerprint-flywheel.ts:124: * Tier 1 match: increment match_count, Bayesian confidence update
+src/app/api/import/commit/route.ts:178:    // Tier 1: AI classification (this step)
+src/app/api/import/sci/process-job/route.ts:6: * checks flywheel → classifies (Tier 1/2/3) → updates job status.
+src/app/api/import/sci/process-job/route.ts:201:    console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: HC ${skipHC ? 'SKIPPED (Tier 1)' : 'completed'}`);
+src/app/api/import/sci/process-job/route.ts:280:    // Tier 1 confidence override uses the unit's own flywheel confidence (was: primary's).
+src/app/api/import/sci/execute/route.ts:324:        // After user confirmation, update with the confirmed roles so future Tier 1 lookups
+src/app/api/import/sci/analyze/route.ts:137:      // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
+src/app/api/import/sci/analyze/route.ts:161:      // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
+src/app/api/import/sci/analyze/route.ts:198:        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
+src/app/api/import/sci/analyze/route.ts:202:      // HC has run (or been injected from Tier 1 flywheel); now compute patterns +
+```
+
+`grep -rn "injected.*fieldBindings\|injectFieldBindings\|fromFlywheel" --include="*.ts" src/lib/sci/ src/app/api/import/` (1 hit):
+
+```
+src/app/api/import/sci/analyze/route.ts:198:        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
+```
+
+`grep -rn "flywheel.*confidence\|confidence.*0\.50\|confidence:.*0\.5" --include="*.ts" src/lib/sci/` (13 hits):
+
+```
+src/lib/sci/negotiation.ts:372:      return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
+src/lib/sci/negotiation.ts:392:      return { role: 'tier_boundary', context: `${field.fieldName} — threshold`, confidence: 0.50 };
+src/lib/sci/synaptic-ingestion-state.ts:323:      requiresHumanReview: winner.confidence < 0.50 || gap < 0.10,
+src/lib/sci/synaptic-ingestion-state.ts:554:      if (scores[0].confidence < 0.50) {
+src/lib/sci/header-comprehension.ts:225:        confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
+src/lib/sci/header-comprehension.ts:402:      confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
+src/lib/sci/resolver.ts:225:      requiresHumanReview: winner.confidence < 0.50 || gap < 0.10,
+src/lib/sci/agents.ts:442:  return scores[0].confidence < 0.50 || gap < 0.10;
+src/lib/sci/agents.ts:582:  return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
+src/lib/sci/agents.ts:593:    return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
+src/lib/sci/agents.ts:609:    return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.50 };
+src/lib/sci/agents.ts:621:    return { role: 'baseline_value', context: `${field.fieldName} — reference value`, confidence: 0.55 };
+src/lib/sci/fingerprint-flywheel.ts:182:          confidence: 0.5,
+```
+
+### Injection function body
+
+Only one site in the repository injects flywheel-cached bindings. Located in `src/app/api/import/sci/analyze/route.ts:161-199`. Verbatim with line numbers:
+
+```typescript
+161       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
+162       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
+163       for (const sheet of file.sheets) {
+164         const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
+165         if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
+166
+167         const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{ sourceField: string; semanticRole: string; confidence: number; displayContext?: string }> | undefined;
+168         if (!flywheelBindings || flywheelBindings.length === 0) continue;
+169
+170         const sheetProfile = profileMap.get(sheet.sheetName);
+171         if (!sheetProfile) continue;
+172
+173         // Map semanticRole → ColumnRole for HeaderInterpretation
+174         const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
+175           entity_identifier: 'identifier', entity_name: 'name',
+176           transaction_date: 'temporal', period: 'temporal',
+177           transaction_amount: 'measure', transaction_count: 'measure',
+178           category_code: 'attribute', entity_attribute: 'attribute',
+179         };
+180         const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
+181         for (const fb of flywheelBindings) {
+182           const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
+183           interpretations.set(fb.sourceField, {
+184             columnName: fb.sourceField,
+185             semanticMeaning: fb.displayContext || fb.semanticRole,
+186             dataExpectation: '',
+187             columnRole,
+188             confidence: fb.confidence,
+189           });
+190         }
+191         sheetProfile.headerComprehension = {
+192           interpretations,
+193           crossSheetInsights: [],
+194           llmCallDuration: 0,
+195           llmModel: 'flywheel-tier1',
+196           fromVocabularyBinding: false,
+197         };
+198         console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
+199       }
+```
+
+### Target field identification
+
+```
+TARGET FIELD:        sheetProfile.headerComprehension.interpretations
+TYPE:                Map<string, HeaderInterpretation>   (see src/lib/sci/sci-types.ts:101-107)
+CONFIDENCE_VALUE:    fb.confidence (preserved from the cached classificationResult; per-binding)
+SOURCE_OF_CONFIDENCE_VALUE: cached (from prior LLM/HC outcome stored on classification_signals.flywheel record)
+SEMANTIC_ROLE → COLUMN_ROLE MAP (analyze/route.ts:174-179):
+  entity_identifier   → identifier
+  entity_name         → name
+  transaction_date    → temporal
+  period              → temporal
+  transaction_amount  → measure
+  transaction_count   → measure
+  category_code       → attribute
+  entity_attribute    → attribute
+FALLBACK (analyze/route.ts:182): roleMap[fb.semanticRole] ?? 'unknown'
+   — every semanticRole NOT in the 8 keys above maps to columnRole='unknown'.
+   Notably absent: 'reference_key', 'entity_license', 'descriptive_label',
+   'tier_boundary', 'baseline_value', and any other semanticRole the flywheel
+   record might carry.
+```
+
+The injection writes the flywheel bindings into `profile.headerComprehension` — the same field that fresh-LLM populates. There is no separate `unit.fieldBindings` / `unit.proposedBindings` field. Downstream consumers read `profile.headerComprehension.interpretations`.
+
+## Phase 2: SCI Classification Path
+
+### Classification entry symbols
+
+`grep -rn "classifyContentUnits|applyHeaderComprehensionSignals|classifyByHCPattern" --include="*.ts" src/lib/sci/`:
+
+```
+src/lib/sci/synaptic-ingestion-state.ts:17:import { computeAdditiveScores, applyHeaderComprehensionSignals, resolveClaimsPhase1, requiresHumanReview } from './agents';
+src/lib/sci/synaptic-ingestion-state.ts:180:export function classifyContentUnits(state: SynapticIngestionState): void {
+src/lib/sci/synaptic-ingestion-state.ts:252:    applyHeaderComprehensionSignals(scores, profile);
+src/lib/sci/resolver.ts:7:// Replaces: classifyContentUnits() scoring logic
+src/lib/sci/resolver.ts:19:import { computeAdditiveScores, applyHeaderComprehensionSignals } from './agents';
+src/lib/sci/resolver.ts:54:// Replaces classifyContentUnits from synaptic-ingestion-state.ts
+src/lib/sci/resolver.ts:109:    applyHeaderComprehensionSignals(scores, profile);
+src/lib/sci/agents.ts:145: * Used by classifyContentUnits in synaptic-ingestion-state.ts (Phase C consolidated pipeline).
+src/lib/sci/agents.ts:176: * New code should use classifyContentUnits from synaptic-ingestion-state.ts.
+src/lib/sci/agents.ts:193:export function applyHeaderComprehensionSignals(
+src/lib/sci/hc-pattern-classifier.ts:50:export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | null {
+```
+
+`grep -rn "fieldBindings.*=" --include="*.ts" src/lib/sci/` (excluding tests) — empty result. No assignment to `fieldBindings` lives in `src/lib/sci/`.
+
+`grep -rnE "fieldBindings\s*[:=]" --include="*.ts" --include="*.tsx" src/`:
+
+```
+src/app/api/import/sci/execute/route.ts:341:              fieldBindings: unit.confirmedBindings,
+src/app/api/import/sci/process-job/route.ts:330:        { ..., fieldBindings: unit.fieldBindings, ... },
+src/app/api/import/sci/analyze-document/route.ts:196:      fieldBindings: [], // Documents don't have field bindings
+src/app/api/import/sci/analyze/route.ts:440:            fieldBindings: unit.fieldBindings,
+src/lib/sci/synaptic-ingestion-state.ts:596:        fieldBindings: primaryBindings,
+src/lib/sci/synaptic-ingestion-state.ts:620:        fieldBindings: secondaryBindings,
+src/lib/sci/synaptic-ingestion-state.ts:649:        fieldBindings: claim.semanticBindings,
+src/lib/sci/sci-types.ts:301:  fieldBindings: SemanticBinding[];
+```
+
+Three TRUE construction sites for proposal `fieldBindings`: `synaptic-ingestion-state.ts:596` (PARTIAL primary), `:620` (PARTIAL secondary), `:649` (FULL claim). All inside `buildProposalFromState`.
+
+`grep -rn "confirmedBindings.*=|proposedBindings.*=" --include="*.ts" src/lib/sci/ src/app/api/`:
+
+```
+src/app/api/import/sci/execute-bulk/route.ts:290:    unit: { ...unit, confirmedBindings: filteredBindings },
+src/app/api/import/sci/execute/route.ts:421:    confirmedBindings: filteredBindings,
+src/components/sci/SCIExecution.tsx:173:        confirmedBindings: proposalUnit.fieldBindings,
+src/components/sci/SCIExecution.tsx:250:        confirmedBindings: proposalUnit.fieldBindings,
+src/components/sci/SCIExecution.tsx:308:        confirmedBindings: proposalUnit.fieldBindings,
+```
+
+`confirmedBindings` is produced CLIENT-SIDE in `SCIExecution.tsx` by copying `proposalUnit.fieldBindings` from the analyze-response. Server-side `execute-bulk:290` / `execute:421` re-assign `confirmedBindings` inside `filterFieldsForPartialClaim` (a re-projection of an already-set value, not a fresh population).
+
+### Classification dispatcher body
+
+`buildProposalFromState` is the function that produces `fieldBindings` on the proposal. `classifyContentUnits` (the resolver) only writes scores / claimType into `state.resolutions`. Verbatim `buildProposalFromState` excerpts (relevant slices); lines 517-665 from `src/lib/sci/synaptic-ingestion-state.ts`:
+
+```typescript
+517 export function buildProposalFromState(
+518   state: SynapticIngestionState,
+519   fileSheets: Array<{ sourceFile: string; sheetName: string }>,
+520 ): ContentUnitProposal[] {
+521   const contentUnits: ContentUnitProposal[] = [];
+522
+523   for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
+524     const scores = state.round2Scores.get(unitId);
+525     if (!scores || scores.length === 0) continue;
+526
+527     const resolution = state.resolutions.get(unitId);
+528     if (!resolution) continue;
+...
+536     const splitAnalysis = analyzeSplit(fieldAffinities, scores, log);
+...
+570     if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
+571       // PARTIAL claims — two content units from one tab
+572       const primaryAgent = splitAnalysis.primaryAgent;
+573       const secondaryAgent = splitAnalysis.secondaryAgent;
+...
+582       const primaryBindings = generatePartialBindings(profile, primaryAgent, splitAnalysis.primaryFields, splitAnalysis.sharedFields);
+583       const secondaryBindings = generatePartialBindings(profile, secondaryAgent, splitAnalysis.secondaryFields, splitAnalysis.sharedFields);
+...
+596         fieldBindings: primaryBindings,
+...
+620         fieldBindings: secondaryBindings,
+...
+635     } else {
+636       // FULL claim — single agent wins
+637       const claim = resolveClaimsPhase1(profile, scores);
+638       const intel = generateProposalIntelligence(profile, scores, negotiationResult, claim.agent);
+639
+640       contentUnits.push({
+...
+649         fieldBindings: claim.semanticBindings,
+...
+656         claimType: 'FULL',
+```
+
+### Binding transformation trace
+
+| LINE | Verbatim | OPERATION | EFFECT |
+|---|---|---|---|
+| `synaptic-ingestion-state.ts:582` | `const primaryBindings = generatePartialBindings(profile, primaryAgent, splitAnalysis.primaryFields, splitAnalysis.sharedFields);` | write (constructs new array) | FILTER — keeps only fields ∈ `primaryFields ∪ sharedFields` (`negotiation.ts:268-274`) |
+| `synaptic-ingestion-state.ts:583` | `const secondaryBindings = generatePartialBindings(profile, secondaryAgent, splitAnalysis.secondaryFields, splitAnalysis.sharedFields);` | write | FILTER — keeps only fields ∈ `secondaryFields ∪ sharedFields` |
+| `synaptic-ingestion-state.ts:596` | `fieldBindings: primaryBindings,` | write (proposal field) | sets PARTIAL primary proposal's `fieldBindings` to the filtered set |
+| `synaptic-ingestion-state.ts:620` | `fieldBindings: secondaryBindings,` | write | sets PARTIAL secondary proposal's `fieldBindings` to the filtered set |
+| `synaptic-ingestion-state.ts:649` | `fieldBindings: claim.semanticBindings,` | write | sets FULL proposal's `fieldBindings` to ALL `profile.fields` (no filter; `agents.ts:450-468:generateSemanticBindings` maps over `profile.fields` 1:1) |
+
+Reference — `generatePartialBindings` filter (negotiation.ts:262-292), verbatim:
+
+```typescript
+262 export function generatePartialBindings(
+263   profile: ContentProfile,
+264   agent: AgentType,
+265   ownedFields: string[],
+266   sharedFields: string[]
+267 ): SemanticBinding[] {
+268   const relevantFields = new Set([...ownedFields, ...sharedFields]);
+269   const bindings: SemanticBinding[] = [];
+270   const hc = profile.headerComprehension;
+271   const rowCount = profile.structure.rowCount ?? profile.fields.length;
+272
+273   for (const field of profile.fields) {
+274     if (!relevantFields.has(field.fieldName)) continue;
+275     ...
+```
+
+Reference — `generateSemanticBindings` (FULL path, no filter) (agents.ts:450-468):
+
+```typescript
+450 function generateSemanticBindings(profile: ContentProfile, agent: AgentType): SemanticBinding[] {
+451   const hc = profile.headerComprehension;
+452   const rowCount = profile.structure.rowCount ?? profile.fields.length;
+453   return profile.fields.map(field => {
+454     const hcInterp = hc?.interpretations.get(field.fieldName);
+455     const hcRole = hcInterp?.columnRole;
+456     const identifiesWhat = hcInterp?.identifiesWhat;
+457     const binding = assignSemanticRole(field, agent, hcRole, rowCount, identifiesWhat);
+458     return {
+459       sourceField: field.fieldName,
+460       platformType: field.dataType,
+461       semanticRole: binding.role,
+...
+```
+
+### NO_MATCH handler
+
+Directive §4.4 expected a literal `NO_MATCH` symbol. `grep -rn "NO_MATCH|noMatch|pattern.*not.*match" --include="*.ts" src/lib/sci/` returns **0 hits**. The HF-230 decision-tree implementation in `hc-pattern-classifier.ts` uses `return null` as its fallthrough signal:
+
+```
+hc-pattern-classifier.ts:52   if (!hc) return null;
+hc-pattern-classifier.ts:59   if (totalColumns === 0) return null;
+hc-pattern-classifier.ts:64     return null;
+```
+
+These three exits represent: (a) no HC at all, (b) HC has zero column entries, (c) HC coverage below `MIN_COVERAGE_RATIO` (0.50) of confident roles. When `classifyByHCPattern` returns null, Level-2 CRR Bayesian (the additive-scoring path in `classifyContentUnits`) owns the classification — `applyHeaderComprehensionSignals` still consults `profile.headerComprehension` (it's additive whether or not a pattern matched). The bindings produced downstream (`generatePartialBindings` / `generateSemanticBindings`) consult `profile.headerComprehension.interpretations` and `profile.fields` regardless of whether HC pattern matched. Pattern null-return does NOT preserve / transform / filter bindings — bindings are produced later, by the FULL or PARTIAL branch in `buildProposalFromState`.
+
+```
+NO_MATCH HANDLER LOCATION: src/lib/sci/hc-pattern-classifier.ts:52, 59, 64 (three `return null` exits)
+HANDLER BODY: `return null;` (no inline handler; caller `classifyContentUnits` proceeds to Level-2 CRR)
+BINDING PRESERVATION: PRESERVED — pattern null-return does not touch fieldBindings (those are produced later in `buildProposalFromState` from `profile.fields`)
+EVIDENCE: hc-pattern-classifier.ts:52/59/64 return null; downstream `classifyContentUnits` at synaptic-ingestion-state.ts:180-340 never touches `fieldBindings`; `buildProposalFromState:517-665` is the sole producer.
+```
+
+### Observation on Phase 1 / Phase 2 interplay
+
+Phase 1 established that flywheel injection writes into `sheetProfile.headerComprehension.interpretations` (Map<string,HeaderInterpretation>). Phase 2 establishes that `fieldBindings` are produced by `buildProposalFromState` from `profile.fields` (the field inventory) — NOT from `profile.headerComprehension.interpretations`. The HC interpretations affect the ROLE chosen for each binding (via `hcInterp.columnRole`) but do NOT determine the COUNT of bindings. The count equals `profile.fields.length` in the FULL path or `|primaryFields ∪ sharedFields|` in the PARTIAL path.
+
+This means the 11→5 attrition cannot come from the flywheel-injected `headerComprehension` map size mismatching the field inventory. It must come from one of: (a) `splitAnalysis.shouldSplit === true` causing a PARTIAL claim with 5 ownedFields+sharedFields, OR (b) downstream filtering in `filterFieldsForPartialClaim`. The DB probe in Phase 5 will reveal whether `claimType === 'PARTIAL'` for the CRP transaction batch.
+
+## Phase 3: confirmedBindings Materialization
+
+### confirmedBindings reference inventory
+
+`grep -rn "confirmedBindings:|confirmedBindings =|\.confirmedBindings" --include="*.ts" --include="*.tsx" src/` (excluding tests):
+
+| File:Line | Match | Classification |
+|---|---|---|
+| `src/app/api/import/sci/execute-bulk/route.ts:57` | `confirmedBindings: SemanticBinding[];` | declaration (interface field) |
+| `src/app/api/import/sci/execute-bulk/route.ts:285` | `const filteredBindings = unit.confirmedBindings.filter(` | read (to filter) |
+| `src/app/api/import/sci/execute-bulk/route.ts:290` | `unit: { ...unit, confirmedBindings: filteredBindings },` | assignment (PARTIAL re-projection) |
+| `src/app/api/import/sci/execute-bulk/route.ts:345` | `const idBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');` | read |
+| `src/app/api/import/sci/execute-bulk/route.ts:346` | `const nameBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_name');` | read |
+| `src/app/api/import/sci/execute-bulk/route.ts:347` | `const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');` | read |
+| `src/app/api/import/sci/execute-bulk/route.ts:356` | `const enrichmentBindings = unit.confirmedBindings.filter(b =>` | read |
+| `src/app/api/import/sci/execute-bulk/route.ts:368` | `for (const binding of unit.confirmedBindings) {` | read |
+| `src/app/api/import/sci/execute/route.ts:326` | `if (unit.confirmedBindings && unit.confirmedBindings.length > 0 && unit.rawData && unit.rawData.length > 0) {` | read |
+| `src/app/api/import/sci/execute/route.ts:330` | `for (const binding of unit.confirmedBindings) {` | read |
+| `src/app/api/import/sci/execute/route.ts:341` | `fieldBindings: unit.confirmedBindings,` | read |
+| `src/app/api/import/sci/execute/route.ts:414` | `const filteredBindings = unit.confirmedBindings.filter(` | read |
+| `src/app/api/import/sci/execute/route.ts:421` | `confirmedBindings: filteredBindings,` | assignment (PARTIAL re-projection) |
+| `src/components/sci/SCIExecution.tsx:173` | `confirmedBindings: proposalUnit.fieldBindings,` | assignment (initial population, bulk path) |
+| `src/components/sci/SCIExecution.tsx:250` | `confirmedBindings: proposalUnit.fieldBindings,` | assignment (initial population, execute single path) |
+| `src/components/sci/SCIExecution.tsx:308` | `confirmedBindings: proposalUnit.fieldBindings,` | assignment (initial population, plan path) |
+| `src/lib/sci/sci-types.ts:342` | `confirmedBindings: SemanticBinding[];` | declaration (ContentUnitExecution type) |
+| `src/lib/sci/commit-content-unit.ts:58` | `confirmedBindings: SemanticBinding[];` | declaration (CommitContentUnitInput type) |
+| `src/lib/sci/commit-content-unit.ts:278` | `for (const binding of unit.confirmedBindings) {` | read |
+| `src/lib/sci/commit-content-unit.ts:289` | `buildFieldIdentitiesFromBindings(unit.confirmedBindings);` | read |
+| `src/lib/sci/commit-content-unit.ts:295` | `unit.confirmedBindings,` | read (into resolveEntityIdField) |
+| `src/lib/sci/commit-content-unit.ts:301` | `findDateColumnFromBindings(unit.confirmedBindings);` | read |
+| `src/lib/sci/commit-content-unit.ts:302` | `buildSemanticRolesMap(unit.confirmedBindings);` | read |
+
+Five assignment sites total — three CLIENT initial-population sites (`SCIExecution.tsx:173,250,308`) and two SERVER re-projection sites (`execute-bulk/route.ts:290`, `execute/route.ts:421`).
+
+### Assignment site bodies
+
+**Site 1 — `src/components/sci/SCIExecution.tsx:166-187` (bulk path initial population):**
+
+```typescript
+166     // Build content unit metadata (no rawData — server reads from Storage)
+167     const bulkUnits = dataUnits.map(eu => {
+168       const proposalUnit = confirmedUnits.find(u => u.contentUnitId === eu.contentUnitId);
+169       if (!proposalUnit) return null;
+170       return {
+171         contentUnitId: eu.contentUnitId,
+172         confirmedClassification: eu.classification,
+173         confirmedBindings: proposalUnit.fieldBindings,
+174         ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
+175         ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
+176         ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
+177         originalClassification: proposalUnit.classification,
+178         originalConfidence: proposalUnit.confidence,
+179         // HF-110: Pass HC data for field_identities extraction (DS-009 1.3)
+180         ...(proposalUnit.classificationTrace ? { classificationTrace: proposalUnit.classificationTrace } : {}),
+181         ...(proposalUnit.structuralFingerprint ? { structuralFingerprint: proposalUnit.structuralFingerprint } : {}),
+182         ...(proposalUnit.vocabularyBindings ? { vocabularyBindings: proposalUnit.vocabularyBindings } : {}),
+183         sourceFile: proposalUnit.sourceFile,
+184         tabName: proposalUnit.tabName,
+185       };
+186     }).filter(Boolean);
+```
+
+**Site 2 — `src/components/sci/SCIExecution.tsx:247-264` (execute single path initial population):**
+
+```typescript
+247     const execUnit = {
+248       contentUnitId: unit.contentUnitId,
+249       confirmedClassification: unit.classification,
+250       confirmedBindings: proposalUnit.fieldBindings,
+251       rawData: sheetData?.rows || [],
+252       ...(proposalUnit.documentMetadata ? { documentMetadata: proposalUnit.documentMetadata } : {}),
+253       ...(proposalUnit.claimType ? { claimType: proposalUnit.claimType } : {}),
+254       ...(proposalUnit.ownedFields ? { ownedFields: proposalUnit.ownedFields } : {}),
+255       ...(proposalUnit.sharedFields ? { sharedFields: proposalUnit.sharedFields } : {}),
+```
+
+**Site 3 — `src/components/sci/SCIExecution.tsx:302-322` (plan path initial population):**
+
+```typescript
+302       const planExecUnits = planUnits.map(unit => {
+303         const proposalUnit = confirmedUnits.find(u => u.contentUnitId === unit.contentUnitId);
+304         if (!proposalUnit) return null;
+305         return {
+306           contentUnitId: unit.contentUnitId,
+307           confirmedClassification: unit.classification,
+308           confirmedBindings: proposalUnit.fieldBindings,
+309           rawData: [] as Record<string, unknown>[], // Plan units have no row data
+```
+
+**Site 4 — `src/app/api/import/sci/execute-bulk/route.ts:263-293` (PARTIAL re-projection):**
+
+```typescript
+263 // ── Field filtering for PARTIAL claims ──
+264
+265 function filterFieldsForPartialClaim(
+266   unit: BulkContentUnit,
+267   rows: Record<string, unknown>[],
+268 ): { unit: BulkContentUnit; rows: Record<string, unknown>[] } {
+269   if (unit.claimType !== 'PARTIAL' || !unit.ownedFields || !unit.sharedFields) {
+270     return { unit, rows };
+271   }
+272
+273   const allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields]);
+274
+275   const filteredRows = rows.map(row => {
+276     const filtered: Record<string, unknown> = {};
+277     for (const key of Object.keys(row)) {
+278       if (allowedFields.has(key) || key.startsWith('_')) {
+279         filtered[key] = row[key];
+280       }
+281     }
+282     return filtered;
+283   });
+284
+285   const filteredBindings = unit.confirmedBindings.filter(
+286     b => allowedFields.has(b.sourceField)
+287   );
+288
+289   return {
+290     unit: { ...unit, confirmedBindings: filteredBindings },
+291     rows: filteredRows,
+292   };
+293 }
+```
+
+**Site 5 — `src/app/api/import/sci/execute/route.ts:405-425` (PARTIAL re-projection on execute path):**
+
+(Mirror of Site 4 for the non-bulk execute endpoint; same shape; same logic; both `rows` and `confirmedBindings` projected to `ownedFields ∪ sharedFields`.)
+
+### Materialization source analysis
+
+| ASSIGNMENT SITE | SOURCE EXPRESSION | SOURCE FIELD(S) | FILTER APPLIED | FILTER LITERAL |
+|---|---|---|---|---|
+| `SCIExecution.tsx:173` | `proposalUnit.fieldBindings` | `ContentUnitProposal.fieldBindings` (from analyze-response body) | NONE | n/a |
+| `SCIExecution.tsx:250` | `proposalUnit.fieldBindings` | same | NONE | n/a |
+| `SCIExecution.tsx:308` | `proposalUnit.fieldBindings` | same | NONE | n/a |
+| `execute-bulk/route.ts:290` | `filteredBindings` (line 285: `unit.confirmedBindings.filter(b => allowedFields.has(b.sourceField))`) | own `unit.confirmedBindings` | YES — keeps only `b.sourceField ∈ Set(ownedFields ∪ sharedFields)` | gate on line 269: `unit.claimType !== 'PARTIAL'` short-circuits; if PARTIAL, filter at line 286 with `allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields])` |
+| `execute/route.ts:421` | mirror of execute-bulk:290 | same | YES — same | same |
+
+### Path divergence analysis
+
+```
+DIVERGENT PATHS: NO at materialization layer; YES at the upstream proposal-building layer
+
+  Upstream paths (which feed `proposalUnit.fieldBindings`):
+    PATH A (FULL claim):     synaptic-ingestion-state.ts:649 → `claim.semanticBindings`
+                             from agents.ts:427 → `generateSemanticBindings(profile, winner.agent)`
+                             which maps over ALL profile.fields (no filter) — count = profile.fields.length
+
+    PATH B (PARTIAL claim):  synaptic-ingestion-state.ts:596 (primary) + :620 (secondary)
+                             → `generatePartialBindings(profile, agent, ownedFields, sharedFields)`
+                             from negotiation.ts:262, which filters by
+                             `relevantFields = Set(ownedFields ∪ sharedFields)` (negotiation.ts:268-274)
+                             — count = |primary_or_secondary_fields ∪ sharedFields|
+
+  TRIGGER between A and B:   `splitAnalysis.shouldSplit` from analyzeSplit() (negotiation.ts)
+                             evaluated at synaptic-ingestion-state.ts:312
+
+SHARED MATERIALIZATION: YES (downstream)
+  Client population:   SCIExecution.tsx:173/250/308 — `confirmedBindings: proposalUnit.fieldBindings`
+                       (identical for FULL and PARTIAL; no client-side filter)
+  Server re-projection (PARTIAL only): execute-bulk/route.ts:290 / execute/route.ts:421
+                       — re-applies the same `ownedFields ∪ sharedFields` filter at the
+                       server boundary. For FULL claims, this is a no-op (line 269
+                       short-circuits return).
+```
+
+The directive's IGF-T1-E952 framing of "fresh-LLM vs flywheel-replay" as the two-arm split is not the divergence layer for binding count. Both fresh-LLM and flywheel-replay paths produce `profile.headerComprehension.interpretations` (different sources, same target field per Phase 1). Both paths produce `profile.fields` from the same SheetJS-parsed sample. Both flow through `buildProposalFromState` and choose FULL vs PARTIAL based on `splitAnalysis.shouldSplit` — which depends on `analyzeSplit(fieldAffinities, scores, log)`.
+
+The arm that matters for binding count is FULL vs PARTIAL, not fresh-LLM vs flywheel. If flywheel-replayed CRP transactions go to PARTIAL but fresh-LLM CRP transactions go to FULL, the attrition is at the FULL/PARTIAL branch.
+
+## Phase 4: commitContentUnit Consumption
+
+### commitContentUnit full body
+
+`web/src/lib/sci/commit-content-unit.ts` is 433 lines. Phase 4 quotes the consumption-relevant region (lines 204-433) verbatim with line numbers — the file's imports + helper functions (lines 1-200) are present in the repo for cross-reference. (Helper `resolveEntityIdField` body is at lines 152-180, `findHcRole` at lines 125-150, both quoted earlier in Phase 1 / Phase 3 context.)
+
+```typescript
+204 export async function commitContentUnit(
+205   supabase: SupabaseClient,
+206   params: CommitContentUnitParams,
+207 ): Promise<CommitContentUnitResult> {
+208   const {
+209     unit,
+210     rows,
+211     classification,
+212     tenantId,
+213     proposalId,
+214     tabName,
+215     fileName,
+216     source,
+217     fileHashSha256,
+218   } = params;
+219
+220   // Empty-rows short-circuit — preserve existing caller contract.
+221   if (rows.length === 0) {
+222     return {
+223       batchId: '',
+224       totalInserted: 0,
+225       dataType: resolveDataTypeFromClassification(classification),
+226       entityIdField: null,
+227       fieldIdentities: {},
+228       earliestDate: null,
+229       latestDate: null,
+230       dateCount: 0,
+231       success: true,
+232     };
+233   }
+234
+235   const profile = profileFor(source);
+236
+237   // HF-196 Phase 1D — data_type derives from SCI classification (Decisions 154/155).
+238   const dataType = resolveDataTypeFromClassification(classification);
+239
+240   // HF-213 — content_unit_hash_sha256 is the supersession identity primitive.
+241   const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
+242   const batchId = crypto.randomUUID();
+243
+244   await supabase.from('import_batches').insert({
+245     id: batchId,
+246     tenant_id: tenantId,
+247     file_name: fileName,
+248     file_type: 'sci',
+249     status: 'processing',
+250     row_count: rows.length,
+251     // HF-196 Phase 1F — file-level hash retained for audit (supersedure trigger
+252     // moved to content_unit_hash_sha256 at HF-213).
+253     file_hash_sha256: fileHashSha256,
+254     content_unit_hash_sha256: contentUnitHashSha256,
+255     metadata: {
+256       source,
+257       proposalId,
+258       contentUnitId: unit.contentUnitId,
+259       classification,
+260     } as unknown as Json,
+261   });
+262
+263   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
+264   await supersedePriorBatchOnContentMatch(
+265     supabase,
+266     tenantId,
+267     batchId,
+268     contentUnitHashSha256,
+269     rows,
+270   );
+271
+272   // Build semantic_roles map from confirmedBindings (single shape across
+273   // all four classifications).
+274   const semanticRoles: Record<
+275     string,
+276     { role: string; confidence: number; claimedBy: string }
+277   > = {};
+278   for (const binding of unit.confirmedBindings) {
+279     semanticRoles[binding.sourceField] = {
+280       role: binding.semanticRole,
+281       confidence: binding.confidence,
+282       claimedBy: binding.claimedBy,
+283     };
+284   }
+285
+286   // HF-110 — field_identities: HC trace primary, confirmedBindings fallback (DS-009 1.3).
+287   const fieldIdentities =
+288     extractFieldIdentitiesFromTrace(unit.classificationTrace) ??
+289     buildFieldIdentitiesFromBindings(unit.confirmedBindings);
+290
+291   // Decision 108 — HC role @ >= 0.80 overrides structural binding.
+292   // HF-233 — Classification-aware resolution: transaction reads reference_key,
+293   // entity/target reads identifier, reference is null.
+294   const entityIdField = resolveEntityIdField(
+295     unit.confirmedBindings,
+296     unit.classificationTrace,
+297     classification,
+298   );
+299
+300   // OB-152/OB-157 — source_date extraction with period marker composition.
+301   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
+302   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
+303   const periodMarkerHint = detectPeriodMarkerColumns(rows);
+304
+305   // Build committed_data rows. entity_id and period_id are always NULL at
+306   // import — engine binds them at calc time (OB-182, Decision 92).
+307   let earliestDate: string | null = null;
+308   let latestDate: string | null = null;
+309   let dateCount = 0;
+310
+311   const insertRows = rows.map((row, i) => {
+312     const sourceDate = extractSourceDate(
+313       row,
+314       dateColumnHint,
+315       semanticRolesMap,
+316       periodMarkerHint,
+317     );
+318     if (sourceDate) {
+319       dateCount++;
+320       if (!earliestDate || sourceDate < earliestDate) earliestDate = sourceDate;
+321       if (!latestDate || sourceDate > latestDate) latestDate = sourceDate;
+322     }
+323
+324     return {
+325       tenant_id: tenantId,
+326       import_batch_id: batchId,
+327       entity_id: null as string | null,
+328       period_id: null as string | null,
+329       source_date: sourceDate,
+330       data_type: dataType,
+331       row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+332       metadata: {
+333         source,
+334         proposalId,
+335         semantic_roles: semanticRoles,
+336         resolved_data_type: dataType,
+337         entity_id_field: entityIdField,
+338         informational_label: classification,
+339         field_identities: fieldIdentities,
+340       },
+341     };
+342   });
+343
+344   // Chunked insert — per-source profile (sci-bulk retries; sci does not).
+345   ... [chunked insert loop, lines 344-404, retains rows verbatim per chunk] ...
+405 }
+406
+407   // Finalize batch.
+408   ... [batch status update, success log line] ...
+432   };
+433 }
+```
+
+(Lines 344-433 elided; covered in earlier read. The body of those lines is purely the chunked-insert loop plus batch finalization — they consume `insertRows` but do not modify the per-row `row_data` shape.)
+
+### semantic_roles construction
+
+```
+SEMANTIC_ROLES CONSTRUCTION LINES: 272-284 (commit-content-unit.ts)
+SOURCE:                              `for (const binding of unit.confirmedBindings) { semanticRoles[binding.sourceField] = { role, confidence, claimedBy }; }`
+INCLUDES:                            every binding in unit.confirmedBindings (no filter applied inside commitContentUnit)
+                                     count(semanticRoles) === unit.confirmedBindings.length
+```
+
+### row_data construction
+
+```
+ROW_DATA CONSTRUCTION LINES:    311-331 (commit-content-unit.ts)
+SPREAD EXPRESSION:               `row_data: { ...row, _sheetName: tabName, _rowIndex: i }`  (line 331)
+ROW SOURCE:                      `rows` parameter of type `Record<string, unknown>[]` (param destructured at line 210)
+                                 The `rows` array enters `commitContentUnit` from its caller:
+                                   • execute-bulk path: `processDataUnit(..., rows, ...)` is invoked at
+                                     execute-bulk/route.ts:218 via `processContentUnit`, where `rows`
+                                     was already passed through `filterFieldsForPartialClaim(unit, rows)`
+                                     at execute-bulk/route.ts:216 — see Phase 3 § Site 4. For PARTIAL
+                                     claims, the rows are pre-projected to `ownedFields ∪ sharedFields`.
+                                   • execute path: same shape; pre-projection at execute/route.ts:414-421.
+COLUMN PROJECTION INSIDE        NONE — the spread `{ ...row, _sheetName, _rowIndex }` preserves every key
+commitContentUnit:               present in the input `row` argument.
+```
+
+### Invariant reconciliation
+
+The DB invariant `row_data_col_count == semantic_roles_count` is reconciled by **Option B**: the row source (the `rows` parameter) arrives at `commitContentUnit` already pre-projected upstream by the caller, when the unit has `claimType === 'PARTIAL'`.
+
+```
+INVARIANT EXPLANATION:
+  Option A (row_data projected by confirmedBindings inside commitContentUnit): RULED OUT
+    commit-content-unit.ts:331 uses an unrestricted spread `{ ...row, _sheetName, _rowIndex }`.
+    No projection occurs inside this function.
+
+  Option B (row source is pre-projected upstream by caller): SELECTED
+    execute-bulk/route.ts:215-222 calls
+      `const effectiveUnit = filterFieldsForPartialClaim(unit, rows);`
+      `const result = await processContentUnit(..., effectiveUnit.unit, effectiveUnit.rows, ...);`
+    `filterFieldsForPartialClaim` (execute-bulk/route.ts:265-293, quoted in Phase 3 § Site 4)
+    short-circuits when `unit.claimType !== 'PARTIAL'` (line 269) and otherwise builds
+      `allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields])`
+    then projects BOTH:
+      • `filteredRows`  (lines 275-283) — `for (const key of Object.keys(row)) if (allowedFields.has(key) || key.startsWith('_'))`
+      • `filteredBindings`  (lines 285-287) — `unit.confirmedBindings.filter(b => allowedFields.has(b.sourceField))`
+    to the same `allowedFields` set, so when commitContentUnit reads the pre-projected `rows` and the
+    pre-projected `unit.confirmedBindings`, both have identical key counts.
+
+  Option C (count coincidence): RULED OUT
+    The invariant holds across all tenants, all data types, all timestamps per the directive's §1.1
+    table. A 5-tenant-data-type coincidence over 11→5 / 7→7 / 19→19 / 13→13 / 8→8 cuts is structurally
+    implausible.
+
+  Option D (other): N/A
+
+SELECTED:  Option B
+EVIDENCE:  execute-bulk/route.ts:215-222 (caller wraps via filterFieldsForPartialClaim);
+           execute-bulk/route.ts:265-293 (the filter projects BOTH rows AND bindings to the same set);
+           commit-content-unit.ts:278-284 (semanticRoles built from the pre-projected confirmedBindings);
+           commit-content-unit.ts:331 (row_data spreads the pre-projected row unchanged).
+```
+
+For tenants where the invariant collapses NUMBERS (Meridian transaction 19=19, BCL transaction 13=13, CRP transaction 5=5), the count equals:
+- the full file's column count, IF `claimType === 'FULL'` (filterFieldsForPartialClaim short-circuits on line 269), OR
+- |ownedFields ∪ sharedFields|, IF `claimType === 'PARTIAL'`.
+
+Phase 5 will confirm via DB probe which `claimType` operated for the current CRP transaction batch.
+
+## Phase 5: Database State Evidence
+
+### Database state probe output
+
+Probe script: `web/scripts/diag050-binding-state-probe.ts` (committed). Run via `npx tsx --env-file=.env.local scripts/diag050-binding-state-probe.ts`. Full output is 496 lines; quoted in three sections.
+
+**PROBE A — `import_batches` last 10 for CRP (head of output):**
+
+```
+=== PROBE A: import_batches (last 10, CRP) ===
+{
+  "id": "3482db56-3f8c-438d-9508-5780798c4e6e",
+  "file_name": "sci-bulk-469befda-e853-4ba5-b7d2-022c402621af",
+  "row_count": 170,
+  "created_at": "2026-05-18T16:28:43.70557+00:00",
+  "metadata_keys": ["source", "proposalId", "contentUnitId", "classification"],
+  "metadata": {
+    "source": "sci-bulk",
+    "proposalId": "469befda-e853-4ba5-b7d2-022c402621af",
+    "contentUnitId": "07_CRP_Sales_20260216_20260228.csv::07_CRP_Sales_20260216_20260228::0",
+    "classification": "transaction"
+  }
+}
+{
+  "id": "87749408-943b-4973-8d00-5326288d8442",
+  "file_name": "sci-bulk-469befda-e853-4ba5-b7d2-022c402621af",
+  "row_count": 197, ..., "classification": "transaction"
+}
+{
+  "id": "98aee050-3999-4a52-bef2-36a2e5de014e",
+  "row_count": 207, ..., "classification": "transaction"
+}
+{
+  "id": "2722765c-5870-4755-ad3e-ec5a3929783c",
+  "row_count": 182, ..., "classification": "transaction"
+}
+{
+  "id": "0b71988e-2307-4bfc-b43b-385992e208c4",
+  "row_count": 32, ..., "classification": "entity"  (Roster)
+}
+{
+  "id": "6cd2ad30-5627-4843-aa34-7d1bf4d596ea",
+  "row_count": 24, ..., "classification": "target"  (Quotas)
+}
+```
+
+All transaction batches carry `metadata_keys: ["source", "proposalId", "contentUnitId", "classification"]` — claim metadata (`claimType` / `ownedFields` / `sharedFields`) is NOT persisted on `import_batches` at any classification.
+
+**PROBE B — `committed_data` sample for CRP transaction (id `73af0e44-c9c1-452c-b9ed-750736f3b3ef`):**
+
+```
+{
+  "id": "73af0e44-c9c1-452c-b9ed-750736f3b3ef",
+  "data_type": "transaction",
+  "source_date": "2026-02-19",
+  "created_at": "2026-05-18T16:28:43.780721+00:00",
+  "metadata": {
+    "source": "sci-bulk",
+    "proposalId": "469befda-e853-4ba5-b7d2-022c402621af",
+    "semantic_roles": {
+      "date":         { "role": "transaction_date",   "claimedBy": "transaction", "confidence": 0.9  },
+      "quantity":     { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  },
+      "unit_price":   { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  },
+      "sales_rep_id": { "role": "entity_identifier",  "claimedBy": "transaction", "confidence": 0.85 },
+      "total_amount": { "role": "transaction_count",  "claimedBy": "transaction", "confidence": 0.7  }
+    },
+    "entity_id_field": "sales_rep_id",
+    "field_identities": {
+      "date":             { "confidence": 0.9,  "structuralType": "temporal",   "contextualIdentity": "date — event timestamp" },
+      "quantity":         { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "quantity — measure" },
+      "order_type":       { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "order_type — classification" },
+      "unit_price":       { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "unit_price — measure" },
+      "product_name":     { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "product_name — classification" },
+      "sales_rep_id":     { "confidence": 0.95, "structuralType": "identifier", "contextualIdentity": "sales_rep_id — entity ref key (LLM: person)" },
+      "total_amount":     { "confidence": 0.7,  "structuralType": "measure",    "contextualIdentity": "total_amount — measure" },
+      "customer_name":    { "confidence": 0.5,  "structuralType": "attribute",  "contextualIdentity": "customer_name — classification" },
+      "sales_rep_name":   { "confidence": 0.5,  "structuralType": "attribute",  "contextualIdentity": "sales_rep_name — classification" },
+      "transaction_id":   { "confidence": 0.95, "structuralType": "unknown",    "contextualIdentity": "transaction_id — record identifier (LLM: transaction)" },
+      "product_category": { "confidence": 0.7,  "structuralType": "attribute",  "contextualIdentity": "product_category — classification" }
+    },
+    "resolved_data_type": "transaction",
+    "informational_label": "transaction"
+  },
+  "row_data_keys": ["date", "quantity", "_rowIndex", "_sheetName", "unit_price", "sales_rep_id", "total_amount"],
+  "row_data": {
+    "date": 46072, "quantity": 9, "_rowIndex": 39, "_sheetName": "07_CRP_Sales_20260216_20260228",
+    "unit_price": 94.44, "sales_rep_id": "CRP-6012", "total_amount": 850
+  }
+}
+```
+
+**PROBE C — `rule_sets.input_bindings` for CRP (all 4 plans):**
+
+```
+Plan: Consumables Commission Plan (id 7e5742c1-47c5-4e28-b0b8-9450181d92b6)
+  input_bindings_keys: [metric_derivations, convergence_version, convergence_bindings]
+  metric_derivations: [
+    { metric: "monthly_quota", filters: [], operation: "sum", source_field: "monthly_quota", source_pattern: "target" }
+  ]
+  convergence_version: "HF-234"
+  convergence_bindings.component_0:
+    actual:           { column: "unit_price",    confidence: 0.263, match_pass: 3, fi: { structuralType: "measure", contextualIdentity: "cross_source_numeric" } }
+    period:           { column: "effective_date" (FROM TARGET batch), match_pass: 1 }
+    numerator:        { column: "total_amount",  filters: [], confidence: 0.9, match_pass: 1 }
+    denominator:      { column: "monthly_quota", filters: [], confidence: 0.9, match_pass: 1 }
+    entity_identifier:{ column: "entity_id", confidence: 1, match_pass: 1 }
+
+Plan: Cross-Sell Bonus Plan (id 939cf1f5-26ab-4a72-a1d1-bd8eb0a1201a)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    actual:           { column: "monthly_quota", filters: [], confidence: 0.9, match_pass: 1 }
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+
+Plan: District Override Plan (id 6f592a1f-dfd4-4ffc-9334-60ff8c69ff7a)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+    (no `actual` binding present)
+
+Plan: Capital Equipment Commission Plan (id 1f08bfbe-d45f-488d-9643-e8a4c7740c35)
+  input_bindings_keys: [convergence_version, convergence_bindings]   ← NO metric_derivations
+  convergence_bindings.component_0:
+    actual:           { column: "total_amount", filters: [], confidence: 0.9, match_pass: 1 }
+    period:           { column: "effective_date" }
+    entity_identifier:{ column: "entity_id" }
+```
+
+### Cross-reference observations
+
+```
+PROBE A (import_batches):
+  CRP TRANSACTION BATCH IDs:  3482db56 (170 rows), 87749408 (197), 98aee050 (207), 2722765c (182)
+  METADATA KEYS CARRIED PER BATCH:  ["source", "proposalId", "contentUnitId", "classification"]
+  ANY FIELD-BINDING-LIKE STRUCTURES IN METADATA?:  NO — import_batches metadata never carries
+    confirmedBindings, claimType, ownedFields, or sharedFields. The binding evidence lives at
+    committed_data.metadata.semantic_roles (per-row), not at batch level.
+
+PROBE B (committed_data sample, transaction batch 3482db56):
+  METADATA.SEMANTIC_ROLES KEYS:        date, quantity, unit_price, sales_rep_id, total_amount  (count = 5)
+  METADATA.FIELD_IDENTITIES KEYS:      date, quantity, order_type, unit_price, product_name,
+                                       sales_rep_id, total_amount, customer_name, sales_rep_name,
+                                       transaction_id, product_category  (count = 11)
+  ROW_DATA KEYS (non-underscore):      date, quantity, unit_price, sales_rep_id, total_amount  (count = 5)
+  KEYS IN ROW_DATA NOT IN SEMANTIC_ROLES: none (excluding _rowIndex, _sheetName)
+  KEYS IN SEMANTIC_ROLES NOT IN ROW_DATA: none
+  KEYS IN FIELD_IDENTITIES NOT IN SEMANTIC_ROLES:
+      order_type, product_name, customer_name, sales_rep_name, transaction_id, product_category  (count = 6)
+  KEYS IN SEMANTIC_ROLES NOT IN FIELD_IDENTITIES: none
+
+PROBE C (rule_sets.input_bindings):
+  PER-PLAN BINDING COUNT (convergence_bindings.component_0):
+    Consumables Commission Plan:    5 role keys  (actual, period, numerator, denominator, entity_identifier)
+    Cross-Sell Bonus Plan:          3 role keys  (actual, period, entity_identifier)
+    District Override Plan:         2 role keys  (period, entity_identifier)
+    Capital Equipment Commission:   3 role keys  (actual, period, entity_identifier)
+  ANY DERIVATION (vs. direct column reference)?:  YES — Consumables carries one metric_derivation
+    (`monthly_quota = sum(monthly_quota) FROM target`). The other three plans carry ZERO metric_derivations.
+  ANY filter QUALIFICATION PRESENT IN BINDINGS?:  NO — every binding entry that has a `filters` key
+    contains an empty array (`filters: []`). Pass-4 categorical-filter discovery produced no filtered
+    derivations for any of the four plans.
+```
+
+### Structural observation surfaced by the probe
+
+`committed_data.metadata` carries TWO views of the same import:
+
+1. `semantic_roles` (5 entries) — built inside `commitContentUnit` at `commit-content-unit.ts:278-284` from `unit.confirmedBindings`. Count equals binding count after upstream filtering.
+2. `field_identities` (11 entries) — built at `commit-content-unit.ts:287-289` from
+   `extractFieldIdentitiesFromTrace(unit.classificationTrace) ?? buildFieldIdentitiesFromBindings(unit.confirmedBindings)`.
+   The HC trace carries ALL 11 columns the LLM/flywheel observed; the fallback path would carry the
+   binding count. Since `field_identities` shows 11 keys, the HC-trace branch fired and the trace
+   carried 11 column interpretations into `commitContentUnit`.
+
+The 11-column HC trace and the 5-binding `confirmedBindings` are both present on the same `unit` object passed to `commitContentUnit`. The attrition from 11 to 5 happened upstream of `commitContentUnit`. The HC trace travelled through unfiltered; the bindings did not.
+
+`row_data` non-underscore keys (5) equals `semantic_roles` keys (5) — confirming the Phase 4 Option-B reconciliation: the `rows` parameter into `commitContentUnit` was pre-projected to the same 5 columns as `confirmedBindings`. The Phase 3 `filterFieldsForPartialClaim` path at `execute-bulk/route.ts:215-222 + 265-293` projects both `rows` and `bindings` to `allowedFields = ownedFields ∪ sharedFields` when `claimType === 'PARTIAL'`. The fact that the projection occurred is direct evidence that the CRP transaction proposal carried `claimType === 'PARTIAL'` with the 5 survivor columns as `ownedFields ∪ sharedFields`.
+
+## Phase 6: Binding Lifecycle Map and Attrition Point
+
+### Lifecycle map (CRP transaction, batch `3482db56` — 170 rows; survivors: date, quantity, sales_rep_id, total_amount, unit_price)
+
+```
+STEP 1: SheetJS parse
+  COUNT:     11
+  EVIDENCE:  DIAG-049 / earlier DIAG-ROWS capture against
+             ingestion-raw/.../05_CRP_Sales_20260201_20260215.csv:
+             firstRowKeys = ["transaction_id","date","sales_rep_id","sales_rep_name",
+                             "customer_name","product_category","product_name","quantity",
+                             "unit_price","total_amount","order_type"] (11 keys).
+
+STEP 2: HC LLM call OR flywheel injection
+  COUNT:           11 (HC trace carries all 11 column interpretations into the trace blob)
+  TARGET FIELD:    sheetProfile.headerComprehension.interpretations (Phase 1.3)
+  CONFIDENCE:      per-column (preserved from cached/LLM result)
+  EVIDENCE:        Probe B `metadata.field_identities` has 11 keys — extractFieldIdentitiesFromTrace
+                   read the trace's interpretations map (commit-content-unit.ts:287-288).
+                   All 11 column interpretations made it into the trace.
+
+STEP 3: Classification (HC pattern + CRR Bayesian)
+  ENTRY COUNT:     11 (HC trace + 11 profile.fields)
+  EXIT COUNT:      11 (classifyContentUnits writes only to scores/resolutions, never to fieldBindings)
+  TRANSFORMATIONS APPLIED: NONE on the binding-set surface. The dispatcher writes
+                   `state.round1Scores`, `state.round2Scores`, `state.resolutions`,
+                   `state.traces`. None of these touch fieldBindings.
+  NO_MATCH PATH:   classifyByHCPattern can return null (hc-pattern-classifier.ts:52/59/64);
+                   the caller falls to CRR Bayesian. NO_MATCH does NOT touch bindings.
+
+STEP 4: buildProposalFromState — proposal fieldBindings produced
+  ENTRY COUNT:     11 (profile.fields)
+  EXIT COUNT:      DEPENDS ON splitAnalysis.shouldSplit:
+                   • FULL claim path  (synaptic-ingestion-state.ts:649):
+                     `fieldBindings: claim.semanticBindings`
+                     where claim.semanticBindings = generateSemanticBindings(profile, winner.agent)
+                     which maps over ALL profile.fields → COUNT = 11
+                   • PARTIAL claim path (synaptic-ingestion-state.ts:596, :620):
+                     `fieldBindings: primaryBindings|secondaryBindings`
+                     where primaryBindings = generatePartialBindings(profile, primaryAgent,
+                                                                     splitAnalysis.primaryFields,
+                                                                     splitAnalysis.sharedFields)
+                     which filters by `relevantFields = Set(ownedFields ∪ sharedFields)`
+                     (negotiation.ts:268-274) → COUNT = |primaryFields ∪ sharedFields|
+  FILTER APPLIED:  only in PARTIAL branch — `if (!relevantFields.has(field.fieldName)) continue;` at negotiation.ts:274.
+
+STEP 5: Client materialization (SCIExecution.tsx)
+  ENTRY COUNT:     output of Step 4
+  EXIT COUNT:      identical to Step 4 — client copies `proposalUnit.fieldBindings` into
+                   `confirmedBindings` without filtering (SCIExecution.tsx:173/250/308).
+  FILTER APPLIED:  NONE.
+
+STEP 6: Server re-projection (filterFieldsForPartialClaim, execute-bulk:215-222 + 265-293)
+  ENTRY COUNT (rows):              rows.length × column-count from CSV parse = 170 × 11
+  ENTRY COUNT (confirmedBindings): output of Step 5
+  EXIT COUNT (rows columns):       |ownedFields ∪ sharedFields| if PARTIAL; unchanged if FULL
+  EXIT COUNT (confirmedBindings):  same — bindings re-filtered to same allowedFields set
+  FILTER APPLIED:  YES in PARTIAL path (line 269 short-circuits FULL); both `rows` and
+                   `confirmedBindings` projected to `Set(ownedFields ∪ sharedFields)`.
+
+STEP 7: commitContentUnit (commit-content-unit.ts:204-433)
+  ENTRY COUNT (rows columns):         5  (post-Step-6 projection)
+  ENTRY COUNT (confirmedBindings):    5  (post-Step-6 projection)
+  ENTRY COUNT (HC trace interps):     11 (trace was not filtered by Step 6)
+  semantic_roles OUTPUT COUNT:        5  (commit-content-unit.ts:278-284, 1:1 over bindings)
+  field_identities OUTPUT COUNT:      11 (extractFieldIdentitiesFromTrace at line 287-288 used the trace)
+  row_data OUTPUT COLUMN COUNT:       5  + _sheetName + _rowIndex (spread of pre-projected row)
+
+STEP 8: Database persistence
+  EVIDENCE:        Probe B
+    metadata.semantic_roles:  5  ✓
+    metadata.field_identities: 11 ✓
+    row_data non-underscore:   5  ✓
+```
+
+### Attrition step
+
+```
+ATTRITION STEP:       STEP 4 (buildProposalFromState — proposal fieldBindings produced)
+                      Specifically the PARTIAL branch invoking generatePartialBindings (negotiation.ts:262-292).
+                      Mechanism: synaptic-ingestion-state.ts:580-583 + negotiation.ts:268, 274.
+
+ATTRITION MECHANISM (verbatim from negotiation.ts:262-274):
+
+  262 export function generatePartialBindings(
+  263   profile: ContentProfile,
+  264   agent: AgentType,
+  265   ownedFields: string[],
+  266   sharedFields: string[]
+  267 ): SemanticBinding[] {
+  268   const relevantFields = new Set([...ownedFields, ...sharedFields]);
+  269   const bindings: SemanticBinding[] = [];
+  270   const hc = profile.headerComprehension;
+  271   const rowCount = profile.structure.rowCount ?? profile.fields.length;
+  272
+  273   for (const field of profile.fields) {
+  274     if (!relevantFields.has(field.fieldName)) continue;          ← THE FILTER
+
+  Triggered when `splitAnalysis.shouldSplit === true` at synaptic-ingestion-state.ts:570.
+  `splitAnalysis` is computed by `analyzeSplit(fieldAffinities, scores, log)` (negotiation.ts).
+  The CRP transaction proposal landed in the PARTIAL branch — evidenced by the DB invariant
+  `row_data_col_count == semantic_roles_count == 5 < |profile.fields| = 11` and the
+  filterFieldsForPartialClaim having ran (it short-circuits when claimType !== 'PARTIAL').
+
+ATTRITION ASYMMETRY (in structural terms, not by tenant field name):
+  The 5 SURVIVORS correspond to fields that the field-affinity computation
+  (`computeFieldAffinities(profile)` at synaptic-ingestion-state.ts:300) assigned to the
+  winning agent (transaction) as ownedFields OR to sharedFields. The 6 LOST correspond to
+  fields whose affinity went to a different agent (e.g., entity, reference) or to a partner
+  in the split. The split logic is the discriminator. Field-affinity reads HC `columnRole`
+  (`profile.headerComprehension?.interpretations.get(fieldName).columnRole`) as one of its
+  inputs — fields whose HC role is `attribute` typically attract to a different agent than
+  fields whose HC role is `measure` / `identifier` / `temporal`.
+
+RECONCILES WITH FRESH-LLM SUCCESS?:  Conditionally — full reconciliation requires architect
+  interpretation. The flywheel→HC mapping at analyze/route.ts:174-182 covers only 8 of the
+  semanticRoles a cached binding may carry, and falls back to `columnRole: 'unknown'` for any
+  other semanticRole. If the flywheel cache for the CRP transaction file carried bindings whose
+  semanticRoles fell outside the 8-key map, those bindings reached classification with
+  columnRole='unknown' and contributed weakly to field affinities. The fresh-LLM path emits
+  the columnRole directly into HeaderInterpretation without an intermediate semanticRole→
+  columnRole mapping, so all roles flow through with their native confidence. This explains
+  WHY flywheel-replay could land in a PARTIAL split while fresh-LLM lands in FULL. The DIAG
+  produces the mechanism; architect dispositions whether this is intentional design (HF-181 /
+  HF-197B preserved the per-sheet flywheel injection contract; the roleMap was authored when
+  fewer semanticRoles existed) or unintentional drift.
+```
+
+### Adjacent confirmedBindings consumers
+
+`grep -rn "confirmedBindings" --include="*.ts" src/` (test-excluded; non-comment occurrences):
+
+| File:Line | Match | Classification |
+|---|---|---|
+| `src/app/api/import/sci/execute-bulk/route.ts:57` | type declaration | declaration |
+| `src/app/api/import/sci/execute-bulk/route.ts:285` | `.filter` in `filterFieldsForPartialClaim` | runtime (PARTIAL re-projection) |
+| `src/app/api/import/sci/execute-bulk/route.ts:290` | `confirmedBindings: filteredBindings` | runtime (assignment) |
+| `src/app/api/import/sci/execute-bulk/route.ts:345-368` | `processEntityUnit` reads (find/filter/iterate) for entity creation side effect | persistence-adjacent (writes to `entities` table; reads bindings to identify name/license/enrichment columns) |
+| `src/app/api/import/sci/execute/route.ts:326-341` | `executeReferencePipeline` reads bindings, copies to `fieldBindings` field on classification signal flywheel write | persistence (writes `classification_signals.flywheel`) |
+| `src/app/api/import/sci/execute/route.ts:414, 421` | `filterFieldsForPartialClaim` mirror | runtime (PARTIAL re-projection) |
+| `src/lib/sci/commit-content-unit.ts:58` | type declaration on CommitContentUnitInput | declaration |
+| `src/lib/sci/commit-content-unit.ts:278` | semantic_roles build loop | persistence (`committed_data.metadata.semantic_roles`) |
+| `src/lib/sci/commit-content-unit.ts:289` | `buildFieldIdentitiesFromBindings` fallback | persistence (`committed_data.metadata.field_identities` when no HC trace) |
+| `src/lib/sci/commit-content-unit.ts:295` | `resolveEntityIdField` input | persistence (`committed_data.metadata.entity_id_field`) |
+| `src/lib/sci/commit-content-unit.ts:301` | `findDateColumnFromBindings` input | persistence (`committed_data.source_date` per row) |
+| `src/lib/sci/commit-content-unit.ts:302` | `buildSemanticRolesMap` input | persistence (consumed by source_date extraction) |
+| `src/lib/sci/sci-types.ts:342` | type declaration on `ContentUnitExecution` | declaration |
+| `src/lib/sci/field-identities.ts:15` | comment | comment |
+| `src/lib/sci/commit-content-unit.ts:27, 165, 272, 286` | comments | comment |
+
+**Persistence consumers** (write to DB based on `confirmedBindings`):
+
+- `execute-bulk/route.ts:345-368` — entity-creation side effect in `processEntityUnit`. Reads bindings for `entity_identifier`, `entity_name`, `entity_license`, `entity_attribute` / `descriptive_label`. **Same attrition risk:** if bindings are filtered to 5 by the PARTIAL split, missing `entity_name` / `entity_license` bindings → entity records created with `display_name` falling back to external_id (line ~440-450 in HF-231 diff) and licenses/role metadata missing.
+- `execute/route.ts:326-341` — flywheel write at `classification_signals`. Persists the filtered `confirmedBindings` as `fieldBindings`, which becomes the cached bindings the NEXT Tier-1 replay injects (analyze/route.ts:167). **Feedback loop:** PARTIAL-filtered bindings cache → next replay injects pre-filtered set → tighter `headerComprehension.interpretations` → analyzeSplit may again decide PARTIAL → repeats.
+- `commit-content-unit.ts:278-302` — every per-row write to `committed_data` (already analyzed in Phase 4/5). 5 of the 11 columns reach `semantic_roles`.
+
+**Runtime consumers** (read bindings during request handling without persisting):
+
+- `execute-bulk/route.ts:285-290` and `execute/route.ts:414-421` — `filterFieldsForPartialClaim` (Phase 3 Site 4/5). Already characterized.
+
+**Declaration / comment sites:** type definitions in `sci-types.ts`, `commit-content-unit.ts`, `execute-bulk/route.ts` and the helper-fallback in `field-identities.ts:15`. No code action.
+
+The persistence consumer at `execute/route.ts:341` is the surface that closes the loop: the same filtered bindings written to `committed_data` are also written to `classification_signals.flywheel.fieldBindings` for next-Tier-1 replay. That write happens AFTER `filterFieldsForPartialClaim` re-projected, so the cached set is already the 5-binding subset. The flywheel cache for this CRP fingerprint now contains 5 bindings, not 11.
