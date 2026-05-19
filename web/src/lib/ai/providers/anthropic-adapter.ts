@@ -51,36 +51,46 @@ export function normalizeConfidenceFieldsInPlace(node: unknown): void {
 }
 
 function buildPrimitiveVocabularyForPrompt(): string {
-  const ops = getOperationPrimitives();
+  // HF-238 Closure 1: filter deprecated entries. Only non-deprecated
+  // primitives are surfaced to the LLM as recommended emission targets.
+  const ops = getOperationPrimitives().filter((p) => !p.deprecated);
   const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
   return `${ops.length} PRIMITIVE OPERATIONS:\n${lines.join('\n')}`;
 }
 
 // HF-195: registry-derived componentType enumeration for the plan-interpretation
 // prompt's outer wrapper. The "type" field on each component, and the
-// document_analysis prompt's calculationType field, derive from this enumeration —
-// not from a private hardcoded list. Closes Korean Test (E910) at the prompt-layer
-// surface; instantiates Rule 27 (T5 standing rule). Per IRA-HF-195 Inv-2 rank 1
-// (option_b_plus_c) Phase 1 b-component.
+// document_analysis prompt's calculationType field, derive from this enumeration.
+//
+// HF-238 Closure 1: deprecated entries are filtered. Only non-deprecated
+// identifiers are surfaced — the LLM's wrapper `type` field for new emissions
+// should be one of these. Legacy types remain in the registry for the
+// storage-boundary adapter and compile-time type narrowing.
 function buildComponentTypeListForPrompt(): string {
-  const ids = getRegistry().map((p) => p.id);
-  return `Allowed component "type" values (${ids.length} foundational primitives):\n${ids.map((id) => `  - ${id}`).join('\n')}`;
+  const ids = getRegistry().filter((p) => !p.deprecated).map((p) => p.id);
+  return `Allowed component "type" values (${ids.length} active foundational primitive${ids.length === 1 ? '' : 's'}):\n${ids.map((id) => `  - ${id}`).join('\n')}`;
 }
 
 // HF-195: registry-derived structural-examples block. Iterates registered
 // primitives and emits the promptStructuralExample field where populated.
-// PREPARE-path hook for IRA-HF-195 Inv-3 rank 1 (sub_option_b_beta) — entries
-// without an example are silently skipped; if zero entries carry examples the
-// section emits an explicit empty-section placeholder so Phase 2 follow-on OB
-// (option_c flywheel population) has the slot to populate.
+//
+// HF-238 Closure 1: deprecated entries are filtered — old convenience-pattern
+// examples (bounded_lookup_1d, scalar_multiply, etc.) had their
+// promptStructuralExample stripped from the registry because they conflict
+// with the prime-DAG composition prompt. This filter is belt-and-suspenders:
+// even if a deprecated entry retains a value, it is skipped.
 function buildStructuralExamplesForPrompt(): string {
-  const withExamples = getRegistry().filter((p) => typeof p.promptStructuralExample === 'string' && p.promptStructuralExample.length > 0);
+  const withExamples = getRegistry().filter(
+    (p) => !p.deprecated
+      && typeof p.promptStructuralExample === 'string'
+      && p.promptStructuralExample.length > 0,
+  );
   if (withExamples.length === 0) {
     return [
       'Structural examples per primitive (use these to classify by value-distribution and shape signature):',
-      '  [No primitives currently carry promptStructuralExample content.',
-      '   This section is populated as registry entries gain content via',
-      '   Phase 2 follow-on work (option_c flywheel population from vocabulary_bindings).]',
+      '  [No active primitives carry promptStructuralExample content.',
+      '   The prime-DAG composition guide in the CALCULATION INTENT section',
+      '   below is the authoritative source for primitive composition examples.]',
     ].join('\n');
   }
   return [
@@ -415,251 +425,232 @@ IMPORTANT GUIDELINES:
 3. Return confidence scores (0-100) for each component and overall.
 4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
-=== CALCULATION INTENT (STRUCTURAL VOCABULARY) ===
+=== CALCULATION INTENT (PRIME-DAG COMPOSITION) ===
 
-FOR EACH COMPONENT, also produce a "calculationIntent" field using this domain-agnostic structural vocabulary. This is the contract between the AI (Domain Agent) and the execution engine (Foundational Agent).
+FOR EACH COMPONENT, produce a "calculationIntent" field as a recursive PrimeNode tree composed of nine irreducible building blocks. The execution engine walks this tree directly. Do NOT emit named operation types (scalar_multiply, conditional_gate, piecewise_linear, etc.) — compose them from primes instead.
 
-<<FOUNDATIONAL_PRIMITIVES>>
+NINE PRIMES (the only operations the engine recognizes):
 
-INPUT SOURCES (how values are resolved):
-- { "source": "metric", "sourceSpec": { "field": "metric_name" } } — from data row
-- { "source": "ratio", "sourceSpec": { "numerator": "metric_name", "denominator": "metric_name" } } — computed ratio
-- { "source": "constant", "value": 42 } — literal number
-- { "source": "entity_attribute", "sourceSpec": { "attribute": "attr_name" } } — from entity record
-- { "source": "prior_component", "sourceSpec": { "componentIndex": 0 } } — output from previous component
+1. constant     — { "prime": "constant", "value": <number> }
+2. reference    — { "prime": "reference", "field": "<metric_name>" }
+                  Reads a numeric value from the entity's resolved metrics map.
+                  Synthetic-key references for non-metric sources:
+                    "attr:<attribute>"               → entity attribute (numeric/coerced)
+                    "prior:<componentIndex>"         → output of an earlier component
+                    "cross_data:<dataType>:<agg>[:<field>]" → cross-plan data count/sum
+                    "group:<metric>"                 → group-scope aggregate
+                  For hierarchical (district / region) aggregates, compose
+                  the "scope" prime over an "aggregate" downstream directly —
+                  do NOT use a reference synthetic key. See Example E.
+3. arithmetic   — { "prime": "arithmetic", "op": "add"|"subtract"|"multiply"|"divide", "inputs": [A, B] }
+                  divide returns 0 when B is 0.
+4. compare      — { "prime": "compare", "op": "gt"|"gte"|"lt"|"lte"|"eq"|"neq", "inputs": [A, B] }
+                  Returns 1 (true) or 0 (false).
+5. logical      — { "prime": "logical", "op": "and"|"or"|"not", "inputs": [A, B, ...] }
+                  Returns 1 (true) or 0 (false). Truthy = value > 0.
+6. conditional  — { "prime": "conditional", "condition": <node>, "then": <node>, "else": <node> }
+                  Branches on condition truthy (> 0).
+7. filter       — { "prime": "filter", "predicate": {"field":"<col>","operator":"<op>","value":<v>}, "downstream": <node> }
+                  Narrows activeRows for the subtree. Operators: eq, neq, gt, gte, lt, lte, contains.
+8. scope        — { "prime": "scope", "boundary": "<attribute>", "downstream": <node> }
+                  Narrows activeRows to entity siblings sharing the same boundary attribute value.
+9. aggregate    — { "prime": "aggregate", "op": "sum"|"count"|"avg"|"min"|"max", "field": "<row_field>" }
+                  Reduces activeRows to a single number.
 
-BOUNDARY FORMAT (Decision 127 — half-open intervals):
-{ "min": number|null, "max": number|null, "minInclusive": true, "maxInclusive": false }
+COMPOSITION GUIDE — every legacy pattern composes from these primes:
 
-Convention: half-open intervals [min, max). Inclusive lower bound; exclusive upper bound.
-Each boundary's max equals the next boundary's min EXACTLY (contiguous partition; no gaps).
-The FINAL boundary in any sequence uses one of:
-  - max: null (open-ended; no upper limit)
-  - maxInclusive: true (capped; includes the ceiling)
-
-DO NOT use .999 / .X99 / decimal-truncation patterns. Express "less than X" as max: X with maxInclusive: false.
-DO NOT leave gaps between consecutive boundaries.
-DO NOT overlap consecutive boundaries.
-
-EXAMPLE calculationIntent for bounded_lookup_1d (half-open partition, open-ended ceiling):
+A) Simple rate × metric (e.g., "4% of warranty sales"):
 {
   "calculationIntent": {
-    "operation": "bounded_lookup_1d",
-    "input": { "source": "metric", "sourceSpec": { "field": "store_sales_attainment" } },
-    "boundaries": [
-      { "min": 0,   "max": 100,  "minInclusive": true, "maxInclusive": false },
-      { "min": 100, "max": 105,  "minInclusive": true, "maxInclusive": false },
-      { "min": 105, "max": 110,  "minInclusive": true, "maxInclusive": false },
-      { "min": 110, "max": null, "minInclusive": true, "maxInclusive": true  }
-    ],
-    "outputs": [0, 150, 300, 500],
-    "noMatchBehavior": "zero"
+    "prime": "arithmetic", "op": "multiply",
+    "inputs": [
+      { "prime": "reference", "field": "warranty_sales" },
+      { "prime": "constant",  "value": 0.04 }
+    ]
   }
 }
 
-EXAMPLE calculationIntent for bounded_lookup_2d (half-open partitions on both axes):
+B) Linear function (rate × metric + intercept, e.g., "6% of revenue plus $200"):
 {
   "calculationIntent": {
-    "operation": "bounded_lookup_2d",
-    "inputs": {
-      "row": { "source": "metric", "sourceSpec": { "field": "attainment" } },
-      "column": { "source": "metric", "sourceSpec": { "field": "store_volume" } }
-    },
-    "rowBoundaries": [
-      { "min": 0,   "max": 80,   "minInclusive": true, "maxInclusive": false },
-      { "min": 80,  "max": 90,   "minInclusive": true, "maxInclusive": false },
-      { "min": 90,  "max": 100,  "minInclusive": true, "maxInclusive": false },
-      { "min": 100, "max": 120,  "minInclusive": true, "maxInclusive": false },
-      { "min": 120, "max": null, "minInclusive": true, "maxInclusive": true  }
-    ],
-    "columnBoundaries": [
-      { "min": 0,     "max": 60000,  "minInclusive": true, "maxInclusive": false },
-      { "min": 60000, "max": 100000, "minInclusive": true, "maxInclusive": false },
-      { "min": 100000, "max": null,  "minInclusive": true, "maxInclusive": true  }
-    ],
-    "outputGrid": [[0, 0, 0], [200, 300, 400], [300, 500, 700], [400, 600, 800], [500, 700, 900]],
-    "noMatchBehavior": "zero"
+    "prime": "arithmetic", "op": "add",
+    "inputs": [
+      { "prime": "arithmetic", "op": "multiply",
+        "inputs": [
+          { "prime": "reference", "field": "period_equipment_revenue" },
+          { "prime": "constant",  "value": 0.06 }
+        ]},
+      { "prime": "constant", "value": 200 }
+    ]
   }
 }
 
-EXAMPLE calculationIntent for scalar_multiply:
+C) Conditional gate (e.g., "5% if attainment >= 100%, else 3% if >= 85%, else 0"):
 {
   "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": { "source": "metric", "sourceSpec": { "field": "warranty_sales" } },
-    "rate": 0.04
-  }
-}
-
-EXAMPLE calculationIntent for conditional_gate (2 conditions, sorted by threshold descending):
-{
-  "calculationIntent": {
-    "operation": "conditional_gate",
-    "condition": {
-      "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
-      "operator": ">=",
-      "right": { "source": "constant", "value": 100 }
+    "prime": "conditional",
+    "condition": { "prime": "compare", "op": "gte",
+      "inputs": [
+        { "prime": "reference", "field": "store_goal_attainment" },
+        { "prime": "constant",  "value": 100 }
+      ]
     },
-    "onTrue": {
-      "operation": "scalar_multiply",
-      "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
-      "rate": 0.05
+    "then": { "prime": "arithmetic", "op": "multiply",
+      "inputs": [
+        { "prime": "reference", "field": "insurance_sales" },
+        { "prime": "constant",  "value": 0.05 }
+      ]
     },
-    "onFalse": {
-      "operation": "conditional_gate",
-      "condition": {
-        "left": { "source": "metric", "sourceSpec": { "field": "store_goal_attainment" } },
-        "operator": ">=",
-        "right": { "source": "constant", "value": 85 }
+    "else": {
+      "prime": "conditional",
+      "condition": { "prime": "compare", "op": "gte",
+        "inputs": [
+          { "prime": "reference", "field": "store_goal_attainment" },
+          { "prime": "constant",  "value": 85 }
+        ]
       },
-      "onTrue": {
-        "operation": "scalar_multiply",
-        "input": { "source": "metric", "sourceSpec": { "field": "insurance_sales" } },
-        "rate": 0.03
+      "then": { "prime": "arithmetic", "op": "multiply",
+        "inputs": [
+          { "prime": "reference", "field": "insurance_sales" },
+          { "prime": "constant",  "value": 0.03 }
+        ]
       },
-      "onFalse": { "operation": "constant", "value": 0 }
+      "else": { "prime": "constant", "value": 0 }
     }
   }
 }
 
-EXAMPLE calculationIntent for a linear_function:
+D) Piecewise rate × base (e.g., "3% if attainment < 100%, 5% if 100%-120%, 8% if >= 120%, applied to consumable_revenue"):
+Express tier selection as nested conditional + logical(and) + compare. The selected tier's rate multiplies the base.
 {
   "calculationIntent": {
-    "operation": "linear_function",
-    "input": { "source": "metric", "sourceSpec": { "field": "period_equipment_revenue" } },
-    "slope": 0.06,
-    "intercept": 200
-  }
-}
-
-EXAMPLE calculationIntent for a piecewise_linear:
-{
-  "calculationIntent": {
-    "operation": "piecewise_linear",
-    "ratioInput": { "source": "ratio", "sourceSpec": { "numerator": "consumable_revenue", "denominator": "monthly_quota" } },
-    "baseInput": { "source": "metric", "sourceSpec": { "field": "consumable_revenue" } },
-    "segments": [
-      { "min": 0, "max": 1.0, "rate": 0.03 },
-      { "min": 1.0, "max": 1.2, "rate": 0.05 },
-      { "min": 1.2, "max": null, "rate": 0.08 }
-    ]
-  }
-}
-
-EXAMPLE calculationIntent for a conditional_gate (binary prerequisite):
-{
-  "calculationIntent": {
-    "operation": "conditional_gate",
-    "condition": {
-      "left": { "source": "metric", "sourceSpec": { "field": "equipment_deal_count" } },
-      "operator": ">=",
-      "right": { "source": "constant", "value": 1 }
+    "prime": "conditional",
+    "condition": { "prime": "compare", "op": "gte",
+      "inputs": [
+        { "prime": "arithmetic", "op": "divide",
+          "inputs": [
+            { "prime": "reference", "field": "consumable_revenue" },
+            { "prime": "reference", "field": "monthly_quota" }
+          ]},
+        { "prime": "constant", "value": 1.2 }
+      ]
     },
-    "onTrue": {
-      "operation": "scalar_multiply",
-      "input": { "source": "metric", "sourceSpec": { "field": "cross_sell_count" } },
-      "rate": 50
+    "then": { "prime": "arithmetic", "op": "multiply",
+      "inputs": [
+        { "prime": "reference", "field": "consumable_revenue" },
+        { "prime": "constant",  "value": 0.08 }
+      ]
     },
-    "onFalse": { "operation": "constant", "value": 0 }
-  }
-}
-
-EXAMPLE calculationIntent for a scalar_multiply:
-{
-  "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": { "source": "metric", "sourceSpec": { "field": "sales_amount" } },
-    "rate": 0.04
-  }
-}
-
-EXAMPLE calculationIntent for a linear_function with cap modifier:
-{
-  "calculationIntent": {
-    "operation": "linear_function",
-    "input": { "source": "metric", "sourceSpec": { "field": "revenue" } },
-    "slope": 0.06,
-    "intercept": 200,
-    "modifiers": [
-      { "modifier": "cap", "maxValue": 5000 }
-    ]
-  }
-}
-
-SEMANTIC PRINCIPLE FOR CONSTRAINTS:
-When the plan document specifies a constraint on an INPUT value (a ratio, a metric, an attribute) BEFORE it enters a calculation (e.g., "utilization capped at 150%", "ratio limited to 1.5x", "maximum attainment 200%"), express the constraint INSIDE the input specification using conditional_gate. The constraint is part of the input, not a post-calculation modifier.
-
-When the plan document specifies a constraint on the OUTPUT value (a dollar amount, a payout, a commission) AFTER the calculation (e.g., "maximum commission $5,000", "payout capped at $10,000"), express it as a modifier in the modifiers array.
-
-EXAMPLE calculationIntent for scalar_multiply with input-constrained ratio (ratio capped before multiplication):
-{
-  "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": {
-      "operation": "conditional_gate",
-      "condition": {
-        "left": { "source": "ratio", "sourceSpec": { "numerator": "actual_units", "denominator": "target_units" } },
-        "operator": "<=",
-        "right": { "source": "constant", "value": 1.5 }
+    "else": {
+      "prime": "conditional",
+      "condition": { "prime": "logical", "op": "and",
+        "inputs": [
+          { "prime": "compare", "op": "gte",
+            "inputs": [
+              { "prime": "arithmetic", "op": "divide",
+                "inputs": [
+                  { "prime": "reference", "field": "consumable_revenue" },
+                  { "prime": "reference", "field": "monthly_quota" }
+                ]},
+              { "prime": "constant", "value": 1.0 }
+            ]},
+          { "prime": "compare", "op": "lt",
+            "inputs": [
+              { "prime": "arithmetic", "op": "divide",
+                "inputs": [
+                  { "prime": "reference", "field": "consumable_revenue" },
+                  { "prime": "reference", "field": "monthly_quota" }
+                ]},
+              { "prime": "constant", "value": 1.2 }
+            ]}
+        ]
       },
-      "onTrue": { "source": "ratio", "sourceSpec": { "numerator": "actual_units", "denominator": "target_units" } },
-      "onFalse": { "source": "constant", "value": 1.5 }
-    },
-    "rate": 800
+      "then": { "prime": "arithmetic", "op": "multiply",
+        "inputs": [
+          { "prime": "reference", "field": "consumable_revenue" },
+          { "prime": "constant",  "value": 0.05 }
+        ]
+      },
+      "else": { "prime": "arithmetic", "op": "multiply",
+        "inputs": [
+          { "prime": "reference", "field": "consumable_revenue" },
+          { "prime": "constant",  "value": 0.03 }
+        ]
+      }
+    }
   }
 }
 
-COMPOSITION PRINCIPLE FOR COMPLEX OPERATIONS:
-The calculation engine supports these primitives: scalar_multiply, conditional_gate, bounded_lookup_1d, bounded_lookup_2d, piecewise_linear, linear_function, ratio, constant, aggregate, weighted_blend, temporal_window.
-
-ANY compensation concept must be expressed as a COMPOSITION of these primitives. Do NOT invent new operation names. If a plan describes a concept not directly matching a single primitive, compose multiple primitives.
-
-EXAMPLE — Manager override (percentage of district revenue, summed across district peers):
-The plan says "District Manager earns 1.5% of district equipment revenue."
-This is cross-entity aggregation: sum the metric across all entities in the same district, then multiply by the rate.
-Express as:
+E) Manager / regional override (sum a metric across siblings in the same hierarchy, then multiply by a rate):
+The "boundary" string names the entity attribute the engine uses to identify peers — typically "district" or "region".
 {
   "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": {
-      "source": "scope_aggregate",
-      "sourceSpec": {
-        "field": "equipment_revenue",
-        "aggregation": "sum",
-        "scope": "district"
-      }
-    },
-    "rate": 0.015
+    "prime": "arithmetic", "op": "multiply",
+    "inputs": [
+      { "prime": "scope", "boundary": "district",
+        "downstream": { "prime": "aggregate", "op": "sum", "field": "equipment_revenue" }
+      },
+      { "prime": "constant", "value": 0.015 }
+    ]
   }
 }
-The scope value ("district" or "region") MUST be in the operation — the data layer uses it to identify which other entities are in the same hierarchy as the current entity. Without scope, the engine cannot determine the aggregation boundary.
 
-EXAMPLE — Regional override (percentage of region revenue, summed across region peers):
-The plan says "Regional VP earns 0.5% of region revenue."
-Express as:
+F) Cap modifier (e.g., "commission capped at $5,000"): wrap the base computation with a conditional that returns the cap when exceeded.
 {
   "calculationIntent": {
-    "operation": "scalar_multiply",
-    "input": {
-      "source": "scope_aggregate",
-      "sourceSpec": {
-        "field": "equipment_revenue",
-        "aggregation": "sum",
-        "scope": "region"
-      }
+    "prime": "conditional",
+    "condition": { "prime": "compare", "op": "gt",
+      "inputs": [
+        <BASE_COMPUTATION>,
+        { "prime": "constant", "value": 5000 }
+      ]
     },
-    "rate": 0.005
+    "then": { "prime": "constant", "value": 5000 },
+    "else": <BASE_COMPUTATION>
   }
 }
 
-WHEN TO USE scope_aggregate vs aggregate vs metric:
-- "source": "metric" — read a metric value that belongs to THIS entity (e.g., the rep's own sales).
-- "source": "aggregate" — read an aggregated metric value already attached to THIS entity (e.g., entity-level pre-computed totals).
-- "source": "scope_aggregate" — sum a metric across OTHER entities in this entity's district or region hierarchy. Use when the plan describes a percentage of TEAM/DISTRICT/REGION revenue. The scope value is REQUIRED.
+G) Floor modifier ("minimum guarantee $500"): same pattern with "lt" + constant on the then branch:
+{
+  "prime": "conditional",
+  "condition": { "prime": "compare", "op": "lt", "inputs": [<BASE>, { "prime": "constant", "value": 500 }] },
+  "then": { "prime": "constant", "value": 500 },
+  "else": <BASE>
+}
 
-Engine-recognized scope values: "district", "region". If a plan describes a hierarchy outside these (team, store, branch, area), report the concept in calculationMethod and use the closest recognized scope, OR raise the concept in calculationIntent.metadata.unrecognizedScope so the import-time translator can surface the gap.
+H) Input constraint (e.g., "attainment capped at 150% before applying rate"): wrap the input — not the output — in a conditional that caps it at the upper bound.
+{
+  "calculationIntent": {
+    "prime": "arithmetic", "op": "multiply",
+    "inputs": [
+      { "prime": "conditional",
+        "condition": { "prime": "compare", "op": "lte",
+          "inputs": [
+            { "prime": "arithmetic", "op": "divide",
+              "inputs": [
+                { "prime": "reference", "field": "actual_units" },
+                { "prime": "reference", "field": "target_units" }
+              ]},
+            { "prime": "constant", "value": 1.5 }
+          ]},
+        "then": { "prime": "arithmetic", "op": "divide",
+          "inputs": [
+            { "prime": "reference", "field": "actual_units" },
+            { "prime": "reference", "field": "target_units" }
+          ]},
+        "else": { "prime": "constant", "value": 1.5 }
+      },
+      { "prime": "constant", "value": 800 }
+    ]
+  }
+}
 
-CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
+DECISION 127 — boundary inclusivity in tier conditionals:
+When translating tiered/piecewise plans, express tier-selection ranges as half-open intervals [min, max). For each non-final tier use "compare gte" against min AND "compare lt" against max, joined by "logical and". For the final tier (open-ended ceiling), use "compare gte" against the min only.
+
+DO NOT use .999 / .X99 / decimal-truncation patterns. Express "less than X" as a "compare lt" against X.
+
+CRITICAL: Every component MUST include both "calculationMethod" (existing free-form description) AND "calculationIntent" (the PrimeNode tree). The tree's root must carry a "prime" discriminator from the nine listed above. The engine rejects any node whose discriminator is not one of the nine.
 
 Return your analysis as valid JSON.`,
 

@@ -1667,6 +1667,24 @@ export async function POST(request: NextRequest) {
   addLog(`[CalcRecon-T1] verbosityMode=${CALC_TRACE_VERBOSE ? 'FORENSIC (Tier 4 enabled)' : 'DEFAULT (Tier 1-3 only)'}`);
   addLog(`[CalcRecon-T1] ─── Loop starts; Tier 2 lines emit per entity, Tier 3 emit on exceptions ───`);
 
+  // HF-238 Phase 3: build allEntityRows once per period for the scope+aggregate
+  // prime composition. The structural scope prime narrows allEntityRows to
+  // peer entities sharing the boundary attribute value; previously this was
+  // pre-computed per-entity via aggregateScopeRows (deleted below).
+  const allEntityRowsForPeriod: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }> = [];
+  for (const [eid, sheetMap] of Array.from(dataByEntity.entries())) {
+    const meta = (entityMap.get(eid)?.metadata || {}) as Record<string, unknown>;
+    const metaWithId: Record<string, unknown> = { ...meta, entityId: eid };
+    for (const [, rows] of Array.from(sheetMap.entries())) {
+      for (const r of rows) {
+        const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+          ? r.row_data as Record<string, unknown>
+          : {};
+        allEntityRowsForPeriod.push({ entityMetadata: metaWithId, row: rd });
+      }
+    }
+  }
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
@@ -2342,59 +2360,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // HF-155 Item 2 + OB-186: Populate scopeAggregates for entities with scope data
-    // Resolves scope from entities.metadata (district, region, store_id)
-    // OB-186: Produces BOTH unfiltered aggregates (raw field sums) AND filtered
-    // aggregates (metric_derivation rules applied). Filtered aggregates use the
-    // derived metric name as key (e.g., "district:equipment_revenue:sum").
-    const entityScopeAgg: Record<string, number> = {};
+    // HF-238 Phase 3: aggregateScopeRows pre-computation deleted. The scope+
+    // aggregate prime composition computes hierarchical aggregates on the fly
+    // from allEntityRowsForPeriod (built once above). Entity attributes are
+    // passed via entityData.attributes so the scope prime can read the
+    // boundary value from context.entity.metadata.
     const entityMeta = entityMap.get(entityId);
     const entityMetadata = (entityMeta?.metadata || {}) as Record<string, unknown>;
-    const entityDistrict = entityMetadata.district || entityMetadata.store_id;
-    const entityRegion = entityMetadata.region;
-
-    // Helper: aggregate rows from other entities in same scope
-    const aggregateScopeRows = (
-      scopeField: string,
-      scopeValue: unknown,
-      scopePrefix: string,
-    ) => {
-      for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
-        if (otherId === entityId) continue;
-        const otherMeta = entityMap.get(otherId);
-        const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
-        const otherScope = scopeField === 'district'
-          ? (otherMetaData.district || otherMetaData.store_id)
-          : otherMetaData.region;
-        if (otherScope !== scopeValue) continue;
-
-        for (const [, rows] of Array.from(otherSheetMap.entries())) {
-          for (const row of rows) {
-            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-              ? row.row_data as Record<string, unknown> : {};
-
-            // Unfiltered: sum all numeric fields
-            for (const [key, val] of Object.entries(rd)) {
-              if (key.startsWith('_') || typeof val !== 'number') continue;
-              entityScopeAgg[`${scopePrefix}:${key}:sum`] = (entityScopeAgg[`${scopePrefix}:${key}:sum`] || 0) + val;
-            }
-
-            // OB-186: Filtered scope aggregates from metric_derivation rules
-            for (const rule of metricDerivations) {
-              if (rule.operation !== 'sum' || !rule.source_field) continue;
-              if (!rowMatchesFilters(rd, rule.filters)) continue;
-              const val = rd[rule.source_field];
-              if (typeof val === 'number') {
-                entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] = (entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] || 0) + val;
-              }
-            }
-          }
-        }
-      }
-    };
-
-    if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
-    if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
     // Intent executor is sole authority (Decision 151). Rounding applied here.
     let intentTotalDecimal = ZERO;
@@ -2416,14 +2388,27 @@ export async function POST(request: NextRequest) {
           `Decision 153 / Decision 111 violation.`
         );
       }
+      // HF-238 Phase 3: entity attributes populated from entities.metadata so
+      // the scope prime can read the boundary value (district/region/etc.)
+      // from context.entity.metadata. Numeric fields are coerced for
+      // arithmetic compatibility; string/boolean values pass through.
+      const entityAttributesForExec: Record<string, string | number | boolean> = {};
+      for (const [k, v] of Object.entries(entityMetadata)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          entityAttributesForExec[k] = v;
+        }
+      }
+
       const entityData: EntityData = {
         entityId,
         metrics,
-        attributes: {},
+        attributes: entityAttributesForExec,
         priorResults: [...priorResults],
         periodHistory: periodHistoryMap.get(entityId),
         crossDataCounts: entityCrossData,
-        scopeAggregates: entityScopeAgg,
+        // HF-238 Phase 3: allEntityRowsForPeriod replaces the pre-computed
+        // scopeAggregates surface; the scope prime walks these rows directly.
+        allEntityRows: allEntityRowsForPeriod,
         // HF-211: Route intent-executor [CalcTrace] emissions through buffer (only for traced
         // entities) so they flush after the [CalcRecon] block at handler exit.
         traceCollector: shouldEmitTrace(entityInfo?.external_id ?? entityId) ? bufferTrace : undefined,

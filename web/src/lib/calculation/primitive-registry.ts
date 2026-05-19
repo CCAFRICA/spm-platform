@@ -30,17 +30,24 @@
 // ──────────────────────────────────────────────
 
 /**
- * The twelve foundational primitive identifiers. Order is canonical;
+ * The thirteen foundational primitive identifiers. Order is canonical;
  * consumers depending on order should reference `getRegistry()` not the array.
  *
- * 11 of these have a corresponding `IntentOperation` shape interface in
- * `intent-types.ts` and a dispatch case in `intent-executor.ts:executeOperation`.
- * `scope_aggregate` is recognized vocabulary (named in plan-agent prompt examples
- * and the importer's 5-tuple branch) but has no top-level executor case in the
- * current substrate; per AUD-004 Phase 0G evidence, the prompt typically wraps
- * scope aggregation as `scalar_multiply { input.source: 'scope_aggregate' }`.
- * Phase 2's `UnknownPrimitiveError` surfaces any AI emission of `scope_aggregate`
- * as a top-level operation as structured failure.
+ * HF-238 R2 — twelve of these are legacy named-operation primitives marked
+ * `deprecated: true`. They are retained for (a) the storage-boundary adapter
+ * `legacyIntentToDAG` which translates old stored intents into PrimeNode
+ * trees, and (b) compile-time type narrowing (the `ComponentType` and
+ * `FoundationalPrimitive` unions derive from this array).
+ *
+ * The only non-deprecated identifier is `prime_dag` — a recursive PrimeNode
+ * tree expressing the computation as a composition of the nine engine primes
+ * (arithmetic, aggregate, filter, conditional, scope, compare, logical,
+ * constant, reference). Prompt builders filter deprecated entries before
+ * surfacing the vocabulary to the LLM; only `prime_dag` is presented as a
+ * recommended emission target.
+ *
+ * There is no per-primitive dispatch surface — `evaluate()` in
+ * intent-executor.ts walks PrimeNode trees uniformly.
  */
 export const FOUNDATIONAL_PRIMITIVES = [
   'bounded_lookup_1d',
@@ -55,6 +62,12 @@ export const FOUNDATIONAL_PRIMITIVES = [
   'linear_function',
   'piecewise_linear',
   'scope_aggregate',
+  // HF-238: prime-DAG composition format. A `prime_dag` component carries a
+  // recursive PrimeNode tree (intent-types.ts) under metadata.intent rather
+  // than one of the legacy operation shapes. The engine routes prime_dag
+  // components straight through evaluate() without going through
+  // legacyIntentToDAG.
+  'prime_dag',
 ] as const;
 
 /** Type-level union derived from the registry array. */
@@ -75,11 +88,16 @@ export interface PrimitiveEntry {
   /** Canonical identifier — must be a member of FoundationalPrimitive. */
   readonly id: FoundationalPrimitive;
   /**
-   * Whether this primitive is a top-level executable operation
-   * (handled by `executeOperation` in `intent-executor.ts`) or only a
-   * source / sub-component (used inside `IntentSource.source` or as an
-   * input spec). `scope_aggregate` is recognized at the source level
-   * only in the current substrate.
+   * Classification used by prompt builders and validators.
+   *
+   * HF-238: the engine no longer dispatches per-primitive — every stored
+   * intent flows through `legacyIntentToDAG` and is walked by `evaluate()`.
+   * `kind` is now purely descriptive: `operation` means the identifier can
+   * appear as the top-level `type` field on a stored component;
+   * `source_only` means the identifier may appear inside an IntentSource
+   * but never as a top-level operation. `prime_dag` is the recommended
+   * top-level identifier for new emissions; legacy `operation`-kind
+   * entries are retained for the storage-boundary adapter only.
    */
   readonly kind: 'operation' | 'source_only';
   /** One-line description for prompt builders and error messages. */
@@ -93,20 +111,35 @@ export interface PrimitiveEntry {
   /**
    * HF-195: optional STRUCTURAL worked example for prompt construction.
    *
+   * HF-238 Closure 1 — DEPRECATED for legacy-named primitives. Old entries
+   * (bounded_lookup_1d, bounded_lookup_2d, scalar_multiply, conditional_gate,
+   * linear_function, piecewise_linear) had their `promptStructuralExample`
+   * stripped because the example content teaches the LLM named convenience
+   * patterns that the prime-DAG composition prompt (anthropic-adapter.ts
+   * lines 418-643) explicitly forbids. New emissions should use prime_dag
+   * with a PrimeNode tree; only entries carrying actual prime-composition
+   * guidance retain this field.
+   *
    * Content discipline (Korean Test, AP-25): describe value-distribution
    * shapes, data-type signatures, input/output cardinality. Do NOT use
-   * domain-named keywords (e.g., 'commission', 'sales', 'tier'). The
-   * build-time gate scans for forbidden literal patterns; populated
-   * fields that violate the discipline fail the gate at HF-195 Phase 4.
+   * domain-named keywords (e.g., 'commission', 'sales', 'tier').
    *
-   * Empty/absent for primitives that don't need disambiguation examples.
-   * The plan-interpretation prompt builder iterates registry entries and
-   * emits a structural-examples block at construction time — entries
-   * without this field are silently skipped, leaving an empty section
-   * placeholder slot per the option_b_plus_c PREPARE-path hook
-   * (IRA-HF-195 Inv-2 rank 1; Inv-3 rank 1 = sub_option_b_beta).
+   * The plan-interpretation prompt builder iterates registry entries
+   * (filtered by `deprecated !== true`) and emits a structural-examples
+   * block; deprecated entries are skipped even if they happen to carry
+   * a value.
    */
   readonly promptStructuralExample?: string;
+  /**
+   * HF-238 Closure 1: marks legacy named primitives as adapter-only.
+   * Deprecated entries are retained in the registry for compile-time type
+   * safety (the `ComponentType` and `FoundationalPrimitive` unions derive
+   * from `FOUNDATIONAL_PRIMITIVES`) and for the storage-boundary adapter
+   * (`legacyIntentToDAG`) to recognize old stored intents, but they are
+   * filtered out of prompt-facing surfaces. Only `prime_dag` (and any
+   * future prime-composition entries) carries `deprecated !== true`.
+   */
+  readonly deprecated?: boolean;
 }
 
 // ──────────────────────────────────────────────
@@ -114,111 +147,110 @@ export interface PrimitiveEntry {
 // ──────────────────────────────────────────────
 
 const REGISTRY: readonly PrimitiveEntry[] = Object.freeze([
+  // Legacy named-operation primitives (deprecated post-HF-238). Retained
+  // for the storage-boundary adapter (legacyIntentToDAG) and for compile-time
+  // type narrowing (ComponentType / FoundationalPrimitive unions derive from
+  // FOUNDATIONAL_PRIMITIVES). New emissions should use 'prime_dag'.
+  // promptStructuralExample stripped — these examples teach named convenience
+  // patterns that conflict with the prime-DAG composition prompt.
   {
     id: 'bounded_lookup_1d',
     kind: 'operation',
-    description: '1D threshold table — maps a single input value to an output via boundary array.',
+    description: '1D threshold table — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'input', 'boundaries', 'outputs', 'noMatchBehavior', 'isMarginal'],
-    promptStructuralExample:
-      'Single numeric input mapped to numeric output via boundary array. Shape: ' +
-      'input value falls into one of N non-overlapping range bands; output is the value ' +
-      'associated with the matching band. Example signature: input∈ℝ, ' +
-      'boundaries∈[(min,max,minInclusive,maxInclusive)]ⁿ, outputs∈ℝⁿ. Selection is a ' +
-      'range-membership test on a single dimension.',
+    deprecated: true,
   },
   {
     id: 'bounded_lookup_2d',
     kind: 'operation',
-    description: '2D grid lookup — maps two input values (row, column) to a grid output.',
+    description: '2D grid lookup — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'inputs', 'rowBoundaries', 'columnBoundaries', 'outputGrid', 'noMatchBehavior'],
-    promptStructuralExample:
-      'Two numeric inputs mapped to numeric output via row × column grid. Shape: ' +
-      'input₁ falls into row band, input₂ falls into column band, output = grid[row_idx][col_idx]. ' +
-      'Example signature: rowBoundaries∈[(min,max)]ʳ, columnBoundaries∈[(min,max)]ᶜ, ' +
-      'outputGrid∈ℝʳˣᶜ. Two-dimensional range-membership test.',
+    deprecated: true,
   },
   {
     id: 'scalar_multiply',
     kind: 'operation',
-    description: 'Fixed rate multiplication: input × rate.',
+    description: 'Fixed rate multiplication — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'input', 'rate'],
-    promptStructuralExample:
-      'Single numeric input multiplied by fixed numeric rate. Shape: ' +
-      'output = input × rate. Example signature: input∈ℝ, rate∈ℝ. ' +
-      'No conditional logic, no thresholds, no piecewise structure.',
+    deprecated: true,
   },
   {
     id: 'conditional_gate',
     kind: 'operation',
-    description: 'If/then/else: evaluate condition, execute one of two operations.',
+    description: 'If/then/else — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'condition', 'onTrue', 'onFalse'],
-    promptStructuralExample:
-      'Conditional dispatch on boolean predicate. Shape: ' +
-      'if condition then operation_A else operation_B. Example signature: ' +
-      'condition∈Boolean, onTrue∈IntentOperation, onFalse∈IntentOperation. ' +
-      'Used when a single binary criterion selects between two distinct calculation paths.',
+    deprecated: true,
   },
   {
     id: 'aggregate',
     kind: 'operation',
-    description: 'Return an aggregated value from a source.',
+    description: 'Aggregated value source — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'source'],
+    deprecated: true,
   },
   {
     id: 'ratio',
     kind: 'operation',
-    description: 'Numerator / denominator with zero-guard.',
+    description: 'Numerator / denominator with zero-guard — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'numerator', 'denominator', 'zeroDenominatorBehavior'],
+    deprecated: true,
   },
   {
     id: 'constant',
     kind: 'operation',
-    description: 'Fixed literal value.',
+    description: 'Fixed literal value — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'value'],
+    deprecated: true,
   },
   {
     id: 'weighted_blend',
     kind: 'operation',
-    description: 'N-input weighted combination — weights must sum to 1.0.',
+    description: 'N-input weighted combination — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'inputs'],
+    deprecated: true,
   },
   {
     id: 'temporal_window',
     kind: 'operation',
-    description: 'Rolling N-period aggregation over historical values.',
+    description: 'Rolling N-period aggregation — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'input', 'windowSize', 'aggregation', 'includeCurrentPeriod'],
+    deprecated: true,
   },
   {
     id: 'linear_function',
     kind: 'operation',
-    description: 'Linear function — y = slope * x + intercept.',
+    description: 'Linear function y = slope*x + intercept — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'input', 'slope', 'intercept', 'modifiers'],
-    promptStructuralExample:
-      'Continuous linear function of a single numeric input. Shape: ' +
-      'output = slope × input + intercept. Example signature: input∈ℝ, slope∈ℝ, ' +
-      'intercept∈ℝ. Continuous over the input range; no stepped boundaries.',
+    deprecated: true,
   },
   {
     id: 'piecewise_linear',
     kind: 'operation',
-    description: 'Piecewise linear — attainment ratio selects rate segment, applied to base input.',
+    description: 'Piecewise linear — adapter-only; new emissions use prime_dag.',
     allowedKeys: ['operation', 'ratioInput', 'baseInput', 'segments', 'targetValue'],
-    promptStructuralExample:
-      'Two-input piecewise computation. Shape: ratioInput selects a rate segment from ' +
-      'a non-overlapping band array; baseInput is multiplied by that selected rate. ' +
-      'Example signature: ratioInput∈ℝ, baseInput∈ℝ, segments∈[{min,max,rate}]ⁿ, ' +
-      'optional targetValue∈ℝ. Distinguished from bounded_lookup_1d by the second ' +
-      'input (base) that the selected segment rate operates on, rather than returning ' +
-      'a fixed output per band.',
+    deprecated: true,
   },
   {
     id: 'scope_aggregate',
     kind: 'source_only',
-    description:
-      'Hierarchical aggregate (district / region) used as an IntentSource. ' +
-      'Not a top-level operation in the current substrate; emissions as a top-level operation ' +
-      'are surfaced as structured failure by the executor.',
+    description: 'Hierarchical aggregate (district / region) IntentSource — adapter-only; new emissions use prime_dag with a scope+aggregate composition.',
     allowedKeys: ['scope', 'field', 'aggregation'],
+    deprecated: true,
+  },
+  // HF-238: the operative top-level identifier. A prime_dag component carries
+  // a recursive PrimeNode tree under metadata.intent; the engine walks it via
+  // evaluate() without legacy adapter intervention.
+  {
+    id: 'prime_dag',
+    kind: 'operation',
+    description:
+      'Prime-DAG composition (HF-238): a recursive PrimeNode tree expressing the ' +
+      'component computation as a composition of nine irreducible operations ' +
+      '(arithmetic, aggregate, filter, conditional, scope, compare, logical, constant, ' +
+      'reference). The single operative top-level form; legacy named-operation entries ' +
+      'are translated to this shape at the storage boundary.',
+    allowedKeys: ['operation', 'prime', 'op', 'inputs', 'field', 'predicate', 'downstream',
+                  'condition', 'then', 'else', 'boundary', 'value'],
   },
 ]);
 

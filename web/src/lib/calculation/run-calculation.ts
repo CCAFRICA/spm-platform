@@ -19,8 +19,9 @@ import {
   inferSemanticType,
   findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
-import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
-import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
+import { evaluate, buildEvalContext, type EntityData } from '@/lib/calculation/intent-executor';
+import { isIntentOperation, type IntentOperation, type PrimePredicate, type EvalContext } from '@/lib/calculation/intent-types';
+import { legacyIntentToDAG, legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
 import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
 // ──────────────────────────────────────────────
@@ -123,80 +124,79 @@ export function applyMetricDerivations(
 ): Record<string, number> {
   const derived: Record<string, number> = {};
 
-  for (const rule of derivations) {
-    // HF-172: source_pattern is provenance metadata, NOT a row filter.
-    // All entity rows within the period's date range are candidates.
-    // Content filtering is done by the filters array, not source_pattern.
-    let matchingRows: Array<{ row_data: Json }> = [];
-    for (const [, rows] of Array.from(entitySheetData.entries())) {
-      matchingRows = matchingRows.concat(rows);
+  // Flatten all rows into a single array, unwrapping row_data for the DAG
+  // evaluator's activeRows view.
+  const allRows: Record<string, unknown>[] = [];
+  for (const [, rows] of Array.from(entitySheetData.entries())) {
+    for (const r of rows) {
+      const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+        ? r.row_data as Record<string, unknown>
+        : {};
+      allRows.push(rd);
     }
+  }
 
-    // OB-128: Ratio operation works on already-derived metrics, not raw rows
-    if (rule.operation === 'ratio') {
-      const num = derived[rule.numerator_metric || ''] ?? 0;
-      const den = derived[rule.denominator_metric || ''] ?? 0;
-      derived[rule.metric] = den !== 0 ? (num / den) * (rule.scale_factor ?? 1) : 0;
+  // HF-238 R2 Closure 5: flatten prior-period rows once into a single array,
+  // matching the activeRows shape so the `prior_period` prime can switch
+  // EvalContext.activeRows to this set when delta derivations run.
+  const priorRows: Record<string, unknown>[] = [];
+  if (priorPeriodData) {
+    for (const [, rows] of Array.from(priorPeriodData.entries())) {
+      for (const r of rows) {
+        const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+          ? r.row_data as Record<string, unknown>
+          : {};
+        priorRows.push(rd);
+      }
+    }
+  }
+
+  for (const rule of derivations) {
+    // HF-238 R2 Closure 5: delta hybrid block deleted. Delta derivations now
+    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+    // every other operation; the prior_period prime switches activeRows to
+    // priorRows for the prior side of the subtraction.
+
+    // Build the LegacyDerivation shape from the rule and translate to DAG.
+    const legacyShape: LegacyDerivation = {
+      metric: rule.metric,
+      operation: rule.operation,
+      source_field: rule.source_field,
+      filters: rule.filters as PrimePredicate[] | undefined,
+      source_pattern: rule.source_pattern,
+      numerator_metric: rule.numerator_metric,
+      denominator_metric: rule.denominator_metric,
+      scale_factor: rule.scale_factor,
+    };
+
+    let dag;
+    try {
+      dag = legacyDerivationToDAG(legacyShape);
+    } catch (err) {
+      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
       continue;
     }
 
-    if (matchingRows.length === 0) continue;
+    // Context: activeRows are the current period's flattened rows; metrics
+    // map carries previously-derived values so ratio derivations can read
+    // their numerator / denominator references. priorPeriodRows is supplied
+    // so the prior_period prime in delta translations can switch activeRows
+    // for its downstream sub-tree (HF-238 R2 Closure 5).
+    const context: EvalContext = {
+      entity: { metadata: {} },
+      activeRows: allRows,
+      allEntityRows: [],
+      metrics: { ...derived },
+      priorPeriodRows: priorRows,
+    };
 
-    // Apply derivation operation
-    if (rule.operation === 'sum' && rule.source_field) {
-      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
-      let total = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
-        if (!rowMatchesFilters(rd, rule.filters)) continue;
-        const val = rd[rule.source_field];
-        if (typeof val === 'number') total += val;
-      }
-      derived[rule.metric] = total;
-    } else if (rule.operation === 'delta' && rule.source_field) {
-      // OB-121: Period-over-period delta = current_sum - prior_sum
-      // HF-172: Apply filters to both current and prior period loops
-      let currentTotal = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
-        if (!rowMatchesFilters(rd, rule.filters)) continue;
-        const val = rd[rule.source_field];
-        if (typeof val === 'number') currentTotal += val;
-      }
-
-      let priorTotal = 0;
-      if (priorPeriodData) {
-        // HF-172: Include ALL prior period rows, not just source_pattern matches
-        for (const [, rows] of Array.from(priorPeriodData.entries())) {
-          for (const row of rows) {
-            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-              ? row.row_data as Record<string, unknown>
-              : {};
-            if (!rowMatchesFilters(rd, rule.filters)) continue;
-            const val = rd[rule.source_field];
-            if (typeof val === 'number') priorTotal += val;
-          }
-        }
-      }
-
-      derived[rule.metric] = currentTotal - priorTotal;
-      if (!priorPeriodData) {
-        console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
-      }
-    } else if (rule.operation === 'count') {
-      // HF-172: Uses same rowMatchesFilters helper (was already correct, now DRY)
-      let count = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
-        if (rowMatchesFilters(rd, rule.filters)) count++;
-      }
-      derived[rule.metric] = count;
+    try {
+      const result = evaluate(dag, context);
+      derived[rule.metric] = toNumber(result);
+    } catch (err) {
+      console.warn(`[Derivation] evaluate failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
     }
   }
 
@@ -311,28 +311,23 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
         } as unknown as IntentOperation;
       }
 
-      // OB-120: Auto-detect isMarginal for bounded_lookup_1d with rate-like outputs.
-      // Mirrors OB-117 rate heuristic in evaluateTierLookup: if all non-zero outputs
-      // are < 1.0, they represent rates to multiply against the input value.
-      if (intentOp.operation === 'bounded_lookup_1d') {
-        const bl = intentOp as unknown as Record<string, unknown>;
-        const outputs = bl.outputs as number[] | undefined;
-        if (!bl.isMarginal && Array.isArray(outputs)) {
-          const nonZero = outputs.filter(v => v !== 0);
-          if (nonZero.length > 0 && nonZero.every(v => v > 0 && v < 1.0)) {
-            bl.isMarginal = true;
-          }
-        }
-      }
+      // HF-238 R2 Closure 4: OB-120 isMarginal auto-detection moved into the
+      // bounded_lookup_1d case of legacyIntentToDAG (legacy-intent-to-dag.ts).
+      // The call site no longer dispatches on operation names — every legacy
+      // shape flows through translateOperation, which carries the heuristic.
 
       if (isIntentOperation(intentOp)) {
+        // HF-238 R2 Closure 3: inlined the prior executeOperation wrapper.
+        // The three operations below are the only execution path — translate
+        // legacy shape to DAG, build the evaluation context, walk it.
         const entityData: EntityData = {
           entityId: '',
           metrics,
           attributes: {},
         };
-        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+        const dag = legacyIntentToDAG(intentOp);
+        const context = buildEvalContext(entityData);
+        const intentPayoutDecimal = evaluate(dag, context);
         const intentPayout = toNumber(intentPayoutDecimal);
         if (intentPayout > 0) {
           payout = intentPayout;
@@ -341,7 +336,6 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
             fallbackSource: 'calculationIntent',
             intentOperation: intentOp.operation,
             intentPayout,
-            intentInputs: inputLog,
           };
         }
       }

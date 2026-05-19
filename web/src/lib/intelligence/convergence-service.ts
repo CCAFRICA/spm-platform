@@ -2710,6 +2710,20 @@ IMPORTANT RULES:
 - For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
 - For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
 
+HF-238 NOTE — DAG semantics behind the emission shape:
+The runtime translates each derivation into a Prime-DAG composition over the
+nine engine primes (arithmetic, aggregate, filter, conditional, scope, compare,
+logical, constant, reference). The emission shape below maps to:
+  • sum / count / avg / min / max  →  filter(predicate, ...)+ wrapping aggregate(op, field).
+    Each entry in "filters" becomes one filter prime; the aggregate prime sits at the innermost
+    position, reducing the row set narrowed by the filter chain.
+  • ratio                          →  arithmetic(divide, reference(num), reference(den)),
+    zero-guarded via conditional(compare(eq, den, 0), 0, divide).
+  • delta                          →  not yet expressible in the row-context EvalContext
+    (requires prior-period rows); the engine retains a hybrid path for delta until
+    historical-row plumbing lands.
+Filter operators recognized by the filter prime: eq, neq, gt, gte, lt, lte, contains.
+
 Operations:
 - sum: SUM a numeric field, optionally filtered by a categorical field value
 - count: COUNT rows, optionally filtered by a categorical field value

@@ -321,3 +321,96 @@ export const DEFAULT_OUTPUT_PRECISION: OutputPrecision = {
   roundingMethod: 'half_even',
   source: 'default_currency',
 };
+
+// ──────────────────────────────────────────────
+// HF-238: Prime-Level DAG Calculation Engine
+// ──────────────────────────────────────────────
+//
+// Every compensation calculation decomposes into compositions of seven
+// irreducible operations + two leaf node types. The recursive `evaluate()`
+// walker in intent-executor.ts is the ONE engine surface; all stored
+// intents (legacy named-operation format and new prime-DAG format) flow
+// through translation adapters at the storage boundary and produce
+// PrimeNode trees that evaluate() processes.
+//
+// All legacy IntentOperation / IntentSource / IntentModifier interfaces
+// (LinearFunctionOp, PiecewiseLinearOp, ConditionalGate, ScalarMultiply,
+// BoundedLookup1D, BoundedLookup2D, AggregateOp, RatioOp, ConstantOp,
+// WeightedBlendOp, TemporalWindowOp) are retained ABOVE this section as
+// read-only legacy formats consumed by legacyIntentToDAG(). They are NOT
+// referenced by the evaluate() walker.
+
+/** Predicate used by filter prime — matches MetricDerivationRule['filters'][0] shape. */
+export interface PrimePredicate {
+  field: string;
+  operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+  value: string | number | boolean;
+}
+
+/**
+ * PrimeNode — the engine's irreducible operation vocabulary.
+ *
+ * Topology:
+ *   • `filter`, `scope`, `prior_period` carry `downstream: PrimeNode` —
+ *     each modifies context for the sub-tree below it.
+ *   • `aggregate` operates on whatever `activeRows` are in context
+ *     (narrowed by upstream filter / scope / prior_period).
+ *   • `arithmetic`, `compare`, `logical` operate on values via `inputs`.
+ *   • `conditional` evaluates `condition`, then evaluates `then` or `else`.
+ *   • `constant` and `reference` are leaves.
+ *
+ * HF-238 R2 Closure 5: `prior_period` added so delta derivations express
+ * as `arithmetic(subtract, <current>, prior_period(<prior>))` — one
+ * execution path for every derivation type.
+ */
+export type PrimeNode =
+  | { prime: 'arithmetic'; op: 'add' | 'subtract' | 'multiply' | 'divide'; inputs: [PrimeNode, PrimeNode] }
+  | { prime: 'aggregate'; op: 'sum' | 'count' | 'avg' | 'min' | 'max'; field: string }
+  | { prime: 'filter'; predicate: PrimePredicate; downstream: PrimeNode }
+  | { prime: 'conditional'; condition: PrimeNode; then: PrimeNode; else: PrimeNode }
+  | { prime: 'scope'; boundary: string; downstream: PrimeNode }
+  | { prime: 'compare'; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; inputs: [PrimeNode, PrimeNode] }
+  | { prime: 'logical'; op: 'and' | 'or' | 'not'; inputs: PrimeNode[] }
+  | { prime: 'constant'; value: number }
+  | { prime: 'reference'; field: string }
+  | { prime: 'prior_period'; downstream: PrimeNode };
+
+/** The execution context evaluate() carries down the tree. */
+export interface EvalContext {
+  /** Entity being evaluated — read by `scope` prime to look up the boundary value. */
+  entity: { metadata: Record<string, unknown> };
+  /** Data rows currently in scope. Narrowed by upstream `filter` / `scope` / `prior_period` primes. */
+  activeRows: Record<string, unknown>[];
+  /** All entity rows across the tenant — read by `scope` prime to find siblings. */
+  allEntityRows: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }>;
+  /** Resolved metrics map — read by `reference` prime; populated by upstream derivations. */
+  metrics: Record<string, number>;
+  /**
+   * HF-238 R2 Closure 5: prior-period rows. The `prior_period` prime
+   * switches activeRows to these for its downstream. Absent (or empty)
+   * means delta computations beneath a `prior_period` prime see an
+   * empty row set and resolve to zero.
+   */
+  priorPeriodRows?: Record<string, unknown>[];
+}
+
+/** The ten recognized prime discriminators. */
+export const VALID_PRIMES = new Set<PrimeNode['prime']>([
+  'arithmetic',
+  'aggregate',
+  'filter',
+  'conditional',
+  'scope',
+  'compare',
+  'logical',
+  'constant',
+  'reference',
+  'prior_period',
+]);
+
+/** Type guard — narrows unknown into PrimeNode. */
+export function isPrimeNode(value: unknown): value is PrimeNode {
+  return typeof value === 'object' && value !== null && 'prime' in value
+    && typeof (value as Record<string, unknown>).prime === 'string'
+    && VALID_PRIMES.has((value as { prime: string }).prime as PrimeNode['prime']);
+}
