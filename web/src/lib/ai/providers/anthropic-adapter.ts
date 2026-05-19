@@ -614,29 +614,50 @@ The calculation engine supports these primitives: scalar_multiply, conditional_g
 
 ANY compensation concept must be expressed as a COMPOSITION of these primitives. Do NOT invent new operation names. If a plan describes a concept not directly matching a single primitive, compose multiple primitives.
 
-EXAMPLE — Manager override (percentage of team/district/region revenue):
+EXAMPLE — Manager override (percentage of district revenue, summed across district peers):
 The plan says "District Manager earns 1.5% of district equipment revenue."
-This is: aggregate the metric (sum), then multiply by the rate.
+This is cross-entity aggregation: sum the metric across all entities in the same district, then multiply by the rate.
 Express as:
 {
   "calculationIntent": {
     "operation": "scalar_multiply",
-    "input": { "source": "aggregate", "sourceSpec": { "metric": "equipment_revenue", "function": "sum" } },
+    "input": {
+      "source": "scope_aggregate",
+      "sourceSpec": {
+        "field": "equipment_revenue",
+        "aggregation": "sum",
+        "scope": "district"
+      }
+    },
     "rate": 0.015
   }
 }
-The scope (which district, which region) is resolved by the data binding layer, not by the operation. Do NOT include scope parameters in the operation. Do NOT use "scope_aggregate" or any other compound operation name.
+The scope value ("district" or "region") MUST be in the operation — the data layer uses it to identify which other entities are in the same hierarchy as the current entity. Without scope, the engine cannot determine the aggregation boundary.
 
-EXAMPLE — Tiered override (different rates by performance band):
+EXAMPLE — Regional override (percentage of region revenue, summed across region peers):
 The plan says "Regional VP earns 0.5% of region revenue."
 Express as:
 {
   "calculationIntent": {
     "operation": "scalar_multiply",
-    "input": { "source": "aggregate", "sourceSpec": { "metric": "equipment_revenue", "function": "sum" } },
+    "input": {
+      "source": "scope_aggregate",
+      "sourceSpec": {
+        "field": "equipment_revenue",
+        "aggregation": "sum",
+        "scope": "region"
+      }
+    },
     "rate": 0.005
   }
 }
+
+WHEN TO USE scope_aggregate vs aggregate vs metric:
+- "source": "metric" — read a metric value that belongs to THIS entity (e.g., the rep's own sales).
+- "source": "aggregate" — read an aggregated metric value already attached to THIS entity (e.g., entity-level pre-computed totals).
+- "source": "scope_aggregate" — sum a metric across OTHER entities in this entity's district or region hierarchy. Use when the plan describes a percentage of TEAM/DISTRICT/REGION revenue. The scope value is REQUIRED.
+
+Engine-recognized scope values: "district", "region". If a plan describes a hierarchy outside these (team, store, branch, area), report the concept in calculationMethod and use the closest recognized scope, OR raise the concept in calculationIntent.metadata.unrecognizedScope so the import-time translator can surface the gap.
 
 CRITICAL: Every component MUST include both "calculationMethod" (existing format) AND "calculationIntent" (structural vocabulary). The calculationIntent must be valid against the 7 primitives above.
 
