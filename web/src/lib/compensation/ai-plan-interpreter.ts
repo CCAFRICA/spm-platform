@@ -539,6 +539,7 @@ function validatePrimeNodeTree(node: unknown): boolean {
         && validatePrimeNodeTree(node.else);
     case 'filter':
     case 'scope':
+    case 'prior_period':
       return validatePrimeNodeTree(node.downstream);
     case 'aggregate':
       return typeof node.field === 'string';

@@ -36,12 +36,10 @@ export interface EntityData {
   priorResults?: number[];
   periodHistory?: number[];
   crossDataCounts?: Record<string, number>;
-  scopeAggregates?: Record<string, number>;
-  // Phase 1: EvalContext.allEntityRows + activeRows not yet wired through
-  // route.ts (Phase 3 wiring). Adapters that emit scope/aggregate/filter
-  // primes consume these when populated; until Phase 3 they read as empty
-  // and the legacy reference path (via pre-computed scopeAggregates /
-  // crossDataCounts in context.metrics) supplies the value.
+  // HF-238 R2 Closure 2: scopeAggregates field deleted. The scope prime
+  // computes hierarchical aggregates on the fly from allEntityRows; there
+  // is no longer a pre-computed reference-form path. Callers MUST populate
+  // allEntityRows for scope-bearing intents.
   allEntityRows?: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }>;
   activeRows?: Record<string, unknown>[];
   /** HF-211: optional trace collector for [CalcTrace] emissions. */
@@ -207,6 +205,16 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
       return evaluate(node.downstream, { ...context, activeRows: siblings });
     }
 
+    case 'prior_period': {
+      // HF-238 R2 Closure 5: switch activeRows to the prior-period rows
+      // for the downstream sub-tree. Absent prior_period data resolves to
+      // an empty active set (downstream aggregates return zero).
+      return evaluate(node.downstream, {
+        ...context,
+        activeRows: context.priorPeriodRows ?? [],
+      });
+    }
+
     case 'aggregate': {
       const rows = context.activeRows;
       if (rows.length === 0) {
@@ -267,7 +275,7 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
 // adapter's emission shape for legacy source types.
 // ──────────────────────────────────────────────
 
-function buildEvalContext(data: EntityData): EvalContext {
+export function buildEvalContext(data: EntityData): EvalContext {
   // Start with raw metrics map (entity scope).
   const metrics: Record<string, number> = { ...data.metrics };
 
@@ -301,14 +309,9 @@ function buildEvalContext(data: EntityData): EvalContext {
     }
   }
 
-  // scope_aggregate sources: adapter emits `scope_aggregate:${key}` where
-  // key already contains scope:field:aggregation (matches data.scopeAggregates
-  // key shape per legacy resolveSource at intent-executor.ts:161).
-  if (data.scopeAggregates) {
-    for (const [k, v] of Object.entries(data.scopeAggregates)) {
-      metrics[`scope_aggregate:${k}`] = v;
-    }
-  }
+  // HF-238 R2 Closure 2: scope_aggregate pre-population block removed.
+  // The scope prime in evaluate() narrows allEntityRows directly; there is
+  // no `scope_aggregate:*` synthetic key in context.metrics any longer.
 
   return {
     entity: { metadata: { ...data.attributes, entityId: data.entityId } },
@@ -389,28 +392,8 @@ export function executeIntent(
   };
 }
 
-// ──────────────────────────────────────────────
-// Backward-compat wrapper for run-calculation.ts:335 fallback path
-// ──────────────────────────────────────────────
-
-/**
- * Executes a single IntentOperation directly. Used by the legacy
- * calculationIntent fallback path in run-calculation.ts. Translates the
- * operation to a PrimeNode DAG and evaluates it; signature preserved for
- * backward compatibility (inputLog and trace params are accepted but the
- * new engine no longer emits per-source granular inputs).
- */
-export function executeOperation(
-  op: IntentOperation,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>,
-): Decimal {
-  // inputLog and trace are accepted for signature compatibility; the new
-  // engine does not populate them. Touch them to satisfy strict no-unused-vars.
-  void inputLog;
-  void trace;
-  const dag = legacyIntentToDAG(op);
-  const context = buildEvalContext(data);
-  return evaluate(dag, context);
-}
+// HF-238 R2 Closure 3: executeOperation wrapper deleted. The single
+// fallback caller (run-calculation.ts:343) was inlined to call
+// legacyIntentToDAG + buildEvalContext + evaluate directly. There is no
+// remaining surface that takes a legacy IntentOperation and returns a
+// Decimal in one call.

@@ -356,6 +356,20 @@ function translateOperation(op: IntentOperation): PrimeNode {
       const boundaries = Array.isArray(op.boundaries) ? op.boundaries : [];
       const outputs = Array.isArray(op.outputs) ? op.outputs : [];
 
+      // HF-238 R2 Closure 4 (relocated OB-120): auto-detect isMarginal for
+      // rate-like output sets. Mirrors the pre-HF-238 heuristic at the call
+      // site (run-calculation.ts) — if every non-zero output is in (0, 1.0),
+      // treat outputs as rates and multiply against the input value.
+      // Localizing the heuristic inside the adapter keeps call sites free
+      // of named-type dispatch.
+      let isMarginal = !!op.isMarginal;
+      if (!isMarginal && Array.isArray(outputs)) {
+        const nonZero = outputs.filter(v => v !== 0);
+        if (nonZero.length > 0 && nonZero.every(v => v > 0 && v < 1.0)) {
+          isMarginal = true;
+        }
+      }
+
       // Build chain bottom-up; if no boundary matches, return 0 (consistent
       // with executeBoundedLookup1D's no-match return at line 247).
       let chain: PrimeNode = { prime: 'constant', value: 0 };
@@ -390,8 +404,10 @@ function translateOperation(op: IntentOperation): PrimeNode {
             ? conditions[0]
             : { prime: 'logical', op: 'and', inputs: conditions };
 
-        // OB-117: isMarginal — output is a rate multiplied by inputValue
-        const tierValue: PrimeNode = op.isMarginal
+        // OB-117 / HF-238 R2 Closure 4: isMarginal — output is a rate
+        // multiplied by inputValue. Effective value combines explicit
+        // op.isMarginal with the relocated auto-detect heuristic above.
+        const tierValue: PrimeNode = isMarginal
           ? {
               prime: 'arithmetic',
               op: 'multiply',
@@ -660,12 +676,38 @@ export function legacyDerivationToDAG(d: LegacyDerivation): PrimeNode {
     };
   }
 
-  // Delta derivation needs prior-period data; not in Phase 0 inventory.
+  // HF-238 R2 Closure 5: delta derivations translate into
+  //   arithmetic(subtract, <current_sum>, prior_period(<prior_sum>))
+  // where each side is the filter-chain-wrapped aggregate over its row set.
+  // Prior-period rows are supplied via EvalContext.priorPeriodRows; if absent
+  // at evaluate time the prior_period prime resolves to an empty row set and
+  // the prior aggregate returns zero.
   if (d.operation === 'delta') {
-    throw new UntranslatableLegacyIntentError(
-      `[legacyDerivationToDAG] delta operation requires prior-period rows in EvalContext ` +
-      `(not in Phase 0 production inventory). Emission preserved: ${JSON.stringify(d)}.`
-    );
+    const field = d.source_field ?? '';
+    const buildAggregateWithFilters = (): PrimeNode => {
+      let node: PrimeNode = { prime: 'aggregate', op: 'sum', field };
+      if (Array.isArray(d.filters) && d.filters.length > 0) {
+        for (let i = d.filters.length - 1; i >= 0; i--) {
+          const f = d.filters[i];
+          node = {
+            prime: 'filter',
+            predicate: { field: f.field, operator: f.operator, value: f.value },
+            downstream: node,
+          };
+        }
+      }
+      return node;
+    };
+    const currentSide = buildAggregateWithFilters();
+    const priorSide: PrimeNode = {
+      prime: 'prior_period',
+      downstream: buildAggregateWithFilters(),
+    };
+    return {
+      prime: 'arithmetic',
+      op: 'subtract',
+      inputs: [currentSide, priorSide],
+    };
   }
 
   // Aggregate ops: sum / count / avg / min / max with optional filter chain

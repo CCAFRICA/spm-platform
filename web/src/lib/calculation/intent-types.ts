@@ -351,13 +351,17 @@ export interface PrimePredicate {
  * PrimeNode — the engine's irreducible operation vocabulary.
  *
  * Topology:
- *   • `filter` and `scope` carry `downstream: PrimeNode` — they modify
- *     context for the sub-tree below them.
+ *   • `filter`, `scope`, `prior_period` carry `downstream: PrimeNode` —
+ *     each modifies context for the sub-tree below it.
  *   • `aggregate` operates on whatever `activeRows` are in context
- *     (narrowed by upstream filter/scope).
+ *     (narrowed by upstream filter / scope / prior_period).
  *   • `arithmetic`, `compare`, `logical` operate on values via `inputs`.
  *   • `conditional` evaluates `condition`, then evaluates `then` or `else`.
  *   • `constant` and `reference` are leaves.
+ *
+ * HF-238 R2 Closure 5: `prior_period` added so delta derivations express
+ * as `arithmetic(subtract, <current>, prior_period(<prior>))` — one
+ * execution path for every derivation type.
  */
 export type PrimeNode =
   | { prime: 'arithmetic'; op: 'add' | 'subtract' | 'multiply' | 'divide'; inputs: [PrimeNode, PrimeNode] }
@@ -368,21 +372,29 @@ export type PrimeNode =
   | { prime: 'compare'; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; inputs: [PrimeNode, PrimeNode] }
   | { prime: 'logical'; op: 'and' | 'or' | 'not'; inputs: PrimeNode[] }
   | { prime: 'constant'; value: number }
-  | { prime: 'reference'; field: string };
+  | { prime: 'reference'; field: string }
+  | { prime: 'prior_period'; downstream: PrimeNode };
 
 /** The execution context evaluate() carries down the tree. */
 export interface EvalContext {
   /** Entity being evaluated — read by `scope` prime to look up the boundary value. */
   entity: { metadata: Record<string, unknown> };
-  /** Data rows currently in scope. Narrowed by upstream `filter` / `scope` primes. */
+  /** Data rows currently in scope. Narrowed by upstream `filter` / `scope` / `prior_period` primes. */
   activeRows: Record<string, unknown>[];
   /** All entity rows across the tenant — read by `scope` prime to find siblings. */
   allEntityRows: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }>;
   /** Resolved metrics map — read by `reference` prime; populated by upstream derivations. */
   metrics: Record<string, number>;
+  /**
+   * HF-238 R2 Closure 5: prior-period rows. The `prior_period` prime
+   * switches activeRows to these for its downstream. Absent (or empty)
+   * means delta computations beneath a `prior_period` prime see an
+   * empty row set and resolve to zero.
+   */
+  priorPeriodRows?: Record<string, unknown>[];
 }
 
-/** The nine recognized prime discriminators. */
+/** The ten recognized prime discriminators. */
 export const VALID_PRIMES = new Set<PrimeNode['prime']>([
   'arithmetic',
   'aggregate',
@@ -393,6 +405,7 @@ export const VALID_PRIMES = new Set<PrimeNode['prime']>([
   'logical',
   'constant',
   'reference',
+  'prior_period',
 ]);
 
 /** Type guard — narrows unknown into PrimeNode. */

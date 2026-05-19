@@ -19,9 +19,9 @@ import {
   inferSemanticType,
   findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
-import { executeOperation, evaluate, type EntityData } from '@/lib/calculation/intent-executor';
+import { evaluate, buildEvalContext, type EntityData } from '@/lib/calculation/intent-executor';
 import { isIntentOperation, type IntentOperation, type PrimePredicate, type EvalContext } from '@/lib/calculation/intent-types';
-import { legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
+import { legacyIntentToDAG, legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
 import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
 // ──────────────────────────────────────────────
@@ -136,37 +136,26 @@ export function applyMetricDerivations(
     }
   }
 
-  for (const rule of derivations) {
-    // HF-238: delta operation requires prior-period rows, which are not
-    // carried in the standard EvalContext. Route delta through the legacy
-    // sum-and-subtract path; all other operations flow through the DAG
-    // evaluator via legacyDerivationToDAG().
-    if (rule.operation === 'delta' && rule.source_field) {
-      let currentTotal = 0;
-      for (const rd of allRows) {
-        if (!rowMatchesFilters(rd, rule.filters)) continue;
-        const val = rd[rule.source_field];
-        if (typeof val === 'number') currentTotal += val;
+  // HF-238 R2 Closure 5: flatten prior-period rows once into a single array,
+  // matching the activeRows shape so the `prior_period` prime can switch
+  // EvalContext.activeRows to this set when delta derivations run.
+  const priorRows: Record<string, unknown>[] = [];
+  if (priorPeriodData) {
+    for (const [, rows] of Array.from(priorPeriodData.entries())) {
+      for (const r of rows) {
+        const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+          ? r.row_data as Record<string, unknown>
+          : {};
+        priorRows.push(rd);
       }
-      let priorTotal = 0;
-      if (priorPeriodData) {
-        for (const [, rows] of Array.from(priorPeriodData.entries())) {
-          for (const row of rows) {
-            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-              ? row.row_data as Record<string, unknown>
-              : {};
-            if (!rowMatchesFilters(rd, rule.filters)) continue;
-            const val = rd[rule.source_field];
-            if (typeof val === 'number') priorTotal += val;
-          }
-        }
-      }
-      derived[rule.metric] = currentTotal - priorTotal;
-      if (!priorPeriodData) {
-        console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
-      }
-      continue;
     }
+  }
+
+  for (const rule of derivations) {
+    // HF-238 R2 Closure 5: delta hybrid block deleted. Delta derivations now
+    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+    // every other operation; the prior_period prime switches activeRows to
+    // priorRows for the prior side of the subtraction.
 
     // Build the LegacyDerivation shape from the rule and translate to DAG.
     const legacyShape: LegacyDerivation = {
@@ -191,12 +180,15 @@ export function applyMetricDerivations(
 
     // Context: activeRows are the current period's flattened rows; metrics
     // map carries previously-derived values so ratio derivations can read
-    // their numerator / denominator references.
+    // their numerator / denominator references. priorPeriodRows is supplied
+    // so the prior_period prime in delta translations can switch activeRows
+    // for its downstream sub-tree (HF-238 R2 Closure 5).
     const context: EvalContext = {
       entity: { metadata: {} },
       activeRows: allRows,
       allEntityRows: [],
       metrics: { ...derived },
+      priorPeriodRows: priorRows,
     };
 
     try {
@@ -319,28 +311,23 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
         } as unknown as IntentOperation;
       }
 
-      // OB-120: Auto-detect isMarginal for bounded_lookup_1d with rate-like outputs.
-      // Mirrors OB-117 rate heuristic in evaluateTierLookup: if all non-zero outputs
-      // are < 1.0, they represent rates to multiply against the input value.
-      if (intentOp.operation === 'bounded_lookup_1d') {
-        const bl = intentOp as unknown as Record<string, unknown>;
-        const outputs = bl.outputs as number[] | undefined;
-        if (!bl.isMarginal && Array.isArray(outputs)) {
-          const nonZero = outputs.filter(v => v !== 0);
-          if (nonZero.length > 0 && nonZero.every(v => v > 0 && v < 1.0)) {
-            bl.isMarginal = true;
-          }
-        }
-      }
+      // HF-238 R2 Closure 4: OB-120 isMarginal auto-detection moved into the
+      // bounded_lookup_1d case of legacyIntentToDAG (legacy-intent-to-dag.ts).
+      // The call site no longer dispatches on operation names — every legacy
+      // shape flows through translateOperation, which carries the heuristic.
 
       if (isIntentOperation(intentOp)) {
+        // HF-238 R2 Closure 3: inlined the prior executeOperation wrapper.
+        // The three operations below are the only execution path — translate
+        // legacy shape to DAG, build the evaluation context, walk it.
         const entityData: EntityData = {
           entityId: '',
           metrics,
           attributes: {},
         };
-        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const intentPayoutDecimal = executeOperation(intentOp, entityData, inputLog, {});
+        const dag = legacyIntentToDAG(intentOp);
+        const context = buildEvalContext(entityData);
+        const intentPayoutDecimal = evaluate(dag, context);
         const intentPayout = toNumber(intentPayoutDecimal);
         if (intentPayout > 0) {
           payout = intentPayout;
@@ -349,7 +336,6 @@ export function evaluateComponent(component: PlanComponent, metrics: Record<stri
             fallbackSource: 'calculationIntent',
             intentOperation: intentOp.operation,
             intentPayout,
-            intentInputs: inputLog,
           };
         }
       }

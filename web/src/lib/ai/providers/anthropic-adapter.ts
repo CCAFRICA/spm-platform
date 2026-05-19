@@ -51,36 +51,46 @@ export function normalizeConfidenceFieldsInPlace(node: unknown): void {
 }
 
 function buildPrimitiveVocabularyForPrompt(): string {
-  const ops = getOperationPrimitives();
+  // HF-238 Closure 1: filter deprecated entries. Only non-deprecated
+  // primitives are surfaced to the LLM as recommended emission targets.
+  const ops = getOperationPrimitives().filter((p) => !p.deprecated);
   const lines = ops.map((p, i) => `${i + 1}. ${p.id} — ${p.description}`);
   return `${ops.length} PRIMITIVE OPERATIONS:\n${lines.join('\n')}`;
 }
 
 // HF-195: registry-derived componentType enumeration for the plan-interpretation
 // prompt's outer wrapper. The "type" field on each component, and the
-// document_analysis prompt's calculationType field, derive from this enumeration —
-// not from a private hardcoded list. Closes Korean Test (E910) at the prompt-layer
-// surface; instantiates Rule 27 (T5 standing rule). Per IRA-HF-195 Inv-2 rank 1
-// (option_b_plus_c) Phase 1 b-component.
+// document_analysis prompt's calculationType field, derive from this enumeration.
+//
+// HF-238 Closure 1: deprecated entries are filtered. Only non-deprecated
+// identifiers are surfaced — the LLM's wrapper `type` field for new emissions
+// should be one of these. Legacy types remain in the registry for the
+// storage-boundary adapter and compile-time type narrowing.
 function buildComponentTypeListForPrompt(): string {
-  const ids = getRegistry().map((p) => p.id);
-  return `Allowed component "type" values (${ids.length} foundational primitives):\n${ids.map((id) => `  - ${id}`).join('\n')}`;
+  const ids = getRegistry().filter((p) => !p.deprecated).map((p) => p.id);
+  return `Allowed component "type" values (${ids.length} active foundational primitive${ids.length === 1 ? '' : 's'}):\n${ids.map((id) => `  - ${id}`).join('\n')}`;
 }
 
 // HF-195: registry-derived structural-examples block. Iterates registered
 // primitives and emits the promptStructuralExample field where populated.
-// PREPARE-path hook for IRA-HF-195 Inv-3 rank 1 (sub_option_b_beta) — entries
-// without an example are silently skipped; if zero entries carry examples the
-// section emits an explicit empty-section placeholder so Phase 2 follow-on OB
-// (option_c flywheel population) has the slot to populate.
+//
+// HF-238 Closure 1: deprecated entries are filtered — old convenience-pattern
+// examples (bounded_lookup_1d, scalar_multiply, etc.) had their
+// promptStructuralExample stripped from the registry because they conflict
+// with the prime-DAG composition prompt. This filter is belt-and-suspenders:
+// even if a deprecated entry retains a value, it is skipped.
 function buildStructuralExamplesForPrompt(): string {
-  const withExamples = getRegistry().filter((p) => typeof p.promptStructuralExample === 'string' && p.promptStructuralExample.length > 0);
+  const withExamples = getRegistry().filter(
+    (p) => !p.deprecated
+      && typeof p.promptStructuralExample === 'string'
+      && p.promptStructuralExample.length > 0,
+  );
   if (withExamples.length === 0) {
     return [
       'Structural examples per primitive (use these to classify by value-distribution and shape signature):',
-      '  [No primitives currently carry promptStructuralExample content.',
-      '   This section is populated as registry entries gain content via',
-      '   Phase 2 follow-on work (option_c flywheel population from vocabulary_bindings).]',
+      '  [No active primitives carry promptStructuralExample content.',
+      '   The prime-DAG composition guide in the CALCULATION INTENT section',
+      '   below is the authoritative source for primitive composition examples.]',
     ].join('\n');
   }
   return [
@@ -429,7 +439,9 @@ NINE PRIMES (the only operations the engine recognizes):
                     "prior:<componentIndex>"         → output of an earlier component
                     "cross_data:<dataType>:<agg>[:<field>]" → cross-plan data count/sum
                     "group:<metric>"                 → group-scope aggregate
-                    "scope_aggregate:<scope>:<field>:<agg>" → hierarchical aggregate
+                  For hierarchical (district / region) aggregates, compose
+                  the "scope" prime over an "aggregate" downstream directly —
+                  do NOT use a reference synthetic key. See Example E.
 3. arithmetic   — { "prime": "arithmetic", "op": "add"|"subtract"|"multiply"|"divide", "inputs": [A, B] }
                   divide returns 0 when B is 0.
 4. compare      — { "prime": "compare", "op": "gt"|"gte"|"lt"|"lte"|"eq"|"neq", "inputs": [A, B] }
