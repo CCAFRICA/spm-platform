@@ -163,6 +163,16 @@ function translateSource(src: IntentSource | IntentOperation): PrimeNode {
 // ──────────────────────────────────────────────
 
 function translateOperation(op: IntentOperation): PrimeNode {
+  // Phase 0 inventory edge case: some stored intents persist a bare
+  // IntentSource at the top level (no `operation` discriminator) — Meridian
+  // Fleet Utilization components carry `{ source: 'ratio', sourceSpec: ... }`
+  // directly. Treat this as a source-position intent and translate via
+  // translateSource.
+  const opOrSource = op as unknown as Record<string, unknown>;
+  if (typeof opOrSource.operation !== 'string' && typeof opOrSource.source === 'string') {
+    return translateSource(opOrSource as unknown as IntentSource);
+  }
+
   switch (op.operation) {
     case 'constant': {
       return { prime: 'constant', value: Number(op.value ?? 0) };
