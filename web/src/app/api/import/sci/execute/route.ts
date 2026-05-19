@@ -323,6 +323,16 @@ export async function POST(req: NextRequest) {
         // The analyze route wrote the fingerprint from pre-LLM structural-only bindings.
         // After user confirmation, update with the confirmed roles so future Tier 1 lookups
         // have correct semantic roles (especially entity_identifier).
+        //
+        // HF-236 (DIAG-050 closure Layer 1): Enrich each cached binding with the
+        // native HeaderInterpretation.columnRole + identifiesWhat from the HC
+        // trace so the next Tier-1 replay can reconstruct HeaderInterpretation
+        // directly without a hardcoded semanticRole→columnRole registry. Per
+        // T1-E910 v2 (Korean Test, locked 2026-05-18): structural primitives
+        // exist in exactly one canonical declaration. Caching the native role
+        // alongside the semantic role makes the flywheel-replay path emit the
+        // same HeaderInterpretation shape as the fresh-LLM path — closing the
+        // Adjacent-Arm Drift (T1-E952) that DIAG-050 identified.
         if (unit.confirmedBindings && unit.confirmedBindings.length > 0 && unit.rawData && unit.rawData.length > 0) {
           const cols = Object.keys(unit.rawData[0]);
           const hash = computeFingerprintHashSync(cols, unit.rawData.slice(0, 5));
@@ -332,13 +342,31 @@ export async function POST(req: NextRequest) {
               confirmedColumnRoles[binding.sourceField] = binding.semanticRole;
             }
           }
+
+          // HF-236: read native columnRole + identifiesWhat from classificationTrace's
+          // headerComprehension.interpretations to enrich each cached binding.
+          const hcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
+            ?.headerComprehension as
+              | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+              | undefined;
+          const interpMap = hcInterps?.interpretations ?? {};
+
+          const enrichedFieldBindings = unit.confirmedBindings.map(b => {
+            const interp = interpMap[b.sourceField];
+            return {
+              ...b,
+              ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
+              ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+            };
+          });
+
           writeFingerprint(
             tenantId,
             hash,
             {
               classification: unit.confirmedClassification,
               confidence: 1.0,
-              fieldBindings: unit.confirmedBindings,
+              fieldBindings: enrichedFieldBindings,
               tabName: unit.tabName || '',
             },
             confirmedColumnRoles,
