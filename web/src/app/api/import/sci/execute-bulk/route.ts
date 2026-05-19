@@ -261,6 +261,18 @@ export async function POST(req: NextRequest) {
 }
 
 // ── Field filtering for PARTIAL claims ──
+// HF-236 (DIAG-050 closure): Per T1-E902 v2 (Carry Everything, Express
+// Contextually — locked 2026-05-18: Persistence scope persists ALL data;
+// Hints-not-gates: AI classifications do not gate persistence) and T2-E06
+// v2 (HC Override Authority — locked 2026-05-18: HC observations persist
+// to committed_data irrespective of claim type; automated narrowing of
+// the HC observation set during claim-type projection is a named
+// violation pattern), the PARTIAL claim primitive narrows agent
+// ownership semantics only. row_data persists unconditionally; the
+// confirmedBindings narrow to the agent's owned + shared field set so
+// downstream code that consults bindings sees the agent's semantic
+// claim, while persistence-time code that reads rows sees every column
+// the customer's file carries.
 
 function filterFieldsForPartialClaim(
   unit: BulkContentUnit,
@@ -272,23 +284,13 @@ function filterFieldsForPartialClaim(
 
   const allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields]);
 
-  const filteredRows = rows.map(row => {
-    const filtered: Record<string, unknown> = {};
-    for (const key of Object.keys(row)) {
-      if (allowedFields.has(key) || key.startsWith('_')) {
-        filtered[key] = row[key];
-      }
-    }
-    return filtered;
-  });
-
   const filteredBindings = unit.confirmedBindings.filter(
     b => allowedFields.has(b.sourceField)
   );
 
   return {
     unit: { ...unit, confirmedBindings: filteredBindings },
-    rows: filteredRows,
+    rows,
   };
 }
 

@@ -128,10 +128,42 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // HF-236 (DIAG-050 closure Layer 1): Per T1-E910 v2 (Korean Test, locked
+      // 2026-05-18: structural primitives in exactly one canonical declaration;
+      // no hardcoded role registries in foundational code), cached flywheel
+      // bindings that lack a native HeaderInterpretation.columnRole — or carry
+      // a non-native value — cannot be promoted into HC without a hardcoded
+      // semanticRole → columnRole registry. Such sheets are flagged as
+      // insufficient-cache and routed through fresh-LLM HC re-emission. This
+      // closes the materialization-layer drift identified by DIAG-050: under
+      // HF-236, fresh-LLM and flywheel-replay paths emit the same
+      // HeaderInterpretation shape because the only flywheel-replay path that
+      // skips HC is one whose cached bindings ALREADY carry native columnRole.
+      const NATIVE_COLUMN_ROLES = new Set(['identifier', 'name', 'temporal', 'measure', 'attribute', 'reference_key']);
+      const insufficientFlywheelCache = new Set<string>();
+      for (const sheet of file.sheets) {
+        const r = sheetFlywheelResults.get(sheet.sheetName);
+        if (!(r?.tier === 1 && r.match)) continue;
+        const cached = (r.classificationResult as Record<string, unknown> | undefined)?.fieldBindings as
+          Array<{ columnRole?: string }> | undefined;
+        if (!cached || cached.length === 0) {
+          insufficientFlywheelCache.add(sheet.sheetName);
+          continue;
+        }
+        const allHaveNativeRole = cached.every(fb => fb.columnRole !== undefined && NATIVE_COLUMN_ROLES.has(fb.columnRole));
+        if (!allHaveNativeRole) {
+          insufficientFlywheelCache.add(sheet.sheetName);
+          console.log(`[SCI-FINGERPRINT] HF-236: ${sheet.sheetName} flywheel cache missing native columnRole on ≥1 binding — forcing fresh-LLM HC re-emission`);
+        }
+      }
+
       // HF-197B: per-sheet skipHC determination (was: single file-level skipHC).
+      // HF-236: additionally gated on insufficientFlywheelCache to force fresh-
+      // LLM HC re-emission when the cached bindings cannot satisfy
+      // materialization-layer shape compatibility.
       const sheetSkipHC = (sheetName: string) => {
         const r = sheetFlywheelResults.get(sheetName);
-        return r?.tier === 1 && r.match;
+        return r?.tier === 1 && r.match && !insufficientFlywheelCache.has(sheetName);
       };
 
       // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
@@ -160,32 +192,39 @@ export async function POST(req: NextRequest) {
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
+      // HF-236 Layer 1 (DIAG-050 closure): No hardcoded semanticRole → columnRole
+      // registry. The cached binding's native columnRole is read directly. Sheets
+      // whose cache lacks native columnRole on any binding were diverted to the
+      // fresh-LLM HC path by the insufficientFlywheelCache gate above, so by
+      // construction every sheet reaching this loop has cached bindings with
+      // native columnRole values.
       for (const sheet of file.sheets) {
         const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
         if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
 
-        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{ sourceField: string; semanticRole: string; confidence: number; displayContext?: string }> | undefined;
+        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{
+          sourceField: string;
+          semanticRole: string;
+          confidence: number;
+          displayContext?: string;
+          columnRole?: 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key';
+          identifiesWhat?: string;
+        }> | undefined;
         if (!flywheelBindings || flywheelBindings.length === 0) continue;
 
         const sheetProfile = profileMap.get(sheet.sheetName);
         if (!sheetProfile) continue;
 
-        // Map semanticRole → ColumnRole for HeaderInterpretation
-        const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
-          entity_identifier: 'identifier', entity_name: 'name',
-          transaction_date: 'temporal', period: 'temporal',
-          transaction_amount: 'measure', transaction_count: 'measure',
-          category_code: 'attribute', entity_attribute: 'attribute',
-        };
         const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
         for (const fb of flywheelBindings) {
-          const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
+          // HF-236: native columnRole guaranteed present by insufficientFlywheelCache gate.
           interpretations.set(fb.sourceField, {
             columnName: fb.sourceField,
             semanticMeaning: fb.displayContext || fb.semanticRole,
             dataExpectation: '',
-            columnRole,
+            columnRole: fb.columnRole!,
             confidence: fb.confidence,
+            ...(fb.identifiesWhat ? { identifiesWhat: fb.identifiesWhat } : {}),
           });
         }
         sheetProfile.headerComprehension = {
@@ -195,7 +234,7 @@ export async function POST(req: NextRequest) {
           llmModel: 'flywheel-tier1',
           fromVocabularyBinding: false,
         };
-        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
+        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-236)`);
       }
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
