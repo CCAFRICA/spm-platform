@@ -1,37 +1,31 @@
 /**
- * Intent Executor — The Foundational Calculation Agent
+ * Intent Executor — Prime-Level DAG Calculation Engine (HF-238).
  *
- * Executes structural operations defined by ComponentIntent.
- * ZERO domain awareness. Does not know what domain it operates in.
- * Processes boundaries, ratios, grids, conditions, and scalars.
+ * Single recursive `evaluate()` walker over nine irreducible PrimeNode types
+ * (see intent-types.ts). All stored intents flow through translation adapters
+ * at the storage boundary (legacy-intent-to-dag.ts) and produce PrimeNode
+ * trees that evaluate() processes. There is ONE execution path; legacy
+ * named-operation formats are not executed directly — they are translated
+ * to DAG form and walked.
  *
- * Decision 122 (DS-010): All arithmetic uses decimal.js with Banker's Rounding.
- * Native number is used ONLY for boundary comparison (exact plan values)
- * and at the output boundary (executeIntent → number).
+ * Decision 122 (DS-010): all arithmetic uses decimal.js with Banker's Rounding.
+ * Native number is used only for boundary comparison inputs and at the output
+ * boundary (evaluate's caller converts Decimal → number).
  */
 
 import type {
   ComponentIntent,
   IntentOperation,
-  IntentSource,
   ExecutionTrace,
   Boundary,
-  BoundedLookup1D,
-  BoundedLookup2D,
-  ScalarMultiply,
-  ConditionalGate,
-  AggregateOp,
-  RatioOp,
-  ConstantOp,
-  WeightedBlendOp,
-  TemporalWindowOp,
-  IntentModifier,
+  PrimeNode,
+  EvalContext,
 } from './intent-types';
-import { isIntentOperation } from './intent-types';
 import { Decimal, toDecimal, toNumber, ZERO } from './decimal-precision';
+import { legacyIntentToDAG, componentIntentToDAG } from './legacy-intent-to-dag';
 
 // ──────────────────────────────────────────────
-// Entity Data — the executor's view of an entity
+// EntityData — the executor's view of an entity (preserved interface)
 // ──────────────────────────────────────────────
 
 export interface EntityData {
@@ -39,18 +33,18 @@ export interface EntityData {
   metrics: Record<string, number>;
   attributes: Record<string, string | number | boolean>;
   groupMetrics?: Record<string, number>;
-  priorResults?: number[];    // outcomes of previously calculated components
-  periodHistory?: number[];   // prior period values for temporal_window (loaded in batch, not per-entity)
-  // OB-181: Cross-data counts — pre-computed counts/sums of committed_data by data_type
-  crossDataCounts?: Record<string, number>;  // key: "dataType:count" or "dataType:sum:field" → value
-  // OB-181: Scope aggregates — pre-computed sums across entities in hierarchical scope
-  scopeAggregates?: Record<string, number>;  // key: "scope:field:aggregation" → value
-  // HF-211: Optional [CalcTrace] collector. When provided, intent-executor diagnostic
-  // emissions route through this callback (caller-controlled buffering / cap / suppression);
-  // when undefined, fall back to console.log for backward compatibility (test paths, other
-  // callers). Architectural compromise: diagnostic plumbing on EntityData avoids threading
-  // optional traceCollector through ~15 function signatures (executeIntent → executeOperation
-  // → execute* operations → resolveValue → resolveSource).
+  priorResults?: number[];
+  periodHistory?: number[];
+  crossDataCounts?: Record<string, number>;
+  scopeAggregates?: Record<string, number>;
+  // Phase 1: EvalContext.allEntityRows + activeRows not yet wired through
+  // route.ts (Phase 3 wiring). Adapters that emit scope/aggregate/filter
+  // primes consume these when populated; until Phase 3 they read as empty
+  // and the legacy reference path (via pre-computed scopeAggregates /
+  // crossDataCounts in context.metrics) supplies the value.
+  allEntityRows?: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }>;
+  activeRows?: Record<string, unknown>[];
+  /** HF-211: optional trace collector for [CalcTrace] emissions. */
   traceCollector?: (line: string) => void;
 }
 
@@ -61,433 +55,12 @@ export interface ExecutionResult {
   trace: ExecutionTrace;
 }
 
-// ──────────────────────────────────────────────
-// Source Resolution (returns Decimal — Decision 122)
-// ──────────────────────────────────────────────
-
-function resolveSource(
-  src: IntentSource,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): Decimal {
-  switch (src.source) {
-    case 'metric': {
-      // HF-228 Phase 5: null guard. An IntentSource may reach resolveSource
-      // with an incomplete sourceSpec (e.g. AI-emitted intent missing the
-      // 'field' property). Pre-HF-228 `field.startsWith('metric:')` threw
-      // TypeError on the entire calculation run. Coerce to '' so the metric
-      // lookup misses (data.metrics[''] is undefined, `?? 0` produces 0).
-      // Incomplete intent → component pays $0; no crash.
-      const field = src.sourceSpec?.field ?? '';
-      // Strip "metric:" prefix if present
-      const key = field.startsWith('metric:') ? field.slice(7) : field;
-      const raw = data.metrics[key] ?? 0;
-      inputLog[field] = { source: 'metric', rawValue: data.metrics[key], resolvedValue: raw };
-      {
-        const _line = `[CalcTrace] resolveSource:metric_lookup entity=${data.entityId} | field=${field} | key=${key} | rawValueInMetrics=${data.metrics[key]} | resolvedValue=${raw} | metricsKeys=[${Object.keys(data.metrics).join(',')}]`;
-        if (process.env.CALC_TRACE_VERBOSE === 'true') {
-          if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
-        }
-      }
-      return toDecimal(raw);
-    }
-    case 'ratio': {
-      // HF-228 Phase 5: null-guard the numerator/denominator metric names.
-      // See metric case above for rationale.
-      const numerator = src.sourceSpec?.numerator ?? '';
-      const denominator = src.sourceSpec?.denominator ?? '';
-      const numKey = numerator.startsWith('metric:')
-        ? numerator.slice(7) : numerator;
-      const denKey = denominator.startsWith('metric:')
-        ? denominator.slice(7) : denominator;
-      const num = toDecimal(data.metrics[numKey] ?? 0);
-      const den = toDecimal(data.metrics[denKey] ?? 0);
-      const val = den.isZero() ? ZERO : num.div(den);
-      inputLog[`ratio(${numKey}/${denKey})`] = {
-        source: 'ratio',
-        rawValue: { numerator: toNumber(num), denominator: toNumber(den) },
-        resolvedValue: toNumber(val),
-      };
-      return val;
-    }
-    case 'aggregate': {
-      // HF-228 Phase 5: null guard. DIAG-048 Phase 4.2 traced the production
-      // crash to this line — an aggregate IntentSource missing
-      // sourceSpec.field threw TypeError in resolveSource, halting the
-      // entire calculation run. Coerce to '' for safe startsWith call.
-      const field = src.sourceSpec?.field ?? '';
-      const key = field.startsWith('metric:') ? field.slice(7) : field;
-      if (src.sourceSpec?.scope === 'group' && data.groupMetrics) {
-        const raw = data.groupMetrics[key] ?? 0;
-        inputLog[`aggregate:group:${key}`] = { source: 'aggregate:group', rawValue: raw, resolvedValue: raw };
-        return toDecimal(raw);
-      }
-      const raw = data.metrics[key] ?? 0;
-      inputLog[`aggregate:${src.sourceSpec?.scope ?? 'unknown'}:${key}`] = {
-        source: `aggregate:${src.sourceSpec.scope}`,
-        rawValue: raw,
-        resolvedValue: raw,
-      };
-      return toDecimal(raw);
-    }
-    case 'constant': {
-      inputLog[`constant:${src.value}`] = { source: 'constant', rawValue: src.value, resolvedValue: src.value };
-      return toDecimal(src.value);
-    }
-    case 'entity_attribute': {
-      const attr = src.sourceSpec.attribute;
-      const raw = data.attributes[attr];
-      const val = typeof raw === 'number' ? raw : (typeof raw === 'string' ? parseFloat(raw) || 0 : 0);
-      inputLog[`attr:${attr}`] = { source: 'entity_attribute', rawValue: raw, resolvedValue: val };
-      return toDecimal(val);
-    }
-    case 'prior_component': {
-      const idx = src.sourceSpec.componentIndex;
-      const val = data.priorResults?.[idx] ?? 0;
-      inputLog[`prior:${idx}`] = { source: 'prior_component', rawValue: val, resolvedValue: val };
-      return toDecimal(val);
-    }
-    // OB-181: Cross-data count — reads pre-computed count/sum from crossDataCounts
-    case 'cross_data': {
-      const { dataType, field, aggregation } = src.sourceSpec;
-      const key = field ? `${dataType}:${aggregation}:${field}` : `${dataType}:${aggregation}`;
-      const val = data.crossDataCounts?.[key] ?? 0;
-      inputLog[`cross_data:${key}`] = { source: 'cross_data', rawValue: val, resolvedValue: val };
-      return toDecimal(val);
-    }
-    // OB-181: Scope aggregate — reads pre-computed hierarchical aggregate from scopeAggregates
-    case 'scope_aggregate': {
-      const { field, scope, aggregation } = src.sourceSpec;
-      const key = `${scope}:${field}:${aggregation}`;
-      const val = data.scopeAggregates?.[key] ?? 0;
-      inputLog[`scope_aggregate:${key}`] = { source: 'scope_aggregate', rawValue: val, resolvedValue: val };
-      return toDecimal(val);
-    }
-  }
-}
-
-// ──────────────────────────────────────────────
-// Composable Value Resolution — handles IntentSource or nested IntentOperation
-// ──────────────────────────────────────────────
-
-function resolveValue(
-  sourceOrOp: IntentSource | IntentOperation,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  if (isIntentOperation(sourceOrOp)) {
-    // Recursive: execute the nested operation to get a value
-    return executeOperation(sourceOrOp, data, inputLog, trace);
-  }
-  // Existing: resolve from entity data
-  return resolveSource(sourceOrOp, data, inputLog);
-}
-
-// ──────────────────────────────────────────────
-// Boundary Matching — Decision 127 (LOCKED 2026-03-16): half-open intervals
-// [min, max) — inclusive lower bound, exclusive upper bound. The final band
-// in any sequence uses inclusive upper bound [min, max] to capture the ceiling
-// (or max=null for open-ended).
-//
-// Boundaries reaching this resolver are canonicalized at plan persistence per
-// HF-196 Phase 1G-15: contiguous partition (b[i].max === b[i+1].min);
-// non-final boundaries have maxInclusive: false; final boundary either
-// max: null or maxInclusive: true. The OB-169 .999 snap heuristic is removed
-// (redundant; canonicalizer at persistence guarantees the invariant).
-// ──────────────────────────────────────────────
-
-export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
-  for (let i = 0; i < boundaries.length; i++) {
-    const b = boundaries[i];
-    const isLast = i === boundaries.length - 1;
-
-    const minOk = b.min === null
-      ? true
-      : (b.minInclusive !== false ? value >= b.min : value > b.min);
-
-    let maxOk: boolean;
-    if (b.max === null) {
-      maxOk = true;
-    } else if (isLast && b.maxInclusive === true) {
-      // Final capped band: inclusive
-      maxOk = value <= b.max;
-    } else {
-      // Half-open per Decision 127
-      maxOk = value < b.max;
-    }
-
-    if (minOk && maxOk) return i;
-  }
-  return -1;
-}
-
-// ──────────────────────────────────────────────
-// Primitive Executors (Decimal arithmetic — Decision 122)
-// ──────────────────────────────────────────────
-
-function executeBoundedLookup1D(
-  op: BoundedLookup1D,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const inputValue = resolveValue(op.input, data, inputLog, trace);
-  // Boundary comparison uses native number — plan values are exact
-  const idx = findBoundaryIndex(op.boundaries, toNumber(inputValue));
-
-  if (idx < 0) {
-    trace.lookupResolution = { outputValue: 0 };
-    {
-      const _line = `[CalcTrace] executeBoundedLookup1D:no_band_match entity=${data.entityId} | inputValue=${toNumber(inputValue)} | boundaries=${JSON.stringify(op.boundaries)} | outputValue=0`;
-      if (process.env.CALC_TRACE_VERBOSE === 'true') {
-        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
-      }
-    }
-    return ZERO;
-  }
-
-  const rawOutput = toDecimal(op.outputs[idx] ?? 0);
-  // OB-117: isMarginal — outputs are rates to multiply against the input value
-  const output = op.isMarginal ? rawOutput.mul(inputValue) : rawOutput;
-  trace.lookupResolution = {
-    rowBoundaryMatched: {
-      min: op.boundaries[idx].min,
-      max: op.boundaries[idx].max,
-      index: idx,
-    },
-    outputValue: toNumber(output),
-    ...(op.isMarginal ? { isMarginal: true, rate: toNumber(rawOutput), inputValue: toNumber(inputValue) } : {}),
-  };
-  {
-    const _line = `[CalcTrace] executeBoundedLookup1D:execution entity=${data.entityId} | inputValue=${toNumber(inputValue)} | bandIndex=${idx} | bandRange=${JSON.stringify({min: op.boundaries[idx].min, max: op.boundaries[idx].max})} | rawOutput=${toNumber(rawOutput)} | isMarginal=${!!op.isMarginal} | outputValue=${toNumber(output)} | boundaries=${JSON.stringify(op.boundaries)} | outputs=${JSON.stringify(op.outputs)}`;
-    if (process.env.CALC_TRACE_VERBOSE === 'true') {
-      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
-    }
-  }
-  return output;
-}
-
-function executeBoundedLookup2D(
-  op: BoundedLookup2D,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const rowValue = resolveValue(op.inputs.row, data, inputLog, trace);
-  const colValue = resolveValue(op.inputs.column, data, inputLog, trace);
-
-  const rowIdx = findBoundaryIndex(op.rowBoundaries, toNumber(rowValue));
-  const colIdx = findBoundaryIndex(op.columnBoundaries, toNumber(colValue));
-
-  if (rowIdx < 0 || colIdx < 0) {
-    trace.lookupResolution = {
-      rowBoundaryMatched: rowIdx >= 0 ? { min: op.rowBoundaries[rowIdx].min, max: op.rowBoundaries[rowIdx].max, index: rowIdx } : undefined,
-      columnBoundaryMatched: colIdx >= 0 ? { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx } : undefined,
-      outputValue: 0,
-    };
-    {
-      const _line = `[CalcTrace] executeBoundedLookup2D:no_band_match entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | rowBoundaries=${JSON.stringify(op.rowBoundaries)} | columnBoundaries=${JSON.stringify(op.columnBoundaries)} | outputValue=0`;
-      if (process.env.CALC_TRACE_VERBOSE === 'true') {
-        if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
-      }
-    }
-    return ZERO;
-  }
-
-  const output = toDecimal(op.outputGrid[rowIdx]?.[colIdx] ?? 0);
-  trace.lookupResolution = {
-    rowBoundaryMatched: { min: op.rowBoundaries[rowIdx].min, max: op.rowBoundaries[rowIdx].max, index: rowIdx },
-    columnBoundaryMatched: { min: op.columnBoundaries[colIdx].min, max: op.columnBoundaries[colIdx].max, index: colIdx },
-    outputValue: toNumber(output),
-  };
-  {
-    const _line = `[CalcTrace] executeBoundedLookup2D:execution entity=${data.entityId} | rowValue=${toNumber(rowValue)} | colValue=${toNumber(colValue)} | rowIdx=${rowIdx} | colIdx=${colIdx} | outputGridCell=${op.outputGrid[rowIdx]?.[colIdx] ?? 0} | outputValue=${toNumber(output)}`;
-    if (process.env.CALC_TRACE_VERBOSE === 'true') {
-      if (data.traceCollector) data.traceCollector(_line); else console.log(_line);
-    }
-  }
-  return output;
-}
-
-function executeScalarMultiply(
-  op: ScalarMultiply,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const inputValue = resolveValue(op.input, data, inputLog, trace);
-  const rateValue = typeof op.rate === 'number'
-    ? toDecimal(op.rate)
-    : resolveValue(op.rate, data, inputLog, trace);
-  return inputValue.mul(rateValue);
-}
-
-function executeConditionalGate(
-  op: ConditionalGate,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const leftVal = resolveSource(op.condition.left, data, inputLog);
-  const rightVal = resolveSource(op.condition.right, data, inputLog);
-
-  let conditionMet = false;
-  switch (op.condition.operator) {
-    case '>=': conditionMet = leftVal.gte(rightVal); break;
-    case '>':  conditionMet = leftVal.gt(rightVal);  break;
-    case '<=': conditionMet = leftVal.lte(rightVal); break;
-    case '<':  conditionMet = leftVal.lt(rightVal);  break;
-    case '=':  // AI plan interpreter produces single-equals for equality
-    case '==': conditionMet = leftVal.eq(rightVal);  break;
-    case '!=': conditionMet = !leftVal.eq(rightVal); break;
-  }
-
-  const branch = conditionMet ? op.onTrue : op.onFalse;
-  return resolveValue(branch, data, inputLog, trace);
-}
-
-function executeAggregateOp(
-  op: AggregateOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): Decimal {
-  return resolveSource(op.source, data, inputLog);
-}
-
-function executeRatioOp(
-  op: RatioOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>
-): Decimal {
-  const num = resolveSource(op.numerator, data, inputLog);
-  const den = resolveSource(op.denominator, data, inputLog);
-  if (den.isZero()) {
-    return ZERO;
-  }
-  return num.div(den);
-}
-
-function executeConstantOp(op: ConstantOp): Decimal {
-  return toDecimal(op.value);
-}
-
-// ──────────────────────────────────────────────
-// Weighted Blend — N-input weighted combination
-// ──────────────────────────────────────────────
-
-function executeWeightedBlend(
-  op: WeightedBlendOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const totalWeight = op.inputs.reduce((s, i) => s + i.weight, 0);
-  if (Math.abs(totalWeight - 1.0) > 0.001) {
-    inputLog['weighted_blend:weight_warning'] = {
-      source: 'weighted_blend',
-      rawValue: totalWeight,
-      resolvedValue: totalWeight,
-    };
-  }
-
-  let result = ZERO;
-  for (let i = 0; i < op.inputs.length; i++) {
-    const input = op.inputs[i];
-    const value = resolveValue(input.source, data, inputLog, trace);
-    const weighted = value.mul(toDecimal(input.weight));
-    result = result.plus(weighted);
-    inputLog[`blend_input_${i}`] = {
-      source: 'weighted_blend',
-      rawValue: toNumber(value),
-      resolvedValue: toNumber(weighted),
-    };
-  }
-  return result;
-}
-
-// ──────────────────────────────────────────────
-// Temporal Window — rolling N-period aggregation
-// ──────────────────────────────────────────────
-
-function executeTemporalWindow(
-  op: TemporalWindowOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const currentValue = resolveValue(op.input, data, inputLog, trace);
-
-  // Build window values from period history
-  const history = data.periodHistory ?? [];
-  const historySlice = history.slice(-(op.windowSize));
-  let windowValues: Decimal[] = historySlice.map(v => toDecimal(v));
-
-  if (op.includeCurrentPeriod) {
-    windowValues = [...windowValues, currentValue];
-  }
-
-  // Graceful degradation: no history → return current value
-  if (windowValues.length === 0) {
-    inputLog['temporal_window:no_history'] = {
-      source: 'temporal_window',
-      rawValue: toNumber(currentValue),
-      resolvedValue: toNumber(currentValue),
-    };
-    return currentValue;
-  }
-
-  let result: Decimal;
-  switch (op.aggregation) {
-    case 'sum':
-      result = windowValues.reduce((a, b) => a.plus(b), ZERO);
-      break;
-    case 'average': {
-      const sum = windowValues.reduce((a, b) => a.plus(b), ZERO);
-      result = sum.div(toDecimal(windowValues.length));
-      break;
-    }
-    case 'min':
-      result = windowValues.reduce((a, b) => a.lt(b) ? a : b);
-      break;
-    case 'max':
-      result = windowValues.reduce((a, b) => a.gt(b) ? a : b);
-      break;
-    case 'trend': {
-      // Linear regression slope: y = mx + b, return m
-      const n = windowValues.length;
-      if (n < 2) { result = ZERO; break; }
-      const xMean = toDecimal((n - 1) / 2);
-      const yMean = windowValues.reduce((a, b) => a.plus(b), ZERO).div(toDecimal(n));
-      let num = ZERO;
-      let den = ZERO;
-      for (let i = 0; i < n; i++) {
-        const xDiff = toDecimal(i).minus(xMean);
-        num = num.plus(xDiff.mul(windowValues[i].minus(yMean)));
-        den = den.plus(xDiff.mul(xDiff));
-      }
-      result = den.isZero() ? ZERO : num.div(den);
-      break;
-    }
-  }
-
-  inputLog['temporal_window'] = {
-    source: 'temporal_window',
-    rawValue: { windowSize: op.windowSize, aggregation: op.aggregation, valuesUsed: windowValues.length },
-    resolvedValue: toNumber(result),
-  };
-
-  return result;
-}
-
-// ──────────────────────────────────────────────
-// Operation Dispatch (returns Decimal — Decision 122)
-// ──────────────────────────────────────────────
-
 /**
  * OB-196 Phase 3 (E4 round-trip closure / Q-A.5.5): structured failure on
- * unknown operation at intent-executor dispatch surface. Mirrors Phase 2's
- * LegacyEngineUnknownComponentTypeError pattern at the next dispatch layer.
+ * unknown discriminator at the evaluator. Preserved for callers; the
+ * `evaluate()` walker raises this for unrecognized prime discriminators and
+ * legacy-intent-to-dag raises UntranslatableLegacyIntentError for
+ * unrecognized legacy shapes.
  */
 export class IntentExecutorUnknownOperationError extends Error {
   constructor(message: string) {
@@ -496,218 +69,308 @@ export class IntentExecutorUnknownOperationError extends Error {
   }
 }
 
-// OB-117: Exported for use by evaluateComponent's calculationIntent fallback
-export function executeOperation(
-  op: IntentOperation,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  switch (op.operation) {
-    case 'bounded_lookup_1d': return executeBoundedLookup1D(op, data, inputLog, trace);
-    case 'bounded_lookup_2d': return executeBoundedLookup2D(op, data, inputLog, trace);
-    case 'scalar_multiply':   return executeScalarMultiply(op, data, inputLog, trace);
-    case 'conditional_gate':  return executeConditionalGate(op, data, inputLog, trace);
-    case 'aggregate':         return executeAggregateOp(op, data, inputLog);
-    case 'ratio':             return executeRatioOp(op, data, inputLog);
-    case 'constant':          return executeConstantOp(op);
-    case 'weighted_blend':    return executeWeightedBlend(op, data, inputLog, trace);
-    case 'temporal_window':   return executeTemporalWindow(op, data, inputLog, trace);
-    case 'linear_function':   return executeLinearFunction(op, data, inputLog, trace);
-    case 'piecewise_linear':  return executePiecewiseLinear(op, data, inputLog, trace);
+// ──────────────────────────────────────────────
+// Boundary index helper — utility retained for trajectory-engine and
+// reconciliation callers (the executor itself no longer uses it; piecewise
+// and bounded-lookup translations express boundary semantics via nested
+// conditional + compare primes).
+// ──────────────────────────────────────────────
+
+export function findBoundaryIndex(boundaries: Boundary[], value: number): number {
+  for (let i = 0; i < boundaries.length; i++) {
+    const b = boundaries[i];
+    const isLast = i === boundaries.length - 1;
+    const minOk = b.min === null
+      ? true
+      : (b.minInclusive !== false ? value >= b.min : value > b.min);
+    let maxOk: boolean;
+    if (b.max === null) {
+      maxOk = true;
+    } else if (isLast && b.maxInclusive === true) {
+      maxOk = value <= b.max;
+    } else {
+      maxOk = value < b.max;
+    }
+    if (minOk && maxOk) return i;
+  }
+  return -1;
+}
+
+// ──────────────────────────────────────────────
+// Predicate matcher — used by `filter` prime
+// ──────────────────────────────────────────────
+
+function rowMatchesPredicate(
+  row: Record<string, unknown>,
+  predicate: { field: string; operator: string; value: string | number | boolean },
+): boolean {
+  const raw = row[predicate.field];
+  switch (predicate.operator) {
+    case 'eq':       return raw === predicate.value;
+    case 'neq':      return raw !== predicate.value;
+    case 'gt':       return typeof raw === 'number' && raw > Number(predicate.value);
+    case 'gte':      return typeof raw === 'number' && raw >= Number(predicate.value);
+    case 'lt':       return typeof raw === 'number' && raw < Number(predicate.value);
+    case 'lte':      return typeof raw === 'number' && raw <= Number(predicate.value);
+    case 'contains': return typeof raw === 'string' && String(raw).includes(String(predicate.value));
+    default:         return false;
+  }
+}
+
+// ──────────────────────────────────────────────
+// evaluate() — the ONE engine surface
+// ──────────────────────────────────────────────
+
+/**
+ * Recursively evaluate a PrimeNode tree against an EvalContext, returning
+ * a Decimal (Decision 122). Nine cases — one per prime discriminator.
+ * Boolean primes (compare, logical) return Decimal(1) for true, Decimal(0)
+ * for false; conditional treats Decimal > 0 as truthy.
+ */
+export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
+  switch (node.prime) {
+    case 'constant': {
+      return toDecimal(node.value);
+    }
+
+    case 'reference': {
+      const raw = context.metrics[node.field];
+      return raw === undefined || raw === null ? ZERO : toDecimal(raw);
+    }
+
+    case 'arithmetic': {
+      const a = evaluate(node.inputs[0], context);
+      const b = evaluate(node.inputs[1], context);
+      switch (node.op) {
+        case 'add':      return a.plus(b);
+        case 'subtract': return a.minus(b);
+        case 'multiply': return a.mul(b);
+        case 'divide':   return b.isZero() ? ZERO : a.div(b);
+      }
+      return ZERO;
+    }
+
+    case 'compare': {
+      const a = evaluate(node.inputs[0], context);
+      const b = evaluate(node.inputs[1], context);
+      let result: boolean;
+      switch (node.op) {
+        case 'gt':  result = a.gt(b); break;
+        case 'gte': result = a.gte(b); break;
+        case 'lt':  result = a.lt(b); break;
+        case 'lte': result = a.lte(b); break;
+        case 'eq':  result = a.eq(b); break;
+        case 'neq': result = !a.eq(b); break;
+        default:    result = false;
+      }
+      return result ? toDecimal(1) : ZERO;
+    }
+
+    case 'logical': {
+      const inputs = node.inputs.map(n => evaluate(n, context));
+      let result: boolean;
+      switch (node.op) {
+        case 'and': result = inputs.every(d => d.gt(ZERO)); break;
+        case 'or':  result = inputs.some(d => d.gt(ZERO)); break;
+        case 'not': result = inputs.length > 0 ? inputs[0].isZero() : true; break;
+        default:    result = false;
+      }
+      return result ? toDecimal(1) : ZERO;
+    }
+
+    case 'conditional': {
+      const cond = evaluate(node.condition, context);
+      // Truthy: Decimal > 0. Zero, negative, and null-coerced-to-zero are falsy.
+      const isTrue = cond.gt(ZERO);
+      return evaluate(isTrue ? node.then : node.else, context);
+    }
+
+    case 'filter': {
+      const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
+      return evaluate(node.downstream, { ...context, activeRows: filtered });
+    }
+
+    case 'scope': {
+      // Find the boundary value on the entity, then narrow allEntityRows
+      // to siblings sharing that boundary value. The downstream sees those
+      // siblings as activeRows.
+      const boundaryValue = context.entity.metadata[node.boundary];
+      const siblings = context.allEntityRows
+        .filter(r => r.entityMetadata[node.boundary] === boundaryValue)
+        .map(r => r.row);
+      return evaluate(node.downstream, { ...context, activeRows: siblings });
+    }
+
+    case 'aggregate': {
+      const rows = context.activeRows;
+      if (rows.length === 0) {
+        // count of empty rows is 0; sum/avg/min/max of empty rows is 0.
+        return ZERO;
+      }
+      if (node.op === 'count') {
+        return toDecimal(rows.length);
+      }
+      const values = rows.map(r => {
+        const v = r[node.field];
+        return typeof v === 'number' ? v : (typeof v === 'string' ? parseFloat(v) : 0) || 0;
+      });
+      switch (node.op) {
+        case 'sum': {
+          let total = ZERO;
+          for (const v of values) total = total.plus(toDecimal(v));
+          return total;
+        }
+        case 'avg': {
+          let total = ZERO;
+          for (const v of values) total = total.plus(toDecimal(v));
+          return total.div(toDecimal(values.length));
+        }
+        case 'min': {
+          let m = toDecimal(values[0]);
+          for (let i = 1; i < values.length; i++) {
+            const d = toDecimal(values[i]);
+            if (d.lt(m)) m = d;
+          }
+          return m;
+        }
+        case 'max': {
+          let m = toDecimal(values[0]);
+          for (let i = 1; i < values.length; i++) {
+            const d = toDecimal(values[i]);
+            if (d.gt(m)) m = d;
+          }
+          return m;
+        }
+      }
+      return ZERO;
+    }
+
     default: {
-      const operation = (op as { operation?: string }).operation ?? '<undefined>';
+      const prime = (node as { prime?: string }).prime ?? '<undefined>';
       throw new IntentExecutorUnknownOperationError(
-        `[intent-executor] Unknown operation "${operation}" reached executeOperation. ` +
-        `Foundational IntentOperation union admits only registered primitives. An unknown ` +
-        `operation indicates either (1) an upstream cleanup gap producing a non-foundational ` +
-        `operation string, or (2) data corruption in the persisted intent shape.`
+        `[evaluate] Unrecognized PrimeNode discriminator "${prime}". ` +
+        `Node: ${JSON.stringify(node)}.`
       );
     }
   }
 }
 
 // ──────────────────────────────────────────────
-// OB-180: Linear Function — y = slope * x + intercept
+// EvalContext construction — translates EntityData into the context shape
+// evaluate() walks. Pre-populates synthetic reference keys that match the
+// adapter's emission shape for legacy source types.
 // ──────────────────────────────────────────────
 
-function executeLinearFunction(
-  op: import('./intent-types').LinearFunctionOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  const inputValue = resolveValue(op.input, data, inputLog, trace);
-  const result = inputValue.mul(op.slope).plus(op.intercept);
-  return result;
-}
+function buildEvalContext(data: EntityData): EvalContext {
+  // Start with raw metrics map (entity scope).
+  const metrics: Record<string, number> = { ...data.metrics };
 
-// ──────────────────────────────────────────────
-// OB-180: Piecewise Linear — attainment selects rate, applied to base
-// ──────────────────────────────────────────────
-
-function executePiecewiseLinear(
-  op: import('./intent-types').PiecewiseLinearOp,
-  data: EntityData,
-  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
-  trace: Partial<ExecutionTrace>
-): Decimal {
-  let ratio = toNumber(resolveValue(op.ratioInput, data, inputLog, trace));
-  const baseValue = resolveValue(op.baseInput, data, inputLog, trace);
-
-  // OB-186: If ratio resolved to 0 (missing denominator metric) and component
-  // has a targetValue (quota), compute attainment = baseValue / targetValue.
-  // This handles plans where quota is a plan parameter, not in transaction data.
-  if (ratio === 0 && op.targetValue && op.targetValue > 0 && toNumber(baseValue) > 0) {
-    ratio = toNumber(baseValue) / op.targetValue;
-    inputLog['piecewise_linear:targetValue'] = {
-      source: 'component_parameter',
-      rawValue: op.targetValue,
-      resolvedValue: ratio,
-    };
-  }
-
-  // Find the matching segment
-  for (const seg of op.segments) {
-    const inRange = ratio >= seg.min && (seg.max === null || ratio < seg.max);
-    if (inRange) {
-      return baseValue.mul(seg.rate);
+  // Group-scope aggregate sources: adapter emits `group:${field}`.
+  if (data.groupMetrics) {
+    for (const [k, v] of Object.entries(data.groupMetrics)) {
+      metrics[`group:${k}`] = v;
     }
   }
 
-  // No segment matched — return zero
-  return ZERO;
-}
-
-// ──────────────────────────────────────────────
-// Modifier Application (Decimal — Decision 122)
-// ──────────────────────────────────────────────
-
-function applyModifiers(
-  value: Decimal,
-  modifiers: IntentModifier[],
-  data: EntityData,
-  modifierLog: Array<{ modifier: string; before: number; after: number }>
-): Decimal {
-  let result = value;
-
-  for (const mod of modifiers) {
-    const before = toNumber(result);
-
-    switch (mod.modifier) {
-      case 'cap': {
-        const cap = toDecimal(mod.maxValue);
-        result = result.gt(cap) ? cap : result;
-        break;
-      }
-      case 'floor': {
-        const floor = toDecimal(mod.minValue);
-        result = result.lt(floor) ? floor : result;
-        break;
-      }
-      case 'proration': {
-        const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-        const num = resolveSource(mod.numerator, data, inputLog);
-        const den = resolveSource(mod.denominator, data, inputLog);
-        result = den.isZero() ? ZERO : result.mul(num.div(den));
-        break;
-      }
-      case 'temporal_adjustment':
-        // Temporal adjustment requires historical data — not applied in single-period execution
-        break;
-    }
-
-    modifierLog.push({ modifier: mod.modifier, before, after: toNumber(result) });
+  // entity_attribute sources: adapter emits `attr:${attribute}`.
+  for (const [attr, raw] of Object.entries(data.attributes)) {
+    const numeric = typeof raw === 'number'
+      ? raw
+      : (typeof raw === 'string' ? parseFloat(raw) || 0 : (raw === true ? 1 : 0));
+    metrics[`attr:${attr}`] = numeric;
   }
 
-  return result;
+  // prior_component sources: adapter emits `prior:${idx}`.
+  if (data.priorResults) {
+    for (let i = 0; i < data.priorResults.length; i++) {
+      metrics[`prior:${i}`] = data.priorResults[i] ?? 0;
+    }
+  }
+
+  // cross_data sources: adapter emits `cross_data:${key}` where key already
+  // contains dataType:agg[:field] (matches data.crossDataCounts key shape).
+  if (data.crossDataCounts) {
+    for (const [k, v] of Object.entries(data.crossDataCounts)) {
+      metrics[`cross_data:${k}`] = v;
+    }
+  }
+
+  // scope_aggregate sources: adapter emits `scope_aggregate:${key}` where
+  // key already contains scope:field:aggregation (matches data.scopeAggregates
+  // key shape per legacy resolveSource at intent-executor.ts:161).
+  if (data.scopeAggregates) {
+    for (const [k, v] of Object.entries(data.scopeAggregates)) {
+      metrics[`scope_aggregate:${k}`] = v;
+    }
+  }
+
+  return {
+    entity: { metadata: { ...data.attributes, entityId: data.entityId } },
+    activeRows: data.activeRows ?? [],
+    allEntityRows: data.allEntityRows ?? [],
+    metrics,
+  };
 }
 
 // ──────────────────────────────────────────────
-// Main Entry Point
-// Decision 122: Decimal→number conversion at output boundary
+// Main Entry — variant routing, DAG translation, evaluate, Decimal→number
 // ──────────────────────────────────────────────
 
 export function executeIntent(
   intent: ComponentIntent,
-  entityData: EntityData
+  entityData: EntityData,
 ): ExecutionResult {
-  const inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }> = {};
-  const modifierLog: Array<{ modifier: string; before: number; after: number }> = [];
-  // OB-196 Phase 3 (E4): trace carries foundational primitive identifier directly.
-  // Top-level operation is intent.intent.operation; variant-routed primitives carry
-  // identifier on the matched route's intent.operation, but the outer-shape op is
-  // the foundational primitive that defines the component.
-  const outerOp =
-    (intent.intent && (intent.intent as { operation?: string }).operation) ||
-    (intent.variants?.routes?.[0]?.intent && (intent.variants.routes[0].intent as { operation?: string }).operation) ||
-    'unknown';
-  const trace: Partial<ExecutionTrace> = {
-    entityId: entityData.entityId,
-    componentIndex: intent.componentIndex,
-    componentType: outerOp,
-    confidence: intent.confidence,
-  };
+  const context = buildEvalContext(entityData);
 
-  let outcome = ZERO;
-
-  // 1. Resolve variant routing (if present)
+  // Resolve routing attribute value for variant-routed components, so the
+  // adapter selects the operative route.
+  let routingAttributeValue: string | number | boolean | undefined;
   if (intent.variants) {
-    const routing = intent.variants;
-    const attrSrc = routing.routingAttribute;
-
-    // For entity_attribute source, resolve as string for matching
-    let attrValue: string | number | boolean = '';
+    const attrSrc = intent.variants.routingAttribute;
     if (attrSrc.source === 'entity_attribute') {
-      attrValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
+      routingAttributeValue = entityData.attributes[attrSrc.sourceSpec.attribute] ?? '';
     } else {
-      attrValue = toNumber(resolveSource(attrSrc, entityData, inputLog));
+      // Resolve as numeric via the same adapter+evaluator path the rest of
+      // the engine uses; emit a single-leaf DAG for the routing source.
+      const routingDag = legacyIntentToDAG({ operation: 'aggregate', source: attrSrc });
+      routingAttributeValue = toNumber(evaluate(routingDag, context));
     }
-
-    const matchedRoute = routing.routes.find(r => String(r.matchValue) === String(attrValue));
-
-    if (matchedRoute) {
-      trace.variantRoute = {
-        attribute: attrSrc.source === 'entity_attribute' ? attrSrc.sourceSpec.attribute : 'resolved',
-        value: attrValue,
-        matched: String(matchedRoute.matchValue),
-      };
-      outcome = executeOperation(matchedRoute.intent, entityData, inputLog, trace);
-    } else {
-      switch (routing.noMatchBehavior) {
-        case 'first':
-          if (routing.routes.length > 0) {
-            outcome = executeOperation(routing.routes[0].intent, entityData, inputLog, trace);
-          }
-          break;
-        case 'skip':
-          outcome = ZERO;
-          break;
-        case 'error':
-          outcome = ZERO;
-          break;
-      }
-    }
-  } else if (intent.intent) {
-    // 2. Execute single operation (no variants)
-    outcome = executeOperation(intent.intent, entityData, inputLog, trace);
   }
 
-  // 3. Apply modifiers
-  outcome = applyModifiers(outcome, intent.modifiers, entityData, modifierLog);
+  const { dag, matchedRoute } = componentIntentToDAG(intent, routingAttributeValue);
 
-  // 4. Convert to native number at output boundary (Decision 122)
-  const outcomeNumber = toNumber(outcome);
+  // For trace fidelity, capture the operative IntentOperation discriminator
+  // (legacy primitive type) before translation.
+  const operativeOp: IntentOperation | undefined = intent.variants
+    ? intent.variants.routes.find(r => String(r.matchValue) === String(routingAttributeValue))?.intent
+      ?? intent.variants.routes[0]?.intent
+    : intent.intent;
+  const componentType = operativeOp?.operation ?? 'unknown';
 
-  // 5. Build complete trace
+  const outcomeDecimal = evaluate(dag, context);
+  const outcomeNumber = toNumber(outcomeDecimal);
+
   const executionTrace: ExecutionTrace = {
     entityId: entityData.entityId,
     componentIndex: intent.componentIndex,
-    componentType: outerOp,
-    variantRoute: trace.variantRoute,
-    inputs: inputLog,
-    lookupResolution: trace.lookupResolution,
-    modifiers: modifierLog,
+    componentType,
+    variantRoute: matchedRoute
+      ? {
+          attribute: intent.variants?.routingAttribute.source === 'entity_attribute'
+            ? intent.variants.routingAttribute.sourceSpec.attribute
+            : 'resolved',
+          value: routingAttributeValue ?? '',
+          matched: String(matchedRoute.matchValue),
+        }
+      : undefined,
+    inputs: {},               // Phase 1: granular inputLog is no longer
+                              // produced — Phase 3 will reintroduce a
+                              // selective trace via evaluate() opt-in hook
+                              // when needed for [CalcTrace].
+    lookupResolution: undefined,
+    modifiers: [],            // Modifiers are now DAG compositions wrapped by
+                              // the adapter; their before/after values are
+                              // not separately observable post-translation.
     finalOutcome: outcomeNumber,
     confidence: intent.confidence,
   };
@@ -718,4 +381,30 @@ export function executeIntent(
     outcome: outcomeNumber,
     trace: executionTrace,
   };
+}
+
+// ──────────────────────────────────────────────
+// Backward-compat wrapper for run-calculation.ts:335 fallback path
+// ──────────────────────────────────────────────
+
+/**
+ * Executes a single IntentOperation directly. Used by the legacy
+ * calculationIntent fallback path in run-calculation.ts. Translates the
+ * operation to a PrimeNode DAG and evaluates it; signature preserved for
+ * backward compatibility (inputLog and trace params are accepted but the
+ * new engine no longer emits per-source granular inputs).
+ */
+export function executeOperation(
+  op: IntentOperation,
+  data: EntityData,
+  inputLog: Record<string, { source: string; rawValue: unknown; resolvedValue: number }>,
+  trace: Partial<ExecutionTrace>,
+): Decimal {
+  // inputLog and trace are accepted for signature compatibility; the new
+  // engine does not populate them. Touch them to satisfy strict no-unused-vars.
+  void inputLog;
+  void trace;
+  const dag = legacyIntentToDAG(op);
+  const context = buildEvalContext(data);
+  return evaluate(dag, context);
 }
