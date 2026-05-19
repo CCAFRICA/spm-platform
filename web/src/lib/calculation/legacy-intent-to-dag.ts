@@ -129,18 +129,23 @@ function translateSource(src: IntentSource | IntentOperation): PrimeNode {
     }
     case 'scope_aggregate': {
       const { field, scope, aggregation } = s.sourceSpec;
-      // Phase 1 translation: emit a reference to the pre-computed scope
-      // aggregate key (matches legacy resolveSource at intent-executor.ts:159-165
-      // reading from data.scopeAggregates[`${scope}:${field}:${aggregation}`]).
-      // The executeIntent wrapper pre-populates context.metrics with this key.
-      //
-      // Phase 3 will swap this branch to the structural composition
-      //   { prime: 'scope', boundary: scope, downstream: { prime: 'aggregate', op, field } }
-      // once route.ts wires allEntityRows through EvalContext and deletes the
-      // aggregateScopeRows pre-computation pass.
+      // HF-238 Phase 3: structural composition. The `scope` prime narrows
+      // context.allEntityRows to siblings sharing the boundary value (with
+      // self-exclusion per legacy aggregateScopeRows semantics); the
+      // `aggregate` prime reduces those rows to the requested aggregation.
+      // Replaces the Phase 1 reference-form translation now that route.ts
+      // wires allEntityRows through EntityData.
+      const op = aggregation === 'average' ? 'avg'
+        : aggregation === 'first' || aggregation === 'last' ? 'sum'  // fallback for unsupported aggregations
+        : (aggregation as 'sum' | 'count' | 'min' | 'max');
       return {
-        prime: 'reference',
-        field: `scope_aggregate:${scope}:${stripMetricPrefix(field)}:${aggregation}`,
+        prime: 'scope',
+        boundary: scope,
+        downstream: {
+          prime: 'aggregate',
+          op,
+          field: stripMetricPrefix(field),
+        },
       };
     }
     default: {

@@ -19,8 +19,9 @@ import {
   inferSemanticType,
   findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
-import { executeOperation, type EntityData } from '@/lib/calculation/intent-executor';
-import { isIntentOperation, type IntentOperation } from '@/lib/calculation/intent-types';
+import { executeOperation, evaluate, type EntityData } from '@/lib/calculation/intent-executor';
+import { isIntentOperation, type IntentOperation, type PrimePredicate, type EvalContext } from '@/lib/calculation/intent-types';
+import { legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
 import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
 // ──────────────────────────────────────────────
@@ -123,54 +124,32 @@ export function applyMetricDerivations(
 ): Record<string, number> {
   const derived: Record<string, number> = {};
 
+  // Flatten all rows into a single array, unwrapping row_data for the DAG
+  // evaluator's activeRows view.
+  const allRows: Record<string, unknown>[] = [];
+  for (const [, rows] of Array.from(entitySheetData.entries())) {
+    for (const r of rows) {
+      const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+        ? r.row_data as Record<string, unknown>
+        : {};
+      allRows.push(rd);
+    }
+  }
+
   for (const rule of derivations) {
-    // HF-172: source_pattern is provenance metadata, NOT a row filter.
-    // All entity rows within the period's date range are candidates.
-    // Content filtering is done by the filters array, not source_pattern.
-    let matchingRows: Array<{ row_data: Json }> = [];
-    for (const [, rows] of Array.from(entitySheetData.entries())) {
-      matchingRows = matchingRows.concat(rows);
-    }
-
-    // OB-128: Ratio operation works on already-derived metrics, not raw rows
-    if (rule.operation === 'ratio') {
-      const num = derived[rule.numerator_metric || ''] ?? 0;
-      const den = derived[rule.denominator_metric || ''] ?? 0;
-      derived[rule.metric] = den !== 0 ? (num / den) * (rule.scale_factor ?? 1) : 0;
-      continue;
-    }
-
-    if (matchingRows.length === 0) continue;
-
-    // Apply derivation operation
-    if (rule.operation === 'sum' && rule.source_field) {
-      // HF-172: Apply filters to sum (was missing — caused cross-category aggregation)
-      let total = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
-        if (!rowMatchesFilters(rd, rule.filters)) continue;
-        const val = rd[rule.source_field];
-        if (typeof val === 'number') total += val;
-      }
-      derived[rule.metric] = total;
-    } else if (rule.operation === 'delta' && rule.source_field) {
-      // OB-121: Period-over-period delta = current_sum - prior_sum
-      // HF-172: Apply filters to both current and prior period loops
+    // HF-238: delta operation requires prior-period rows, which are not
+    // carried in the standard EvalContext. Route delta through the legacy
+    // sum-and-subtract path; all other operations flow through the DAG
+    // evaluator via legacyDerivationToDAG().
+    if (rule.operation === 'delta' && rule.source_field) {
       let currentTotal = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
+      for (const rd of allRows) {
         if (!rowMatchesFilters(rd, rule.filters)) continue;
         const val = rd[rule.source_field];
         if (typeof val === 'number') currentTotal += val;
       }
-
       let priorTotal = 0;
       if (priorPeriodData) {
-        // HF-172: Include ALL prior period rows, not just source_pattern matches
         for (const [, rows] of Array.from(priorPeriodData.entries())) {
           for (const row of rows) {
             const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
@@ -182,21 +161,50 @@ export function applyMetricDerivations(
           }
         }
       }
-
       derived[rule.metric] = currentTotal - priorTotal;
       if (!priorPeriodData) {
         console.log(`[Derivation] delta: no prior period data for "${rule.metric}" — using current value only`);
       }
-    } else if (rule.operation === 'count') {
-      // HF-172: Uses same rowMatchesFilters helper (was already correct, now DRY)
-      let count = 0;
-      for (const row of matchingRows) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown>
-          : {};
-        if (rowMatchesFilters(rd, rule.filters)) count++;
-      }
-      derived[rule.metric] = count;
+      continue;
+    }
+
+    // Build the LegacyDerivation shape from the rule and translate to DAG.
+    const legacyShape: LegacyDerivation = {
+      metric: rule.metric,
+      operation: rule.operation,
+      source_field: rule.source_field,
+      filters: rule.filters as PrimePredicate[] | undefined,
+      source_pattern: rule.source_pattern,
+      numerator_metric: rule.numerator_metric,
+      denominator_metric: rule.denominator_metric,
+      scale_factor: rule.scale_factor,
+    };
+
+    let dag;
+    try {
+      dag = legacyDerivationToDAG(legacyShape);
+    } catch (err) {
+      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
+      continue;
+    }
+
+    // Context: activeRows are the current period's flattened rows; metrics
+    // map carries previously-derived values so ratio derivations can read
+    // their numerator / denominator references.
+    const context: EvalContext = {
+      entity: { metadata: {} },
+      activeRows: allRows,
+      allEntityRows: [],
+      metrics: { ...derived },
+    };
+
+    try {
+      const result = evaluate(dag, context);
+      derived[rule.metric] = toNumber(result);
+    } catch (err) {
+      console.warn(`[Derivation] evaluate failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
     }
   }
 

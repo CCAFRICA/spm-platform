@@ -192,11 +192,17 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
 
     case 'scope': {
       // Find the boundary value on the entity, then narrow allEntityRows
-      // to siblings sharing that boundary value. The downstream sees those
-      // siblings as activeRows.
+      // to PEER entities sharing that boundary value (self-excluded, matching
+      // legacy aggregateScopeRows semantics at route.ts:2363 — "Manager does
+      // not earn override on own revenue"). The downstream sees the peer
+      // rows as activeRows.
       const boundaryValue = context.entity.metadata[node.boundary];
+      const selfEntityId = context.entity.metadata.entityId;
       const siblings = context.allEntityRows
-        .filter(r => r.entityMetadata[node.boundary] === boundaryValue)
+        .filter(r =>
+          r.entityMetadata[node.boundary] === boundaryValue
+          && r.entityMetadata.entityId !== selfEntityId
+        )
         .map(r => r.row);
       return evaluate(node.downstream, { ...context, activeRows: siblings });
     }
