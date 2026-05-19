@@ -55,6 +55,12 @@ export const FOUNDATIONAL_PRIMITIVES = [
   'linear_function',
   'piecewise_linear',
   'scope_aggregate',
+  // HF-238: prime-DAG composition format. A `prime_dag` component carries a
+  // recursive PrimeNode tree (intent-types.ts) under metadata.intent rather
+  // than one of the legacy operation shapes. The engine routes prime_dag
+  // components straight through evaluate() without going through
+  // legacyIntentToDAG.
+  'prime_dag',
 ] as const;
 
 /** Type-level union derived from the registry array. */
@@ -219,6 +225,18 @@ const REGISTRY: readonly PrimitiveEntry[] = Object.freeze([
       'Not a top-level operation in the current substrate; emissions as a top-level operation ' +
       'are surfaced as structured failure by the executor.',
     allowedKeys: ['scope', 'field', 'aggregation'],
+  },
+  {
+    id: 'prime_dag',
+    kind: 'operation',
+    description:
+      'Prime-DAG composition (HF-238): a recursive PrimeNode tree expressing the ' +
+      'component computation as a composition of nine irreducible operations ' +
+      '(arithmetic, aggregate, filter, conditional, scope, compare, logical, constant, ' +
+      'reference). Replaces all named-operation forms; legacy intents are translated to ' +
+      'this shape at the storage boundary.',
+    allowedKeys: ['operation', 'prime', 'op', 'inputs', 'field', 'predicate', 'downstream',
+                  'condition', 'then', 'else', 'boundary', 'value'],
   },
 ]);
 

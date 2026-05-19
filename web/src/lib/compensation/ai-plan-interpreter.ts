@@ -17,6 +17,7 @@ import {
   BoundaryCanonicalizationError,
 } from '@/lib/calculation/boundary-canonicalizer';
 import type { Boundary } from '@/lib/calculation/intent-types';
+import { isPrimeNode, VALID_PRIMES } from '@/lib/calculation/intent-types';
 
 // HF-194: typed structured-failure surface for the importer dispatch boundary.
 // Phase 1.5's prior throw at convertComponent's default branch named this class
@@ -397,11 +398,35 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
     calculationIntent: comp?.calculationIntent,
   };
 
-  // calcType derives from calculationIntent.operation (primary) with
-  // calculationMethod.type as transitional fallback. Phase 1.5 removed the
-  // tiered_lookup silent-fallback (legacy) removed; if neither is present the default
-  // branch throws.
+  // HF-238: format detection. Prime-DAG components carry a recursive
+  // PrimeNode tree under calculationIntent (discriminator key `prime`)
+  // rather than the legacy named-operation shape (discriminator key
+  // `operation`). Detect and route accordingly.
   const calcMethod = comp?.calculationMethod;
+  const intentNode = base.calculationIntent as Record<string, unknown> | undefined;
+  const isPrimeDag = !!intentNode && typeof intentNode.prime === 'string';
+
+  if (isPrimeDag) {
+    // Validate the entire PrimeNode tree before persisting.
+    if (!validatePrimeNodeTree(intentNode)) {
+      throw new UnconvertibleComponentError(
+        `[convertComponent] "${base.name}" emitted a prime-DAG calculationIntent ` +
+        `that does not validate against VALID_PRIMES (${Array.from(VALID_PRIMES).join(',')}). ` +
+        `Emission: ${JSON.stringify(intentNode).slice(0, 500)}.`,
+      );
+    }
+    return {
+      ...base,
+      componentType: 'prime_dag' as FoundationalPrimitive,
+      metadata: {
+        ...(base.metadata || {}),
+        intent: base.calculationIntent,
+      },
+    };
+  }
+
+  // Legacy path: calcType derives from calculationIntent.operation (primary)
+  // with calculationMethod.type as transitional fallback.
   const calcType = (base.calculationIntent?.operation as string) || calcMethod?.type || '';
 
   console.log(
@@ -465,6 +490,7 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
     case 'linear_function':
     case 'piecewise_linear':
     case 'scope_aggregate':
+    case 'prime_dag':
       return {
         ...base,
         componentType: calcType as FoundationalPrimitive,
@@ -483,6 +509,41 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
         `Registry/dispatch divergence; this is a Decision 154 violation requiring architect attention.`,
       );
     }
+  }
+}
+
+/**
+ * HF-238: recursively validate that every node in a PrimeNode tree has a
+ * recognized `prime` discriminator and that branch nodes carry the expected
+ * sub-fields. Returns false on the first invalid node.
+ */
+function validatePrimeNodeTree(node: unknown): boolean {
+  if (!isPrimeNode(node)) return false;
+  switch (node.prime) {
+    case 'constant':
+    case 'reference':
+      return true;
+    case 'arithmetic':
+    case 'compare':
+      return Array.isArray(node.inputs)
+        && node.inputs.length === 2
+        && validatePrimeNodeTree(node.inputs[0])
+        && validatePrimeNodeTree(node.inputs[1]);
+    case 'logical':
+      return Array.isArray(node.inputs)
+        && node.inputs.length > 0
+        && node.inputs.every((n: unknown) => validatePrimeNodeTree(n));
+    case 'conditional':
+      return validatePrimeNodeTree(node.condition)
+        && validatePrimeNodeTree(node.then)
+        && validatePrimeNodeTree(node.else);
+    case 'filter':
+    case 'scope':
+      return validatePrimeNodeTree(node.downstream);
+    case 'aggregate':
+      return typeof node.field === 'string';
+    default:
+      return false;
   }
 }
 

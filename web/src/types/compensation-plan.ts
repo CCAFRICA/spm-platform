@@ -66,7 +66,11 @@ export type ComponentType =
   | 'ratio'
   | 'constant'
   | 'weighted_blend'
-  | 'temporal_window';
+  | 'temporal_window'
+  // HF-238: prime-DAG composition. Components of this type carry a recursive
+  // PrimeNode tree under metadata.intent rather than one of the legacy
+  // operation shapes; the engine routes them straight through evaluate().
+  | 'prime_dag';
 export type MeasurementLevel = 'store' | 'individual' | 'team' | 'region';
 
 export interface PlanComponent {

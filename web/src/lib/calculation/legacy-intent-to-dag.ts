@@ -24,6 +24,7 @@ import type {
   PrimeNode,
   PrimePredicate,
 } from './intent-types';
+import { isPrimeNode } from './intent-types';
 
 export class UntranslatableLegacyIntentError extends Error {
   constructor(message: string) {
@@ -690,6 +691,21 @@ export function componentIntentToDAG(
   intent: ComponentIntent,
   routingAttributeValue?: string | number | boolean,
 ): { dag: PrimeNode; matchedRoute?: { matchValue: string | number | boolean } } {
+  // HF-238: prime-DAG format short-circuit. When the persisted intent shape
+  // is already a PrimeNode (discriminator key `prime`), skip translation and
+  // use it directly. The shape arrives here at runtime because the engine
+  // hydrates ComponentIntent loosely from JSON — TypeScript views .intent as
+  // an IntentOperation, but a prime-format component carries { prime, ... }
+  // instead.
+  const maybePrimeIntent = (intent as unknown as { intent?: unknown }).intent;
+  if (maybePrimeIntent && isPrimeNode(maybePrimeIntent)) {
+    let dag: PrimeNode = maybePrimeIntent;
+    for (const mod of intent.modifiers ?? []) {
+      dag = wrapModifier(dag, mod);
+    }
+    return { dag };
+  }
+
   // Variant-routed component
   if (intent.variants) {
     const routing = intent.variants;
