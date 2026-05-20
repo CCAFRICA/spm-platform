@@ -1393,9 +1393,72 @@ export function extractLeafSources(
   return [];
 }
 
+/**
+ * HF-242: Walk a PrimeNode DAG and collect every `reference` field name and
+ * every `aggregate` field name. These are the metric / row-field names the
+ * DAG evaluator reads at calculation time; they are exactly the fields
+ * convergence needs to bind to committed_data columns.
+ *
+ * Korean Test compliant — pure structural traversal, no field-name matching.
+ * Domain-agnostic — works for any PrimeNode tree regardless of vocabulary.
+ */
+export function extractReferencesFromDAG(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const refs = new Set<string>();
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+    if (prime === 'reference' && typeof obj.field === 'string') {
+      refs.add(obj.field);
+      return;
+    }
+    if (prime === 'aggregate' && typeof obj.field === 'string') {
+      refs.add(obj.field);
+      // aggregate is a leaf; no downstream to recurse.
+      return;
+    }
+    // Generic recursion — every prime that carries children carries them in
+    // one of these positions. Recursing into `inputs` / `downstream` /
+    // `condition` / `then` / `else` covers arithmetic, compare, logical,
+    // filter, scope, conditional, and prior_period.
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return Array.from(refs);
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
+
+  // HF-242: prime_dag components carry a PrimeNode tree under
+  // calculationIntent (discriminator key `prime`) instead of the legacy
+  // `operation` shape. Walk the DAG to collect every reference field — each
+  // becomes a requirement whose `role` IS the field name so the binding
+  // entry is keyed by field name (vs. legacy role names like 'actual' /
+  // 'row' / 'column'). This makes the AI column-mapping prompt receive
+  // the actual metric names the DAG will read, instead of an empty list.
+  const compType = (component as unknown as { componentType?: string }).componentType;
+  const isPrimeDag = compType === 'prime_dag'
+    || (typeof (intent as Record<string, unknown>).prime === 'string');
+  if (isPrimeDag) {
+    const refs = extractReferencesFromDAG(intent);
+    if (refs.length === 0) {
+      return [{ role: 'actual', metricField: 'unknown', expectedRange: null }];
+    }
+    return refs.map(field => ({
+      role: field,
+      metricField: field,
+      expectedRange: null,
+    }));
+  }
 
   const reqs: ComponentInputRequirement[] = [];
   const op = intent.operation as string;

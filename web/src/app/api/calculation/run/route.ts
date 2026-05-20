@@ -34,7 +34,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
-import { convergeBindings, extractLeafSources } from '@/lib/intelligence/convergence-service';
+import { convergeBindings, extractLeafSources, extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
@@ -1278,15 +1278,6 @@ export async function POST(request: NextRequest) {
     if (shouldEmitTrace(entityExternalId)) {
       bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
     }
-    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
-    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
-    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
-    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
-    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
-
-    // Need at least one measure binding (HF-222 Phase 3: gate on column rather than
-    // the retired batch-id field).
-    if (!actualBinding?.column && !numBinding?.column) return null;
 
     // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
     // through the roster-join index to produce the lookup key against the measure
@@ -1311,6 +1302,49 @@ export async function POST(request: NextRequest) {
         return null;
       }
     }
+
+    // HF-242: prime_dag components carry per-field bindings keyed by the
+    // DAG reference field name (set by extractInputRequirements'
+    // prime_dag branch). The DAG evaluator reads every field from
+    // context.metrics uniformly — no role-slot semantics — so resolution
+    // walks the DAG's reference set and reads each field's binding by
+    // name. This branch runs BEFORE the legacy role-binding extraction
+    // because prime_dag components have NO `actual` / `row` / `numerator`
+    // role keys — the early return guard for legacy bindings would
+    // short-circuit before reaching this branch otherwise.
+    const compType = (component as unknown as { componentType?: string }).componentType;
+    const intent = component.calculationIntent as Record<string, unknown> | undefined;
+    const intentIsPrimeNode = !!intent && typeof intent.prime === 'string';
+    if (compType === 'prime_dag' || intentIsPrimeNode) {
+      const refs = extractReferencesFromDAG(intent);
+      const dagMetrics: Record<string, number> = {};
+      for (const field of refs) {
+        const fieldBinding = compBindings[field] as ConvergenceBindingEntry | undefined;
+        if (!fieldBinding?.column) continue;
+        const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters);
+        if (rawValue === null) continue;
+        const scaled = fieldBinding.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
+        dagMetrics[field] = scaled;
+        if (shouldEmitTrace(entityExternalId)) {
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:prime_dag_field entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | field=${field} | column=${fieldBinding.column} | raw=${rawValue} | scale=${fieldBinding.scale_factor ?? 'undefined'} | scaled=${scaled}`);
+        }
+      }
+      const dagResult = Object.keys(dagMetrics).length > 0 ? dagMetrics : null;
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=prime_dag | refs=${refs.length} | resolved=${Object.keys(dagMetrics).length} | metrics=${JSON.stringify(dagMetrics)} | returnedNull=${dagResult === null}`);
+      }
+      return dagResult;
+    }
+
+    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
+    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
+    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
+    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
+    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
+
+    // Need at least one measure binding (HF-222 Phase 3: gate on column rather than
+    // the retired batch-id field).
+    if (!actualBinding?.column && !numBinding?.column) return null;
 
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
