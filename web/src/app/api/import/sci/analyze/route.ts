@@ -392,6 +392,119 @@ export async function POST(req: NextRequest) {
         console.log(`[SCI-SCORES-DIAG] sheet=${sheetLabel} winner=${resolution.classification}@${(resolution.confidence * 100).toFixed(0)}% scores=[${scoresStr}]`);
       }
 
+      // ── HF-240: workbook-level plan-signature reclassification ──
+      // The Level-1 HC pattern classifier (`classifyByHCPattern`) returns
+      // one of {entity, target, transaction, reference} but has no `plan`
+      // branch — plan-ness is a WORKBOOK property, not a per-sheet
+      // property. Level-2 PLAN_WEIGHTS can score plan, but only when
+      // Level-1 returns null (HC coverage < 50%). With a warmed-up HC
+      // LLM and a confidently classified plan workbook (rate tables +
+      // roster + targets), Level-1 fires per-sheet and the file is
+      // classified as `entity + reference + target` — never `plan`.
+      //
+      // The pre-HF-239 execute route had identical gating
+      // (`confirmedClassification === 'plan'`), so the cold-start
+      // regression presents identically post-HF-239. The architecturally
+      // correct fix is workbook-level: AFTER per-sheet classification
+      // completes, examine the sheet composition for this file. When
+      // the composition matches the plan-workbook signature (small
+      // multi-sheet workbook with non-transactional sheets and at least
+      // one rate-table-shaped sheet), reclassify ALL of the file's
+      // sheets to `plan`.
+      //
+      // The signature is purely structural — zero hardcoded filenames,
+      // tenant names, or domain literals. The signal fires only when
+      // (1) all of: ≥2 sheets, no transaction-classified sheet, total
+      // committed rows < 1000 (configurations are small), and (2) at
+      // least one sheet has rate-table structural signals (sparsity
+      // > 0.30 OR percentage values OR auto-generated headers OR
+      // reference-category row count).
+      {
+        const fileUnitIds = new Set(
+          Array.from(state.contentUnits.entries())
+            .filter(([, p]) => fileSheets.some(fs => fs.sheetName === p.tabName))
+            .map(([id]) => id),
+        );
+        if (fileUnitIds.size >= 2) {
+          const fileResolutions: Array<{ unitId: string; classification: AgentType; profile?: ContentProfile }> = [];
+          for (const unitId of Array.from(fileUnitIds)) {
+            const r = state.resolutions.get(unitId);
+            const p = state.contentUnits.get(unitId);
+            if (r && p) fileResolutions.push({ unitId, classification: r.classification, profile: p });
+          }
+          const hasTransaction = fileResolutions.some(r => r.classification === 'transaction');
+          const hasReferenceOrTarget = fileResolutions.some(
+            r => r.classification === 'reference' || r.classification === 'target',
+          );
+          let totalRows = 0;
+          let hasRateTableSignal = false;
+          for (const r of fileResolutions) {
+            if (!r.profile) continue;
+            totalRows += r.profile.structure.rowCount;
+            if (
+              r.profile.structure.sparsity > 0.30
+              || r.profile.patterns.hasPercentageValues
+              || r.profile.structure.headerQuality === 'auto_generated'
+              || r.profile.patterns.rowCountCategory === 'reference'
+            ) {
+              hasRateTableSignal = true;
+            }
+          }
+          const matchesPlanSignature =
+            !hasTransaction
+            && hasReferenceOrTarget
+            && totalRows < 1000
+            && hasRateTableSignal;
+          if (matchesPlanSignature) {
+            console.log(
+              `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
+              `totalRows=${totalRows} signature=match — reclassifying all sheets to 'plan'`,
+            );
+            for (const r of fileResolutions) {
+              const resolution = state.resolutions.get(r.unitId);
+              if (resolution) {
+                resolution.classification = 'plan' as AgentType;
+                resolution.confidence = 0.80;
+                resolution.decisionSource = 'plan_workbook_signature' as typeof resolution.decisionSource;
+                resolution.requiresHumanReview = false;
+              }
+              const trace = state.traces.get(r.unitId);
+              if (trace) {
+                trace.finalClassification = 'plan' as AgentType;
+                trace.finalConfidence = 0.80;
+                trace.decisionSource = 'plan_workbook_signature' as typeof trace.decisionSource;
+                trace.requiresHumanReview = false;
+              }
+              // Boost plan score in round2 so downstream consumers (UI
+              // "all scores" display, requiresHumanReview) reflect the
+              // workbook-level decision without ambiguity.
+              const r2 = state.round2Scores.get(r.unitId);
+              if (r2) {
+                for (const s of r2) {
+                  if (s.agent === 'plan') {
+                    s.confidence = 0.80;
+                    s.signals.unshift({
+                      signal: 'plan_workbook_signature',
+                      weight: 0.80,
+                      evidence: `multi-sheet workbook signature (${fileResolutions.length} sheets, ${totalRows} rows, rate-table signals present)`,
+                    });
+                  } else {
+                    s.confidence = Math.min(s.confidence, 0.10);
+                  }
+                }
+                r2.sort((a, b) => b.confidence - a.confidence);
+              }
+            }
+          } else {
+            console.log(
+              `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
+              `totalRows=${totalRows} hasTx=${hasTransaction} hasRefOrTgt=${hasReferenceOrTarget} ` +
+              `rateTableSignal=${hasRateTableSignal} — no plan signature`,
+            );
+          }
+        }
+      }
+
       // Build proposal from state (same format as before — proposal cards render correctly)
       // HF-106: Dedup safety net — one sheet = one content unit, always.
       // Remove ALL ::split entries. Split claims caused unique constraint violations
