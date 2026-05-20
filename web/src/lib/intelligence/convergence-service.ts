@@ -758,8 +758,19 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
     const cj = componentsJson as Record<string, unknown>;
     const variants = cj.variants as Array<Record<string, unknown>> | undefined;
     if (Array.isArray(variants) && variants.length > 0) {
-      // Variant structure — use first variant (all share same structural pattern)
-      comps = (variants[0].components as Array<Record<string, unknown>>) ?? [];
+      // HF-243: flatten across ALL variants in declaration order so the binding
+      // pipeline sees every variant component, not just variants[0]. Pre-HF-243
+      // this took variants[0].components only — the comment claimed "all share
+      // same structural pattern" but the engine keys bindings by global flat
+      // index (component_0..N-1) and looks up variant 1's entities under
+      // component_4+. DIAG-054 R3 confirmed convergence_bindings had zero entries
+      // for component_4..7 because those components were never extracted.
+      // Order is variant 0 components first, then variant 1, etc., matching the
+      // engine's flat indexing.
+      for (const v of variants) {
+        const vc = v.components as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(vc)) comps.push(...vc);
+      }
     }
   }
 
@@ -1434,6 +1445,62 @@ export function extractReferencesFromDAG(node: unknown): string[] {
   return Array.from(refs);
 }
 
+/**
+ * HF-243: Walk a PrimeNode DAG and collect every numeric `constant` that
+ * appears alongside `reference(fieldName)` inside a `compare` node. The
+ * collected constants are the threshold values the DAG expects the field
+ * to be compared against — i.e. the expected value range for the field.
+ *
+ * Legacy bounded_lookup_1d / bounded_lookup_2d intents carried explicit
+ * `boundaries: [{min, max}, ...]` arrays; `extractRangeFromBoundaries`
+ * read these to produce `expectedRange` for `scoreColumnForRequirement`'s
+ * scale inference (×1 vs ×100). Prime-DAG emissions embed those thresholds
+ * directly inside `compare` nodes as constants; this function recovers the
+ * equivalent expectedRange purely from the tree shape.
+ *
+ * Korean Test compliant — pure structural traversal, no field-name matching.
+ */
+export function extractExpectedRangeFromDAG(
+  node: unknown,
+  fieldName: string,
+): { min: number; max: number } | null {
+  if (!node || typeof node !== 'object') return null;
+  const constants: number[] = [];
+
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+
+    // A compare node has exactly 2 inputs. When ONE of them is a reference
+    // to fieldName and the OTHER is a constant, the constant is a threshold
+    // the field will be tested against.
+    if (prime === 'compare' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const aIsRef = a && a.prime === 'reference' && a.field === fieldName;
+      const bIsRef = b && b.prime === 'reference' && b.field === fieldName;
+      const aIsConst = a && a.prime === 'constant' && typeof a.value === 'number';
+      const bIsConst = b && b.prime === 'constant' && typeof b.value === 'number';
+      if (aIsRef && bIsConst) constants.push(b.value as number);
+      else if (bIsRef && aIsConst) constants.push(a.value as number);
+      // Fall through and recurse — inputs may also contain compares (e.g.
+      // `compare(eq, arithmetic(...), constant)`) that we shouldn't miss.
+    }
+
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+
+  if (constants.length === 0) return null;
+  return { min: Math.min(...constants), max: Math.max(...constants) };
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
@@ -1453,10 +1520,15 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
     if (refs.length === 0) {
       return [{ role: 'actual', metricField: 'unknown', expectedRange: null }];
     }
+    // HF-243: per-field expectedRange recovered from the DAG's compare
+    // constants. Drives scoreColumnForRequirement's existing ratio/percentage
+    // scale inference identically to how extractRangeFromBoundaries drove it
+    // for legacy bounded_lookup_1d/2d intents. No new code path — the same
+    // inference function handles both shapes.
     return refs.map(field => ({
       role: field,
       metricField: field,
-      expectedRange: null,
+      expectedRange: extractExpectedRangeFromDAG(intent, field),
     }));
   }
 
@@ -2366,7 +2438,16 @@ async function generateAllComponentBindings(
   console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
 
   // Build bindings using AI mapping + boundary validation
-  const boundColumns = new Set<string>();
+  // HF-243: boundColumns scoped by (column → metricField). Pre-HF-243 this was a
+  // bare Set<string> of columns, which blocked variant duplicates: components 0-3
+  // (Senior variant) bound columns A/B/C/D for fields f1/f2/f3/f4, then components
+  // 4-7 (Executive variant) requesting the SAME fields f1/f2/f3/f4 found A/B/C/D
+  // already excluded and got no bindings. The exclusion is now keyed on
+  // (column, field): a column can be re-used by a later component if it's binding
+  // to the SAME field, but is still excluded if a different field tries to claim
+  // it. This preserves the original guard (no two distinct fields share a column)
+  // while allowing legitimate variant rebinding.
+  const boundColumnToField = new Map<string, string>();
 
   for (const match of matches) {
     const comp = match.component;
@@ -2393,7 +2474,9 @@ async function generateAllComponentBindings(
 
       if (proposedColumnName) {
         const mc = measureColumns.find(c => c.name === proposedColumnName);
-        if (mc && !boundColumns.has(proposedColumnName)) {
+        const priorField = boundColumnToField.get(proposedColumnName);
+        const excluded = priorField !== undefined && priorField !== req.metricField;
+        if (mc && !excluded) {
           // Boundary validation of AI proposal
           const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           const isValidated = !req.expectedRange || boundaryScore > 0.1;
@@ -2414,7 +2497,7 @@ async function generateAllComponentBindings(
             // sum at the engine.
             filters: proposedFilters,
           };
-          boundColumns.add(proposedColumnName);
+          boundColumnToField.set(proposedColumnName, req.metricField);
           console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length})`);
           continue;
         }
@@ -2426,8 +2509,14 @@ async function generateAllComponentBindings(
       // from the candidate distribution at decision time — no developer-stated
       // numerical constants. Cluster cases refuse to bind and surface convergence
       // gaps; clear-outlier cases bind.
+      // HF-243: same scoping as AI-mapping path — columns previously bound to the
+      // SAME field name remain candidates (variant duplicates); columns bound to a
+      // different field are excluded.
       const candidates = measureColumns
-        .filter(mc => !boundColumns.has(mc.name))
+        .filter(mc => {
+          const pf = boundColumnToField.get(mc.name);
+          return pf === undefined || pf === req.metricField;
+        })
         .map(mc => {
           const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           return { ...mc, score, scaleFactor };
@@ -2447,7 +2536,7 @@ async function generateAllComponentBindings(
             learned_at: new Date().toISOString(),
           },
         };
-        boundColumns.add(best.name);
+        boundColumnToField.set(best.name, req.metricField);
         console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
       } else if (candidates.length > 0) {
         console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
@@ -2947,9 +3036,15 @@ function detectBoundaryScale(componentsJson: unknown, componentIndex: number): n
   const cj = componentsJson as Record<string, unknown> | null;
   if (!cj) return 100;
 
+  // HF-243: same flattening fix as extractComponents — index into the global
+  // flat component list across all variants, not just variants[0].
   const variants = (cj.variants as Array<Record<string, unknown>>) ?? [];
-  const comps = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
-  const comp = comps[componentIndex];
+  const flat: Array<Record<string, unknown>> = [];
+  for (const v of variants) {
+    const vc = v.components as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(vc)) flat.push(...vc);
+  }
+  const comp = flat[componentIndex];
   if (!comp) return 100;
 
   const tierConfig = comp.tierConfig as Record<string, unknown> | undefined;
