@@ -263,14 +263,21 @@ export function SCIExecution({
       tabName: proposalUnit.tabName,
     };
 
-    const res = await fetchWithTimeout('/api/import/sci/execute', {
+    // HF-239: Unified import route. The legacy execute path is deleted; all
+    // content units go through execute-bulk. The bulk route REQUIRES storagePath
+    // — the request body shape no longer carries rawData. If no storagePath
+    // is available (rare per-unit fallback), surface a structured error.
+    if (!storagePath) {
+      throw new Error('storagePath required: HF-239 unified import requires Storage transport for all content units');
+    }
+    const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         proposalId: proposal.proposalId,
         tenantId,
+        storagePath,
         contentUnits: [execUnit],
-        ...(storagePath ? { storagePath } : {}), // HF-129: Pass storage path for plan document retrieval
       }),
     });
 
@@ -322,15 +329,20 @@ export function SCIExecution({
       }).filter(Boolean);
 
       try {
-        // ONE request with ALL plan units + storagePath
-        const res = await fetchWithTimeout('/api/import/sci/execute', {
+        // HF-239: plan batching now flows through execute-bulk's new
+        // `case 'plan'` dispatcher arm (batched interpretation in the POST
+        // handler tail). storagePath is required.
+        if (!storagePath) {
+          throw new Error('storagePath required: HF-239 unified import requires Storage transport for plan units');
+        }
+        const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             proposalId: proposal.proposalId,
             tenantId,
+            storagePath,
             contentUnits: planExecUnits,
-            ...(storagePath ? { storagePath } : {}),
           }),
         });
 
