@@ -1,4 +1,4 @@
-# AUD-013 — Execute vs Execute-Bulk Behavioral Equivalence
+# HF-241 — Execute vs Execute-Bulk Behavioral Equivalence
 
 **Branch:** `aud-013-behavioral-equivalence` off `main @ 92d63b60`
 **Date:** 2026-05-20
