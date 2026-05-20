@@ -464,6 +464,33 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
     });
   };
 
+  // DIAG-053 fix: surface the override flow when the analyzer cold-starts
+  // on a plan file. After a tenant clean-slate the flywheel cache is empty,
+  // and structural classification of XLSX plan sheets falls through to
+  // entity / reference because rate tables and rosters look structurally
+  // like data. The plan dispatch in execute-bulk gates on
+  // `confirmedClassification === 'plan'` (identical pre/post HF-239) — so
+  // the override flow IS the entry to plan interpretation. This handler
+  // batch-applies the override the user would otherwise have to click
+  // unit-by-unit.
+  const hasPlanCandidate = useMemo(() => {
+    if (effectiveUnits.length < 2) return false; // single-sheet files aren't multi-sheet plans
+    const types: AgentType[] = effectiveUnits.map(u => u.classification);
+    return types.every(t => t === 'entity' || t === 'reference');
+  }, [effectiveUnits]);
+
+  const reclassifyAllAsPlan = () => {
+    setClassificationOverrides(prev => {
+      const next = new Map(prev);
+      for (const u of effectiveUnits) {
+        const uid = (u as { _uniqueId?: string; contentUnitId: string })._uniqueId || u.contentUnitId;
+        next.set(uid, 'plan' as AgentType);
+      }
+      return next;
+    });
+    setConfirmedIds(new Set()); // Unconfirm — user reviews the override
+  };
+
   const handleImport = () => {
     onConfirmAll(effectiveUnits);
   };
@@ -477,6 +504,33 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
           {effectiveUnits.length} content unit{effectiveUnits.length !== 1 ? 's' : ''} detected
         </p>
       </div>
+
+      {/* DIAG-053: plan candidate banner. Surfaces the override flow when
+          the cold-start structural classifier returned only entity/reference
+          for a multi-sheet XLSX — the typical signature of a compensation
+          plan file (roster + rate tables) that the analyzer couldn't
+          recognize as such without flywheel cache. The button is an
+          override shortcut; the user reviews and confirms before import. */}
+      {hasPlanCandidate && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium text-amber-300">
+            Looks like a data file — is it actually a compensation plan?
+          </p>
+          <p className="text-xs text-amber-200/80 mt-1">
+            All {effectiveUnits.length} sheets classified as data
+            (entity / reference). If this is a plan document with rate
+            tables and rosters, override to <span className="font-mono">plan</span> so
+            AI interpretation can run.
+          </p>
+          <button
+            type="button"
+            onClick={reclassifyAllAsPlan}
+            className="mt-2 inline-flex items-center rounded border border-amber-400/40 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-100 hover:bg-amber-500/25"
+          >
+            Reclassify all as plan
+          </button>
+        </div>
+      )}
 
       {/* Summary bar */}
       <SummaryBar
