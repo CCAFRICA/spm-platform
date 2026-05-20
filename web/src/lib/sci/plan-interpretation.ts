@@ -177,11 +177,22 @@ export async function executeBatchedPlanInterpretation(
   const filenameFallback = primaryContentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
   const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
 
-  await supabase
+  // AUD-013: supersede ALL prior rule_sets for this tenant (any status),
+  // not just active. Pre-fix used `.eq('status', 'active')` which missed
+  // rule_sets in draft / superseded / archived states — re-importing the
+  // same plan would then leave a parallel `active` row instead of being
+  // idempotent on plan name. Error checked.
+  const { error: supersedeError, data: supersededRows } = await supabase
     .from('rule_sets')
     .update({ status: 'superseded', updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
-    .eq('status', 'active');
+    .neq('status', 'superseded')
+    .select('id, name, status');
+  if (supersedeError) {
+    console.error('[SCI plan-interp] Supersession query failed:', supersedeError);
+  } else if (supersededRows && supersededRows.length > 0) {
+    console.log(`[SCI plan-interp] Superseded ${supersededRows.length} prior rule_set(s) for tenant=${tenantId}`);
+  }
 
   const { error: upsertError } = await supabase
     .from('rule_sets')
@@ -405,11 +416,20 @@ export async function executePlanPipeline(
   const filenameFallback = unit.contentUnitId.split('::')[0]?.replace(/\.[^.]+$/, '') || '';
   const planName = engineFormat.name || filenameFallback || 'Untitled Plan';
 
-  await supabase
+  // AUD-013: supersede ALL prior rule_sets for this tenant (any non-superseded
+  // status), not just active. See executeBatchedPlanInterpretation for the
+  // detailed rationale; the two paths share supersession semantics.
+  const { error: supersedeError, data: supersededRows } = await supabase
     .from('rule_sets')
     .update({ status: 'superseded', updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
-    .eq('status', 'active');
+    .neq('status', 'superseded')
+    .select('id, name, status');
+  if (supersedeError) {
+    console.error('[SCI plan-interp] Supersession query failed:', supersedeError);
+  } else if (supersededRows && supersededRows.length > 0) {
+    console.log(`[SCI plan-interp] Superseded ${supersededRows.length} prior rule_set(s) for tenant=${tenantId}`);
+  }
 
   const { error: upsertError } = await supabase
     .from('rule_sets')

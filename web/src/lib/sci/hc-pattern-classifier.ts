@@ -65,13 +65,18 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   }
 
   // ── HC role primitives ──────────────────────────────────
-  // Three counts / booleans derived from the LLM's per-column role
-  // assignments. Everything below is a function of these primitives.
+  // Counts / booleans derived from the LLM's per-column role assignments.
+  // Everything below is a function of these primitives.
   const identifierCount = confidentRoles.filter(r => r.columnRole === 'identifier').length;
   const measureCount = confidentRoles.filter(r => r.columnRole === 'measure').length;
   const hasMeasure = measureCount > 0;
   const hasReferenceKey = confidentRoles.some(r => r.columnRole === 'reference_key');
   const hasName = confidentRoles.some(r => r.columnRole === 'name');
+  // AUD-013: temporal role primitive — distinguishes per-period transactional
+  // data (actuals over time) from one-time entity snapshots (targets).
+  // A sheet with identifier + measure + temporal is event data over time;
+  // a sheet with identifier + measure + no temporal is an entity snapshot.
+  const hasTemporal = confidentRoles.some(r => r.columnRole === 'temporal');
   // HF-230 directive contemplated a separate `currency` ColumnRole that would
   // imply a monetary measure. The sci-types ColumnRole union does NOT carry
   // `currency` (the seven values are identifier / name / temporal / measure /
@@ -129,6 +134,14 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // Branch 3: Transaction data — events that REFERENCE entities.
   // Has a per-row identifier AND a reference_key (foreign key to another entity).
   // "Each row is an event with its own ID, linked to an entity via foreign key."
+  //
+  // AUD-013 extension: per-period actuals data (entity_id + measure + temporal)
+  // is ALSO transactional even when no reference_key is present. The temporal
+  // column means each row is a measurement AT A POINT IN TIME — the row is an
+  // event, not an entity-level snapshot. Without this branch, monthly
+  // actuals with employee_id + amount + period_date classified as target
+  // (entity-level snapshot), which mis-typed transactional data as
+  // configuration and broke convergence.
   if (identifierCount >= 1 && hasReferenceKey) {
     return {
       classification: 'transaction',
@@ -142,12 +155,25 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       ],
     };
   }
+  if (identifierCount >= 1 && hasTemporal) {
+    return {
+      classification: 'transaction',
+      confidence: 0.85,
+      patternName: 'event_transactions_temporal',
+      matchedConditions: [
+        'HAS measure',
+        'HAS temporal — per-period event data',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
+      ],
+    };
+  }
 
   // Branch 4: Target/reference data — entity-level records with measures.
-  // Has an identifier but NO reference_key — this IS the entity record, not
-  // referencing another. "One value set per entity — quotas, targets,
-  // thresholds, rates."
-  if (identifierCount >= 1 && !hasReferenceKey) {
+  // Has an identifier but NO reference_key AND NO temporal — this IS the
+  // entity record, not referencing another, and not per-period.
+  // "One value set per entity — quotas, targets, thresholds, rates."
+  if (identifierCount >= 1 && !hasReferenceKey && !hasTemporal) {
     return {
       classification: 'target',
       confidence: 0.85,
@@ -155,6 +181,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       matchedConditions: [
         'HAS measure',
         'NO reference_key — entity-level record',
+        'NO temporal — snapshot, not per-period',
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
