@@ -77,6 +77,15 @@ export interface InterpretedComponent {
   appliesToEmployeeTypes: string[];
   calculationMethod: ComponentCalculation;
   calculationIntent?: Record<string, unknown>; // OB-77: AI-produced structural intent
+  /**
+   * HF-244 Phase 2: total number of cells in the source rate table for this
+   * component. The LLM emits this alongside the calculationIntent so the
+   * post-generation validator can enforce exhaustive emission — if the tree
+   * carries fewer constant leaves than rateTableCellCount, the component is
+   * rejected because the table was truncated. Omitted for components without
+   * a rate table (simple rate × metric, linear function, etc.).
+   */
+  rateTableCellCount?: number;
   confidence: number;
   reasoning: string;
 }
@@ -194,6 +203,10 @@ function normalizeComponents(components: unknown): InterpretedComponent[] {
       // OB-77: Preserve AI-produced structural intent (validated downstream)
       calculationIntent: c.calculationIntent && typeof c.calculationIntent === 'object'
         ? c.calculationIntent as Record<string, unknown>
+        : undefined,
+      // HF-244 Phase 2: integer cell-count declaration for rate-table components.
+      rateTableCellCount: typeof c.rateTableCellCount === 'number' && c.rateTableCellCount > 0
+        ? Math.floor(c.rateTableCellCount)
         : undefined,
       confidence: Number.isFinite(rawConf) ? rawConf : 0.5,
       reasoning: String(c.reasoning || ''),
@@ -416,13 +429,20 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
         `Emission: ${JSON.stringify(intentNode).slice(0, 500)}.`,
       );
     }
-    // OB-200 Phase 4: structural validation against PRIME_GRAMMAR. Critical
-    // violations (unknown_prime, arity, op_unknown, child_topology) throw —
-    // the component cannot proceed because the emission shape would crash
-    // the evaluator. Warnings (scale_annotation, terminal_completeness,
-    // decision_127, exhaustive_emission) are logged but do not block;
-    // convergence has deterministic fallbacks for missing-metadata cases.
-    const validation = validateComponentIntent(intentNode, { componentLabel: base.name });
+    // OB-200 Phase 4 + HF-244 Phase 2: structural validation against
+    // PRIME_GRAMMAR. Critical violations (unknown_prime, arity, op_unknown,
+    // child_topology, exhaustive_emission when rateTableCellCount declared)
+    // throw — the component cannot proceed. Warnings (scale_annotation,
+    // terminal_completeness, decision_127) log but do not block.
+    //
+    // HF-244: rateTableCellCount on the component output is the LLM's
+    // declaration of source rate-table dimensions; the validator counts
+    // emitted constant leaves and rejects truncated trees. Closes the
+    // BCL C0 class defect (30-cell matrix → 3-leaf tree silently persisted).
+    const expectedCellCount = typeof comp.rateTableCellCount === 'number' && comp.rateTableCellCount > 0
+      ? comp.rateTableCellCount
+      : undefined;
+    const validation = validateComponentIntent(intentNode, { componentLabel: base.name, expectedCellCount });
     logValidationViolations(validation, base.name);
     if (!validation.valid) {
       const critical = validation.violations.filter(v => v.severity === 'critical');

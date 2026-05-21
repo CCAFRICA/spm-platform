@@ -354,11 +354,18 @@ export function validatePrimeTree(
 
   if (typeof opts.expectedCellCount === 'number' && opts.expectedCellCount > 0) {
     if (constantLeafCount < opts.expectedCellCount) {
+      // HF-244 Phase 2: critical severity. When the LLM declares
+      // rateTableCellCount on the component, it is asserting the table's true
+      // dimensions; a tree carrying fewer constants than that is a truncated
+      // emission (BCL C0 case: declared 30 cells, emitted 3 leaves). Persisting
+      // the truncated tree silently produces wrong calculations. The validator
+      // throws via ai-plan-interpreter.convertComponent so the component
+      // never lands in rule_sets.components.
       violations.push({
         check: 'exhaustive_emission',
         nodePath: '$',
-        message: `Plan declares ${opts.expectedCellCount} rate-table cells but the emitted tree carries only ${constantLeafCount} constant leaves. Cells are missing.`,
-        severity: 'warning',
+        message: `Plan declares ${opts.expectedCellCount} rate-table cells but the emitted tree carries only ${constantLeafCount} constant leaves. Cells are missing — the LLM truncated the table.`,
+        severity: 'critical',
       });
     }
   }
@@ -411,6 +418,9 @@ NODE SHAPES:
 
 EXHAUSTIVE EMISSION (CRITICAL):
 When the plan contains a rate table with N tiers (1D) or N×M cells (2D), emit exactly N or N×M constant leaf nodes. Every cell must appear in the tree. Do not summarize, collapse, omit, or use a fallback to substitute for missing cells. A 6×5 matrix produces 30 distinct constant leaves; a 5-tier 1D band produces 5 distinct constants plus an explicit constant(0) terminal.
+
+HF-244 — RATE-TABLE CELL DECLARATION (REQUIRED for components with rate tables):
+Alongside the calculationIntent on each component, emit a sibling field "rateTableCellCount" with the integer total number of cells in the source rate table. A 5-tier 1D band: rateTableCellCount: 5. A 6×5 matrix: rateTableCellCount: 30. The platform's post-generation validator checks that the emitted tree carries at least rateTableCellCount constant leaves; if fewer, the component is REJECTED. When the component has no rate table (simple rate × metric, linear function, etc.), omit rateTableCellCount entirely.
 
 SCALE METADATA (CRITICAL):
 For every constant used in a compare against a reference, annotate the constant with meta describing its native scale on the plan side:

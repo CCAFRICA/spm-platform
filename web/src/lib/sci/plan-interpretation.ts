@@ -182,15 +182,29 @@ export async function executeBatchedPlanInterpretation(
   // rule_sets in draft / superseded / archived states — re-importing the
   // same plan would then leave a parallel `active` row instead of being
   // idempotent on plan name. Error checked.
+  //
+  // HF-244 Phase 3: supersession failure now BLOCKS the upsert. Pre-fix
+  // logged the error and proceeded to upsert anyway — this is how BCL ended
+  // up with two active rule_sets 60 seconds apart on 2026-05-21. If we can't
+  // supersede prior rows, we don't insert a new active row.
   const { error: supersedeError, data: supersededRows } = await supabase
     .from('rule_sets')
-    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .update({ status: 'archived', updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
-    .neq('status', 'superseded')
+    .neq('status', 'archived')
     .select('id, name, status');
   if (supersedeError) {
-    console.error('[SCI plan-interp] Supersession query failed:', supersedeError);
-  } else if (supersededRows && supersededRows.length > 0) {
+    console.error('[SCI plan-interp] Supersession query failed — aborting upsert to prevent multi-active state:', supersedeError);
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: `Supersession failed: ${supersedeError.message}`,
+    }));
+  }
+  if (supersededRows && supersededRows.length > 0) {
     console.log(`[SCI plan-interp] Superseded ${supersededRows.length} prior rule_set(s) for tenant=${tenantId}`);
   }
 
@@ -419,15 +433,28 @@ export async function executePlanPipeline(
   // AUD-013: supersede ALL prior rule_sets for this tenant (any non-superseded
   // status), not just active. See executeBatchedPlanInterpretation for the
   // detailed rationale; the two paths share supersession semantics.
+  //
+  // HF-244 Phase 3: supersession failure BLOCKS the upsert (same as the
+  // batched path above). Logging-and-proceeding on supersession error
+  // produces multi-active rule_set state.
   const { error: supersedeError, data: supersededRows } = await supabase
     .from('rule_sets')
-    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .update({ status: 'archived', updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
-    .neq('status', 'superseded')
+    .neq('status', 'archived')
     .select('id, name, status');
   if (supersedeError) {
-    console.error('[SCI plan-interp] Supersession query failed:', supersedeError);
-  } else if (supersededRows && supersededRows.length > 0) {
+    console.error('[SCI plan-interp] Supersession query failed — aborting upsert to prevent multi-active state:', supersedeError);
+    return {
+      contentUnitId: unit.contentUnitId,
+      classification: 'plan',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: `Supersession failed: ${supersedeError.message}`,
+    };
+  }
+  if (supersededRows && supersededRows.length > 0) {
     console.log(`[SCI plan-interp] Superseded ${supersededRows.length} prior rule_set(s) for tenant=${tenantId}`);
   }
 
