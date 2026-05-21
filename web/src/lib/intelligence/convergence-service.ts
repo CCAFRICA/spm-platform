@@ -610,14 +610,22 @@ export async function convergeBindings(
   //
   // The variable name `unresolvedForAI` is retained for git-blame readability;
   // its membership semantics depend on the categorical-data branch below.
+  // OB-200 Phase 3: unification — Pass 5 always receives ALL required metrics,
+  // not the "unresolved" subset. Pre-OB-200 the pipeline had two paths: an
+  // earlier ratio-pair inline block produced filter-less derivations
+  // (filters:[]) which then GATED Pass 5 from firing for those metrics. That
+  // bypass kept filter and scope architecturally unreachable. The unification
+  // makes Pass 5 the authoritative derivation surface; column-mapping outputs
+  // from earlier passes INFORM the Pass 5 prompt (the AI knows which column
+  // each role binds to) but do not bypass the derivation step. Since
+  // applyMetricDerivations processes the array in order and the last entry
+  // wins per metric key, Pass 5's output supersedes earlier inline derivations
+  // without removing them — additive change preserving git-blame readability.
   const hasCategoricalData = capabilities.some(cap =>
     (cap.categoricalFields?.length ?? 0) > 0,
   );
-  const allResolvedMetrics = new Set(derivations.map(d => d.metric));
   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
-  const unresolvedForAI = hasCategoricalData
-    ? allRequiredMetrics
-    : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+  const unresolvedForAI = allRequiredMetrics;
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
@@ -2978,6 +2986,9 @@ Operations:
 - ratio: Divide one derived metric by another
 - delta: Difference between two values
 
+OB-200 Phase 3 — SCOPE EXPRESSION:
+When a metric must be aggregated across entity siblings (e.g., "district revenue", "team sales total", "manager override on subordinates"), emit the optional "scope" field on the derivation. scope.entity_group_by is the entity-attribute key that defines the sibling group (e.g., "district", "region", "team_lead_id"). When scope is present, the runtime wraps the produced DAG with a scope prime so the aggregate runs over sibling rows. Omit scope entirely for single-entity metrics. Use the metric's scope NOTE when provided to determine the right entity_group_by attribute.
+
 Respond with ONLY valid JSON, no markdown, no explanation:
 {
   "derivations": [
@@ -2987,7 +2998,8 @@ Respond with ONLY valid JSON, no markdown, no explanation:
       "source_field": "column_name_to_aggregate",
       "filters": [
         { "field": "column_name", "operator": "eq", "value": "filter_value" }
-      ]
+      ],
+      "scope": { "entity_group_by": "district", "aggregation_function": "sum" }
     }
   ],
   "gaps": [
@@ -3005,7 +3017,7 @@ ${metricDescriptions}
 Available data columns:
 ${columnDescriptions.join('\n')}
 
-Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
+Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category. Use scope when the metric label or NOTE indicates aggregation across an entity grouping.`;
 
   // 3. Call AI
   try {
@@ -3074,6 +3086,30 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
         // engine's deterministic execution path reads only the typed fields
         // it knows. Future intelligence consumers (signals, observatory,
         // debugging) can read the carried context without an emitter change.
+        // OB-200 Phase 3: scope extraction. The AI may emit scope as part of
+        // its derivation; validate the shape so a malformed emission is
+        // ignored rather than persisted. entity_group_by must be a non-empty
+        // string for the runtime to wrap with a scope prime.
+        let scope: MetricDerivationRule['scope'] | undefined;
+        const rawScope = d.scope as Record<string, unknown> | undefined;
+        if (rawScope && typeof rawScope === 'object') {
+          const egb = typeof rawScope.entity_group_by === 'string' ? rawScope.entity_group_by : undefined;
+          const aggFn = typeof rawScope.aggregation_function === 'string' ? rawScope.aggregation_function : undefined;
+          const tr = rawScope.temporal_range as Record<string, unknown> | undefined;
+          const trShape =
+            tr && typeof tr === 'object'
+              && typeof tr.offset === 'number'
+              && typeof tr.length === 'number'
+              ? { offset: tr.offset as number, length: tr.length as number }
+              : undefined;
+          if (egb || trShape || aggFn) {
+            scope = {
+              ...(egb ? { entity_group_by: egb } : {}),
+              ...(trShape ? { temporal_range: trShape } : {}),
+              ...(aggFn ? { aggregation_function: aggFn as 'sum' | 'count' | 'avg' | 'min' | 'max' } : {}),
+            };
+          }
+        }
         derivations.push({
           ...d,
           metric,
@@ -3081,6 +3117,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
           source_pattern: sourcePattern,
           source_field: d.source_field ? String(d.source_field) : undefined,
           filters,
+          ...(scope ? { scope } : {}),
         });
       }
     }

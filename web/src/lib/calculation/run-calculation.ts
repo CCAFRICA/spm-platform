@@ -74,6 +74,16 @@ export interface MetricDerivationRule {
   numerator_metric?: string;   // metric name to use as numerator (must be derived earlier)
   denominator_metric?: string; // metric name to use as denominator (must be derived earlier)
   scale_factor?: number;       // multiply ratio result (e.g., 100 for percentage)
+  // OB-200 Phase 3: scope expression for derivations whose value is computed
+  // across entity siblings (district/region aggregation) or temporal ranges
+  // (window over prior periods). When present, legacyDerivationToDAG wraps the
+  // produced DAG with a `scope` prime so the engine reaches the same evaluate()
+  // path that handles intent-side scope. Defaults: single-entity, current-period.
+  scope?: {
+    entity_group_by?: string;        // entity attribute key to group siblings on (e.g., 'district')
+    temporal_range?: { offset: number; length: number };  // prior-period window
+    aggregation_function?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  };
   // HF-226 Phase 2C — Carry Everything (T1-E902). Unenumerated AI-emitted
   // fields are spread into ai_context by generateAISemanticDerivations so
   // downstream intelligence consumers (signals, observatory, debugging) can
@@ -158,6 +168,8 @@ export function applyMetricDerivations(
     // priorRows for the prior side of the subtraction.
 
     // Build the LegacyDerivation shape from the rule and translate to DAG.
+    // OB-200 Phase 3: propagate scope through to legacyDerivationToDAG, which
+    // wraps the produced DAG with a scope prime when entity_group_by is set.
     const legacyShape: LegacyDerivation = {
       metric: rule.metric,
       operation: rule.operation,
@@ -167,6 +179,7 @@ export function applyMetricDerivations(
       numerator_metric: rule.numerator_metric,
       denominator_metric: rule.denominator_metric,
       scale_factor: rule.scale_factor,
+      scope: rule.scope,
     };
 
     let dag;
