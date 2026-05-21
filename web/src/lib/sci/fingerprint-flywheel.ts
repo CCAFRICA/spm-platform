@@ -119,6 +119,18 @@ export async function lookupFingerprint(
   }
 
   // Tier 3: No match — novel structure
+  // HF-247 Phase 5: cold-start log. When neither Tier 1 nor Tier 2 hit and
+  // the tenant has zero prior fingerprints, this is a customer's first
+  // import — distinguish it from a "novel-structure-but-other-fingerprints-exist"
+  // case so operators can recognize cold-start in production logs. One
+  // extra count query per cache miss; negligible at SCI rates.
+  const { count: tenantFpCount } = await supabase
+    .from('structural_fingerprints')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId);
+  if ((tenantFpCount ?? 0) === 0) {
+    console.log(`[SCI-FINGERPRINT] cold-start (no prior fingerprints for tenant) — skipping to Tier 3 (HF-247 Phase 5)`);
+  }
   console.log(`[SCI-FINGERPRINT] tier=3 match=false hash=${fingerprintHash.substring(0, 12)} — novel structure`);
   console.log(`[SCI-FINGERPRINT] LLM called — Tier 3 novel structure, fingerprint stored for future recognition`);
   return {
