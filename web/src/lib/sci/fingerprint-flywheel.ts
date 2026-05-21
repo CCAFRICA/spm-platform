@@ -54,7 +54,19 @@ export async function lookupFingerprint(
     // Self-correction (OB-177) decreases confidence on binding failures.
     // 3 failures: 0.92 → 0.72 → 0.52 → 0.32 → Tier 2 re-classification triggered.
     const conf = Number(tier1.confidence);
-    if (conf >= 0.5) {
+    // HF-247 Phase 2: outcome quality gate at the read surface. Per T1-E906
+    // v2 closed-loop intelligence, the cache must not propagate failure as
+    // a learned signal. A cached column_roles map carrying any 'unknown'
+    // value is a record of failed classification — promoting it to Tier 1
+    // authority injects `unknown@0.85` roles into the new import (live BCL
+    // evidence: `[SCI-HC-DIAG] sheet=Plan General roles=[BANCO CUMBRE DEL
+    // LITORAL:unknown@0.85, …]`), poisoning the next pass with the prior
+    // failure. The gate demotes such entries to Tier 2 (caller re-classifies
+    // with the LLM). The cache row remains for diagnostic queryability per
+    // Decision 153 (failed plan interpretations as L2 signals).
+    const cachedRoles = (tier1.column_roles ?? {}) as Record<string, string>;
+    const hasUnknownRole = Object.values(cachedRoles).some(role => role === 'unknown' || role === '' || role == null);
+    if (conf >= 0.5 && !hasUnknownRole) {
       console.log(`[SCI-FINGERPRINT] tier=1 match=true hash=${fingerprintHash.substring(0, 12)} confidence=${conf} matchCount=${tier1.match_count}`);
       console.log(`[SCI-FINGERPRINT] LLM skipped — Tier 1 match from ${tier1.match_count} prior imports`);
       return {
@@ -62,10 +74,13 @@ export async function lookupFingerprint(
         match: true,
         fingerprintHash,
         classificationResult: tier1.classification_result as Record<string, unknown>,
-        columnRoles: tier1.column_roles as Record<string, string>,
+        columnRoles: cachedRoles,
         confidence: conf,
         matchCount: tier1.match_count,
       };
+    }
+    if (hasUnknownRole) {
+      console.log(`[SCI-FINGERPRINT] tier=1 DEMOTED (poisoned cache): hash=${fingerprintHash.substring(0, 12)} confidence=${conf} — cached column_roles contains 'unknown' (HF-247 outcome quality gate)`);
     }
     // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
     // Caller runs targeted re-classification (HC + CRR) instead of full Tier 3 LLM.
@@ -134,6 +149,18 @@ export async function writeFingerprint(
   supabaseServiceKey: string,
 ): Promise<void> {
   try {
+    // HF-247 Phase 2: outcome quality gate at the write surface. A cache
+    // entry whose column_roles contains 'unknown' (or empty/null) records
+    // a failed classification — promoting it to authority would inject
+    // unknown@<confidence> bindings into future imports. Skip the write
+    // entirely. The fingerprint isn't suppressed forever: a subsequent
+    // successful classification of the same structure will write the
+    // resolved roles cleanly.
+    const hasUnknownRole = Object.values(columnRoles).some(role => role === 'unknown' || role === '' || role == null);
+    if (hasUnknownRole) {
+      console.log(`[SCI-FINGERPRINT] Skipped write (failed-outcome quality gate, HF-247): hash=${fingerprintHash.substring(0, 12)} file=${sourceFileName} — columnRoles contains 'unknown'`);
+      return;
+    }
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Check if record exists
