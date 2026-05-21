@@ -610,14 +610,22 @@ export async function convergeBindings(
   //
   // The variable name `unresolvedForAI` is retained for git-blame readability;
   // its membership semantics depend on the categorical-data branch below.
+  // OB-200 Phase 3: unification — Pass 5 always receives ALL required metrics,
+  // not the "unresolved" subset. Pre-OB-200 the pipeline had two paths: an
+  // earlier ratio-pair inline block produced filter-less derivations
+  // (filters:[]) which then GATED Pass 5 from firing for those metrics. That
+  // bypass kept filter and scope architecturally unreachable. The unification
+  // makes Pass 5 the authoritative derivation surface; column-mapping outputs
+  // from earlier passes INFORM the Pass 5 prompt (the AI knows which column
+  // each role binds to) but do not bypass the derivation step. Since
+  // applyMetricDerivations processes the array in order and the last entry
+  // wins per metric key, Pass 5's output supersedes earlier inline derivations
+  // without removing them — additive change preserving git-blame readability.
   const hasCategoricalData = capabilities.some(cap =>
     (cap.categoricalFields?.length ?? 0) > 0,
   );
-  const allResolvedMetrics = new Set(derivations.map(d => d.metric));
   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
-  const unresolvedForAI = hasCategoricalData
-    ? allRequiredMetrics
-    : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+  const unresolvedForAI = allRequiredMetrics;
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
@@ -1343,6 +1351,13 @@ interface ComponentInputRequirement {
   role: string;  // 'actual', 'row', 'column', 'numerator', 'denominator'
   metricField: string;  // HF-112: from sourceSpec.field (e.g., 'revenue_attainment')
   expectedRange: { min: number; max: number } | null;
+  /**
+   * OB-200 Phase 2: LLM-emitted scale metadata for this field, extracted from
+   * constant.meta on compare nodes referencing the field. When present,
+   * scoreColumnForRequirement applies it directly and skips the ratio-vs-
+   * percentage trial — the LLM told us the scale; we consume it.
+   */
+  scaleMetadata?: { unit: string; scale: number; confidence: number };
 }
 
 // HF-224: Generic intent tree traversal.
@@ -1501,6 +1516,66 @@ export function extractExpectedRangeFromDAG(
   return { min: Math.min(...constants), max: Math.max(...constants) };
 }
 
+/**
+ * OB-200 Phase 2: extract LLM-emitted scale metadata for a referenced field.
+ * Walks the DAG looking for compare nodes whose inputs are
+ * (reference(fieldName), constant{meta:{unit,scale,confidence}}) — the
+ * canonical pattern produced by prime-grammar's SCALE METADATA convention.
+ * Returns the first non-null meta found for the field (the LLM should emit
+ * a consistent scale across all thresholds for one field). When metadata
+ * is present, convergence consumes it directly and skips the ratio-vs-
+ * percentage trial in scoreColumnForRequirement. When absent, the HF-243
+ * extractExpectedRangeFromDAG fallback infers scale from threshold
+ * distribution — backward compatible with trees emitted before OB-200.
+ */
+export function extractScaleMetadataFromDAG(
+  node: unknown,
+  fieldName: string,
+): { unit: string; scale: number; confidence: number } | null {
+  if (!node || typeof node !== 'object') return null;
+  let found: { unit: string; scale: number; confidence: number } | null = null;
+
+  const walk = (n: unknown): void => {
+    if (found || !n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+
+    if (prime === 'compare' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const aIsRef = a && a.prime === 'reference' && a.field === fieldName;
+      const bIsRef = b && b.prime === 'reference' && b.field === fieldName;
+      const aMeta = a && a.prime === 'constant' && a.meta && typeof a.meta === 'object' ? a.meta as Record<string, unknown> : null;
+      const bMeta = b && b.prime === 'constant' && b.meta && typeof b.meta === 'object' ? b.meta as Record<string, unknown> : null;
+      if (aIsRef && bMeta && typeof bMeta.scale === 'number') {
+        found = {
+          unit: typeof bMeta.unit === 'string' ? bMeta.unit : 'ratio',
+          scale: bMeta.scale,
+          confidence: typeof bMeta.confidence === 'number' ? bMeta.confidence : 0.9,
+        };
+        return;
+      }
+      if (bIsRef && aMeta && typeof aMeta.scale === 'number') {
+        found = {
+          unit: typeof aMeta.unit === 'string' ? aMeta.unit : 'ratio',
+          scale: aMeta.scale,
+          confidence: typeof aMeta.confidence === 'number' ? aMeta.confidence : 0.9,
+        };
+        return;
+      }
+    }
+
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return found;
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
@@ -1525,10 +1600,14 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
     // scale inference identically to how extractRangeFromBoundaries drove it
     // for legacy bounded_lookup_1d/2d intents. No new code path — the same
     // inference function handles both shapes.
+    // OB-200 Phase 2: capture LLM-emitted scale metadata too. When present,
+    // scoreColumnForRequirement consumes it directly and skips inference; the
+    // HF-243 expectedRange path remains the fallback for trees without meta.
     return refs.map(field => ({
       role: field,
       metricField: field,
       expectedRange: extractExpectedRangeFromDAG(intent, field),
+      scaleMetadata: extractScaleMetadataFromDAG(intent, field) ?? undefined,
     }));
   }
 
@@ -1657,6 +1736,31 @@ function scoreColumnForRequirement(
   stats: ColumnValueStats,
   requirement: ComponentInputRequirement,
 ): { score: number; scaleFactor: number } {
+  // OB-200 Phase 2: when the LLM has emitted scale metadata for this field
+  // (constant.meta on compare nodes), consume it directly. The ratio-vs-
+  // percentage trial below is the HF-243 inference fallback; with explicit
+  // metadata we don't infer — we apply. Use stats overlap as the score so
+  // the binding still ranks columns by distribution fit, but the
+  // scale_factor on the resulting binding is authoritative from the plan.
+  if (requirement.scaleMetadata && typeof requirement.scaleMetadata.scale === 'number') {
+    const scale = requirement.scaleMetadata.scale;
+    if (requirement.expectedRange) {
+      const { min: expMin, max: expMax } = requirement.expectedRange;
+      if (expMax > expMin) {
+        const scaledMin = stats.min * scale;
+        const scaledMax = stats.max * scale;
+        const overlapMin = Math.max(scaledMin, expMin);
+        const overlapMax = Math.min(scaledMax, expMax);
+        const overlap = Math.max(0, overlapMax - overlapMin);
+        const boundarySpan = expMax - expMin;
+        const fit = boundarySpan > 0 ? overlap / boundarySpan : 0.5;
+        return { score: Math.max(0.5, fit), scaleFactor: scale };
+      }
+    }
+    // No expectedRange to score against, but scale metadata is authoritative.
+    return { score: 0.6, scaleFactor: scale };
+  }
+
   if (!requirement.expectedRange) {
     // No boundaries to match — return baseline score
     return { score: 0.1, scaleFactor: 1 };
@@ -2882,6 +2986,9 @@ Operations:
 - ratio: Divide one derived metric by another
 - delta: Difference between two values
 
+OB-200 Phase 3 — SCOPE EXPRESSION:
+When a metric must be aggregated across entity siblings (e.g., "district revenue", "team sales total", "manager override on subordinates"), emit the optional "scope" field on the derivation. scope.entity_group_by is the entity-attribute key that defines the sibling group (e.g., "district", "region", "team_lead_id"). When scope is present, the runtime wraps the produced DAG with a scope prime so the aggregate runs over sibling rows. Omit scope entirely for single-entity metrics. Use the metric's scope NOTE when provided to determine the right entity_group_by attribute.
+
 Respond with ONLY valid JSON, no markdown, no explanation:
 {
   "derivations": [
@@ -2891,7 +2998,8 @@ Respond with ONLY valid JSON, no markdown, no explanation:
       "source_field": "column_name_to_aggregate",
       "filters": [
         { "field": "column_name", "operator": "eq", "value": "filter_value" }
-      ]
+      ],
+      "scope": { "entity_group_by": "district", "aggregation_function": "sum" }
     }
   ],
   "gaps": [
@@ -2909,7 +3017,7 @@ ${metricDescriptions}
 Available data columns:
 ${columnDescriptions.join('\n')}
 
-Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
+Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category. Use scope when the metric label or NOTE indicates aggregation across an entity grouping.`;
 
   // 3. Call AI
   try {
@@ -2978,6 +3086,30 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
         // engine's deterministic execution path reads only the typed fields
         // it knows. Future intelligence consumers (signals, observatory,
         // debugging) can read the carried context without an emitter change.
+        // OB-200 Phase 3: scope extraction. The AI may emit scope as part of
+        // its derivation; validate the shape so a malformed emission is
+        // ignored rather than persisted. entity_group_by must be a non-empty
+        // string for the runtime to wrap with a scope prime.
+        let scope: MetricDerivationRule['scope'] | undefined;
+        const rawScope = d.scope as Record<string, unknown> | undefined;
+        if (rawScope && typeof rawScope === 'object') {
+          const egb = typeof rawScope.entity_group_by === 'string' ? rawScope.entity_group_by : undefined;
+          const aggFn = typeof rawScope.aggregation_function === 'string' ? rawScope.aggregation_function : undefined;
+          const tr = rawScope.temporal_range as Record<string, unknown> | undefined;
+          const trShape =
+            tr && typeof tr === 'object'
+              && typeof tr.offset === 'number'
+              && typeof tr.length === 'number'
+              ? { offset: tr.offset as number, length: tr.length as number }
+              : undefined;
+          if (egb || trShape || aggFn) {
+            scope = {
+              ...(egb ? { entity_group_by: egb } : {}),
+              ...(trShape ? { temporal_range: trShape } : {}),
+              ...(aggFn ? { aggregation_function: aggFn as 'sum' | 'count' | 'avg' | 'min' | 'max' } : {}),
+            };
+          }
+        }
         derivations.push({
           ...d,
           metric,
@@ -2985,6 +3117,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
           source_pattern: sourcePattern,
           source_field: d.source_field ? String(d.source_field) : undefined,
           filters,
+          ...(scope ? { scope } : {}),
         });
       }
     }

@@ -647,6 +647,16 @@ export interface LegacyDerivation {
   numerator_metric?: string;
   denominator_metric?: string;
   scale_factor?: number;
+  // OB-200 Phase 3: scope wrapper. When entity_group_by is present, the
+  // produced DAG is wrapped with a `scope` prime so evaluate() narrows
+  // activeRows to entity siblings sharing the boundary attribute value
+  // before reducing. temporal_range is reserved for future use; the
+  // current scope prime carries boundary only.
+  scope?: {
+    entity_group_by?: string;
+    temporal_range?: { offset: number; length: number };
+    aggregation_function?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  };
 }
 
 export function legacyDerivationToDAG(d: LegacyDerivation): PrimeNode {
@@ -730,6 +740,21 @@ export function legacyDerivationToDAG(d: LegacyDerivation): PrimeNode {
         downstream: dag,
       };
     }
+  }
+
+  // OB-200 Phase 3: wrap with scope prime when the derivation declares an
+  // entity-sibling grouping. The evaluator's scope case narrows activeRows
+  // to peer entities sharing the boundary attribute value before the
+  // filter chain + aggregate runs. Single execution path — scope expressed
+  // in the derivation rule reaches the same evaluate() surface as scope
+  // expressed in a component's calculationIntent.
+  if (d.scope?.entity_group_by) {
+    dag = {
+      prime: 'scope',
+      boundary: d.scope.entity_group_by,
+      downstream: dag,
+      ...(d.scope.temporal_range ? { temporal_range: d.scope.temporal_range } : {}),
+    };
   }
 
   return dag;

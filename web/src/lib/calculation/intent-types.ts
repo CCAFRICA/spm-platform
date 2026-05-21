@@ -363,15 +363,38 @@ export interface PrimePredicate {
  * as `arithmetic(subtract, <current>, prior_period(<prior>))` — one
  * execution path for every derivation type.
  */
+/**
+ * OB-200 Phase 2: scale metadata on constant nodes. The LLM annotates the
+ * constant with its native scale on the plan side ("120%" → value:120,
+ * meta:{unit:'percent',scale:100}). The convergence layer reads this to
+ * reconcile against data-native values without inference; the engine
+ * evaluator applies the scale to the compared reference at evaluate() time.
+ */
+export interface ConstantScaleMeta {
+  unit: 'percent' | 'ratio' | 'currency' | 'count';
+  scale: number;
+  confidence: number;
+}
+
+/**
+ * OB-200 Phase 2: temporal scope on `scope` nodes. Carries an optional
+ * temporal_range that switches activeRows to a windowed slice of prior
+ * periods, complementing the existing boundary attribute.
+ */
+export interface ScopeTemporalRange {
+  offset: number;
+  length: number;
+}
+
 export type PrimeNode =
   | { prime: 'arithmetic'; op: 'add' | 'subtract' | 'multiply' | 'divide'; inputs: [PrimeNode, PrimeNode] }
   | { prime: 'aggregate'; op: 'sum' | 'count' | 'avg' | 'min' | 'max'; field: string }
   | { prime: 'filter'; predicate: PrimePredicate; downstream: PrimeNode }
   | { prime: 'conditional'; condition: PrimeNode; then: PrimeNode; else: PrimeNode }
-  | { prime: 'scope'; boundary: string; downstream: PrimeNode }
+  | { prime: 'scope'; boundary: string; downstream: PrimeNode; temporal_range?: ScopeTemporalRange }
   | { prime: 'compare'; op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'; inputs: [PrimeNode, PrimeNode] }
   | { prime: 'logical'; op: 'and' | 'or' | 'not'; inputs: PrimeNode[] }
-  | { prime: 'constant'; value: number }
+  | { prime: 'constant'; value: number; meta?: ConstantScaleMeta }
   | { prime: 'reference'; field: string }
   | { prime: 'prior_period'; downstream: PrimeNode };
 
