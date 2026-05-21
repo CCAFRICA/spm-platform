@@ -425,7 +425,12 @@ export async function POST(req: NextRequest) {
             .filter(([, p]) => fileSheets.some(fs => fs.sheetName === p.tabName))
             .map(([id]) => id),
         );
-        if (fileUnitIds.size >= 2) {
+        // HF-247 Phase 1: signature qualifies on plan's OWN content (Korean
+        // Test, T1-E910 v2). Pre-HF-247 required hasRefOrTgt=true — a sibling
+        // data-type precondition that blocked cold-start (no reference/target
+        // sheets present). Single-sheet plans (>= 1 sheet) also qualify; the
+        // pre-HF-247 >= 2 floor excluded them entirely.
+        if (fileUnitIds.size >= 1) {
           const fileResolutions: Array<{ unitId: string; classification: AgentType; profile?: ContentProfile }> = [];
           for (const unitId of Array.from(fileUnitIds)) {
             const r = state.resolutions.get(unitId);
@@ -433,6 +438,10 @@ export async function POST(req: NextRequest) {
             if (r && p) fileResolutions.push({ unitId, classification: r.classification, profile: p });
           }
           const hasTransaction = fileResolutions.some(r => r.classification === 'transaction');
+          // HF-247: hasReferenceOrTarget retained for diagnostic logging only —
+          // no longer in the matchesPlanSignature AND chain. A plan workbook
+          // is a plan workbook because of what is IN it, not because of what
+          // other sibling data types happen to be present.
           const hasReferenceOrTarget = fileResolutions.some(
             r => r.classification === 'reference' || r.classification === 'target',
           );
@@ -450,9 +459,16 @@ export async function POST(req: NextRequest) {
               hasRateTableSignal = true;
             }
           }
+          // HF-247: structural plan signature derived from own content:
+          //   no transactional sheets present (transactional => not a plan)
+          //   AND totalRows < 1000 (plans are configuration-sized, not data-sized)
+          //   AND at least one sheet carries rate-table structural signal
+          //     (sparsity / percentage values / auto-generated headers / reference-category row count).
+          // Cold-start support: a plan file imported alone (no reference/target
+          // sheets at the tenant) now qualifies. Single-sheet plans (1 sheet
+          // file) also qualify.
           const matchesPlanSignature =
             !hasTransaction
-            && hasReferenceOrTarget
             && totalRows < 1000
             && hasRateTableSignal;
           if (matchesPlanSignature) {
@@ -496,10 +512,14 @@ export async function POST(req: NextRequest) {
               }
             }
           } else {
+            // HF-247: hasRefOrTgt retained in the log as DIAGNOSTIC context only.
+            // It is not a precondition — the AND chain at matchesPlanSignature
+            // above does not reference it. A plan workbook qualifies on its
+            // own content; sibling data-type presence is incidental.
             console.log(
               `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
-              `totalRows=${totalRows} hasTx=${hasTransaction} hasRefOrTgt=${hasReferenceOrTarget} ` +
-              `rateTableSignal=${hasRateTableSignal} — no plan signature`,
+              `totalRows=${totalRows} hasTx=${hasTransaction} rateTableSignal=${hasRateTableSignal} ` +
+              `hasRefOrTgt=${hasReferenceOrTarget} (informational) — no plan signature`,
             );
           }
         }
