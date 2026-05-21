@@ -12,6 +12,7 @@ import {
   AIServiceConfig,
   AITaskType,
 } from '../types';
+import { generatePromptGrammarSection } from '../../calculation/prime-grammar';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -425,232 +426,7 @@ IMPORTANT GUIDELINES:
 3. Return confidence scores (0-100) for each component and overall.
 4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
-=== CALCULATION INTENT (PRIME-DAG COMPOSITION) ===
-
-FOR EACH COMPONENT, produce a "calculationIntent" field as a recursive PrimeNode tree composed of nine irreducible building blocks. The execution engine walks this tree directly. Do NOT emit named operation types (scalar_multiply, conditional_gate, piecewise_linear, etc.) — compose them from primes instead.
-
-NINE PRIMES (the only operations the engine recognizes):
-
-1. constant     — { "prime": "constant", "value": <number> }
-2. reference    — { "prime": "reference", "field": "<metric_name>" }
-                  Reads a numeric value from the entity's resolved metrics map.
-                  Synthetic-key references for non-metric sources:
-                    "attr:<attribute>"               → entity attribute (numeric/coerced)
-                    "prior:<componentIndex>"         → output of an earlier component
-                    "cross_data:<dataType>:<agg>[:<field>]" → cross-plan data count/sum
-                    "group:<metric>"                 → group-scope aggregate
-                  For hierarchical (district / region) aggregates, compose
-                  the "scope" prime over an "aggregate" downstream directly —
-                  do NOT use a reference synthetic key. See Example E.
-3. arithmetic   — { "prime": "arithmetic", "op": "add"|"subtract"|"multiply"|"divide", "inputs": [A, B] }
-                  divide returns 0 when B is 0.
-4. compare      — { "prime": "compare", "op": "gt"|"gte"|"lt"|"lte"|"eq"|"neq", "inputs": [A, B] }
-                  Returns 1 (true) or 0 (false).
-5. logical      — { "prime": "logical", "op": "and"|"or"|"not", "inputs": [A, B, ...] }
-                  Returns 1 (true) or 0 (false). Truthy = value > 0.
-6. conditional  — { "prime": "conditional", "condition": <node>, "then": <node>, "else": <node> }
-                  Branches on condition truthy (> 0).
-7. filter       — { "prime": "filter", "predicate": {"field":"<col>","operator":"<op>","value":<v>}, "downstream": <node> }
-                  Narrows activeRows for the subtree. Operators: eq, neq, gt, gte, lt, lte, contains.
-8. scope        — { "prime": "scope", "boundary": "<attribute>", "downstream": <node> }
-                  Narrows activeRows to entity siblings sharing the same boundary attribute value.
-9. aggregate    — { "prime": "aggregate", "op": "sum"|"count"|"avg"|"min"|"max", "field": "<row_field>" }
-                  Reduces activeRows to a single number.
-
-COMPOSITION GUIDE — every legacy pattern composes from these primes:
-
-A) Simple rate × metric (e.g., "4% of warranty sales"):
-{
-  "calculationIntent": {
-    "prime": "arithmetic", "op": "multiply",
-    "inputs": [
-      { "prime": "reference", "field": "warranty_sales" },
-      { "prime": "constant",  "value": 0.04 }
-    ]
-  }
-}
-
-B) Linear function (rate × metric + intercept, e.g., "6% of revenue plus $200"):
-{
-  "calculationIntent": {
-    "prime": "arithmetic", "op": "add",
-    "inputs": [
-      { "prime": "arithmetic", "op": "multiply",
-        "inputs": [
-          { "prime": "reference", "field": "period_equipment_revenue" },
-          { "prime": "constant",  "value": 0.06 }
-        ]},
-      { "prime": "constant", "value": 200 }
-    ]
-  }
-}
-
-C) Conditional gate (e.g., "5% if attainment >= 100%, else 3% if >= 85%, else 0"):
-{
-  "calculationIntent": {
-    "prime": "conditional",
-    "condition": { "prime": "compare", "op": "gte",
-      "inputs": [
-        { "prime": "reference", "field": "store_goal_attainment" },
-        { "prime": "constant",  "value": 100 }
-      ]
-    },
-    "then": { "prime": "arithmetic", "op": "multiply",
-      "inputs": [
-        { "prime": "reference", "field": "insurance_sales" },
-        { "prime": "constant",  "value": 0.05 }
-      ]
-    },
-    "else": {
-      "prime": "conditional",
-      "condition": { "prime": "compare", "op": "gte",
-        "inputs": [
-          { "prime": "reference", "field": "store_goal_attainment" },
-          { "prime": "constant",  "value": 85 }
-        ]
-      },
-      "then": { "prime": "arithmetic", "op": "multiply",
-        "inputs": [
-          { "prime": "reference", "field": "insurance_sales" },
-          { "prime": "constant",  "value": 0.03 }
-        ]
-      },
-      "else": { "prime": "constant", "value": 0 }
-    }
-  }
-}
-
-D) Piecewise rate × base (e.g., "3% if attainment < 100%, 5% if 100%-120%, 8% if >= 120%, applied to consumable_revenue"):
-Express tier selection as nested conditional + logical(and) + compare. The selected tier's rate multiplies the base.
-{
-  "calculationIntent": {
-    "prime": "conditional",
-    "condition": { "prime": "compare", "op": "gte",
-      "inputs": [
-        { "prime": "arithmetic", "op": "divide",
-          "inputs": [
-            { "prime": "reference", "field": "consumable_revenue" },
-            { "prime": "reference", "field": "monthly_quota" }
-          ]},
-        { "prime": "constant", "value": 1.2 }
-      ]
-    },
-    "then": { "prime": "arithmetic", "op": "multiply",
-      "inputs": [
-        { "prime": "reference", "field": "consumable_revenue" },
-        { "prime": "constant",  "value": 0.08 }
-      ]
-    },
-    "else": {
-      "prime": "conditional",
-      "condition": { "prime": "logical", "op": "and",
-        "inputs": [
-          { "prime": "compare", "op": "gte",
-            "inputs": [
-              { "prime": "arithmetic", "op": "divide",
-                "inputs": [
-                  { "prime": "reference", "field": "consumable_revenue" },
-                  { "prime": "reference", "field": "monthly_quota" }
-                ]},
-              { "prime": "constant", "value": 1.0 }
-            ]},
-          { "prime": "compare", "op": "lt",
-            "inputs": [
-              { "prime": "arithmetic", "op": "divide",
-                "inputs": [
-                  { "prime": "reference", "field": "consumable_revenue" },
-                  { "prime": "reference", "field": "monthly_quota" }
-                ]},
-              { "prime": "constant", "value": 1.2 }
-            ]}
-        ]
-      },
-      "then": { "prime": "arithmetic", "op": "multiply",
-        "inputs": [
-          { "prime": "reference", "field": "consumable_revenue" },
-          { "prime": "constant",  "value": 0.05 }
-        ]
-      },
-      "else": { "prime": "arithmetic", "op": "multiply",
-        "inputs": [
-          { "prime": "reference", "field": "consumable_revenue" },
-          { "prime": "constant",  "value": 0.03 }
-        ]
-      }
-    }
-  }
-}
-
-E) Manager / regional override (sum a metric across siblings in the same hierarchy, then multiply by a rate):
-The "boundary" string names the entity attribute the engine uses to identify peers — typically "district" or "region".
-{
-  "calculationIntent": {
-    "prime": "arithmetic", "op": "multiply",
-    "inputs": [
-      { "prime": "scope", "boundary": "district",
-        "downstream": { "prime": "aggregate", "op": "sum", "field": "equipment_revenue" }
-      },
-      { "prime": "constant", "value": 0.015 }
-    ]
-  }
-}
-
-F) Cap modifier (e.g., "commission capped at $5,000"): wrap the base computation with a conditional that returns the cap when exceeded.
-{
-  "calculationIntent": {
-    "prime": "conditional",
-    "condition": { "prime": "compare", "op": "gt",
-      "inputs": [
-        <BASE_COMPUTATION>,
-        { "prime": "constant", "value": 5000 }
-      ]
-    },
-    "then": { "prime": "constant", "value": 5000 },
-    "else": <BASE_COMPUTATION>
-  }
-}
-
-G) Floor modifier ("minimum guarantee $500"): same pattern with "lt" + constant on the then branch:
-{
-  "prime": "conditional",
-  "condition": { "prime": "compare", "op": "lt", "inputs": [<BASE>, { "prime": "constant", "value": 500 }] },
-  "then": { "prime": "constant", "value": 500 },
-  "else": <BASE>
-}
-
-H) Input constraint (e.g., "attainment capped at 150% before applying rate"): wrap the input — not the output — in a conditional that caps it at the upper bound.
-{
-  "calculationIntent": {
-    "prime": "arithmetic", "op": "multiply",
-    "inputs": [
-      { "prime": "conditional",
-        "condition": { "prime": "compare", "op": "lte",
-          "inputs": [
-            { "prime": "arithmetic", "op": "divide",
-              "inputs": [
-                { "prime": "reference", "field": "actual_units" },
-                { "prime": "reference", "field": "target_units" }
-              ]},
-            { "prime": "constant", "value": 1.5 }
-          ]},
-        "then": { "prime": "arithmetic", "op": "divide",
-          "inputs": [
-            { "prime": "reference", "field": "actual_units" },
-            { "prime": "reference", "field": "target_units" }
-          ]},
-        "else": { "prime": "constant", "value": 1.5 }
-      },
-      { "prime": "constant", "value": 800 }
-    ]
-  }
-}
-
-DECISION 127 — boundary inclusivity in tier conditionals:
-When translating tiered/piecewise plans, express tier-selection ranges as half-open intervals [min, max). For each non-final tier use "compare gte" against min AND "compare lt" against max, joined by "logical and". For the final tier (open-ended ceiling), use "compare gte" against the min only.
-
-DO NOT use .999 / .X99 / decimal-truncation patterns. Express "less than X" as a "compare lt" against X.
-
-CRITICAL: Every component MUST include both "calculationMethod" (existing free-form description) AND "calculationIntent" (the PrimeNode tree). The tree's root must carry a "prime" discriminator from the nine listed above. The engine rejects any node whose discriminator is not one of the nine.
+<<PRIME_GRAMMAR>>
 
 Return your analysis as valid JSON.`,
 
@@ -941,6 +717,12 @@ export class AnthropicAdapter implements AIProviderAdapter {
     }
     if (systemPrompt.includes('<<STRUCTURAL_EXAMPLES>>')) {
       systemPrompt = systemPrompt.replace('<<STRUCTURAL_EXAMPLES>>', buildStructuralExamplesForPrompt());
+    }
+    // OB-200 Phase 1: prime-DAG composition surface is generated from
+    // prime-grammar.ts (the canonical declaration per T1-E910 v2). No private
+    // copy of the composition rules lives in the prompt template.
+    if (systemPrompt.includes('<<PRIME_GRAMMAR>>')) {
+      systemPrompt = systemPrompt.replace('<<PRIME_GRAMMAR>>', generatePromptGrammarSection());
     }
 
     // Build message content — supports both plain text and document blocks (PDF)
