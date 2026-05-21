@@ -464,6 +464,10 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
     });
   };
 
+  // HF-240: DIAG-053's UX banner is REVERTED. The architecturally correct
+  // fix is server-side plan-workbook signature detection in the analyze
+  // route, not a user override banner. See HF-240 completion report.
+
   const handleImport = () => {
     onConfirmAll(effectiveUnits);
   };
@@ -477,6 +481,10 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
           {effectiveUnits.length} content unit{effectiveUnits.length !== 1 ? 's' : ''} detected
         </p>
       </div>
+
+      {/* HF-240: DIAG-053 banner removed. Plan-workbook detection now
+          happens server-side in the analyze route via the structural
+          plan-workbook signature reclassification. */}
 
       {/* Summary bar */}
       <SummaryBar

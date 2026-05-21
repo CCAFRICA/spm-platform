@@ -22,6 +22,10 @@ import {
   type AIContextSheet,
   type MetricDerivationRule,
   rowMatchesFilters,
+  // HF-228 Phase 4: production entity loop now executes convergence-produced
+  // metric_derivations rules so derived metrics (e.g. filtered counts,
+  // cross-category sums) reach the intent executor's data.metrics map.
+  applyMetricDerivations,
 } from '@/lib/calculation/run-calculation';
 import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
@@ -30,7 +34,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
-import { convergeBindings } from '@/lib/intelligence/convergence-service';
+import { convergeBindings, extractLeafSources, extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
@@ -98,7 +102,10 @@ export async function POST(request: NextRequest) {
   // HF-208: Reconciliation summary counters. Incremented at existing emission sites;
   // surfaced in the [CalcRecon] summary block at handler exit. See HF-208 directive §3.
   // HF-220 R2: ob118MergeGuardFiredCount retired (merge-guard removed; counter vestigial).
-  let diag003FallbackCount = 0;
+  // HF-222 Phase 3: diag003FallbackCount retired (schema-class root closure eliminated
+  // the fallback path; counter remains for [CalcRecon-T1] footer schema stability —
+  // always logs 0 post-Phase-3).
+  const diag003FallbackCount = 0;
   // boundaryFallbackCount derived post-hoc from convergence_bindings.match_pass===3 at handler exit.
 
   // HF-210: Cap route.ts [CalcTrace] emissions at first N entities for log visibility.
@@ -224,8 +231,22 @@ export async function POST(request: NextRequest) {
     const rawBindings = ruleSet.input_bindings as Record<string, unknown> | null;
     const hasMetricDerivations = Array.isArray(rawBindings?.metric_derivations) && (rawBindings.metric_derivations as unknown[]).length > 0;
     const hasConvergenceBindings = rawBindings?.convergence_bindings && Object.keys(rawBindings.convergence_bindings as Record<string, unknown>).length > 0;
+    // HF-226 Phase 2B: convergence_version marker. Pre-HF-226 bindings were
+    // produced by generateDerivationsForMatch which hardcoded filters: [] —
+    // they look "complete" but never carry filter information. Re-derive
+    // when the marker is absent so the unified Pass 4 path runs fresh and
+    // produces filters for metrics that semantically require categorical
+    // subsetting.
+    const convergenceVersion = typeof rawBindings?.convergence_version === 'string' ? rawBindings.convergence_version : null;
+    // HF-234: separation of concerns moved filter discovery from Call 1's
+    // binding output to Pass 4's metric_derivations. Pre-HF-234 bindings may
+    // carry filters on the binding entry from Call 1's object-form return;
+    // those are now stale because Pass 4 also produces filters for the same
+    // metric (different key) and the engine consumes BOTH. Force re-derive
+    // for any rule_set not yet at HF-234.
+    const bindingsAreCurrent = convergenceVersion === 'HF-234';
 
-    if (!hasMetricDerivations && !hasConvergenceBindings) {
+    if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
       try {
         const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
@@ -245,6 +266,13 @@ export async function POST(request: NextRequest) {
           if (derivationCount > 0) {
             updatedBindings.metric_derivations = convResult.derivations;
           }
+
+          // HF-234: stamp the convergence_version so the reuse gate at line
+          // ~228 can distinguish pre-HF-234 (filters on binding) from
+          // post-HF-234 (filters on metric_derivations only) outputs. Bumped
+          // from 'HF-226' once the Call-1 prompt stopped requesting filters
+          // and Pass 4 became the sole filter-discovery surface.
+          updatedBindings.convergence_version = 'HF-234';
 
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
@@ -316,7 +344,9 @@ export async function POST(request: NextRequest) {
   }
 
   // HF-108: Parse convergence_bindings from input_bindings (Decision 111)
-  // Per-component bindings: { component_N: { actual: { source_batch_id, column, ... }, ... } }
+  // Per-component bindings: { component_N: { actual: { column, learning_provenance, ... }, ... } }
+  // HF-222 Phase 3: learning_provenance.batch_id replaces the prior collapsed batch-id field;
+  // data-location resolution is column-name-keyed across all operative-period batches.
   // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
   const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
@@ -714,56 +744,43 @@ export async function POST(request: NextRequest) {
   // HF-109: Build batch-indexed data cache keyed by external_id via convergence binding column (DS-009 5.1)
   // Maps batchId → entity_external_id_value → [row_data, ...] for O(1) lookup during calculation
   // Key is the VALUE of row_data[entity_identifier_column], NOT the entity_id FK UUID
+  //
+  // HF-222 Phase 3 (schema-class root closure): the prior batch-id-keyed
+  // intermediary map for entity column resolution is eliminated. Entity column
+  // resolution now derives directly from convergenceBindings — every component's
+  // entity_identifier binding contributes its column name; the canonical path is
+  // single-column-shared-across-batches (the DIAG-003 operative assumption).
+  // Downstream consumers (resolveColumnFromBatch) iterate dataByBatch by column
+  // name; no batch_id mediation.
   const dataByBatch = new Map<string, Map<string, Array<Record<string, unknown>>>>();
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
-    // Step 1: Collect entity_identifier columns per batch from convergence bindings
-    const entityColsByBatch = new Map<string, string>();
-    for (const compBindings of Object.values(convergenceBindings)) {
-      const cb = compBindings as Record<string, { source_batch_id?: string; column?: string }>;
-      const entityIdBinding = cb.entity_identifier;
-      if (entityIdBinding?.source_batch_id && entityIdBinding?.column) {
-        entityColsByBatch.set(entityIdBinding.source_batch_id, entityIdBinding.column);
+    // Derive known entity columns directly from convergenceBindings.
+    const knownEntityCols = Array.from(new Set(
+      Object.values(convergenceBindings)
+        .map(comp => (comp as Record<string, unknown> | undefined)?.entity_identifier as
+          { column?: string } | undefined)
+        .map(eid => eid?.column)
+        .filter((col): col is string => !!col && col.length > 0)
+    ));
+    const entityCol: string | undefined = knownEntityCols[0];
+
+    if (entityCol) {
+      for (const row of committedData) {
+        const batchId = row.import_batch_id;
+        if (!batchId) continue;
+
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        const entityKey = String(rd[entityCol] ?? '').trim();
+        if (!entityKey) continue;
+
+        if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
+        const entityMap = dataByBatch.get(batchId)!;
+        if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
+        entityMap.get(entityKey)!.push(rd);
       }
-      // HF-111: Index ALL binding role batches (actual, target, row, column, numerator, denominator)
-      const bindingRoles = ['actual', 'target', 'row', 'column', 'numerator', 'denominator'];
-      for (const role of bindingRoles) {
-        const binding = cb[role];
-        if (binding?.source_batch_id && !entityColsByBatch.has(binding.source_batch_id)) {
-          if (entityIdBinding?.column) {
-            entityColsByBatch.set(binding.source_batch_id, entityIdBinding.column);
-          }
-        }
-      }
+      addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
     }
-
-    // Step 2: Index committed_data by row_data[entity_column] value (DS-009 pattern)
-    // DIAG-003: The entity_identifier column name is the SAME across batches (e.g., "ID_Empleado").
-    // Convergence bindings reference the source_batch_id where the column was LEARNED,
-    // but new periods have different import_batch_ids with the SAME column names.
-    // Index ALL committed_data rows using any known entity column, not just source_batch rows.
-    const knownEntityCols = Array.from(new Set(Array.from(entityColsByBatch.values())));
-    for (const row of committedData) {
-      const batchId = row.import_batch_id;
-      if (!batchId) continue;
-
-      // Try the batch-specific entity column first, then any known entity column
-      let entityCol = entityColsByBatch.get(batchId);
-      if (!entityCol && knownEntityCols.length > 0) {
-        entityCol = knownEntityCols[0]; // Same column name applies across batches
-      }
-      if (!entityCol) continue;
-
-      const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-        ? row.row_data as Record<string, unknown> : {};
-      const entityKey = String(rd[entityCol] ?? '').trim();
-      if (!entityKey) continue;
-
-      if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
-      const entityMap = dataByBatch.get(batchId)!;
-      if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
-      entityMap.get(entityKey)!.push(rd);
-    }
-    addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
   }
 
   // HF-216: Build roster join index for entity_identifier.via bindings.
@@ -1261,14 +1278,6 @@ export async function POST(request: NextRequest) {
     if (shouldEmitTrace(entityExternalId)) {
       bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
     }
-    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
-    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
-    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
-    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
-    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
-
-    // Need at least one measure binding
-    if (!actualBinding?.source_batch_id && !numBinding?.source_batch_id) return null;
 
     // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
     // through the roster-join index to produce the lookup key against the measure
@@ -1294,20 +1303,81 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // HF-242: prime_dag components carry per-field bindings keyed by the
+    // DAG reference field name (set by extractInputRequirements'
+    // prime_dag branch). The DAG evaluator reads every field from
+    // context.metrics uniformly — no role-slot semantics — so resolution
+    // walks the DAG's reference set and reads each field's binding by
+    // name. This branch runs BEFORE the legacy role-binding extraction
+    // because prime_dag components have NO `actual` / `row` / `numerator`
+    // role keys — the early return guard for legacy bindings would
+    // short-circuit before reaching this branch otherwise.
+    const compType = (component as unknown as { componentType?: string }).componentType;
+    const intent = component.calculationIntent as Record<string, unknown> | undefined;
+    const intentIsPrimeNode = !!intent && typeof intent.prime === 'string';
+    if (compType === 'prime_dag' || intentIsPrimeNode) {
+      const refs = extractReferencesFromDAG(intent);
+      const dagMetrics: Record<string, number> = {};
+      for (const field of refs) {
+        const fieldBinding = compBindings[field] as ConvergenceBindingEntry | undefined;
+        if (!fieldBinding?.column) continue;
+        const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters);
+        if (rawValue === null) continue;
+        const scaled = fieldBinding.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
+        dagMetrics[field] = scaled;
+        if (shouldEmitTrace(entityExternalId)) {
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:prime_dag_field entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | field=${field} | column=${fieldBinding.column} | raw=${rawValue} | scale=${fieldBinding.scale_factor ?? 'undefined'} | scaled=${scaled}`);
+        }
+      }
+      const dagResult = Object.keys(dagMetrics).length > 0 ? dagMetrics : null;
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=prime_dag | refs=${refs.length} | resolved=${Object.keys(dagMetrics).length} | metrics=${JSON.stringify(dagMetrics)} | returnedNull=${dagResult === null}`);
+      }
+      return dagResult;
+    }
+
+    // HF-111: Support multiple binding roles — actual, row, column, numerator, denominator
+    const actualBinding = (compBindings.actual || compBindings.row) as ConvergenceBindingEntry | undefined;
+    const targetBinding = (compBindings.target || compBindings.column) as ConvergenceBindingEntry | undefined;
+    const numBinding = compBindings.numerator as ConvergenceBindingEntry | undefined;
+    const denBinding = compBindings.denominator as ConvergenceBindingEntry | undefined;
+
+    // Need at least one measure binding (HF-222 Phase 3: gate on column rather than
+    // the retired batch-id field).
+    if (!actualBinding?.column && !numBinding?.column) return null;
+
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
 
     const metrics: Record<string, number> = {};
 
+    // HF-227 — Decision 111 single-structure completion. Pre-HF-227 the engine
+    // looked up filters from metric_derivations via the findMetricFilters
+    // bridge (HF-226 Phase 3B), which depended on metric-name matching across
+    // two independently produced structures. Post-HF-227 each binding entry
+    // carries its own filters: resolveColumnMappingsViaAI produces them and
+    // generateAllComponentBindings writes them to the binding. The engine
+    // reads binding.filters natively. Empty / absent arrays preserve byte-
+    // identical pre-HF-227 behavior via rowMatchesFilters returning true on
+    // empty filter arrays.
+
     // HF-111: Ratio input — resolve both numerator and denominator
-    if (numBinding?.source_batch_id && numBinding?.column &&
-        denBinding?.source_batch_id && denBinding?.column) {
-      const rawNumValue = resolveColumnFromBatch(
-        numBinding.source_batch_id, numBinding.column, lookupKey
-      );
-      const rawDenValue = resolveColumnFromBatch(
-        denBinding.source_batch_id, denBinding.column, lookupKey
-      );
+    // HF-222 Phase 3: gate on column; resolveColumnFromBatch is column-name-keyed.
+    if (numBinding?.column && denBinding?.column) {
+      // HF-224 / HF-226: extract ratio leaf names BEFORE the column reads so
+      // the metric-name resolution flows through to the metrics map below.
+      const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
+      const ratioSpec = ratioLeafForNames?.sourceSpec;
+      const numMetricName = typeof ratioSpec?.numerator === 'string'
+        ? ratioSpec.numerator.replace(/^metric:/, '')
+        : null;
+      const denMetricName = typeof ratioSpec?.denominator === 'string'
+        ? ratioSpec.denominator.replace(/^metric:/, '')
+        : null;
+
+      // HF-227: filters read from the binding entry, not from metric_derivations.
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters);
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1317,25 +1387,6 @@ export async function POST(request: NextRequest) {
       if (shouldEmitTrace(entityExternalId)) {
         bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
       }
-
-      // HF-217: Write raw numerator and denominator to their declared metric names.
-      // The intent-executor's source:'ratio' resolver divides them at execution time.
-      // Reads metric names from the binding-declared intent (component.calculationIntent
-      // .input.sourceSpec.{numerator,denominator}), not from expectedMetrics position,
-      // to avoid fragility against AST walk order. Pre-HF-217 the function wrote the
-      // pre-divided ratio to expectedMetrics[0] and left expectedMetrics[1] unfilled,
-      // which let the OB-118 merge guard backfill the second key from derivedMetrics
-      // (count rule) so the intent-executor's ratio resolver then divided the already-
-      // divided value by the count — producing nonsense.
-      const ratioIntent = (component.calculationIntent as Record<string, unknown> | undefined)?.input as
-        Record<string, unknown> | undefined;
-      const ratioSpec = ratioIntent?.sourceSpec as Record<string, unknown> | undefined;
-      const numMetricName = typeof ratioSpec?.numerator === 'string'
-        ? ratioSpec.numerator.replace(/^metric:/, '')
-        : null;
-      const denMetricName = typeof ratioSpec?.denominator === 'string'
-        ? ratioSpec.denominator.replace(/^metric:/, '')
-        : null;
 
       if (numMetricName && numValue !== null) {
         metrics[numMetricName] = numValue;
@@ -1351,10 +1402,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Single or dual input (actual + target, or row + column)
-    if (actualBinding?.source_batch_id && actualBinding?.column) {
-      const rawActualValue = resolveColumnFromBatch(
-        actualBinding.source_batch_id, actualBinding.column, lookupKey
-      );
+    // HF-222 Phase 3: gate on column.
+    if (actualBinding?.column) {
+      // HF-227: filters live on the binding entry (Decision 111 single-
+      // structure completion; replaces HF-226's findMetricFilters bridge).
+      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, actualBinding.filters);
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1373,10 +1425,10 @@ export async function POST(request: NextRequest) {
       metrics[expectedMetrics[0]] = actualValue;
 
       // Resolve target/column value if binding exists
-      if (targetBinding?.source_batch_id && targetBinding?.column) {
-        const rawTargetValue = resolveColumnFromBatch(
-          targetBinding.source_batch_id, targetBinding.column, lookupKey
-        );
+      // HF-222 Phase 3: gate on column.
+      if (targetBinding?.column) {
+        // HF-227: filters read from the binding entry directly.
+        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, targetBinding.filters);
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
@@ -1411,68 +1463,51 @@ export async function POST(request: NextRequest) {
   // HF-109: Resolve a single column value for an entity from the batch data cache (DS-009 5.1).
   // Uses external_id as lookup key (the cache is indexed by row_data[entity_column] values).
   // Sums all matching rows (for period aggregation).
+  //
+  // HF-222 Phase 3 (schema-class root closure): the prior signature took a batch_id
+  // intermediary derived from the binding's recorded learning-provenance batch;
+  // the function now resolves by column name across all operative-period batches
+  // in dataByBatch. The first batch that contains the entity provides the rows.
+  // This is the canonical post-class-closure path — the prior dual-path code
+  // (batch-keyed primary, all-batches fallback) collapses to single-path.
   function resolveColumnFromBatch(
-    batchId: string,
     column: string,
     entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
   ): number | null {
-    const initialBatchPresent = dataByBatch.has(batchId);
-    let batchEntityMap = dataByBatch.get(batchId);
-    const initialEntityPresent = !!batchEntityMap?.has(entityExternalId);
-
-    // DIAG-003: If the binding's source_batch_id doesn't have data (different period),
-    // search ALL cached batches for this entity's data. The column names are the same
-    // across batches — only the batch_id differs between periods.
-    let diag003Fallback = false;
-    if (!batchEntityMap || !batchEntityMap.has(entityExternalId)) {
-      for (const [, map] of Array.from(dataByBatch.entries())) {
-        if (map.has(entityExternalId)) {
-          batchEntityMap = map;
-          diag003Fallback = true;
-          diag003FallbackCount++;  // HF-208: track per-call diag003 fallback engagements
-          // HF-212 TIER 3: emit exception detail inline (always visible) + push flag for Tier 2
-          addLog(`[CalcRecon-T3] EXCEPTION entity=${entityExternalId} type=diag003Fallback batchId=${batchId} column=${column}`);
-          currentEntityFlags.push('diag003Fallback');
-          // HF-218 Component 4a: mirror T3 EXCEPTION into classification_signals.
-          writeSignal({
-            tenantId,
-            signalType: 'engine:exception',
-            signalValue: {
-              entity_external_id: entityExternalId,
-              type: 'diag003Fallback',
-              batch_id: batchId,
-              column,
-            },
-            confidence: 0,
-            source: 'system',
-            calculationRunId,
-            ruleSetId,
-            context: { trigger: 'engine_fallback_t3', fallback_kind: 'diag003' },
-          }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!).catch(() => { /* non-blocking */ });
-          break;
-        }
+    let entityRows: Array<Record<string, unknown>> | undefined;
+    for (const [, map] of Array.from(dataByBatch.entries())) {
+      const rows = map.get(entityExternalId);
+      if (rows && rows.length > 0) {
+        entityRows = rows;
+        break;
       }
     }
-    if (!batchEntityMap) {
+    if (!entityRows) {
       if (shouldEmitTrace(entityExternalId)) {
-        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_batch_map | returned=null`);
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reason=no_rows | returned=null`);
       }
       return null;
     }
 
-    // DS-009 5.1: look up by external_id — the cache key IS the entity identifier value
-    const rows = batchEntityMap.get(entityExternalId);
-    if (!rows || rows.length === 0) {
-      if (shouldEmitTrace(entityExternalId)) {
-        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | reason=no_rows | returned=null`);
-      }
-      return null;
-    }
-
+    // HF-226 Phase 3A — unified filter contract. Pre-HF-226 this function had
+    // no filter parameter and summed every row, while the parallel engine path
+    // (applyMetricDerivations in run-calculation.ts) respected filters via
+    // rowMatchesFilters. The two paths differed on the filter contract, which
+    // is the engine-side manifestation of the filter-loss class (DIAG-047).
+    // rowMatchesFilters returns true for empty/missing filter arrays, so this
+    // is a pure capability addition: callers that don't pass filters get
+    // byte-identical behavior to today (Meridian / BCL preserved).
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
     let sum = 0;
     let found = false;
+    let filteredOut = 0;
     const perRowValues: unknown[] = [];
-    for (const rd of rows) {
+    for (const rd of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+        filteredOut += 1;
+        continue;
+      }
       const val = rd[column];
       perRowValues.push(val);
       if (val === null || val === undefined) continue;
@@ -1489,7 +1524,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (shouldEmitTrace(entityExternalId)) {
-      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | batchId=${batchId} | column=${column} | initialBatchPresent=${initialBatchPresent} | initialEntityPresent=${initialEntityPresent} | diag003Fallback=${diag003Fallback} | rowCount=${rows.length} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | filteredOut=${filteredOut} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
     }
 
     return found ? sum : null;
@@ -1666,6 +1701,24 @@ export async function POST(request: NextRequest) {
   addLog(`[CalcRecon-T1] verbosityMode=${CALC_TRACE_VERBOSE ? 'FORENSIC (Tier 4 enabled)' : 'DEFAULT (Tier 1-3 only)'}`);
   addLog(`[CalcRecon-T1] ─── Loop starts; Tier 2 lines emit per entity, Tier 3 emit on exceptions ───`);
 
+  // HF-238 Phase 3: build allEntityRows once per period for the scope+aggregate
+  // prime composition. The structural scope prime narrows allEntityRows to
+  // peer entities sharing the boundary attribute value; previously this was
+  // pre-computed per-entity via aggregateScopeRows (deleted below).
+  const allEntityRowsForPeriod: Array<{ entityMetadata: Record<string, unknown>; row: Record<string, unknown> }> = [];
+  for (const [eid, sheetMap] of Array.from(dataByEntity.entries())) {
+    const meta = (entityMap.get(eid)?.metadata || {}) as Record<string, unknown>;
+    const metaWithId: Record<string, unknown> = { ...meta, entityId: eid };
+    for (const [, rows] of Array.from(sheetMap.entries())) {
+      for (const r of rows) {
+        const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data))
+          ? r.row_data as Record<string, unknown>
+          : {};
+        allEntityRowsForPeriod.push({ entityMetadata: metaWithId, row: rd });
+      }
+    }
+  }
+
   for (const entityId of calculationEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
@@ -1785,6 +1838,24 @@ export async function POST(request: NextRequest) {
     const perComponentMetrics: Record<string, number>[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
+    // HF-228 Phase 4: execute convergence-produced metric_derivations to make
+    // derived metrics available to the intent executor. Convergence produces
+    // derivation rules (operation + filter + source_field per
+    // MetricDerivationRule) that the engine's binding-based path
+    // (resolveMetricsFromConvergenceBindings) cannot express — filtered
+    // counts (Cross-Sell conditional_gate), cross-category sums, ratio
+    // derivations, prior-period deltas. Pre-HF-228 the production loop
+    // bypassed applyMetricDerivations entirely (DIAG-048 Phase 10 evidence):
+    // the convergence pipeline produced correct rules but the engine never
+    // executed them, so dependent metrics (equipment_deal_count,
+    // cross_sell_count, etc.) were undefined when the intent executor
+    // read data.metrics. Runs once per entity (rules are entity-agnostic);
+    // results merge into each component's metrics map below.
+    const perEntitySheetData = dataByEntity.get(entityId);
+    const derivedMetrics: Record<string, number> = perEntitySheetData && metricDerivations.length > 0
+      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+      : {};
+
     for (let compIdx = 0; compIdx < selectedComponents.length; compIdx++) {
       const component = selectedComponents[compIdx];
 
@@ -1809,19 +1880,25 @@ export async function POST(request: NextRequest) {
       // correction branch fires (atomic rule_sets update + engine_correction signal).
       let proposedCorrection: { column: string; confidence: number } | null = null;
       let verificationExistingScore = 0;
-      const eidBindingRaw = compBindings?.entity_identifier as
-        { column?: string; confidence?: number; source_batch_id?: string } | undefined;
+      const eidBindingRaw = compBindings?.entity_identifier as ConvergenceBindingEntry | undefined;
       const eidColumn = eidBindingRaw?.column;
       const eidStoredConf = typeof eidBindingRaw?.confidence === 'number' ? eidBindingRaw.confidence : 0;
-      if (compBindings && eidColumn && eidBindingRaw?.source_batch_id) {
-        // Compute C_proposed: distinct values for the stored binding column = dataByBatch keys
-        // for that batch (the cache is indexed by row_data[eidColumn] values — see dataByBatch
-        // construction at lines 670+).
-        const batchEntityMap = dataByBatch.get(eidBindingRaw.source_batch_id);
-        const distinctValues = batchEntityMap ? new Set(Array.from(batchEntityMap.keys()).filter(k => k && k.length > 0)) : new Set<string>();
+      if (compBindings && eidColumn) {
+        // HF-222 Phase 3.5c (class-root closure): verification reads by column name
+        // across all operative-period batches in dataByBatch. The set of distinct
+        // entity-identifier values for this period is the union of dataByBatch keys
+        // across all batches (every dataByBatch inner map is keyed by row_data[eidColumn]
+        // — see dataByBatch Step 2 construction). The prior batch-id-keyed lookup is
+        // replaced; no batch_id read-filter to mismatch.
+        const distinctValues = new Set<string>();
         let totalRows = 0;
-        if (batchEntityMap) {
-          for (const arr of Array.from(batchEntityMap.values())) totalRows += arr.length;
+        for (const [, entityMap] of Array.from(dataByBatch.entries())) {
+          for (const key of Array.from(entityMap.keys())) {
+            if (key && key.length > 0) {
+              distinctValues.add(key);
+              totalRows += (entityMap.get(key)?.length ?? 0);
+            }
+          }
         }
         let intersectionCount = 0;
         if (tenantEntityExternalIdsForEngine.size > 0) {
@@ -1848,17 +1925,24 @@ export async function POST(request: NextRequest) {
         // HF-219 Component R1: Correction proposal scan.
         // Per Disposition 3 (restored from HF-218 scope contraction): engine MAY correct
         // bindings when C_proposed > C_existing strictly (Disposition 4 inequality).
-        // Scan committed_data rows for source_batch_id, extract distinct values per column,
-        // compute structural product score (cardinality × intersection); propose the highest
-        // scorer that strictly beats verificationExistingScore AND differs from eidColumn.
-        // Scan is bounded (5000-row ceiling) for scale; per-event cost acceptable at "Large".
-        if (tenantEntityExternalIdsForEngine.size > 0) {
+        // Scan committed_data rows for the learning-provenance batch (provenance-scoped
+        // read: "the batch where the column was learned"), extract distinct values per
+        // column, compute structural product score (cardinality × intersection); propose
+        // the highest scorer that strictly beats verificationExistingScore AND differs
+        // from eidColumn. Scan is bounded (5000-row ceiling) for scale.
+        //
+        // HF-222 Phase 3.5a: inner provenance guard restores pre-Phase-3 outer-condition
+        // semantics. The original outer condition at the verification-block head gated
+        // this block on the (now-retired) batch-id field; Phase 3.5c drops that gate
+        // (verification reads by column name); this inner guard restores "skip
+        // correction-scan when no provenance" semantics exactly.
+        if (eidBindingRaw?.learning_provenance?.batch_id && tenantEntityExternalIdsForEngine.size > 0) {
           try {
             const SAMPLE_CEILING = 5000;
             const { data: scanRows } = await supabase
               .from('committed_data')
               .select('row_data')
-              .eq('import_batch_id', eidBindingRaw.source_batch_id)
+              .eq('import_batch_id', eidBindingRaw.learning_provenance.batch_id)
               .limit(SAMPLE_CEILING);
             if (scanRows && scanRows.length > 0) {
               // Per-column distinct value sets
@@ -1927,7 +2011,8 @@ export async function POST(request: NextRequest) {
         // Bidirectional flywheel loop: increment on success (writeFingerprint, pre-HF-218);
         // decrement on verification failure traced to fingerprint cache (HF-219 wiring).
         let fingerprintDecrementInfo: { hash: string; pre: number; post: number } | null = null;
-        if (eidBindingRaw?.source_batch_id) {
+        // HF-222 Phase 3.5a: provenance-scoped guard (learning-provenance batch lookup).
+        if (eidBindingRaw?.learning_provenance?.batch_id) {
           try {
             // Type-assertion through unknown: Supabase type-defs predate HF-196 Phase 1F
             // `content_unit_hash_sha256` column on import_batches; runtime column exists per
@@ -1936,7 +2021,7 @@ export async function POST(request: NextRequest) {
             const batchRes = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (c: string, v: string) => { single: () => Promise<{ data: { content_unit_hash_sha256?: string | null } | null }> } } } })
               .from('import_batches')
               .select('content_unit_hash_sha256')
-              .eq('id', eidBindingRaw.source_batch_id)
+              .eq('id', eidBindingRaw.learning_provenance.batch_id)
               .single();
             const contentHash = batchRes.data?.content_unit_hash_sha256 ?? null;
             if (contentHash) {
@@ -1950,7 +2035,7 @@ export async function POST(request: NextRequest) {
                 const decResult = await decrementFingerprintConfidence(
                   tenantId,
                   fpRes.data.fingerprint_hash,
-                  `engine_structural_exception:component=${compIdx},column=${eidColumn},batch=${eidBindingRaw.source_batch_id},calc=${calculationRunId},reason=${bindingExceptionReason}`,
+                  `engine_structural_exception:component=${compIdx},column=${eidColumn},batch=${eidBindingRaw.learning_provenance?.batch_id ?? 'unknown'},calc=${calculationRunId},reason=${bindingExceptionReason}`,
                   process.env.NEXT_PUBLIC_SUPABASE_URL!,
                   process.env.SUPABASE_SERVICE_ROLE_KEY!,
                 );
@@ -2003,7 +2088,7 @@ export async function POST(request: NextRequest) {
         // Per Disposition 3 (restored) + ADR Decision 1 (optimistic concurrency control).
         // C_proposed > C_existing strictly + column_proposed !== column_existing.
         // Atomic compose: rule_sets update + classification_signals write succeed together.
-        const preBinding = { ...(eidBindingRaw as Record<string, unknown>) };
+        const preBinding = { ...(eidBindingRaw as unknown as Record<string, unknown>) };
         const correctionResolved = await (async () => {
           const MAX_RETRIES = 3;
           for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -2017,11 +2102,14 @@ export async function POST(request: NextRequest) {
             const cb = currentBindings.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
             if (!cb || !cb[compBindingKey]) return false;
             const newComp = { ...cb[compBindingKey] };
+            // HF-222 Phase 3: correction-write preserves the original learning provenance
+            // (the column was corrected, but provenance still references the same batch
+            // where the binding was learned).
             newComp.entity_identifier = {
               ...(newComp.entity_identifier as Record<string, unknown>),
               column: proposedCorrection!.column,
               confidence: proposedCorrection!.confidence,
-              source_batch_id: eidBindingRaw?.source_batch_id,
+              learning_provenance: eidBindingRaw?.learning_provenance,
               match_pass: 1,
             };
             const newBindings = {
@@ -2070,7 +2158,7 @@ export async function POST(request: NextRequest) {
           // Update in-memory compBindings + convergenceBindings cache to use corrected column.
           const correctedCompBindings = { ...compBindings } as Record<string, unknown>;
           correctedCompBindings.entity_identifier = {
-            ...(eidBindingRaw as Record<string, unknown>),
+            ...(eidBindingRaw as unknown as Record<string, unknown>),
             column: proposedCorrection.column,
             confidence: proposedCorrection.confidence,
           };
@@ -2253,6 +2341,18 @@ export async function POST(request: NextRequest) {
       // rounding; this loop's residual responsibility is to populate perComponentMetrics
       // (HF-205 Shape C invariant target) and seed ComponentResult slots with metadata.
       // Intent executor overwrites placeholder.payout at the index-assignment site.
+      // HF-228 Phase 4: merge derived metrics into the component's metrics map.
+      // Derived metrics (from convergence metric_derivations executed once
+      // above per entity) carry operation+filter rules that produce metrics
+      // the convergence_bindings cannot express (filtered counts, cross-
+      // category sums, ratio derivations, prior-period deltas). Merge order:
+      // binding-resolved values populate metrics first; derivation outputs
+      // overlay so a derivation rule for a given metric name takes
+      // precedence over an incomplete binding-resolved value for the same
+      // name. Empty derivedMetrics ({}) is a no-op.
+      for (const [key, value] of Object.entries(derivedMetrics)) {
+        metrics[key] = value;
+      }
       componentResults.push({
         componentId: component.id,
         componentName: component.name,
@@ -2294,59 +2394,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // HF-155 Item 2 + OB-186: Populate scopeAggregates for entities with scope data
-    // Resolves scope from entities.metadata (district, region, store_id)
-    // OB-186: Produces BOTH unfiltered aggregates (raw field sums) AND filtered
-    // aggregates (metric_derivation rules applied). Filtered aggregates use the
-    // derived metric name as key (e.g., "district:equipment_revenue:sum").
-    const entityScopeAgg: Record<string, number> = {};
+    // HF-238 Phase 3: aggregateScopeRows pre-computation deleted. The scope+
+    // aggregate prime composition computes hierarchical aggregates on the fly
+    // from allEntityRowsForPeriod (built once above). Entity attributes are
+    // passed via entityData.attributes so the scope prime can read the
+    // boundary value from context.entity.metadata.
     const entityMeta = entityMap.get(entityId);
     const entityMetadata = (entityMeta?.metadata || {}) as Record<string, unknown>;
-    const entityDistrict = entityMetadata.district || entityMetadata.store_id;
-    const entityRegion = entityMetadata.region;
-
-    // Helper: aggregate rows from other entities in same scope
-    const aggregateScopeRows = (
-      scopeField: string,
-      scopeValue: unknown,
-      scopePrefix: string,
-    ) => {
-      for (const [otherId, otherSheetMap] of Array.from(dataByEntity.entries())) {
-        if (otherId === entityId) continue;
-        const otherMeta = entityMap.get(otherId);
-        const otherMetaData = (otherMeta?.metadata || {}) as Record<string, unknown>;
-        const otherScope = scopeField === 'district'
-          ? (otherMetaData.district || otherMetaData.store_id)
-          : otherMetaData.region;
-        if (otherScope !== scopeValue) continue;
-
-        for (const [, rows] of Array.from(otherSheetMap.entries())) {
-          for (const row of rows) {
-            const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-              ? row.row_data as Record<string, unknown> : {};
-
-            // Unfiltered: sum all numeric fields
-            for (const [key, val] of Object.entries(rd)) {
-              if (key.startsWith('_') || typeof val !== 'number') continue;
-              entityScopeAgg[`${scopePrefix}:${key}:sum`] = (entityScopeAgg[`${scopePrefix}:${key}:sum`] || 0) + val;
-            }
-
-            // OB-186: Filtered scope aggregates from metric_derivation rules
-            for (const rule of metricDerivations) {
-              if (rule.operation !== 'sum' || !rule.source_field) continue;
-              if (!rowMatchesFilters(rd, rule.filters)) continue;
-              const val = rd[rule.source_field];
-              if (typeof val === 'number') {
-                entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] = (entityScopeAgg[`${scopePrefix}:${rule.metric}:sum`] || 0) + val;
-              }
-            }
-          }
-        }
-      }
-    };
-
-    if (entityDistrict) aggregateScopeRows('district', entityDistrict, 'district');
-    if (entityRegion) aggregateScopeRows('region', entityRegion, 'region');
 
     // Intent executor is sole authority (Decision 151). Rounding applied here.
     let intentTotalDecimal = ZERO;
@@ -2368,14 +2422,27 @@ export async function POST(request: NextRequest) {
           `Decision 153 / Decision 111 violation.`
         );
       }
+      // HF-238 Phase 3: entity attributes populated from entities.metadata so
+      // the scope prime can read the boundary value (district/region/etc.)
+      // from context.entity.metadata. Numeric fields are coerced for
+      // arithmetic compatibility; string/boolean values pass through.
+      const entityAttributesForExec: Record<string, string | number | boolean> = {};
+      for (const [k, v] of Object.entries(entityMetadata)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          entityAttributesForExec[k] = v;
+        }
+      }
+
       const entityData: EntityData = {
         entityId,
         metrics,
-        attributes: {},
+        attributes: entityAttributesForExec,
         priorResults: [...priorResults],
         periodHistory: periodHistoryMap.get(entityId),
         crossDataCounts: entityCrossData,
-        scopeAggregates: entityScopeAgg,
+        // HF-238 Phase 3: allEntityRowsForPeriod replaces the pre-computed
+        // scopeAggregates surface; the scope prime walks these rows directly.
+        allEntityRows: allEntityRowsForPeriod,
         // HF-211: Route intent-executor [CalcTrace] emissions through buffer (only for traced
         // entities) so they flush after the [CalcRecon] block at handler exit.
         traceCollector: shouldEmitTrace(entityInfo?.external_id ?? entityId) ? bufferTrace : undefined,

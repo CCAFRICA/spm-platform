@@ -1,16 +1,31 @@
-// HF-105: HC Pattern Classifier — Level 1 Resolution
-// Two-Level Resolution Model: Level 1 (this file) uses HC role
-// presence/absence + idRepeatRatio. Level 2 (resolver.ts) is CRR Bayesian fallback.
+// HF-105 / HF-230 — Level-1 HC Pattern Classifier
+// Two-Level Resolution Model: Level 1 (this file) derives classification
+// from HC role composition; Level 2 (resolver.ts CRR Bayesian) runs only
+// when this function returns null.
 //
-// Pattern rules use ONLY:
-//   - HC column role presence/absence (confidence >= 0.80)
-//   - identifierRepeatRatio as the single structural disambiguator
-// No weights. No scores. No field-name matching.
+// HF-230 replaces the pre-existing four-pattern registry (entity_roster,
+// repeated_measures_over_time, lookup_table, per_entity_benchmarks) with
+// a decision tree built from three HC role primitives:
+//   1. reference_key presence + identifier absence  -> dimensional lookup
+//   2. measure presence                              -> data ABOUT entities
+//   3. identifier count (0 / 1 / 2+)                 -> reference / target / transaction
+//
+// Decision 108 (HC Override Authority, LOCKED 2026-03-07) is enforced by
+// construction: every branch is gated solely on HC role output. No
+// structural-profile fields are read (no row-repetition heuristic, no
+// row count, no sampling). When HC is confident on at least 50% of
+// columns the tree runs; otherwise it returns null and Level-2 CRR
+// Bayesian classifies from structural scoring.
+//
+// Korean Test (LOCKED): the tree reads ColumnRole values from the
+// sci-types ColumnRole union — `identifier`, `name`, `temporal`,
+// `measure`, `attribute`, `reference_key`, `unknown`. Zero domain
+// vocabulary; zero field-name matching; zero value-content checks.
 
 import type { ContentProfile, AgentType } from './sci-types';
 
 // ============================================================
-// HC PATTERN RESULT
+// HC PATTERN RESULT (interface preserved from HF-105)
 // ============================================================
 
 export interface HCPatternResult {
@@ -20,110 +35,168 @@ export interface HCPatternResult {
   matchedConditions: string[];
 }
 
-// Minimum HC confidence to count a role as present
+// Minimum HC confidence to count a role as present (Decision 108 threshold).
 const HC_ROLE_THRESHOLD = 0.80;
 
+// Minimum fraction of columns reaching HC_ROLE_THRESHOLD before the tree
+// will classify. Below this the tree returns null and Level-2 CRR Bayesian
+// handles the file.
+const MIN_COVERAGE_RATIO = 0.50;
+
 // ============================================================
-// LEVEL 1 CLASSIFIER
-// Returns a classification if HC roles unambiguously match a pattern.
-// Returns null when no pattern matches — caller falls through to Level 2.
+// LEVEL 1 CLASSIFIER — PRIMITIVE-BASED DECISION TREE
 // ============================================================
 
 export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | null {
   const hc = profile.headerComprehension;
   if (!hc) return null;
 
-  // Count high-confidence roles
-  let hasIdentifier = false;
-  let hasName = false;
-  let hasTemporal = false;
-  let hasMeasure = false;
-  let hasReferenceKey = false;
-  let measureCount = 0;
+  // ── Coverage gate ────────────────────────────────────────
+  // At least MIN_COVERAGE_RATIO of columns must have HC interpretations at
+  // >= HC_ROLE_THRESHOLD before the tree runs. Below this Level-2 owns
+  // the decision.
+  const totalColumns = hc.interpretations.size;
+  if (totalColumns === 0) return null;
 
-  for (const interp of Array.from(hc.interpretations.values())) {
-    if (interp.confidence < HC_ROLE_THRESHOLD) continue;
-    switch (interp.columnRole) {
-      case 'identifier': hasIdentifier = true; break;
-      case 'name': hasName = true; break;
-      case 'temporal': hasTemporal = true; break;
-      case 'measure': hasMeasure = true; measureCount++; break;
-      case 'reference_key': hasReferenceKey = true; break;
-    }
+  const confidentRoles = Array.from(hc.interpretations.values())
+    .filter(interp => interp.confidence >= HC_ROLE_THRESHOLD);
+  if (confidentRoles.length / totalColumns < MIN_COVERAGE_RATIO) {
+    return null;
   }
 
-  const idRepeatRatio = profile.structure.identifierRepeatRatio;
+  // ── HC role primitives ──────────────────────────────────
+  // Counts / booleans derived from the LLM's per-column role assignments.
+  // Everything below is a function of these primitives.
+  const identifierCount = confidentRoles.filter(r => r.columnRole === 'identifier').length;
+  const measureCount = confidentRoles.filter(r => r.columnRole === 'measure').length;
+  const hasMeasure = measureCount > 0;
+  const hasReferenceKey = confidentRoles.some(r => r.columnRole === 'reference_key');
+  const hasName = confidentRoles.some(r => r.columnRole === 'name');
+  // AUD-013: temporal role primitive — distinguishes per-period transactional
+  // data (actuals over time) from one-time entity snapshots (targets).
+  // A sheet with identifier + measure + temporal is event data over time;
+  // a sheet with identifier + measure + no temporal is an entity snapshot.
+  const hasTemporal = confidentRoles.some(r => r.columnRole === 'temporal');
+  // HF-230 directive contemplated a separate `currency` ColumnRole that would
+  // imply a monetary measure. The sci-types ColumnRole union does NOT carry
+  // `currency` (the seven values are identifier / name / temporal / measure /
+  // attribute / reference_key / unknown). Monetary content is classified as
+  // `measure` by the LLM today; if a future schema extension adds `currency`
+  // it should join this disjunction. For now the tree reads only the union
+  // values that actually exist in the type.
+  const measurePresent = hasMeasure;
 
-  // ────────────────────────────────────────────────────────
-  // ENTITY: HAS identifier AND HAS name AND idRepeatRatio ≤ 1.5
-  // "One row per person with categorical attributes"
-  // ────────────────────────────────────────────────────────
-  if (hasIdentifier && hasName && idRepeatRatio > 0 && idRepeatRatio <= 1.5) {
-    return {
-      classification: 'entity',
-      confidence: 0.90,
-      patternName: 'entity_roster',
-      matchedConditions: [
-        'HAS identifier',
-        'HAS name',
-        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5)`,
-      ],
-    };
-  }
-
-  // ────────────────────────────────────────────────────────
-  // TRANSACTION: HAS identifier AND HAS measure AND HAS temporal AND idRepeatRatio > 1.5
-  // "Repeated entities over time with numeric measurements"
-  // ────────────────────────────────────────────────────────
-  if (hasIdentifier && hasMeasure && hasTemporal && idRepeatRatio > 1.5) {
-    return {
-      classification: 'transaction',
-      confidence: 0.90,
-      patternName: 'repeated_measures_over_time',
-      matchedConditions: [
-        'HAS identifier',
-        `HAS measure (${measureCount} columns)`,
-        'HAS temporal',
-        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (>1.5)`,
-      ],
-    };
-  }
-
-  // ────────────────────────────────────────────────────────
-  // REFERENCE: HAS reference_key AND NOT HAS identifier AND NOT HAS name
-  // "Lookup table with categorical keys"
-  // ────────────────────────────────────────────────────────
-  if (hasReferenceKey && !hasIdentifier && !hasName) {
+  // ── Branch 1: dimensional lookup ─────────────────────────
+  // A categorical lookup key with no entity identifier — hub capacity,
+  // product catalog, rate table, etc. The reference_key role IS the
+  // discriminator; identifier absence confirms it isn't entity-keyed
+  // data with an additional reference column.
+  if (hasReferenceKey && identifierCount === 0) {
     return {
       classification: 'reference',
       confidence: 0.85,
-      patternName: 'lookup_table',
+      patternName: 'dimensional_lookup',
       matchedConditions: [
         'HAS reference_key',
-        'NOT HAS identifier',
-        'NOT HAS name',
+        'NO identifier',
       ],
     };
   }
 
-  // ────────────────────────────────────────────────────────
-  // TARGET: HAS identifier AND HAS measure AND NOT HAS temporal AND idRepeatRatio ≤ 1.5
-  // "Per-entity numeric benchmarks without temporal repetition"
-  // ────────────────────────────────────────────────────────
-  if (hasIdentifier && hasMeasure && !hasTemporal && idRepeatRatio > 0 && idRepeatRatio <= 1.5) {
+  // ── Branch 2: entity definition ──────────────────────────
+  // No quantitative measures — the file DEFINES entities (roster, org
+  // chart, employee master) rather than measuring them. Identifier and
+  // name presence are informational; absence of measure is the
+  // discriminator.
+  if (!measurePresent) {
+    const conds: string[] = ['NO measure', 'NO currency'];
+    if (identifierCount > 0) conds.push(`${identifierCount} identifier(s)`);
+    if (hasName) conds.push('HAS name');
+    return {
+      classification: 'entity',
+      confidence: 0.90,
+      patternName: 'entity_definition',
+      matchedConditions: conds,
+    };
+  }
+
+  // ── Branches 3 & 4: measure present ──────────────────────
+  // HF-232: Discriminate target from transaction by `hasReferenceKey`, not
+  // by `identifierCount`. The LLM distinguishes two kinds of ID columns:
+  //   `identifier`    — the row's own identity (transaction_id, employee_id)
+  //   `reference_key` — a foreign key to another entity (sales_rep_id)
+  // HF-230 counted only `identifier` roles, so a sales file with
+  // `transaction_id:identifier@0.95 + sales_rep_id:reference_key@0.95`
+  // landed in `identifierCount === 1` → target. Wrong: the presence of a
+  // reference_key is the semantic signal that the file RECORDS events
+  // referencing entities (transactional), not entity-level records (target).
+
+  // Branch 3: Transaction data — events that REFERENCE entities.
+  // Has a per-row identifier AND a reference_key (foreign key to another entity).
+  // "Each row is an event with its own ID, linked to an entity via foreign key."
+  //
+  // AUD-013 extension: per-period actuals data (entity_id + measure + temporal)
+  // is ALSO transactional even when no reference_key is present. The temporal
+  // column means each row is a measurement AT A POINT IN TIME — the row is an
+  // event, not an entity-level snapshot. Without this branch, monthly
+  // actuals with employee_id + amount + period_date classified as target
+  // (entity-level snapshot), which mis-typed transactional data as
+  // configuration and broke convergence.
+  if (identifierCount >= 1 && hasReferenceKey) {
+    return {
+      classification: 'transaction',
+      confidence: 0.85,
+      patternName: 'event_transactions',
+      matchedConditions: [
+        'HAS measure',
+        'HAS reference_key — event references entities',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
+      ],
+    };
+  }
+  if (identifierCount >= 1 && hasTemporal) {
+    return {
+      classification: 'transaction',
+      confidence: 0.85,
+      patternName: 'event_transactions_temporal',
+      matchedConditions: [
+        'HAS measure',
+        'HAS temporal — per-period event data',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
+      ],
+    };
+  }
+
+  // Branch 4: Target/reference data — entity-level records with measures.
+  // Has an identifier but NO reference_key AND NO temporal — this IS the
+  // entity record, not referencing another, and not per-period.
+  // "One value set per entity — quotas, targets, thresholds, rates."
+  if (identifierCount >= 1 && !hasReferenceKey && !hasTemporal) {
     return {
       classification: 'target',
       confidence: 0.85,
-      patternName: 'per_entity_benchmarks',
+      patternName: 'entity_targets',
       matchedConditions: [
-        'HAS identifier',
-        `HAS measure (${measureCount} columns)`,
-        'NOT HAS temporal',
-        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5)`,
+        'HAS measure',
+        'NO reference_key — entity-level record',
+        'NO temporal — snapshot, not per-period',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
       ],
     };
   }
 
-  // No pattern matched — fall through to Level 2 (CRR Bayesian)
-  return null;
+  // identifierCount === 0 with measure present → aggregate reference data
+  // (e.g., capacity tables, threshold tables) without entity association.
+  return {
+    classification: 'reference',
+    confidence: 0.80,
+    patternName: 'measure_only_reference',
+    matchedConditions: [
+      'HAS measure',
+      'NO identifier',
+    ],
+  };
 }

@@ -15,30 +15,37 @@ import type {
   ContentUnitResult,
   AgentType,
   SemanticBinding,
+  ContentUnitExecution,
 } from '@/lib/sci/sci-types';
-import {
-  extractSourceDate,
-  findDateColumnFromBindings,
-  buildSemanticRolesMap,
-  detectPeriodMarkerColumns,
-} from '@/lib/sci/source-date-extraction';
-// HF-194: extracted helper — also used by execute/route.ts
-import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
-// HF-196 Phase 1D — D154/D155 single canonical declaration of data_type:
-// derived from SCI classification via the shared resolver. No private copies.
-import { resolveDataTypeFromClassification } from '@/lib/sci/data-type-resolver';
-// HF-196 Phase 1F — supersession trigger via SHA-256 content hash (replaces 1E fingerprint trigger).
-// HF-213 — Supersession scope changed from file-level to content-unit-level.
-// file_hash_sha256 retained for file-level audit (HF-196 Phase 1F audit intent preserved).
-import { supersedePriorBatchOnContentMatch } from '@/lib/sci/import-batch-supersession';
+// HF-231: source_date extraction, supersession, hashing, field_identities, and
+// data_type resolution all moved into commitContentUnit. Only the file-hash
+// helper is still needed at this layer (computed once over the raw file bytes
+// and threaded into commitContentUnit per content unit).
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
-import { computeContentUnitHashSha256 } from '@/lib/sci/content-unit-hash';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
-// This restores OB-182's stated calc-time intent at the import side AND closes
-// Break #2 by ensuring entity_id is populated for bulk-imported rows.
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+// HF-231: unified committed_data writer — sole write surface across all four
+// classifications. Replaces 4 inline write sites in this route (plus 4 in
+// execute/route.ts). Closes AP-17 (parallel metadata construction).
+import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+// HF-239 Phase 0.1: plan interpretation extracted into shared module so this
+// route's `case 'plan'` arm calls the same logic that execute/route.ts (now
+// deleted) used to carry inline. Closes the plan/data path divergence.
+import {
+  executeBatchedPlanInterpretation,
+  executePlanPipeline,
+} from '@/lib/sci/plan-interpretation';
+// HF-239 Phase 0.2: flywheel signal emission extracted. The bulk path used
+// to write zero flywheel signals; this restores fingerprint / classification
+// / foundational / domain emission for every import.
+import { emitFlywheelSignals } from '@/lib/sci/flywheel-signal-emission';
+// HF-239 Phase 0.3: rule_set_assignments creation extracted (HF-126 block).
+import { createMissingAssignments } from '@/lib/sci/assignment-creation';
+// HF-239 Phase 0.4: store metadata population extracted from execute's
+// per-pipeline postCommitConstruction (OB-146 Step 1b block).
+import { populateStoreMetadata } from '@/lib/sci/store-metadata-population';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -68,6 +75,19 @@ interface BulkContentUnit {
   sharedFields?: string[];
   originalClassification?: AgentType;
   originalConfidence?: number;
+  // HF-239: optional flywheel-emission inputs. Carried through from the UI
+  // so the post-import flywheel block can write classification signals and
+  // refresh structural fingerprints. Bulk units that lack a fingerprint
+  // simply skip emission (the emitter short-circuits on absent fingerprint).
+  classificationTrace?: Record<string, unknown>;
+  structuralFingerprint?: unknown;
+  vocabularyBindings?: unknown;
+  sourceFile?: string;
+  tabName?: string;
+  // HF-239: optional plan-classification document metadata. Plan units may
+  // arrive with a fileBase64 in the request body (legacy single-unit fallback)
+  // or rely on storagePath; either is accepted.
+  documentMetadata?: { fileBase64?: string; mimeType?: string };
 }
 
 interface BulkRequest {
@@ -106,16 +126,18 @@ export async function POST(req: NextRequest) {
     // HF-090: Use auth.uid() directly for created_by attribution
     const profileId = authUser.id;
 
-    // Verify tenant
+    // Verify tenant + read industry for domain flywheel (OB-160J via HF-239).
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('id')
+      .select('id, settings')
       .eq('id', tenantId)
       .single();
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
+    const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
+    const tenantDomainId = (tenantSettings.industry as string) || '';
 
     // ── Step 1: Download file from Supabase Storage ──
     console.log(`[SCI Bulk] Downloading from Storage: ${storagePath}`);
@@ -182,7 +204,32 @@ export async function POST(req: NextRequest) {
     // Extract fileName from storagePath for data_type resolution
     const fileNameFromPath = storagePath.split('/').pop()?.replace(/^\d+_/, '') || 'unknown';
 
+    // HF-239: Batched plan interpretation. Plan-classified units from the
+    // same file are interpreted in ONE AI call (HF-130 pattern lifted from
+    // the deleted execute/route.ts). Handled plan units are skipped by the
+    // per-unit dispatch loop below.
+    const planUnits = sortedUnits.filter(u => u.confirmedClassification === 'plan');
+    const handledPlanUnitIds = new Set<string>();
+    if (planUnits.length > 0) {
+      try {
+        const batchResults = await executeBatchedPlanInterpretation(
+          supabase,
+          tenantId,
+          planUnits as unknown as ContentUnitExecution[],
+          profileId,
+          storagePath,
+        );
+        for (const r of batchResults) {
+          results.push(r);
+          handledPlanUnitIds.add(r.contentUnitId);
+        }
+      } catch (err) {
+        console.error('[SCI Bulk] Batched plan interpretation failed, falling back to per-unit:', err);
+      }
+    }
+
     for (const unit of sortedUnits) {
+      if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
       try {
         // Resolve sheet data for this content unit
         const parts = unit.contentUnitId.split('::');
@@ -226,7 +273,7 @@ export async function POST(req: NextRequest) {
         const result = await processContentUnit(
           supabase, tenantId, proposalId, profileId,
           effectiveUnit.unit, effectiveUnit.rows, fileNameFromPath, tabName,
-          fileHashSha256,
+          fileHashSha256, storagePath,
         );
         results.push(result);
       } catch (err) {
@@ -241,11 +288,46 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // HF-196 Phase 1: post-commit construction (Break #3 closure).
-    // Run entity resolution + entity_id back-link via shared module after all
-    // content units processed. This is the symmetry that was missing from
-    // execute-bulk after OB-182; restores it via the shared post-commit module.
+    // HF-196 Phase 1: post-commit construction — entity resolution + back-link.
     await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
+
+    // HF-239 Phase 0.3: HF-126 rule_set_assignments creation. Calculation
+    // engine requires assignments to route entities to plans. Fire-and-forget
+    // at the surface level — failures are logged but do not block.
+    try {
+      await createMissingAssignments(supabase, tenantId);
+    } catch (err) {
+      console.error('[SCI Bulk] Assignment creation failed (non-blocking):', err);
+    }
+
+    // HF-239 Phase 0.2: flywheel signal emission. Build a per-content-unit
+    // row sample (first 5 rows of the matched sheet) so the fingerprint
+    // hash matches what the analyze step wrote. Fire-and-forget: never
+    // blocks import.
+    const rowsByContentUnitId = new Map<string, Record<string, unknown>[]>();
+    for (const unit of sortedUnits) {
+      const parts = unit.contentUnitId.split('::');
+      const tabName = parts[1] || 'Sheet1';
+      let sheetData = sheetDataMap.get(tabName);
+      if (!sheetData) {
+        const match = Array.from(sheetDataMap.entries()).find(
+          ([n]) => n.toLowerCase() === tabName.toLowerCase(),
+        );
+        if (match) sheetData = match[1];
+        else if (sheetDataMap.size === 1) sheetData = Array.from(sheetDataMap.values())[0];
+      }
+      if (sheetData && sheetData.rows.length > 0) {
+        rowsByContentUnitId.set(unit.contentUnitId, sheetData.rows.slice(0, 5));
+      }
+    }
+    emitFlywheelSignals({
+      contentUnits: contentUnits,
+      tenantId,
+      tenantDomainId,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      rowsByContentUnitId,
+    });
 
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
@@ -269,6 +351,18 @@ export async function POST(req: NextRequest) {
 }
 
 // ── Field filtering for PARTIAL claims ──
+// HF-236 (DIAG-050 closure): Per T1-E902 v2 (Carry Everything, Express
+// Contextually — locked 2026-05-18: Persistence scope persists ALL data;
+// Hints-not-gates: AI classifications do not gate persistence) and T2-E06
+// v2 (HC Override Authority — locked 2026-05-18: HC observations persist
+// to committed_data irrespective of claim type; automated narrowing of
+// the HC observation set during claim-type projection is a named
+// violation pattern), the PARTIAL claim primitive narrows agent
+// ownership semantics only. row_data persists unconditionally; the
+// confirmedBindings narrow to the agent's owned + shared field set so
+// downstream code that consults bindings sees the agent's semantic
+// claim, while persistence-time code that reads rows sees every column
+// the customer's file carries.
 
 function filterFieldsForPartialClaim(
   unit: BulkContentUnit,
@@ -280,23 +374,13 @@ function filterFieldsForPartialClaim(
 
   const allowedFields = new Set([...unit.ownedFields, ...unit.sharedFields]);
 
-  const filteredRows = rows.map(row => {
-    const filtered: Record<string, unknown> = {};
-    for (const key of Object.keys(row)) {
-      if (allowedFields.has(key) || key.startsWith('_')) {
-        filtered[key] = row[key];
-      }
-    }
-    return filtered;
-  });
-
   const filteredBindings = unit.confirmedBindings.filter(
     b => allowedFields.has(b.sourceField)
   );
 
   return {
     unit: { ...unit, confirmedBindings: filteredBindings },
-    rows: filteredRows,
+    rows,
   };
 }
 
@@ -312,6 +396,7 @@ async function processContentUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
+  storagePath: string,
 ): Promise<ContentUnitResult> {
   switch (unit.confirmedClassification) {
     case 'entity':
@@ -322,6 +407,14 @@ async function processContentUnit(
       return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256);
     case 'reference':
       return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
+    case 'plan':
+      // HF-239: per-unit plan dispatch (single-unit fallback when the
+      // batched interpretation at the POST handler did not handle this
+      // unit). Delegates to the shared plan-interpretation module which
+      // mirrors the deleted execute/route.ts executePlanPipeline behavior.
+      return executePlanPipeline(
+        supabase, tenantId, unit as unknown as ContentUnitExecution, profileId, storagePath,
+      );
     default:
       return {
         contentUnitId: unit.contentUnitId,
@@ -514,102 +607,30 @@ async function processEntityUnit(
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
 
-  // HF-184: Unified committed_data write — entity pipeline also writes to committed_data.
-  // Classification is a hint, not a gate. All pipelines carry everything.
-  // Entity creation above is a side effect. committed_data is the uniform data store.
-  const cdBatchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: cdBatchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'entity' } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  // Entity creation above is a side effect; committed_data is the uniform store.
+  // Classification is a hint, not a gate — all four pipelines carry the same
+  // metadata shape through this single writer.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification: 'entity',
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
+  void commitResult;
 
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === 'entity' for this pipeline.
-  const dataType = resolveDataTypeFromClassification('entity');
-
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  // Idempotent + non-blocking. Returns null on supersession failure.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, cdBatchId, contentUnitHashSha256, rows);
-
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  const entityIdField = idBinding.sourceField;
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
-    return {
-      tenant_id: tenantId,
-      import_batch_id: cdBatchId,
-      entity_id: null,
-      period_id: null,
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null,
-        informational_label: 'entity',
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
-    };
-  });
-
-  const CD_CHUNK = 2000;
-  let cdInserted = 0;
-  for (let i = 0; i < insertRows.length; i += CD_CHUNK) {
-    const slice = insertRows.slice(i, i + CD_CHUNK);
-    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
-    if (insertErr) {
-      console.warn(`[SCI Bulk] Entity→committed_data insert failed (non-blocking): ${insertErr.message}`);
-      break;
-    }
-    cdInserted += slice.length;
-  }
-
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: cdInserted,
-  }).eq('id', cdBatchId);
-
-  console.log(`[SCI Bulk] Entity→committed_data: ${cdInserted} rows, entity_id_field="${entityIdField || 'none'}"`);
-
-  // OB-195 Layer 4: Invalidate cached convergence bindings
-  if (cdInserted > 0) {
-    const { data: clearedRuleSets } = await supabase
-      .from('rule_sets')
-      .update({ input_bindings: {} })
-      .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft'])
-      .select('id');
-    if ((clearedRuleSets?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (entity data imported — convergence will re-derive)`);
-    }
-  }
+  // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
+  // The blanket wipe destroyed BCL's PASS-RECONCILED state (DIAG-052
+  // captured the regression: $44,590 → $36,640 on the period that was
+  // recalculated post-HF-238). Calc-time convergence has its own
+  // versioning gate (convergence_version === 'HF-234') at
+  // route.ts:226-308 — that gate re-derives when stale without needing a
+  // blanket clear on every import.
 
   return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
 }
@@ -631,148 +652,35 @@ async function processDataUnit(
     return { contentUnitId: unit.contentUnitId, classification, success: true, rowsProcessed: 0, pipeline: classification };
   }
 
-  // Create import batch
-  const batchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: batchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification,
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
+  const totalInserted = commitResult.totalInserted;
 
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === classification ('target' | 'transaction').
-  const dataType = resolveDataTypeFromClassification(classification);
+  // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
+  // See processEntityUnit for rationale (DIAG-052 regression evidence).
 
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
-
-  // Build semantic_roles map
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  // OB-182: Entity identifier field detected for semantic role tagging (NOT for binding).
-  // Entity binding deferred to calculation time per sequence-independence principle.
-  // committed_data.entity_id is NULL at import — engine resolves at calc time.
-  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const entityIdField = entityIdBinding?.sourceField;
-
-  // OB-152/OB-157: Source date extraction with period marker composition
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  // OB-182: Build committed_data rows — entity_id NULL (resolved at calc time)
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
-
-    return {
-      tenant_id: tenantId,
-      import_batch_id: batchId,
-      entity_id: null, // OB-182: deferred to calculation time
-      period_id: null,  // Decision 92: engine binds at calc time
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null, // preserve which field is the entity identifier
-        // HF-196 Phase 1D — D155 boundary parity: informational_label was missing
-        // here while present at processEntityUnit/processReferenceUnit. Now uniformly
-        // recorded across all 3 execute-bulk pipelines.
-        informational_label: classification,
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
-    };
-  });
-
-  // OB-174 Phase 5: Nanobatch commitment — chunked insert with progress tracking
-  // Chunks of 2000 rows (DS-016 §3.4). Each chunk committed independently.
-  // Failed chunks retried up to 3 times before skip.
-  const CHUNK = 2000;
-  let totalInserted = 0;
-  let chunksCompleted = 0;
-  const totalChunks = Math.ceil(insertRows.length / CHUNK);
-
-  for (let i = 0; i < insertRows.length; i += CHUNK) {
-    const slice = insertRows.slice(i, i + CHUNK);
-    let chunkSuccess = false;
-    let lastErr = '';
-
-    // Retry up to 3 times per chunk
-    for (let retry = 0; retry < 3 && !chunkSuccess; retry++) {
-      const { error: insertErr } = await supabase.from('committed_data').insert(slice);
-      if (insertErr) {
-        lastErr = insertErr.message;
-        console.warn(`[SCI Bulk] Chunk ${chunksCompleted + 1}/${totalChunks} failed (attempt ${retry + 1}): ${lastErr}`);
-        if (retry < 2) await new Promise(r => setTimeout(r, 500 * (retry + 1))); // backoff
-      } else {
-        chunkSuccess = true;
-      }
-    }
-
-    if (chunkSuccess) {
-      totalInserted += slice.length;
-      chunksCompleted++;
-    } else {
-      console.error(`[SCI Bulk] Chunk ${chunksCompleted + 1}/${totalChunks} permanently failed after 3 retries: ${lastErr}`);
-      // Log to import_batches but continue with next chunk (don't lose prior chunks)
-    }
-
-    // Update chunk_progress on processing_jobs if a job context exists
-    // (The processing_job_id is passed via the proposalId when called from async path)
-    console.log(`[SCI Bulk] Chunk ${chunksCompleted}/${totalChunks}: ${totalInserted}/${insertRows.length} rows committed`);
-  }
-
-  // Update batch status
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: totalInserted,
-  }).eq('id', batchId);
-
-  console.log(`[SCI Bulk] ${classification}: ${totalInserted} rows committed, data_type=${dataType}`);
-
-  // OB-195 Layer 4: Invalidate cached convergence bindings so engine re-derives with new data
-  if (totalInserted > 0) {
-    const { data: clearedRuleSets } = await supabase
-      .from('rule_sets')
-      .update({ input_bindings: {} })
-      .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft'])
-      .select('id');
-    if ((clearedRuleSets?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+  // HF-239 Phase 0.4: OB-146 Step 1b store metadata population — extracted
+  // from execute/route.ts's per-pipeline postCommitConstruction helper.
+  // Reads STORE_FIELDS / TIER_FIELDS / VOLUME_KEY_FIELDS from each row and
+  // updates entities.metadata so the calculation engine can resolve
+  // store-level data per entity.
+  if (totalInserted > 0 && commitResult.entityIdField) {
+    try {
+      await populateStoreMetadata(supabase, tenantId, rows, commitResult.entityIdField);
+    } catch (err) {
+      console.error('[SCI Bulk] populateStoreMetadata failed (non-blocking):', err);
     }
   }
-
-  // OB-182: postCommitConstruction REMOVED from import pipeline.
-  // Entity assignment and entity_id binding deferred to calculation time.
-  // Entity creation for roster imports still handled by processEntityUnit (separate path).
-  // Convergence derivation also removed (was lines 685-716) — runs at calc time.
-
-  // OB-182: Entity binding validation and convergence derivation REMOVED.
-  // Entity binding: deferred to calculation time (engine resolves from row_data).
-  // Convergence: deferred to calculation time (engine derives when input_bindings empty).
-  // Flywheel self-correction: entity_id is always NULL at import, so binding validation is N/A.
 
   return {
     contentUnitId: unit.contentUnitId,
@@ -805,105 +713,32 @@ async function processReferenceUnit(
     return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: 0, pipeline: 'reference' };
   }
 
-  const batchId = crypto.randomUUID();
-  // HF-213: content_unit_hash_sha256 — supersession identity primitive (supersedes Phase 1F file-level scope).
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
-  await supabase.from('import_batches').insert({
-    id: batchId,
-    tenant_id: tenantId,
-    file_name: `sci-bulk-${proposalId}`,
-    file_type: 'sci',
-    status: 'processing',
-    row_count: rows.length,
-    // HF-196 Phase 1F: SHA-256 of file content bytes — retained for file-level audit (no longer load-bearing for supersession).
-    file_hash_sha256: fileHashSha256,
-    // HF-213: SHA-256 of normalized content unit — supersession identity primitive.
-    content_unit_hash_sha256: contentUnitHashSha256,
-    metadata: { source: 'sci-bulk', proposalId, contentUnitId: unit.contentUnitId, classification: 'reference' } as unknown as Json,
+  // HF-231: Unified committed_data write via shared commitContentUnit.
+  const commitResult = await commitContentUnit(supabase, {
+    unit,
+    rows,
+    classification: 'reference',
+    tenantId,
+    proposalId,
+    tabName,
+    fileName: `sci-bulk-${proposalId}`,
+    source: 'sci-bulk',
+    fileHashSha256,
   });
-
-  // HF-196 Phase 1D: data_type derived from SCI classification per D154/D155.
-  // Identity: data_type === informational_label === 'reference' for this pipeline.
-  const dataType = resolveDataTypeFromClassification('reference');
-
-  // HF-213: Rule 30 supersession on content_unit_hash_sha256 match.
-  await supersedePriorBatchOnContentMatch(supabase, tenantId, batchId, contentUnitHashSha256, rows);
-
-  // Build semantic_roles map
-  const semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
-
-  // Entity identifier for calc-time resolution (OB-182/OB-183)
-  const entityIdBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier');
-  const entityIdField = entityIdBinding?.sourceField;
-
-  // Source date extraction (Decision 92)
-  const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
-  const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
-  const periodMarkerHint = detectPeriodMarkerColumns(rows);
-
-  // Build committed_data rows (same structure as processDataUnit)
-  const insertRows = rows.map((row, i) => {
-    const sourceDate = extractSourceDate(row, dateColumnHint, semanticRolesMap, periodMarkerHint);
+  if (!commitResult.success && commitResult.totalInserted === 0) {
     return {
-      tenant_id: tenantId,
-      import_batch_id: batchId,
-      entity_id: null, // OB-182: deferred to calculation time
-      period_id: null,  // Decision 92: engine binds at calc time
-      source_date: sourceDate,
-      data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
-      metadata: {
-        source: 'sci-bulk',
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField || null,
-        informational_label: 'reference',
-        // HF-194: restore field_identities for matcher's structural-FI Pass 1
-        field_identities: buildFieldIdentitiesFromBindings(unit.confirmedBindings),
-      },
+      contentUnitId: unit.contentUnitId,
+      classification: 'reference',
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'reference',
+      error: commitResult.error,
     };
-  });
-
-  // Insert in chunks (same as processDataUnit)
-  const CHUNK = 2000;
-  let totalInserted = 0;
-  for (let i = 0; i < insertRows.length; i += CHUNK) {
-    const slice = insertRows.slice(i, i + CHUNK);
-    const { error: insertErr } = await supabase.from('committed_data').insert(slice as unknown as Json[]);
-    if (insertErr) {
-      return { contentUnitId: unit.contentUnitId, classification: 'reference', success: false, rowsProcessed: totalInserted, pipeline: 'reference', error: insertErr.message };
-    }
-    totalInserted += slice.length;
   }
+  const totalInserted = commitResult.totalInserted;
 
-  await supabase.from('import_batches').update({
-    status: 'completed',
-    row_count: totalInserted,
-  }).eq('id', batchId);
-
-  const sourceDates = insertRows.filter(r => r.source_date).map(r => r.source_date);
-  console.log(`[SCI Bulk] Reference → committed_data: ${totalInserted} rows, data_type="${dataType}", entity_id_field="${entityIdField || 'none'}", source_dates=${sourceDates.length > 0 ? sourceDates.slice(0, 3).join(',') : 'none'}`);
-
-  // OB-195 Layer 4: Invalidate cached convergence bindings (same as processDataUnit)
-  if (totalInserted > 0) {
-    const { data: clearedRuleSets } = await supabase
-      .from('rule_sets')
-      .update({ input_bindings: {} })
-      .eq('tenant_id', tenantId)
-      .in('status', ['active', 'draft'])
-      .select('id');
-    if ((clearedRuleSets?.length ?? 0) > 0) {
-      console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRuleSets?.length ?? 0} rule_sets (reference data imported — convergence will re-derive)`);
-    }
-  }
+  // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
+  // See processEntityUnit for rationale (DIAG-052 regression evidence).
 
   return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
 }

@@ -172,24 +172,33 @@ export async function POST(req: NextRequest) {
       .eq('tenant_id', tenantId);
     const existingKeys = new Set((existingPeriods || []).map(p => p.canonical_key));
 
-    // Create periods
+    // Create periods.
+    // HF-225 / OB-188: canonical_key uses the new `{period_type}_{start}_{end}`
+    // format. The periodMap key (`YYYY-MM`) is the legacy grouping handle;
+    // it is NOT the canonical_key. The actual canonical_key is constructed
+    // from period_type + start_date + end_date so monthly and biweekly
+    // periods for the same month do not collide and the dedup check against
+    // existingKeys (also new-format) matches correctly.
     const newPeriods = Array.from(periodMap.entries())
-      .filter(([key]) => !existingKeys.has(key))
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, data]) => {
+      .map(([, data]) => {
         const lastDay = new Date(data.year, data.month, 0).getDate();
+        const startDate = `${data.year}-${String(data.month).padStart(2, '0')}-01`;
+        const endDate = `${data.year}-${String(data.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        const canonicalKey = `monthly_${startDate}_${endDate}`;
         return {
           id: crypto.randomUUID(),
           tenant_id: tenantId,
           label: `${MONTH_NAMES[data.month - 1]} ${data.year}`,
           period_type: 'monthly',
           status: 'open',
-          start_date: `${data.year}-${String(data.month).padStart(2, '0')}-01`,
-          end_date: `${data.year}-${String(data.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
-          canonical_key: key,
+          start_date: startDate,
+          end_date: endDate,
+          canonical_key: canonicalKey,
           metadata: { source: 'ob153_calculate', recordCount: data.count },
         };
-      });
+      })
+      .filter(p => !existingKeys.has(p.canonical_key));
 
     if (newPeriods.length === 0) {
       return NextResponse.json({ message: 'All periods already exist' });

@@ -86,7 +86,17 @@ export async function emitPlanComprehensionSignals(
         (calcIntent?.input as Record<string, unknown> | undefined) ??
         (comp.expectedMetrics ? { expectedMetrics: comp.expectedMetrics } : null);
 
+      // HF-226 Phase 1 — Carry Everything, Express Contextually (T1-E902).
+      // Pre-HF-226 this literal enumerated 7 keys and discarded everything else
+      // the LLM emitted on the component (filters, expectedMetrics, free-form
+      // fields). The spread carries the full LLM output; the overlay below
+      // preserves the structural-key contract consumers rely on (metric_label,
+      // metric_op, metric_inputs, semantic_intent, component_id, component_type,
+      // source_evidence). New consumers can read any field the LLM expressed
+      // directly from signal_value without an emitter change (closes the
+      // registry/cherry-pick defect class at the emitter layer per AUD-009).
       const signalValue: Record<string, unknown> = {
+        ...(rawComp as Record<string, unknown>),
         metric_label: comp.name ?? comp.id ?? 'unnamed_component',
         metric_op: metricOp,
         metric_inputs: metricInputs,

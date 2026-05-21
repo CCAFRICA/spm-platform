@@ -128,10 +128,42 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // HF-236 (DIAG-050 closure Layer 1): Per T1-E910 v2 (Korean Test, locked
+      // 2026-05-18: structural primitives in exactly one canonical declaration;
+      // no hardcoded role registries in foundational code), cached flywheel
+      // bindings that lack a native HeaderInterpretation.columnRole — or carry
+      // a non-native value — cannot be promoted into HC without a hardcoded
+      // semanticRole → columnRole registry. Such sheets are flagged as
+      // insufficient-cache and routed through fresh-LLM HC re-emission. This
+      // closes the materialization-layer drift identified by DIAG-050: under
+      // HF-236, fresh-LLM and flywheel-replay paths emit the same
+      // HeaderInterpretation shape because the only flywheel-replay path that
+      // skips HC is one whose cached bindings ALREADY carry native columnRole.
+      const NATIVE_COLUMN_ROLES = new Set(['identifier', 'name', 'temporal', 'measure', 'attribute', 'reference_key']);
+      const insufficientFlywheelCache = new Set<string>();
+      for (const sheet of file.sheets) {
+        const r = sheetFlywheelResults.get(sheet.sheetName);
+        if (!(r?.tier === 1 && r.match)) continue;
+        const cached = (r.classificationResult as Record<string, unknown> | undefined)?.fieldBindings as
+          Array<{ columnRole?: string }> | undefined;
+        if (!cached || cached.length === 0) {
+          insufficientFlywheelCache.add(sheet.sheetName);
+          continue;
+        }
+        const allHaveNativeRole = cached.every(fb => fb.columnRole !== undefined && NATIVE_COLUMN_ROLES.has(fb.columnRole));
+        if (!allHaveNativeRole) {
+          insufficientFlywheelCache.add(sheet.sheetName);
+          console.log(`[SCI-FINGERPRINT] HF-236: ${sheet.sheetName} flywheel cache missing native columnRole on ≥1 binding — forcing fresh-LLM HC re-emission`);
+        }
+      }
+
       // HF-197B: per-sheet skipHC determination (was: single file-level skipHC).
+      // HF-236: additionally gated on insufficientFlywheelCache to force fresh-
+      // LLM HC re-emission when the cached bindings cannot satisfy
+      // materialization-layer shape compatibility.
       const sheetSkipHC = (sheetName: string) => {
         const r = sheetFlywheelResults.get(sheetName);
-        return r?.tier === 1 && r.match;
+        return r?.tier === 1 && r.match && !insufficientFlywheelCache.has(sheetName);
       };
 
       // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
@@ -160,32 +192,39 @@ export async function POST(req: NextRequest) {
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
+      // HF-236 Layer 1 (DIAG-050 closure): No hardcoded semanticRole → columnRole
+      // registry. The cached binding's native columnRole is read directly. Sheets
+      // whose cache lacks native columnRole on any binding were diverted to the
+      // fresh-LLM HC path by the insufficientFlywheelCache gate above, so by
+      // construction every sheet reaching this loop has cached bindings with
+      // native columnRole values.
       for (const sheet of file.sheets) {
         const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
         if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
 
-        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{ sourceField: string; semanticRole: string; confidence: number; displayContext?: string }> | undefined;
+        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{
+          sourceField: string;
+          semanticRole: string;
+          confidence: number;
+          displayContext?: string;
+          columnRole?: 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key';
+          identifiesWhat?: string;
+        }> | undefined;
         if (!flywheelBindings || flywheelBindings.length === 0) continue;
 
         const sheetProfile = profileMap.get(sheet.sheetName);
         if (!sheetProfile) continue;
 
-        // Map semanticRole → ColumnRole for HeaderInterpretation
-        const roleMap: Record<string, 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key' | 'unknown'> = {
-          entity_identifier: 'identifier', entity_name: 'name',
-          transaction_date: 'temporal', period: 'temporal',
-          transaction_amount: 'measure', transaction_count: 'measure',
-          category_code: 'attribute', entity_attribute: 'attribute',
-        };
         const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
         for (const fb of flywheelBindings) {
-          const columnRole = roleMap[fb.semanticRole] ?? 'unknown';
+          // HF-236: native columnRole guaranteed present by insufficientFlywheelCache gate.
           interpretations.set(fb.sourceField, {
             columnName: fb.sourceField,
             semanticMeaning: fb.displayContext || fb.semanticRole,
             dataExpectation: '',
-            columnRole,
+            columnRole: fb.columnRole!,
             confidence: fb.confidence,
+            ...(fb.identifiesWhat ? { identifiesWhat: fb.identifiesWhat } : {}),
           });
         }
         sheetProfile.headerComprehension = {
@@ -195,7 +234,7 @@ export async function POST(req: NextRequest) {
           llmModel: 'flywheel-tier1',
           fromVocabularyBinding: false,
         };
-        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName}`);
+        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-236)`);
       }
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
@@ -351,6 +390,119 @@ export async function POST(req: NextRequest) {
           .map(s => `${s.agent}=${(s.confidence * 100).toFixed(0)}%`)
           .join(', ');
         console.log(`[SCI-SCORES-DIAG] sheet=${sheetLabel} winner=${resolution.classification}@${(resolution.confidence * 100).toFixed(0)}% scores=[${scoresStr}]`);
+      }
+
+      // ── HF-240: workbook-level plan-signature reclassification ──
+      // The Level-1 HC pattern classifier (`classifyByHCPattern`) returns
+      // one of {entity, target, transaction, reference} but has no `plan`
+      // branch — plan-ness is a WORKBOOK property, not a per-sheet
+      // property. Level-2 PLAN_WEIGHTS can score plan, but only when
+      // Level-1 returns null (HC coverage < 50%). With a warmed-up HC
+      // LLM and a confidently classified plan workbook (rate tables +
+      // roster + targets), Level-1 fires per-sheet and the file is
+      // classified as `entity + reference + target` — never `plan`.
+      //
+      // The pre-HF-239 execute route had identical gating
+      // (`confirmedClassification === 'plan'`), so the cold-start
+      // regression presents identically post-HF-239. The architecturally
+      // correct fix is workbook-level: AFTER per-sheet classification
+      // completes, examine the sheet composition for this file. When
+      // the composition matches the plan-workbook signature (small
+      // multi-sheet workbook with non-transactional sheets and at least
+      // one rate-table-shaped sheet), reclassify ALL of the file's
+      // sheets to `plan`.
+      //
+      // The signature is purely structural — zero hardcoded filenames,
+      // tenant names, or domain literals. The signal fires only when
+      // (1) all of: ≥2 sheets, no transaction-classified sheet, total
+      // committed rows < 1000 (configurations are small), and (2) at
+      // least one sheet has rate-table structural signals (sparsity
+      // > 0.30 OR percentage values OR auto-generated headers OR
+      // reference-category row count).
+      {
+        const fileUnitIds = new Set(
+          Array.from(state.contentUnits.entries())
+            .filter(([, p]) => fileSheets.some(fs => fs.sheetName === p.tabName))
+            .map(([id]) => id),
+        );
+        if (fileUnitIds.size >= 2) {
+          const fileResolutions: Array<{ unitId: string; classification: AgentType; profile?: ContentProfile }> = [];
+          for (const unitId of Array.from(fileUnitIds)) {
+            const r = state.resolutions.get(unitId);
+            const p = state.contentUnits.get(unitId);
+            if (r && p) fileResolutions.push({ unitId, classification: r.classification, profile: p });
+          }
+          const hasTransaction = fileResolutions.some(r => r.classification === 'transaction');
+          const hasReferenceOrTarget = fileResolutions.some(
+            r => r.classification === 'reference' || r.classification === 'target',
+          );
+          let totalRows = 0;
+          let hasRateTableSignal = false;
+          for (const r of fileResolutions) {
+            if (!r.profile) continue;
+            totalRows += r.profile.structure.rowCount;
+            if (
+              r.profile.structure.sparsity > 0.30
+              || r.profile.patterns.hasPercentageValues
+              || r.profile.structure.headerQuality === 'auto_generated'
+              || r.profile.patterns.rowCountCategory === 'reference'
+            ) {
+              hasRateTableSignal = true;
+            }
+          }
+          const matchesPlanSignature =
+            !hasTransaction
+            && hasReferenceOrTarget
+            && totalRows < 1000
+            && hasRateTableSignal;
+          if (matchesPlanSignature) {
+            console.log(
+              `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
+              `totalRows=${totalRows} signature=match — reclassifying all sheets to 'plan'`,
+            );
+            for (const r of fileResolutions) {
+              const resolution = state.resolutions.get(r.unitId);
+              if (resolution) {
+                resolution.classification = 'plan' as AgentType;
+                resolution.confidence = 0.80;
+                resolution.decisionSource = 'plan_workbook_signature' as typeof resolution.decisionSource;
+                resolution.requiresHumanReview = false;
+              }
+              const trace = state.traces.get(r.unitId);
+              if (trace) {
+                trace.finalClassification = 'plan' as AgentType;
+                trace.finalConfidence = 0.80;
+                trace.decisionSource = 'plan_workbook_signature' as typeof trace.decisionSource;
+                trace.requiresHumanReview = false;
+              }
+              // Boost plan score in round2 so downstream consumers (UI
+              // "all scores" display, requiresHumanReview) reflect the
+              // workbook-level decision without ambiguity.
+              const r2 = state.round2Scores.get(r.unitId);
+              if (r2) {
+                for (const s of r2) {
+                  if (s.agent === 'plan') {
+                    s.confidence = 0.80;
+                    s.signals.unshift({
+                      signal: 'plan_workbook_signature',
+                      weight: 0.80,
+                      evidence: `multi-sheet workbook signature (${fileResolutions.length} sheets, ${totalRows} rows, rate-table signals present)`,
+                    });
+                  } else {
+                    s.confidence = Math.min(s.confidence, 0.10);
+                  }
+                }
+                r2.sort((a, b) => b.confidence - a.confidence);
+              }
+            }
+          } else {
+            console.log(
+              `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
+              `totalRows=${totalRows} hasTx=${hasTransaction} hasRefOrTgt=${hasReferenceOrTarget} ` +
+              `rateTableSignal=${hasRateTableSignal} — no plan signature`,
+            );
+          }
+        }
       }
 
       // Build proposal from state (same format as before — proposal cards render correctly)

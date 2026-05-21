@@ -47,6 +47,13 @@ interface MetricContext {
   scope?: string;        // Scope level for scope_aggregate (e.g., "district")
   semanticIntent?: string;             // HF-198 E5: AI plan-agent reasoning text (per metric_comprehension signal)
   metricInputs?: Record<string, unknown> | null;  // HF-198 E5: input shape from plan-agent (per metric_comprehension signal)
+  // HF-226 Phase 2A — Carry Everything from the plan-agent signal (T1-E902).
+  // The full signal_value flows through so downstream prompt builders can
+  // surface any field the LLM emitted (filters, expectedMetrics, calculationMethod,
+  // free-form predicate vocabulary). semanticIntent and metricInputs above are
+  // retained for backward compatibility with existing extractions; new consumers
+  // read directly off signalContext.
+  signalContext?: Record<string, unknown> | null;
 }
 
 /** Convert programmatic metric name to human-readable label */
@@ -83,8 +90,12 @@ interface DataCapability {
 }
 
 // OB-162: Per-component convergence binding (Decision 111)
+// HF-222 Phase 3 (schema-class root closure): the prior single batch-id field that
+// collapsed learning-provenance and data-location semantics is retired. Audit
+// provenance is now carried by `learning_provenance` (period-agnostic, write-time
+// metadata only). Data-location resolution keys by column name across all
+// operative-period batches. See VG entry T1-E-PG3 for the class naming.
 export interface ComponentBinding {
-  source_batch_id: string;
   column: string;
   field_identity: FieldIdentity;
   match_pass: number | 'failed';  // 1=structural/boundary, 2=contextual/AI, 3=token, 'failed'=HF-203 binding rejection
@@ -93,6 +104,23 @@ export interface ComponentBinding {
   scale_factor?: number;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
+  // HF-222 Phase 3: learning provenance (audit metadata only).
+  learning_provenance?: {
+    batch_id: string;
+    learned_at: string;
+  };
+  // HF-227: filters live on the binding. Decision 111 ratifies convergence_bindings
+  // as the sole engine output; the engine reads filter applicability natively from
+  // the binding entry rather than via a metric_derivations cross-structure lookup
+  // bridge (findMetricFilters, retired in HF-227 Phase 3). An empty / absent array
+  // means "no filter" — rowMatchesFilters returns true for empty filter arrays.
+  // Operator union mirrors MetricDerivationRule['filters'][number]['operator']
+  // so binding.filters can pass directly to resolveColumnFromBatch.
+  filters?: Array<{
+    field: string;
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
 }
 
 interface BindingMatch {
@@ -248,6 +276,14 @@ export async function convergeBindings(
         'classification:human_correction',
         // HF-198 E3 / F-011 closure: declared reader for convergence:dual_path_concordance.
         // Cross-run observation surface for dual-path agreement-rate trend.
+        // HF-222 Phase 4: signal classification is observation-only. The HF-218 Component 4b
+        // gate consumer was retired in Phase 1 (Korean Test compliance). This reader remains
+        // — it is read-only and feeds cross-run flywheel observation (IRA priors,
+        // ICA Mode 5 capture). Classification metadata lives at substrate (VG entry
+        // T2-E-signal-convergence-dual-path-concordance-observation-only), not at code comment;
+        // this comment is the runtime breadcrumb pointing to the substrate entry. The signal
+        // MUST NOT be re-introduced as a binding-gate consumer without satisfying AP-25 /
+        // IGF-T1-E910 (Korean Test).
         'convergence:dual_path_concordance',
       ])
       .not('calculation_run_id', 'is', null)
@@ -263,6 +299,13 @@ export async function convergeBindings(
   const matches = matchComponentsToData(components, capabilities);
 
   // 5. Generate derivation rules
+  // HF-226 Phase 2B (IRA DS-025 Option D): generateDerivationsForMatch was the
+  // routing gate that hardcoded filters: [] on every produced rule, then
+  // populated `derivations` and pre-resolved metrics so the AI-mediated Pass 4
+  // never saw them. Removing the call here means ALL metrics fall through to
+  // the unified Pass 4 (generateAISemanticDerivations) which carries the
+  // categorical-subset prompt and produces filter populated rules. The
+  // matchReport / signals emissions for deterministic matches are preserved.
   for (const match of matches) {
     const cap = capabilities.find(c => c.dataType === match.dataType);
     if (!cap) continue;
@@ -276,18 +319,23 @@ export async function convergeBindings(
 
     if (match.matchConfidence < 0.5) continue;
 
-    const generated = generateDerivationsForMatch(match, cap, components, matches);
-    derivations.push(...generated);
+    // HF-226 Phase 2B: generateDerivationsForMatch call commented out
+    // (superseded by unified Pass 4 below). Function body retained for
+    // rollback safety; remove after three-tenant verification per directive
+    // §"Do NOT delete superseded functions yet".
+    //   const generated = generateDerivationsForMatch(match, cap, components, matches);
+    //   derivations.push(...generated);
+    //   for (const d of generated) signals.push({ ... });
 
-    for (const d of generated) {
-      signals.push({
-        domain: match.dataType,
-        fieldName: d.source_field || 'row_count',
-        semanticType: d.operation === 'sum' ? 'amount' : 'count',
-        confidence: match.matchConfidence,
-      });
-    }
-
+    // Emit per-match signal (preserving HF-219 surface) without a synthesized
+    // derivation. The signal records the structural match outcome; the
+    // derivation comes from Pass 4 with the full LLM-derived filter context.
+    signals.push({
+      domain: match.dataType,
+      fieldName: 'match_outcome',
+      semanticType: 'match',
+      confidence: match.matchConfidence,
+    });
     // Note: per-component bindings generated in bulk below (HF-111)
   }
 
@@ -530,11 +578,14 @@ export async function convergeBindings(
       if (targetCap.batchIds.length > 0) {
         const targetFI = targetCap.fieldIdentities[targetCap.targetField];
         componentBindings[compKey]['target'] = {
-          source_batch_id: targetCap.batchIds[0],
           column: targetCap.targetField,
           field_identity: targetFI || { structuralType: 'measure', contextualIdentity: 'performance_target', confidence: 0.7 },
           match_pass: 2,
           confidence: bestCompMatch.score,
+          learning_provenance: {
+            batch_id: targetCap.batchIds[0],
+            learned_at: new Date().toISOString(),
+          },
         };
       }
 
@@ -542,13 +593,31 @@ export async function convergeBindings(
     }
   }
 
-  // OB-185 Pass 4: AI Semantic Derivation for unresolved metrics
-  // When Passes 1-3 leave metrics unresolved, invoke AI to bridge the gap.
-  // This handles transaction-level data where plan metric names (e.g., "consumable_revenue")
-  // don't match column names (e.g., "total_amount") — AI reasons about the semantic bridge.
+  // HF-226 Phase 2B (IRA DS-025 Option D): Pass 4 is now the SOLE derivation
+  // authority. Pre-HF-226 it fired only for metrics the deterministic Path
+  // 1-3 (generateDerivationsForMatch, removed above) had failed to resolve.
+  // Removing that path means the `derivations` array entering this point
+  // contains ONLY the targets-pair ratio derivations (from the actuals+target
+  // capability detection block).
+  //
+  // HF-234 — when capabilities carry categorical fields, ALL required metrics
+  // flow through Pass 4 regardless of whether earlier code added a derivation
+  // for them. Pass 4 is the surface where filter discovery happens, and any
+  // metric on data with categorical dimensions may need subsetting. Tenants
+  // without categorical data (e.g., Meridian — one metric per column) keep
+  // the prior gate so Pass 4 fires only for metrics not already resolved by
+  // the targets-pair ratio block.
+  //
+  // The variable name `unresolvedForAI` is retained for git-blame readability;
+  // its membership semantics depend on the categorical-data branch below.
+  const hasCategoricalData = capabilities.some(cap =>
+    (cap.categoricalFields?.length ?? 0) > 0,
+  );
   const allResolvedMetrics = new Set(derivations.map(d => d.metric));
   const allRequiredMetrics = Array.from(new Set(components.flatMap(c => c.expectedMetrics)));
-  const unresolvedForAI = allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
+  const unresolvedForAI = hasCategoricalData
+    ? allRequiredMetrics
+    : allRequiredMetrics.filter(m => !allResolvedMetrics.has(m));
 
   if (unresolvedForAI.length > 0 && capabilities.length > 0) {
     // OB-191 / HF-198 E5: Build enriched metric context from calculationIntent
@@ -560,8 +629,16 @@ export async function convergeBindings(
       const intent = ownerComp?.calculationIntent;
       let scope: string | undefined;
       if (intent) {
-        const inputSpec = (intent.input as Record<string, unknown> | undefined)?.sourceSpec as Record<string, unknown> | undefined;
-        if (inputSpec?.scope) scope = String(inputSpec.scope);
+        // HF-224: scope lives on any leaf IntentSource. Walk the intent tree
+        // and take the first leaf that declares it so HF-223 nested shapes
+        // (e.g. conditional_gate-wrapped ratio) still surface their scope.
+        for (const leaf of extractLeafSources(intent)) {
+          const leafScope = leaf.sourceSpec?.scope;
+          if (typeof leafScope === 'string') {
+            scope = leafScope;
+            break;
+          }
+        }
       }
       // HF-198 E5: Find matching metric_comprehension signal by metric label / component name.
       const matchedSignal = observations.metricComprehension.find(sig => {
@@ -574,6 +651,9 @@ export async function convergeBindings(
       const sigValue = (matchedSignal?.signal_value ?? {}) as Record<string, unknown>;
       const semanticIntent = (sigValue.semantic_intent as string | undefined) ?? undefined;
       const metricInputs = (sigValue.metric_inputs as Record<string, unknown> | null | undefined) ?? null;
+      // HF-226 Phase 2A: carry full signal_value as signalContext so the
+      // Pass 4 prompt builder can surface any field the plan-agent emitted
+      // beyond the three already-extracted keys.
       return {
         name: metricName,
         label: humanizeMetricName(metricName),
@@ -582,16 +662,17 @@ export async function convergeBindings(
         scope,
         semanticIntent,
         metricInputs,
+        signalContext: matchedSignal ? sigValue : null,
       };
     });
 
-    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} unresolved metrics — invoking AI semantic derivation`);
+    console.log(`[Convergence] OB-185 Pass 4: ${unresolvedForAI.length} metrics for AI semantic derivation (hasCategoricalData=${hasCategoricalData})`);
     for (const mc of metricContexts) {
       console.log(`[Convergence] Pass 4 metric: ${mc.name} (label: "${mc.label}", op: ${mc.operation}${mc.scope ? ', scope: ' + mc.scope : ''})`);
     }
     try {
       const aiResult = await generateAISemanticDerivations(
-        metricContexts, capabilities, supabase, tenantId
+        metricContexts, capabilities
       );
       derivations.push(...aiResult.derivations);
       for (const g of aiResult.gaps) {
@@ -677,8 +758,19 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
     const cj = componentsJson as Record<string, unknown>;
     const variants = cj.variants as Array<Record<string, unknown>> | undefined;
     if (Array.isArray(variants) && variants.length > 0) {
-      // Variant structure — use first variant (all share same structural pattern)
-      comps = (variants[0].components as Array<Record<string, unknown>>) ?? [];
+      // HF-243: flatten across ALL variants in declaration order so the binding
+      // pipeline sees every variant component, not just variants[0]. Pre-HF-243
+      // this took variants[0].components only — the comment claimed "all share
+      // same structural pattern" but the engine keys bindings by global flat
+      // index (component_0..N-1) and looks up variant 1's entities under
+      // component_4+. DIAG-054 R3 confirmed convergence_bindings had zero entries
+      // for component_4..7 because those components were never extracted.
+      // Order is variant 0 components first, then variant 1, etc., matching the
+      // engine's flat indexing.
+      for (const v of variants) {
+        const vc = v.components as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(vc)) comps.push(...vc);
+      }
     }
   }
 
@@ -926,6 +1018,30 @@ async function inventoryData(
     }
   }
 
+  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
+  // above can land entirely on rows of one row-data schema even when a
+  // data_type carries rows from multiple imports with different column sets
+  // (e.g., roster rows + quota rows both classified `entity`). Walk the
+  // remaining rows in `allRows` and admit at most one extra row per unseen
+  // column-key signature, capped at 50 samples per data_type. Korean Test:
+  // discrimination is by column-key structural signature, not by column
+  // name semantics or values.
+  for (const [dt, samples] of Array.from(byType.entries())) {
+    const sigOf = (rd: Record<string, unknown>) =>
+      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
+    for (const row of allRows) {
+      if (samples.length >= 50) break;
+      if ((row.data_type as string) !== dt) continue;
+      const rd = row.row_data as Record<string, unknown> | null;
+      if (!rd) continue;
+      const sig = sigOf(rd);
+      if (seenSignatures.has(sig)) continue;
+      samples.push(rd);
+      seenSignatures.add(sig);
+    }
+  }
+
   for (const [dataType, samples] of Array.from(byType.entries())) {
     const roles = rolesByType.get(dataType) || {};
     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
@@ -1148,6 +1264,13 @@ function matchComponentsToData(
 // Step 4: Generate Derivation Rules
 // ──────────────────────────────────────────────
 
+// HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
+// The hardcoded `filters: []` literals at lines 1245, 1253 are the routing-gate
+// instance of the registry/cherry-pick defect class (AUD-009). Call site at
+// convergeBindings line ~310 commented out. Function body retained for
+// rollback safety; remove after three-tenant verification per directive
+// "Do NOT delete superseded functions yet" section.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateDerivationsForMatch(
   match: BindingMatch,
   capability: DataCapability,
@@ -1222,9 +1345,192 @@ interface ComponentInputRequirement {
   expectedRange: { min: number; max: number } | null;
 }
 
+// HF-224: Generic intent tree traversal.
+// Mirrors intent-executor's resolveValue: an IntentOperation has `operation`,
+// an IntentSource has `source`. Recurse through every operation child until
+// every leaf IntentSource is collected. Consumers that previously assumed a
+// flat `intent.input` (pre-HF-223) call this to find the leaf they need.
+export function extractLeafSources(
+  node: unknown
+): Array<{ source: string; sourceSpec?: Record<string, unknown> }> {
+  if (!node || typeof node !== 'object') return [];
+
+  const obj = node as Record<string, unknown>;
+
+  if (typeof obj.source === 'string') {
+    return [{
+      source: obj.source,
+      sourceSpec: obj.sourceSpec as Record<string, unknown> | undefined,
+    }];
+  }
+
+  if (typeof obj.operation === 'string') {
+    const leaves: Array<{ source: string; sourceSpec?: Record<string, unknown> }> = [];
+
+    const recurseField = (field: unknown) => {
+      if (field && typeof field === 'object') {
+        leaves.push(...extractLeafSources(field));
+      }
+    };
+
+    recurseField(obj.input);
+    recurseField(obj.onTrue);
+    recurseField(obj.onFalse);
+
+    if (obj.condition && typeof obj.condition === 'object') {
+      const cond = obj.condition as Record<string, unknown>;
+      recurseField(cond.left);
+      recurseField(cond.right);
+    }
+
+    if (obj.inputs && typeof obj.inputs === 'object') {
+      for (const val of Object.values(obj.inputs as Record<string, unknown>)) {
+        recurseField(val);
+      }
+    }
+
+    if (Array.isArray(obj.segments)) {
+      for (const seg of obj.segments) {
+        recurseField(seg);
+      }
+    }
+
+    recurseField(obj.ratioInput);
+    recurseField(obj.baseInput);
+
+    return leaves;
+  }
+
+  return [];
+}
+
+/**
+ * HF-242: Walk a PrimeNode DAG and collect every `reference` field name and
+ * every `aggregate` field name. These are the metric / row-field names the
+ * DAG evaluator reads at calculation time; they are exactly the fields
+ * convergence needs to bind to committed_data columns.
+ *
+ * Korean Test compliant — pure structural traversal, no field-name matching.
+ * Domain-agnostic — works for any PrimeNode tree regardless of vocabulary.
+ */
+export function extractReferencesFromDAG(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const refs = new Set<string>();
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+    if (prime === 'reference' && typeof obj.field === 'string') {
+      refs.add(obj.field);
+      return;
+    }
+    if (prime === 'aggregate' && typeof obj.field === 'string') {
+      refs.add(obj.field);
+      // aggregate is a leaf; no downstream to recurse.
+      return;
+    }
+    // Generic recursion — every prime that carries children carries them in
+    // one of these positions. Recursing into `inputs` / `downstream` /
+    // `condition` / `then` / `else` covers arithmetic, compare, logical,
+    // filter, scope, conditional, and prior_period.
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return Array.from(refs);
+}
+
+/**
+ * HF-243: Walk a PrimeNode DAG and collect every numeric `constant` that
+ * appears alongside `reference(fieldName)` inside a `compare` node. The
+ * collected constants are the threshold values the DAG expects the field
+ * to be compared against — i.e. the expected value range for the field.
+ *
+ * Legacy bounded_lookup_1d / bounded_lookup_2d intents carried explicit
+ * `boundaries: [{min, max}, ...]` arrays; `extractRangeFromBoundaries`
+ * read these to produce `expectedRange` for `scoreColumnForRequirement`'s
+ * scale inference (×1 vs ×100). Prime-DAG emissions embed those thresholds
+ * directly inside `compare` nodes as constants; this function recovers the
+ * equivalent expectedRange purely from the tree shape.
+ *
+ * Korean Test compliant — pure structural traversal, no field-name matching.
+ */
+export function extractExpectedRangeFromDAG(
+  node: unknown,
+  fieldName: string,
+): { min: number; max: number } | null {
+  if (!node || typeof node !== 'object') return null;
+  const constants: number[] = [];
+
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+
+    // A compare node has exactly 2 inputs. When ONE of them is a reference
+    // to fieldName and the OTHER is a constant, the constant is a threshold
+    // the field will be tested against.
+    if (prime === 'compare' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const aIsRef = a && a.prime === 'reference' && a.field === fieldName;
+      const bIsRef = b && b.prime === 'reference' && b.field === fieldName;
+      const aIsConst = a && a.prime === 'constant' && typeof a.value === 'number';
+      const bIsConst = b && b.prime === 'constant' && typeof b.value === 'number';
+      if (aIsRef && bIsConst) constants.push(b.value as number);
+      else if (bIsRef && aIsConst) constants.push(a.value as number);
+      // Fall through and recurse — inputs may also contain compares (e.g.
+      // `compare(eq, arithmetic(...), constant)`) that we shouldn't miss.
+    }
+
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+
+  if (constants.length === 0) return null;
+  return { min: Math.min(...constants), max: Math.max(...constants) };
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
+
+  // HF-242: prime_dag components carry a PrimeNode tree under
+  // calculationIntent (discriminator key `prime`) instead of the legacy
+  // `operation` shape. Walk the DAG to collect every reference field — each
+  // becomes a requirement whose `role` IS the field name so the binding
+  // entry is keyed by field name (vs. legacy role names like 'actual' /
+  // 'row' / 'column'). This makes the AI column-mapping prompt receive
+  // the actual metric names the DAG will read, instead of an empty list.
+  const compType = (component as unknown as { componentType?: string }).componentType;
+  const isPrimeDag = compType === 'prime_dag'
+    || (typeof (intent as Record<string, unknown>).prime === 'string');
+  if (isPrimeDag) {
+    const refs = extractReferencesFromDAG(intent);
+    if (refs.length === 0) {
+      return [{ role: 'actual', metricField: 'unknown', expectedRange: null }];
+    }
+    // HF-243: per-field expectedRange recovered from the DAG's compare
+    // constants. Drives scoreColumnForRequirement's existing ratio/percentage
+    // scale inference identically to how extractRangeFromBoundaries drove it
+    // for legacy bounded_lookup_1d/2d intents. No new code path — the same
+    // inference function handles both shapes.
+    return refs.map(field => ({
+      role: field,
+      metricField: field,
+      expectedRange: extractExpectedRangeFromDAG(intent, field),
+    }));
+  }
 
   const reqs: ComponentInputRequirement[] = [];
   const op = intent.operation as string;
@@ -1256,16 +1562,46 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
     }
     case 'scalar_multiply': {
       const input = intent.input as Record<string, unknown> | undefined;
+
+      // Fast path: flat ratio IntentSource (pre-HF-223 shape).
       if (input?.source === 'ratio') {
         const spec = input.sourceSpec as Record<string, unknown> | undefined;
         const num = spec?.numerator ? String(spec.numerator).replace(/^metric:/, '') : 'unknown';
         const den = spec?.denominator ? String(spec.denominator).replace(/^metric:/, '') : 'unknown';
         reqs.push({ role: 'numerator', metricField: num, expectedRange: null });
         reqs.push({ role: 'denominator', metricField: den, expectedRange: null });
-      } else {
-        const spec = input?.sourceSpec as Record<string, unknown> | undefined;
-        reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
+        break;
       }
+
+      // Fast path: flat metric IntentSource.
+      if (typeof input?.source === 'string') {
+        const spec = input.sourceSpec as Record<string, unknown> | undefined;
+        reqs.push({ role: 'actual', metricField: getField(spec), expectedRange: null });
+        break;
+      }
+
+      // HF-224: Nested IntentOperation input (e.g. HF-223 conditional_gate-wrapped ratio).
+      // Walk every operation child until leaf IntentSources are found, then pick
+      // the ratio leaf (preferred) or the first metric leaf.
+      if (input && typeof input.operation === 'string') {
+        const leaves = extractLeafSources(input);
+        const ratioLeaf = leaves.find(l => l.source === 'ratio');
+        if (ratioLeaf) {
+          const spec = ratioLeaf.sourceSpec;
+          const num = spec?.numerator ? String(spec.numerator).replace(/^metric:/, '') : 'unknown';
+          const den = spec?.denominator ? String(spec.denominator).replace(/^metric:/, '') : 'unknown';
+          reqs.push({ role: 'numerator', metricField: num, expectedRange: null });
+          reqs.push({ role: 'denominator', metricField: den, expectedRange: null });
+          break;
+        }
+        const firstLeaf = leaves[0];
+        if (firstLeaf) {
+          reqs.push({ role: 'actual', metricField: getField(firstLeaf.sourceSpec), expectedRange: null });
+          break;
+        }
+      }
+
+      reqs.push({ role: 'actual', metricField: 'unknown', expectedRange: null });
       break;
     }
     case 'conditional_gate': {
@@ -1710,25 +2046,60 @@ function hasCompleteBindings(
   return true;
 }
 
-// HF-113: Validate that AI response is a metric→column mapping (not a narrative)
+// HF-113: Validate that AI response is a metric→column mapping (not a narrative).
+// HF-227: accepts both the plain-string form (backward compatible) and the
+// enriched object form `{ column: string; filters?: [...] }` introduced by the
+// HF-227 prompt evolution.
 function isValidColumnMapping(
   result: Record<string, unknown>,
   metricFields: string[],
   columnNames: string[],
 ): boolean {
-  const mappedCount = metricFields.filter(m =>
-    typeof result[m] === 'string' && columnNames.includes(result[m] as string)
-  ).length;
+  const mappedCount = metricFields.filter(m => {
+    const val = result[m];
+    if (typeof val === 'string') return columnNames.includes(val);
+    if (typeof val === 'object' && val !== null) {
+      const col = (val as Record<string, unknown>).column;
+      return typeof col === 'string' && columnNames.includes(col);
+    }
+    return false;
+  }).length;
   return mappedCount >= Math.ceil(metricFields.length * 0.5);
 }
 
-// One AI call: match plan metric field names to data column contextual identities
+// HF-227: Return shape of resolveColumnMappingsViaAI. Each metric maps to
+// either the column name as a plain string (backward-compatible) or to an
+// enriched object carrying the column plus an optional filters array. The
+// engine treats the absence of filters and the empty-filters array
+// identically (rowMatchesFilters returns true for empty arrays).
+// Operator union matches MetricDerivationRule['filters'][number]['operator']
+// so the binding can be passed directly to resolveColumnFromBatch without a
+// cast — closing the bridge entirely (filters ARE binding state, not
+// derived per-call).
+export type ColumnMappingFilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+export type ColumnMappingFilter = {
+  field: string;
+  operator: ColumnMappingFilterOperator;
+  value: string | number | boolean;
+};
+export type ColumnMappingValue = string | { column: string; filters?: ColumnMappingFilter[] };
+
+// One AI call: match plan metric field names to data column contextual identities.
+//
+// HF-234 — separation of concerns: this call is the STRUCTURAL column-mapping
+// authority. It returns `{metric: column}` mappings only. Categorical-subset
+// filter discovery has moved to Pass 4 (generateAISemanticDerivations), which
+// produces metric_derivations rules that the engine applies AFTER role-bound
+// metric resolution. The prompt below no longer mentions categorical fields or
+// filter forms, so the LLM consistently returns the flat string shape that
+// `isValidColumnMapping` expects. Defensive object-form parsing in
+// `generateAllComponentBindings` is retained for backward compatibility.
 async function resolveColumnMappingsViaAI(
   components: PlanComponent[],
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
   metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
-): Promise<Record<string, string>> {
+): Promise<Record<string, ColumnMappingValue>> {
   const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
   const columnNames = measureColumns.map(c => c.name);
 
@@ -1736,7 +2107,15 @@ async function resolveColumnMappingsViaAI(
   // Match by component name (signal.metric_label) and then by metricField. Per
   // AUD-004 v3 §2 E5, plan-agent semantic intent is authoritative; AI prompt
   // includes it so column-to-metric binding has structured plan context.
-  const semanticIntentByMetricField = new Map<string, { intent: string; inputs: string }>();
+  // HF-226 Phase 2A: each map entry now carries the full signal_value via
+  // signalContext alongside the three derived strings, so the prompt builder
+  // can surface any field the plan-agent emitted (filters, expectedMetrics,
+  // calculationMethod, free-form predicate vocabulary).
+  const semanticIntentByMetricField = new Map<string, {
+    intent: string;
+    inputs: string;
+    signalContext: Record<string, unknown> | null;
+  }>();
   for (const r of allRequirements) {
     const ownerComp = components.find(c => c.name === r.compName);
     const matchedSignal = metricComprehension.find(sig => {
@@ -1750,7 +2129,7 @@ async function resolveColumnMappingsViaAI(
       const intent = (sv.semantic_intent as string | undefined) ?? '';
       const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
       if (intent || inputs) {
-        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs });
+        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs, signalContext: sv });
       }
     }
   }
@@ -1775,6 +2154,11 @@ async function resolveColumnMappingsViaAI(
   // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
   // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
   // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
+  //
+  // HF-234 — categorical-context block REMOVED. Column mapping is structural;
+  // filter discovery belongs to Pass 4 (generateAISemanticDerivations) which
+  // produces metric_derivations rules consumed by the engine alongside these
+  // bindings. The prompt now asks for a single concern — pure column mapping.
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
 Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
 satisfy the stated intent over columns that merely share contextual labels.
@@ -1785,7 +2169,7 @@ ${metricList}
 DATA COLUMNS:
 ${columnList}
 
-EXAMPLE OUTPUT:
+EXAMPLE OUTPUT (flat metric-to-column map):
 {"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
 
   try {
@@ -1806,10 +2190,36 @@ EXAMPLE OUTPUT:
       return {};
     }
 
-    const mapping: Record<string, string> = {};
+    // HF-227: accept both string (legacy) and { column, filters? } (enriched)
+    // forms. Plain string remains valid output — Korean Test compliant because
+    // the parser inspects shape, not content. Empty filters arrays are
+    // equivalent to absent filters for the engine (rowMatchesFilters returns
+    // true on empty arrays).
+    const mapping: Record<string, ColumnMappingValue> = {};
     for (const [key, val] of Object.entries(result)) {
       if (typeof val === 'string' && columnNames.includes(val)) {
         mapping[key] = val;
+      } else if (typeof val === 'object' && val !== null) {
+        const obj = val as Record<string, unknown>;
+        const col = obj.column;
+        if (typeof col === 'string' && columnNames.includes(col)) {
+          const validOps: ColumnMappingFilterOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'];
+          const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
+            ? (obj.filters as Array<Record<string, unknown>>)
+                .filter(f => typeof f.field === 'string' && f.value != null)
+                .map(f => {
+                  const op = typeof f.operator === 'string' && (validOps as string[]).includes(f.operator)
+                    ? (f.operator as ColumnMappingFilterOperator)
+                    : 'eq';
+                  return {
+                    field: String(f.field),
+                    operator: op,
+                    value: f.value as string | number | boolean,
+                  };
+                })
+            : [];
+          mapping[key] = filters.length > 0 ? { column: col, filters } : col;
+        }
       }
     }
     console.log(`[Convergence] HF-114 AI mapping: ${JSON.stringify(mapping)}`);
@@ -1866,6 +2276,35 @@ export function computeStructuralBindingConfidence(
   };
 }
 
+// HF-222 Phase 2: distribution-derived distinguishability test.
+//
+// Replaces HF-218 Component 4b's tenant-adaptive boundary threshold (which carried
+// a developer-stated initial-state anchor value and signal-window size — both
+// Korean Test violations per AP-25 / IGF-T1-E910). The new test derives its acceptance
+// threshold from the candidate distribution itself at the moment of binding;
+// no developer-stated numerical constants in foundational binding-gate code.
+//
+// Properties verified algebraically (and via property-test proof in
+// scripts/hf222-phase2-3-distribution-test-proof.ts):
+//   - N=0: refuses to bind (empty distribution).
+//   - N=1: binds iff score > 0 (substrate eligibility floor: cardinality × intersection
+//          > 0 — already a substrate test, not a magnitude threshold).
+//   - N=2: binds iff scores differ at all (population stddev = |s1-s0|/2,
+//          top-next = |s1-s0|; the comparison holds whenever scores aren't equal).
+//   - N>=3: cluster cases (small dispersion relative to top-next gap) refuse to bind;
+//           clear-outlier cases bind. Invariant under linear scaling and translation.
+export function distinctEnoughToBind(scoredCandidates: Array<{ score: number }>): boolean {
+  if (scoredCandidates.length === 0) return false;
+  if (scoredCandidates.length === 1) {
+    return scoredCandidates[0].score > 0;
+  }
+  const scores = scoredCandidates.map(c => c.score);
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((s, x) => s + (x - mean) ** 2, 0) / scores.length;
+  const stddev = Math.sqrt(variance);
+  return scoredCandidates[0].score - scoredCandidates[1].score > stddev;
+}
+
 async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
@@ -1883,40 +2322,16 @@ async function generateAllComponentBindings(
   tenantId: string = '',
   supabase?: SupabaseClient,
 ): Promise<void> {
-  // HF-218 Component 4b: tenant-adaptive boundary-fallback threshold.
-  // Per ADR Decision 3 (composite): if recent-N (N=5) convergence:dual_path_concordance
-  // signals exist for tenant, threshold = average of those concordance values; otherwise
-  // fall back to 0.50 cold-start anchor (preserves existing operative behavior).
-  // N=5 anchor: minimum-statistical-distinguishability threshold (Bayesian prior shift).
-  let tenantAdaptiveBoundaryThreshold = 0.50;
-  if (supabase && tenantId) {
-    try {
-      const RECENT_N = 5;
-      const { data: concordanceSignals } = await supabase
-        .from('classification_signals')
-        .select('signal_value, confidence')
-        .eq('tenant_id', tenantId)
-        .eq('signal_type', 'convergence:dual_path_concordance')
-        .order('created_at', { ascending: false })
-        .limit(RECENT_N);
-      if (concordanceSignals && concordanceSignals.length >= RECENT_N) {
-        const rates: number[] = [];
-        for (const sig of concordanceSignals) {
-          const sv = sig.signal_value as Record<string, unknown> | null;
-          const rate = sv ? Number(sv.concordanceRate) : NaN;
-          if (!isNaN(rate) && rate >= 0 && rate <= 1) rates.push(rate);
-        }
-        if (rates.length >= RECENT_N) {
-          const avg = rates.reduce((a, b) => a + b, 0) / rates.length;
-          // Clamp to [0, 1]
-          tenantAdaptiveBoundaryThreshold = Math.max(0, Math.min(1, avg));
-          console.log(`[Convergence] HF-218 Tenant-adaptive boundary threshold: ${tenantAdaptiveBoundaryThreshold.toFixed(4)} (avg of ${rates.length} recent dual_path_concordance signals)`);
-        }
-      }
-    } catch (err) {
-      console.warn(`[Convergence] HF-218 tenant-adaptive threshold read failed (non-blocking, using 0.50 anchor): ${err instanceof Error ? err.message : 'unknown'}`);
-    }
-  }
+  // HF-222 Phase 1: HF-218 Component 4b tenant-adaptive boundary threshold block
+  // RETIRED (Korean Test violation: developer-stated initial-state anchor value
+  // and signal-window size were introduced at HF-218 design lock and reviewed via
+  // an unfilled GP-2 citation slot). The boundary-fallback acceptance mechanism
+  // is replaced in Phase 2 by a distribution-derived distinguishability test that
+  // computes its threshold from the candidate distribution at decision time.
+  //
+  // The `convergence:dual_path_concordance` signal continues to be emitted by the
+  // engine (calculation/run/route.ts) and is classified observation-only per the
+  // VG substrate entry T2-E-signal-convergence-dual-path-concordance-observation-only.
 
   // HF-112: Reuse existing bindings if complete (zero AI cost)
   if (hasCompleteBindings(existingConvergenceBindings, components.length)) {
@@ -1976,12 +2391,63 @@ async function generateAllComponentBindings(
 
   // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
   // signals as authoritative semantic intent.
+  //
+  // HF-234 — categorical-field aggregation REMOVED from this call site.
+  // Categorical-subset filter discovery has moved to Pass 4
+  // (generateAISemanticDerivations), which reads categoricalFields directly
+  // from the `capabilities` parameter and produces metric_derivations rules.
+  // The cross-data-type measure-column discovery below (HF-228) is preserved
+  // — it serves Call 1's structural column mapping for plans whose metrics
+  // span multiple capability data types.
+
+  // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
+  // was built only from capabilities whose data_type appears in `matches`;
+  // unmatched capabilities contributed no columns and were invisible to
+  // resolveColumnMappingsViaAI. For plans that combine transaction-style
+  // measures with reference/target-style metrics from a different data_type
+  // (e.g., a per-entity quota living on `target` data alongside revenue on
+  // `transaction` data), the cross-source metric could not be resolved.
+  // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
+  // with lower confidence (0.4) so the AI naturally prefers primary
+  // (matched-capability) columns for principal metrics and uses cross-source
+  // columns only for supplementary metrics.
+  // Korean Test: structural type classification + numeric-field discovery,
+  // no column-name matching.
+  const matchedDataTypes = new Set(matches.map(m => m.dataType));
+  for (const cap of capabilities) {
+    if (matchedDataTypes.has(cap.dataType)) continue;
+    for (const nf of cap.numericFields) {
+      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
+        measureColumns.push({
+          name: nf.field,
+          fi: { structuralType: 'measure', contextualIdentity: 'cross_source_numeric', confidence: 0.4 },
+          stats: cap.columnStats[nf.field],
+          batchId: cap.batchIds[0] || '',
+        });
+      }
+    }
+  }
+
   console.log('[Convergence] HF-112 Requesting AI column mapping');
-  const aiMapping = await resolveColumnMappingsViaAI(components, allRequirements, measureColumns, metricComprehension);
+  const aiMapping = await resolveColumnMappingsViaAI(
+    components,
+    allRequirements,
+    measureColumns,
+    metricComprehension,
+  );
   console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
 
   // Build bindings using AI mapping + boundary validation
-  const boundColumns = new Set<string>();
+  // HF-243: boundColumns scoped by (column → metricField). Pre-HF-243 this was a
+  // bare Set<string> of columns, which blocked variant duplicates: components 0-3
+  // (Senior variant) bound columns A/B/C/D for fields f1/f2/f3/f4, then components
+  // 4-7 (Executive variant) requesting the SAME fields f1/f2/f3/f4 found A/B/C/D
+  // already excluded and got no bindings. The exclusion is now keyed on
+  // (column, field): a column can be re-used by a later component if it's binding
+  // to the SAME field, but is still excluded if a different field tries to claim
+  // it. This preserves the original guard (no two distinct fields share a column)
+  // while allowing legitimate variant rebinding.
+  const boundColumnToField = new Map<string, string>();
 
   for (const match of matches) {
     const comp = match.component;
@@ -1995,63 +2461,85 @@ async function generateAllComponentBindings(
     const requirements = extractInputRequirements(comp);
 
     for (const req of requirements) {
-      const proposedColumnName = aiMapping[req.metricField];
+      // HF-227: the AI mapping value may be a plain column-name string
+      // (backward compatible) or the enriched shape { column, filters? }.
+      // Extract both so filters land on the binding entry below.
+      const proposedMapping = aiMapping[req.metricField];
+      const proposedColumnName = typeof proposedMapping === 'string'
+        ? proposedMapping
+        : proposedMapping?.column;
+      const proposedFilters = typeof proposedMapping === 'object' && proposedMapping !== null && Array.isArray(proposedMapping.filters)
+        ? proposedMapping.filters
+        : [];
 
       if (proposedColumnName) {
         const mc = measureColumns.find(c => c.name === proposedColumnName);
-        if (mc && !boundColumns.has(proposedColumnName)) {
+        const priorField = boundColumnToField.get(proposedColumnName);
+        const excluded = priorField !== undefined && priorField !== req.metricField;
+        if (mc && !excluded) {
           // Boundary validation of AI proposal
           const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           const isValidated = !req.expectedRange || boundaryScore > 0.1;
 
           bindings[compKey][req.role] = {
-            source_batch_id: mc.batchId,
             column: proposedColumnName,
             field_identity: mc.fi,
             match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
             confidence: isValidated ? 0.9 : 0.6,
             scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+            learning_provenance: {
+              batch_id: mc.batchId,
+              learned_at: new Date().toISOString(),
+            },
+            // HF-227: filters live on the binding (Decision 111 single-structure
+            // completion). Empty array preserves byte-identical pre-HF-227
+            // engine behavior; populated array activates filter-respecting
+            // sum at the engine.
+            filters: proposedFilters,
           };
-          boundColumns.add(proposedColumnName);
-          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor})`);
+          boundColumnToField.set(proposedColumnName, req.metricField);
+          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length})`);
           continue;
         }
       }
 
       // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-199 D2: structured threshold raised from `> 0` to `>= 0.50`. Below
-      // threshold, the boundary fallback is structurally too weak to bind reliably
-      // (DIAG evidence: New Accounts:actual → Año at score=0.10 produced
-      // 506× peer-median ratio anomaly). Below-threshold candidates are rejected
-      // and the requirement remains unbound; downstream gap detection records
-      // it as a convergence gap rather than silently binding the wrong column.
-      // HF-218 Component 4b: tenant-adaptive threshold per ADR Decision 3 (composite —
-      // recent-N average if N≥5, else 0.50 cold-start anchor). Per Disposition 4
-      // relative-confidence comparison. tenantAdaptiveBoundaryThreshold computed once
-      // per generateAllComponentBindings call (see top of function).
-      const BOUNDARY_FALLBACK_MIN_SCORE = tenantAdaptiveBoundaryThreshold;
+      // HF-222 Phase 2: boundary-fallback acceptance uses distribution-derived
+      // distinguishability (see distinctEnoughToBind). The threshold is computed
+      // from the candidate distribution at decision time — no developer-stated
+      // numerical constants. Cluster cases refuse to bind and surface convergence
+      // gaps; clear-outlier cases bind.
+      // HF-243: same scoping as AI-mapping path — columns previously bound to the
+      // SAME field name remain candidates (variant duplicates); columns bound to a
+      // different field are excluded.
       const candidates = measureColumns
-        .filter(mc => !boundColumns.has(mc.name))
+        .filter(mc => {
+          const pf = boundColumnToField.get(mc.name);
+          return pf === undefined || pf === req.metricField;
+        })
         .map(mc => {
           const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           return { ...mc, score, scaleFactor };
         })
         .sort((a, b) => b.score - a.score);
 
-      if (candidates.length > 0 && candidates[0].score >= BOUNDARY_FALLBACK_MIN_SCORE) {
+      if (candidates.length > 0 && distinctEnoughToBind(candidates)) {
         const best = candidates[0];
         bindings[compKey][req.role] = {
-          source_batch_id: best.batchId,
           column: best.name,
           field_identity: best.fi,
-          match_pass: 3,  // Boundary-only fallback
+          match_pass: 3,  // Boundary-only fallback (distribution-derived acceptance)
           confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
           scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
+          learning_provenance: {
+            batch_id: best.batchId,
+            learned_at: new Date().toISOString(),
+          },
         };
-        boundColumns.add(best.name);
-        console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${best.name} (boundary fallback, score=${best.score.toFixed(2)})`);
+        boundColumnToField.set(best.name, req.metricField);
+        console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
       } else if (candidates.length > 0) {
-        console.log(`[Convergence] HF-199 D2: ${comp.name}:${req.role} boundary candidate "${candidates[0].name}" rejected (score=${candidates[0].score.toFixed(2)} < ${BOUNDARY_FALLBACK_MIN_SCORE} threshold). Requirement left unbound; gap will be recorded.`);
+        console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
       }
     }
 
@@ -2121,11 +2609,14 @@ async function generateAllComponentBindings(
       const winnerScore = winner.conf.score > 0 ? winner.conf.score : winner.conf.cardinality_ratio;
 
       bindings[compKey]['entity_identifier'] = {
-        source_batch_id: batchId,
         column: winner.colName,
         field_identity: winner.fi,
         match_pass: 1,
         confidence: winnerScore,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
 
       // Emit convergence:binding_selection signal with full candidate provenance.
@@ -2171,11 +2662,14 @@ async function generateAllComponentBindings(
     if (temporalEntries.length > 0) {
       const [colName, fi] = temporalEntries[0];
       bindings[compKey]['period'] = {
-        source_batch_id: batchId,
         column: colName,
         field_identity: fi,
         match_pass: 1,
         confidence: match.matchConfidence,
+        learning_provenance: {
+          batch_id: batchId,
+          learned_at: new Date().toISOString(),
+        },
       };
     }
   }
@@ -2192,6 +2686,14 @@ async function generateAllComponentBindings(
 
 /**
  * Generate COUNT derivation rules with category+boolean filters.
+ *
+ * HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
+ * Korean Test (E910) violation: filter-value selection uses token-overlap
+ * scoring between component-name and capability.categoricalFields[*].distinctValues,
+ * which fails for non-English data. Pass 4 derives filters via structural
+ * heuristics (column distributions, categorical-value statistics) per the
+ * AI prompt at lines 2476-2528. Function body retained for rollback safety;
+ * remove after three-tenant verification.
  */
 function generateFilteredCountDerivations(
   component: PlanComponent,
@@ -2272,8 +2774,10 @@ function generateFilteredCountDerivations(
 async function generateAISemanticDerivations(
   metricContexts: MetricContext[],
   capabilities: DataCapability[],
-  supabase: SupabaseClient,
-  tenantId: string,
+  // HF-235 — `supabase` and `tenantId` parameters dropped from the signature
+  // after the in-function sample-row fetch was removed. The function now
+  // operates purely on its `metricContexts` + `capabilities` inputs and the
+  // shared AI service.
 ): Promise<{ derivations: MetricDerivationRule[]; gaps: Array<{ metric: string; reason: string; resolution: string }> }> {
   const derivations: MetricDerivationRule[] = [];
   const gaps: Array<{ metric: string; reason: string; resolution: string }> = [];
@@ -2297,22 +2801,18 @@ async function generateAISemanticDerivations(
     }
   }
 
-  // 2. Get sample rows
-  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
-  const { fetchSupersededBatchIds: fetchSupersededBatchIds2 } = await import('@/lib/sci/import-batch-supersession');
-  const supersededIds3 = await fetchSupersededBatchIds2(supabase, tenantId);
-  let q3 = supabase
-    .from('committed_data')
-    .select('row_data')
-    .eq('tenant_id', tenantId)
-    .not('row_data', 'is', null)
-    .limit(3);
-  if (supersededIds3.length > 0) q3 = q3.not('import_batch_id', 'in', `(${supersededIds3.join(',')})`);
-  const { data: sampleRows } = await q3;
+  // HF-235: Sample rows REMOVED from Pass 4 prompt.
+  // Column descriptions from capabilities (built above) provide complete
+  // metadata — numeric stats, categorical distinct values, boolean labels —
+  // sufficient for filter derivation. The previous 3-row sample query was
+  // non-deterministic (.limit(3), no ordering, no data_type filter) and
+  // could contradict the column descriptions by returning rows from a
+  // different data_type than the metrics reference (e.g., roster rows
+  // when the metric needs transaction-level filter discovery). Removing
+  // the sample eliminates the source of Pass-4 derivation non-determinism
+  // observed post-HF-234. Token budget freed for richer metric context.
 
-  const sampleData = (sampleRows || []).map(r => r.row_data);
-
-  // 3. Build AI prompt — enriched with metric labels, component context (OB-191),
+  // 2. Build AI prompt — enriched with metric labels, component context (OB-191),
   // and HF-198 E5 plan-agent semantic intent from comprehension:plan_interpretation
   // signals (read before derive per AUD-004 v3 §2 E5).
   // Korean Test: No hardcoded field names. AI receives column metadata and sample values at runtime.
@@ -2324,6 +2824,26 @@ async function generateAISemanticDerivations(
       try {
         desc += `\n  PLAN-AGENT INPUTS: ${JSON.stringify(mc.metricInputs).slice(0, 240)}`;
       } catch {}
+    }
+    // HF-226 Phase 2A: surface the full plan-agent signal_value (minus already-
+    // emitted keys) so the AI sees any extension fields the LLM expressed —
+    // calculationMethod, filters, expectedMetrics, free-form predicate
+    // vocabulary, etc. Pass-4 already instructs the AI to identify categorical
+    // subsets; richer context strengthens that determination.
+    if (mc.signalContext) {
+      const sc = mc.signalContext;
+      const skip = new Set(['metric_label', 'metric_op', 'metric_inputs', 'semantic_intent', 'component_id', 'component_type', 'source_evidence']);
+      const extras: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(sc)) {
+        if (skip.has(k)) continue;
+        if (v == null) continue;
+        extras[k] = v;
+      }
+      if (Object.keys(extras).length > 0) {
+        try {
+          desc += `\n  PLAN-AGENT FULL CONTEXT: ${JSON.stringify(extras).slice(0, 480)}`;
+        } catch {}
+      }
     }
     return desc;
   }).join('\n');
@@ -2341,6 +2861,20 @@ IMPORTANT RULES:
 - Use the categorical field's distinct values to find exact filter matches. The filter value must be one of the listed distinct values.
 - For count metrics (e.g., "Deal Count", "Cross Sell Count"), use the "count" operation with appropriate filters.
 - For metrics with a scope note, the derivation defines how to compute the metric per entity — the platform handles scope aggregation separately.
+
+HF-238 NOTE — DAG semantics behind the emission shape:
+The runtime translates each derivation into a Prime-DAG composition over the
+nine engine primes (arithmetic, aggregate, filter, conditional, scope, compare,
+logical, constant, reference). The emission shape below maps to:
+  • sum / count / avg / min / max  →  filter(predicate, ...)+ wrapping aggregate(op, field).
+    Each entry in "filters" becomes one filter prime; the aggregate prime sits at the innermost
+    position, reducing the row set narrowed by the filter chain.
+  • ratio                          →  arithmetic(divide, reference(num), reference(den)),
+    zero-guarded via conditional(compare(eq, den, 0), 0, divide).
+  • delta                          →  not yet expressible in the row-context EvalContext
+    (requires prior-period rows); the engine retains a hybrid path for delta until
+    historical-row plumbing lands.
+Filter operators recognized by the filter prime: eq, neq, gt, gte, lt, lte, contains.
 
 Operations:
 - sum: SUM a numeric field, optionally filtered by a categorical field value
@@ -2375,12 +2909,9 @@ ${metricDescriptions}
 Available data columns:
 ${columnDescriptions.join('\n')}
 
-Data sample (first ${sampleData.length} rows):
-${JSON.stringify(sampleData, null, 2)}
-
 Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category.`;
 
-  // 4. Call AI
+  // 3. Call AI
   try {
     const aiService = getAIService();
     const response = await aiService.execute({
@@ -2389,7 +2920,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
       options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
     }, false);
 
-    // 5. Parse response — handle different response shapes
+    // 4. Parse response — handle different response shapes
     let parsedResult: Record<string, unknown> = response.result as Record<string, unknown>;
     // If wrapped in natural_language_query response format, extract from answer
     if (parsedResult?.answer && typeof parsedResult.answer === 'string') {
@@ -2440,7 +2971,15 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
           }
         }
 
+        // HF-226 Phase 2B — Carry Everything (T1-E902). Spread the AI's raw
+        // derivation output first; overlay the validated typed fields. Any
+        // additional fields the AI emitted (confidence, reasoning, scope, or
+        // future schema extensions) land on the rule via the spread; the
+        // engine's deterministic execution path reads only the typed fields
+        // it knows. Future intelligence consumers (signals, observatory,
+        // debugging) can read the carried context without an emitter change.
         derivations.push({
+          ...d,
           metric,
           operation: operation as MetricDerivationRule['operation'],
           source_pattern: sourcePattern,
@@ -2460,7 +2999,7 @@ Generate derivation rules for each required metric. Use filters to narrow broad 
       }
     }
 
-    // 6. Check for metrics that AI didn't address
+    // 5. Check for metrics that AI didn't address
     const addressedMetrics = new Set([
       ...derivations.map(d => d.metric),
       ...gaps.map(g => g.metric),
@@ -2497,9 +3036,15 @@ function detectBoundaryScale(componentsJson: unknown, componentIndex: number): n
   const cj = componentsJson as Record<string, unknown> | null;
   if (!cj) return 100;
 
+  // HF-243: same flattening fix as extractComponents — index into the global
+  // flat component list across all variants, not just variants[0].
   const variants = (cj.variants as Array<Record<string, unknown>>) ?? [];
-  const comps = (variants[0]?.components as Array<Record<string, unknown>>) ?? [];
-  const comp = comps[componentIndex];
+  const flat: Array<Record<string, unknown>> = [];
+  for (const v of variants) {
+    const vc = v.components as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(vc)) flat.push(...vc);
+  }
+  const comp = flat[componentIndex];
   if (!comp) return 100;
 
   const tierConfig = comp.tierConfig as Record<string, unknown> | undefined;
