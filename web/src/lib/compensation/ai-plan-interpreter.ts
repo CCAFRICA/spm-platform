@@ -18,6 +18,7 @@ import {
 } from '@/lib/calculation/boundary-canonicalizer';
 import type { Boundary } from '@/lib/calculation/intent-types';
 import { isPrimeNode, VALID_PRIMES } from '@/lib/calculation/intent-types';
+import { validateComponentIntent, logValidationViolations } from '@/lib/calculation/prime-validator';
 
 // HF-194: typed structured-failure surface for the importer dispatch boundary.
 // Phase 1.5's prior throw at convertComponent's default branch named this class
@@ -413,6 +414,22 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
         `[convertComponent] "${base.name}" emitted a prime-DAG calculationIntent ` +
         `that does not validate against VALID_PRIMES (${Array.from(VALID_PRIMES).join(',')}). ` +
         `Emission: ${JSON.stringify(intentNode).slice(0, 500)}.`,
+      );
+    }
+    // OB-200 Phase 4: structural validation against PRIME_GRAMMAR. Critical
+    // violations (unknown_prime, arity, op_unknown, child_topology) throw —
+    // the component cannot proceed because the emission shape would crash
+    // the evaluator. Warnings (scale_annotation, terminal_completeness,
+    // decision_127, exhaustive_emission) are logged but do not block;
+    // convergence has deterministic fallbacks for missing-metadata cases.
+    const validation = validateComponentIntent(intentNode, { componentLabel: base.name });
+    logValidationViolations(validation, base.name);
+    if (!validation.valid) {
+      const critical = validation.violations.filter(v => v.severity === 'critical');
+      throw new UnconvertibleComponentError(
+        `[convertComponent] "${base.name}" emitted a prime-DAG calculationIntent ` +
+        `with ${critical.length} critical grammar violation(s): ` +
+        `${critical.map(v => `${v.check}@${v.nodePath}: ${v.message}`).join('; ')}.`,
       );
     }
     return {
