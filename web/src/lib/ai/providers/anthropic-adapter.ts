@@ -232,7 +232,7 @@ time; this is the single canonical surface).
 
 <<STRUCTURAL_EXAMPLES>>
 
-WORKED EXAMPLES (use these to populate calculationMethod payloads correctly):
+WORKED EXAMPLES (HISTORICAL REFERENCE — the section below shows the LEGACY shapes the engine used before the prime-DAG migration. Post-HF-238 the only registered primitive is "prime_dag"; every component MUST be emitted with type="prime_dag" and a calculationIntent PrimeNode tree per the CALCULATION INTENT grammar below. The legacy shapes below are kept as semantic glossary so you can READ a legacy plan description and translate it into the prime-DAG composition. Do NOT emit type="bounded_lookup_2d", type="scalar_multiply", etc. — those are not registered primitives in the current platform):
 
 bounded_lookup_2d (2D grid: two range-banded inputs → grid output):
 - Extract row axis: metric name, label, and ALL range boundaries
@@ -886,36 +886,39 @@ Return the mapping JSON.`;
 
 ${contentSection}
 
-CRITICAL: For each component, you MUST extract the complete calculationMethod with ALL numeric values from the tables. Empty tiers/matrices will cause $0 payouts.
+CRITICAL: For each component, you MUST extract every numeric value the source document carries — every tier threshold, every payout amount, every cell of a rate table. Empty tiers/matrices will cause $0 payouts. The "calculationIntent" PrimeNode tree (defined in the system instructions) is the operative shape the engine consumes; "calculationMethod" is the free-form mirror the platform preserves alongside it.
 
-Return a JSON object with:
+REQUIRED RESPONSE SHAPE — return a JSON object with these top-level fields. The "components" array MUST contain at least one entry when the document describes a compensation plan; emit one component per distinct payout structure:
+
 {
-  "ruleSetName": "Name of the plan",
-  "ruleSetNameEs": "Spanish name if present",
+  "ruleSetName": "Name of the plan, verbatim from the document title or header",
+  "ruleSetNameEs": "Spanish name if present, otherwise omit",
   "description": "Brief description",
   "currency": "MXN or USD",
   "cadence": "monthly | biweekly | weekly | quarterly | annual",
   "employeeTypes": [
-    { "id": "certified", "name": "Optometrista Certificado", "nameEs": "..." },
-    { "id": "non_certified", "name": "Optometrista No Certificado", "nameEs": "..." }
+    { "id": "stable-id-1", "name": "Role name verbatim", "nameEs": "..." }
   ],
   "components": [
     {
-      "id": "unique-id",
-      "name": "Component Name",
-      "nameEs": "Spanish name",
-      "type": "<one of the registered foundational primitives — see <<COMPONENT_TYPE_LIST>> enumeration above>",
-      "appliesToEmployeeTypes": ["certified"] or ["all"],
-      "calculationMethod": {
-        // The "type" field MUST match the component's outer "type" above.
-        // Required keys per primitive (registry allowedKeys at construction time):
-        //   bounded_lookup_1d:  metric, metricLabel, tiers[] with {min, max, payout}
-        //   bounded_lookup_2d:  rowAxis{metric, ranges[]}, columnAxis{metric, ranges[]}, values[][]
-        //   scalar_multiply:    metric, metricLabel, rate
-        //   conditional_gate:   conditionMetric, conditions[] with {threshold, operator, rate}
-        //   piecewise_linear:   ratioMetric, baseMetric, segments[] with {min, max, rate}, targetValue
-        //   linear_function:    inputMetric, slope, intercept
+      "id": "unique-id-1",
+      "name": "Component name verbatim from the document",
+      "nameEs": "Spanish name if present",
+      "type": "prime_dag",
+      "appliesToEmployeeTypes": ["stable-id-1"] or ["all"],
+      "calculationIntent": {
+        // PrimeNode tree per the CALCULATION INTENT grammar in the system instructions.
+        // ROOT must be one of the ten primes. Use scale-annotated constants in compare
+        // positions. Use conditional+compare+logical(and) for half-open tier ranges.
+        "prime": "...",
+        "...": "..."
       },
+      "calculationMethod": {
+        // Free-form descriptive mirror — type matches "type" above ("prime_dag").
+        // Optional summary fields helpful for humans reading the rule_set.
+        "type": "prime_dag"
+      },
+      "rateTableCellCount": 30,   // OMIT when no rate table. Integer total cells: 1D N tiers = N; 2D N×M = N*M.
       "confidence": 0-100,
       "reasoning": "How you extracted this component"
     }
@@ -924,11 +927,13 @@ Return a JSON object with:
     { "field": "field_name", "description": "what it measures", "scope": "employee|store", "dataType": "number|percentage|currency" }
   ],
   "workedExamples": [
-    { "employeeType": "certified", "inputs": {...}, "expectedTotal": 2335, "componentBreakdown": {...} }
+    { "employeeType": "stable-id-1", "inputs": {}, "expectedTotal": 0, "componentBreakdown": {} }
   ],
   "confidence": 0-100,
   "reasoning": "Overall analysis reasoning"
-}`;
+}
+
+If the document does not contain a compensation plan, return components: [] and set ruleSetName / reasoning to explain why. Do NOT return an empty components array for a document that DOES describe a plan — extract whatever components are visible.`;
       }
 
       case 'workbook_analysis':
