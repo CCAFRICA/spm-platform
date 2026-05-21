@@ -1343,6 +1343,13 @@ interface ComponentInputRequirement {
   role: string;  // 'actual', 'row', 'column', 'numerator', 'denominator'
   metricField: string;  // HF-112: from sourceSpec.field (e.g., 'revenue_attainment')
   expectedRange: { min: number; max: number } | null;
+  /**
+   * OB-200 Phase 2: LLM-emitted scale metadata for this field, extracted from
+   * constant.meta on compare nodes referencing the field. When present,
+   * scoreColumnForRequirement applies it directly and skips the ratio-vs-
+   * percentage trial — the LLM told us the scale; we consume it.
+   */
+  scaleMetadata?: { unit: string; scale: number; confidence: number };
 }
 
 // HF-224: Generic intent tree traversal.
@@ -1501,6 +1508,66 @@ export function extractExpectedRangeFromDAG(
   return { min: Math.min(...constants), max: Math.max(...constants) };
 }
 
+/**
+ * OB-200 Phase 2: extract LLM-emitted scale metadata for a referenced field.
+ * Walks the DAG looking for compare nodes whose inputs are
+ * (reference(fieldName), constant{meta:{unit,scale,confidence}}) — the
+ * canonical pattern produced by prime-grammar's SCALE METADATA convention.
+ * Returns the first non-null meta found for the field (the LLM should emit
+ * a consistent scale across all thresholds for one field). When metadata
+ * is present, convergence consumes it directly and skips the ratio-vs-
+ * percentage trial in scoreColumnForRequirement. When absent, the HF-243
+ * extractExpectedRangeFromDAG fallback infers scale from threshold
+ * distribution — backward compatible with trees emitted before OB-200.
+ */
+export function extractScaleMetadataFromDAG(
+  node: unknown,
+  fieldName: string,
+): { unit: string; scale: number; confidence: number } | null {
+  if (!node || typeof node !== 'object') return null;
+  let found: { unit: string; scale: number; confidence: number } | null = null;
+
+  const walk = (n: unknown): void => {
+    if (found || !n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+
+    if (prime === 'compare' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const aIsRef = a && a.prime === 'reference' && a.field === fieldName;
+      const bIsRef = b && b.prime === 'reference' && b.field === fieldName;
+      const aMeta = a && a.prime === 'constant' && a.meta && typeof a.meta === 'object' ? a.meta as Record<string, unknown> : null;
+      const bMeta = b && b.prime === 'constant' && b.meta && typeof b.meta === 'object' ? b.meta as Record<string, unknown> : null;
+      if (aIsRef && bMeta && typeof bMeta.scale === 'number') {
+        found = {
+          unit: typeof bMeta.unit === 'string' ? bMeta.unit : 'ratio',
+          scale: bMeta.scale,
+          confidence: typeof bMeta.confidence === 'number' ? bMeta.confidence : 0.9,
+        };
+        return;
+      }
+      if (bIsRef && aMeta && typeof aMeta.scale === 'number') {
+        found = {
+          unit: typeof aMeta.unit === 'string' ? aMeta.unit : 'ratio',
+          scale: aMeta.scale,
+          confidence: typeof aMeta.confidence === 'number' ? aMeta.confidence : 0.9,
+        };
+        return;
+      }
+    }
+
+    if (Array.isArray(obj.inputs)) {
+      for (const child of obj.inputs) walk(child);
+    }
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return found;
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
@@ -1525,10 +1592,14 @@ function extractInputRequirements(component: PlanComponent): ComponentInputRequi
     // scale inference identically to how extractRangeFromBoundaries drove it
     // for legacy bounded_lookup_1d/2d intents. No new code path — the same
     // inference function handles both shapes.
+    // OB-200 Phase 2: capture LLM-emitted scale metadata too. When present,
+    // scoreColumnForRequirement consumes it directly and skips inference; the
+    // HF-243 expectedRange path remains the fallback for trees without meta.
     return refs.map(field => ({
       role: field,
       metricField: field,
       expectedRange: extractExpectedRangeFromDAG(intent, field),
+      scaleMetadata: extractScaleMetadataFromDAG(intent, field) ?? undefined,
     }));
   }
 
@@ -1657,6 +1728,31 @@ function scoreColumnForRequirement(
   stats: ColumnValueStats,
   requirement: ComponentInputRequirement,
 ): { score: number; scaleFactor: number } {
+  // OB-200 Phase 2: when the LLM has emitted scale metadata for this field
+  // (constant.meta on compare nodes), consume it directly. The ratio-vs-
+  // percentage trial below is the HF-243 inference fallback; with explicit
+  // metadata we don't infer — we apply. Use stats overlap as the score so
+  // the binding still ranks columns by distribution fit, but the
+  // scale_factor on the resulting binding is authoritative from the plan.
+  if (requirement.scaleMetadata && typeof requirement.scaleMetadata.scale === 'number') {
+    const scale = requirement.scaleMetadata.scale;
+    if (requirement.expectedRange) {
+      const { min: expMin, max: expMax } = requirement.expectedRange;
+      if (expMax > expMin) {
+        const scaledMin = stats.min * scale;
+        const scaledMax = stats.max * scale;
+        const overlapMin = Math.max(scaledMin, expMin);
+        const overlapMax = Math.min(scaledMax, expMax);
+        const overlap = Math.max(0, overlapMax - overlapMin);
+        const boundarySpan = expMax - expMin;
+        const fit = boundarySpan > 0 ? overlap / boundarySpan : 0.5;
+        return { score: Math.max(0.5, fit), scaleFactor: scale };
+      }
+    }
+    // No expectedRange to score against, but scale metadata is authoritative.
+    return { score: 0.6, scaleFactor: scale };
+  }
+
   if (!requirement.expectedRange) {
     // No boundaries to match — return baseline score
     return { score: 0.1, scaleFactor: 1 };

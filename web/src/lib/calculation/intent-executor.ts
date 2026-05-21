@@ -20,6 +20,7 @@ import type {
   Boundary,
   PrimeNode,
   EvalContext,
+  ConstantScaleMeta,
 } from './intent-types';
 import { Decimal, toDecimal, toNumber, ZERO } from './decimal-precision';
 import { legacyIntentToDAG, componentIntentToDAG } from './legacy-intent-to-dag';
@@ -65,6 +66,22 @@ export class IntentExecutorUnknownOperationError extends Error {
     super(message);
     this.name = 'IntentExecutorUnknownOperationError';
   }
+}
+
+/**
+ * OB-200 Phase 2: type guard used by the compare case to detect constant
+ * nodes carrying scale metadata. The LLM annotates the constant on the plan
+ * side ("120%" → value:120, meta:{unit:'percent',scale:100}); the evaluator
+ * applies meta.scale to the OTHER input before comparing so plan-native and
+ * data-native values reconcile at a single site.
+ */
+function isConstantWithMeta(
+  node: PrimeNode,
+): node is { prime: 'constant'; value: number; meta: ConstantScaleMeta } {
+  return node.prime === 'constant'
+    && typeof node.value === 'number'
+    && node.meta !== undefined
+    && typeof node.meta.scale === 'number';
 }
 
 // ──────────────────────────────────────────────
@@ -149,8 +166,23 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
     }
 
     case 'compare': {
-      const a = evaluate(node.inputs[0], context);
-      const b = evaluate(node.inputs[1], context);
+      // OB-200 Phase 2: scale reconciliation site (single authority per the
+      // directive — no scale logic anywhere else in the evaluator). When one
+      // side is a constant carrying meta={unit,scale,confidence} and the other
+      // side is not such a constant, scale the non-meta side onto the
+      // constant's units before comparing. This consumes the LLM-emitted
+      // metadata so the engine no longer needs ambient inference. If neither
+      // side carries meta, compare as-is (backward compatible with trees
+      // emitted before HF-243 / OB-200).
+      const leftMeta = isConstantWithMeta(node.inputs[0]) ? node.inputs[0].meta : undefined;
+      const rightMeta = isConstantWithMeta(node.inputs[1]) ? node.inputs[1].meta : undefined;
+      let a = evaluate(node.inputs[0], context);
+      let b = evaluate(node.inputs[1], context);
+      if (leftMeta && !rightMeta) {
+        b = b.mul(toDecimal(leftMeta.scale));
+      } else if (rightMeta && !leftMeta) {
+        a = a.mul(toDecimal(rightMeta.scale));
+      }
       let result: boolean;
       switch (node.op) {
         case 'gt':  result = a.gt(b); break;
