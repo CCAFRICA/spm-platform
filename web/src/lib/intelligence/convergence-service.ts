@@ -1736,12 +1736,21 @@ function scoreColumnForRequirement(
   stats: ColumnValueStats,
   requirement: ComponentInputRequirement,
 ): { score: number; scaleFactor: number } {
-  // OB-200 Phase 2: when the LLM has emitted scale metadata for this field
-  // (constant.meta on compare nodes), consume it directly. The ratio-vs-
-  // percentage trial below is the HF-243 inference fallback; with explicit
-  // metadata we don't infer — we apply. Use stats overlap as the score so
-  // the binding still ranks columns by distribution fit, but the
-  // scale_factor on the resulting binding is authoritative from the plan.
+  // HF-244 Phase 1: scale mutual exclusion. When the LLM has emitted scale
+  // metadata for this field (constant.meta on compare nodes), the evaluator's
+  // compare case (intent-executor.ts) applies meta.scale at evaluate() time.
+  // Convergence MUST NOT also scale, otherwise data is scaled twice (live
+  // BCL evidence: cumplimiento_depositos 1.282 × 100 (convergence scale_factor)
+  // × 100 (evaluator meta.scale) = 12820 vs constant(130) → always true).
+  //
+  // Use the LLM-emitted scale ONLY for scoring (does the column's stat
+  // distribution × scale fit the expectedRange?), then return scaleFactor=1 so
+  // the resulting binding carries no scale_factor (the generateAllComponentBindings
+  // shape spreads scale_factor only when !== 1).
+  //
+  // The HF-243 trial path below remains the deterministic fallback for legacy
+  // trees emitted without meta — those get scale_factor on the binding because
+  // there is no evaluator-side scaling for them.
   if (requirement.scaleMetadata && typeof requirement.scaleMetadata.scale === 'number') {
     const scale = requirement.scaleMetadata.scale;
     if (requirement.expectedRange) {
@@ -1754,11 +1763,12 @@ function scoreColumnForRequirement(
         const overlap = Math.max(0, overlapMax - overlapMin);
         const boundarySpan = expMax - expMin;
         const fit = boundarySpan > 0 ? overlap / boundarySpan : 0.5;
-        return { score: Math.max(0.5, fit), scaleFactor: scale };
+        return { score: Math.max(0.5, fit), scaleFactor: 1 };
       }
     }
-    // No expectedRange to score against, but scale metadata is authoritative.
-    return { score: 0.6, scaleFactor: scale };
+    // No expectedRange to score against; scale metadata is authoritative for
+    // the evaluator, but the binding still gets scaleFactor=1.
+    return { score: 0.6, scaleFactor: 1 };
   }
 
   if (!requirement.expectedRange) {
