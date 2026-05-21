@@ -810,6 +810,14 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('No content in Anthropic response');
     }
 
+    // DIAG-056: capture raw LLM text BEFORE parseJsonResponse runs, so the
+    // silent parse-error fallback (`{rawContent, parseError: true}` at
+    // parseJsonResponse:1083-1090) cannot hide the actual emission shape.
+    // Gated on plan_interpretation to avoid leaking workbook/sheet bodies.
+    if (request.task === 'plan_interpretation') {
+      console.log('[DIAG-LLM-RAW] Plan interpretation response:', JSON.stringify(content).substring(0, 3000));
+    }
+
     // Parse JSON from response
     const result = this.parseJsonResponse(content);
 
