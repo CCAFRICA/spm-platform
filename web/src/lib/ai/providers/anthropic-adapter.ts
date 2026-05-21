@@ -1088,11 +1088,19 @@ Provide your response as a JSON object with "narrative" (text) and "confidence" 
 
     try {
       return JSON.parse(jsonStr);
-    } catch {
-      // If parsing fails, return the raw content
+    } catch (parseErr) {
+      // HF-247 Phase 3: parse failure surfaces as both `parseError` (existing
+      // diagnostic flag) AND `error` (the field the SCI guard at
+      // plan-interpretation.ts:156-167 actually checks). Pre-HF-247 only
+      // `parseError` was set, so the guard never fired and a corrupted
+      // rule_set persisted with components: [] and ruleSetName: "Unnamed Plan".
+      // Carry Everything Express Contextually (T1-E902 v2): failure modes
+      // are signal, not coerced into success-shaped output.
+      const message = parseErr instanceof Error ? parseErr.message : String(parseErr);
       return {
         rawContent: content,
         parseError: true,
+        error: `JSON parse failed: ${message}`,
         confidence: 0,
       };
     }
