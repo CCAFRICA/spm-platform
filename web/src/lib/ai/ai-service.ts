@@ -265,6 +265,72 @@ export class AIService {
   }
 
   /**
+   * HF-248 Phase A — emit plan-level structure + component index only.
+   * Small JSON; no per-component DAG trees. Used as the first call in
+   * per-component plan interpretation, before plan_component fires per
+   * componentIndex entry.
+   */
+  async interpretPlanSkeleton(
+    content: string,
+    format: string,
+    signalContext?: { tenantId?: string; userId?: string },
+    pdfBase64?: string,
+    pdfMediaType?: string
+  ): Promise<AIResponse> {
+    const input: Record<string, unknown> = { content, format };
+    if (pdfBase64) {
+      input.pdfBase64 = pdfBase64;
+      input.pdfMediaType = pdfMediaType || 'application/pdf';
+    }
+    return this.execute(
+      {
+        task: 'plan_skeleton',
+        input,
+        options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
+   * HF-248 Phase B — emit a single component's calculationIntent DAG tree.
+   * One LLM call per component; the orchestration assembles trees into the
+   * complete plan. componentSpec carries id/name/briefSemantic/rateTableCellCount
+   * from the skeleton call.
+   */
+  async interpretPlanComponent(
+    content: string,
+    format: string,
+    componentSpec: {
+      id: string;
+      name: string;
+      nameEs?: string;
+      appliesToEmployeeTypes: string[];
+      briefSemantic: string;
+      rateTableCellCount?: number;
+    },
+    signalContext?: { tenantId?: string; userId?: string },
+    pdfBase64?: string,
+    pdfMediaType?: string
+  ): Promise<AIResponse> {
+    const input: Record<string, unknown> = { content, format, componentSpec };
+    if (pdfBase64) {
+      input.pdfBase64 = pdfBase64;
+      input.pdfMediaType = pdfMediaType || 'application/pdf';
+    }
+    return this.execute(
+      {
+        task: 'plan_component',
+        input,
+        options: { responseFormat: 'json', maxTokens: 8192, temperature: 0 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
    * Analyze a multi-sheet workbook for structure and relationships
    */
   async analyzeWorkbook(

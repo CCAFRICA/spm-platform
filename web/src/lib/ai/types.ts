@@ -51,7 +51,9 @@ export type AITaskType =
   | 'sheet_classification'          // What type of data is in this sheet?
   | 'field_mapping'                 // What platform field does this column map to?
   | 'field_mapping_second_pass'     // CLT-08: Resolve unresolved fields with plan context
-  | 'plan_interpretation'           // Extract compensation rules from document
+  | 'plan_interpretation'           // Extract compensation rules from document (legacy monolithic; HF-248 retained for single-component plans)
+  | 'plan_skeleton'                 // HF-248 Phase A: extract plan-level structure + component index (no DAG trees)
+  | 'plan_component'                // HF-248 Phase B: extract a single component's calculationIntent DAG tree
   | 'workbook_analysis'             // Analyze multi-sheet workbook structure
   | 'import_field_mapping'          // Suggest field mappings for import data
   | 'entity_extraction'             // Extract entities (people, places, orgs) from data
