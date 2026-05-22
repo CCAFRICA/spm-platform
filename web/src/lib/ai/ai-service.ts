@@ -331,6 +331,82 @@ export class AIService {
   }
 
   /**
+   * HF-249 — emit a component as skeleton + chunks (single-response mode).
+   * The LLM may either emit a complete tree (no $ref placeholders, empty
+   * chunks) for small components, or a skeleton with $ref placeholders at
+   * grammar-legal cut points plus a sibling chunks object for large ones.
+   * The pathway is unified — the assembler in prime-assembler.ts stitches
+   * either shape into a single PrimeNode tree.
+   */
+  async interpretPlanComponentWithChunking(
+    content: string,
+    format: string,
+    componentSpec: {
+      id: string;
+      name: string;
+      nameEs?: string;
+      appliesToEmployeeTypes: string[];
+      briefSemantic: string;
+      rateTableCellCount?: number;
+    },
+    signalContext?: { tenantId?: string; userId?: string },
+    pdfBase64?: string,
+    pdfMediaType?: string
+  ): Promise<AIResponse> {
+    const input: Record<string, unknown> = { content, format, componentSpec };
+    if (pdfBase64) {
+      input.pdfBase64 = pdfBase64;
+      input.pdfMediaType = pdfMediaType || 'application/pdf';
+    }
+    return this.execute(
+      {
+        task: 'plan_component_with_chunking',
+        input,
+        options: { responseFormat: 'json', maxTokens: 8192, temperature: 0 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
+   * HF-249 — emit one sub-tree chunk in the multi-call fallback path.
+   * Used when the skeleton's truncation indicates the skeleton + chunks
+   * together exceed budget; the orchestration retries the skeleton in
+   * a budgeted-emission mode and then dispatches one plan_chunk call per
+   * declared chunkId. Chunks may themselves contain $ref placeholders to
+   * sub-chunks; the assembler resolves recursively.
+   */
+  async interpretPlanChunk(
+    content: string,
+    format: string,
+    chunkSpec: {
+      chunkId: string;
+      parentComponentName: string;
+      parentBriefSemantic: string;
+      skeletonPath: string;
+    },
+    signalContext?: { tenantId?: string; userId?: string },
+    pdfBase64?: string,
+    pdfMediaType?: string
+  ): Promise<AIResponse> {
+    const input: Record<string, unknown> = { content, format, chunkSpec };
+    if (pdfBase64) {
+      input.pdfBase64 = pdfBase64;
+      input.pdfMediaType = pdfMediaType || 'application/pdf';
+    }
+    return this.execute(
+      {
+        task: 'plan_chunk',
+        input,
+        options: { responseFormat: 'json', maxTokens: 8192, temperature: 0 },
+      },
+      true,
+      signalContext
+    );
+  }
+
+  /**
    * Analyze a multi-sheet workbook for structure and relationships
    */
   async analyzeWorkbook(
