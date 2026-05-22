@@ -393,4 +393,24 @@ export interface ContentUnitResult {
   rowsProcessed: number;
   pipeline: string;                   // which pipeline handled it
   error?: string;
+  /**
+   * HF-248 Phase 3: per-component outcome surface for plan-interpretation
+   * results. Populated only for `classification: 'plan'` results coming from
+   * the per-component orchestrator. Carries the same shape persisted on
+   * import_batches.error_summary.componentOutcomes so the UI can render
+   * per-component status without an additional fetch.
+   */
+  componentOutcomes?: Array<{
+    id: string;
+    name: string;
+    status: 'success' | 'failed';
+    attempts: number;
+    errClass?: string;
+    errMessage?: string;
+    httpStatus?: number;
+    violations?: string;
+    skippedFromPrior?: boolean;
+    lastAttemptAt: string;
+  }>;
+  partialSuccess?: boolean;
 }

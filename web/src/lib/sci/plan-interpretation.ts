@@ -300,6 +300,11 @@ export async function executeBatchedPlanInterpretation(
     success: true,
     rowsProcessed: i === 0 ? componentCount : 0,
     pipeline: i === 0 ? 'plan-interpretation' : 'plan-batch-included',
+    // HF-248 Phase 3: per-component outcomes surfaced to the UI on the
+    // primary result only (i === 0). Per-unit results downstream don't
+    // need to duplicate the array.
+    componentOutcomes: i === 0 ? orchestration.componentOutcomes : undefined,
+    partialSuccess: i === 0 ? orchestration.partialSuccess : undefined,
   }));
 }
 
@@ -574,5 +579,7 @@ export async function executePlanPipeline(
     success: true,
     rowsProcessed: componentCount,
     pipeline: 'plan-interpretation',
+    componentOutcomes: orchestration.componentOutcomes,
+    partialSuccess: orchestration.partialSuccess,
   };
 }

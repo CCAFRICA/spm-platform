@@ -26,6 +26,23 @@ export interface ProgressItem {
   status: ItemStatus;
   rowsProcessed?: number;
   error?: string;
+  /**
+   * HF-248 Phase 3: per-component outcomes for plan-classified items.
+   * Rendered under the item row when the plan import was per-component
+   * orchestrated. Each entry reports one plan component's validation
+   * outcome so the user knows exactly which parts succeeded and which
+   * failed (and why).
+   */
+  componentOutcomes?: Array<{
+    id: string;
+    name: string;
+    status: 'success' | 'failed';
+    errClass?: string;
+    errMessage?: string;
+    violations?: string;
+    skippedFromPrior?: boolean;
+  }>;
+  partialSuccess?: boolean;
 }
 
 interface ExecutionProgressProps {
@@ -116,72 +133,113 @@ export function ExecutionProgress({
           <div
             key={item.contentUnitId}
             className={cn(
-              'flex items-center gap-3 px-5 py-3',
               item.status === 'done' && 'bg-emerald-500/[0.03]',
               item.status === 'failed' && 'bg-red-500/[0.03]',
             )}
           >
-            {/* Status icon */}
-            <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-              {item.status === 'pending' && (
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-zinc-700" />
-              )}
-              {item.status === 'active' && (
-                <Loader2 className="w-4.5 h-4.5 text-indigo-400 animate-spin" />
-              )}
-              {item.status === 'done' && (
-                <div className="w-4.5 h-4.5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                  <Check className="w-3 h-3 text-emerald-400" />
-                </div>
-              )}
-              {item.status === 'failed' && (
-                <div className="w-4.5 h-4.5 rounded-full bg-red-500/20 flex items-center justify-center">
-                  <XCircle className="w-3 h-3 text-red-400" />
-                </div>
-              )}
-            </div>
+            <div className="flex items-center gap-3 px-5 py-3">
+              {/* Status icon */}
+              <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                {item.status === 'pending' && (
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-zinc-700" />
+                )}
+                {item.status === 'active' && (
+                  <Loader2 className="w-4.5 h-4.5 text-indigo-400 animate-spin" />
+                )}
+                {item.status === 'done' && (
+                  <div className="w-4.5 h-4.5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                  </div>
+                )}
+                {item.status === 'failed' && (
+                  <div className="w-4.5 h-4.5 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <XCircle className="w-3 h-3 text-red-400" />
+                  </div>
+                )}
+              </div>
 
-            {/* Content — OB-175: show source file alongside tab name */}
-            <div className="flex-1 min-w-0">
+              {/* Content — OB-175: show source file alongside tab name */}
+              <div className="flex-1 min-w-0">
+                <span className={cn(
+                  'text-sm',
+                  item.status === 'pending' ? 'text-zinc-600' :
+                  item.status === 'active' ? 'text-zinc-200' :
+                  item.status === 'done' ? 'text-zinc-300' :
+                  'text-red-400'
+                )}>
+                  {item.tabName}
+                  {(() => {
+                    const parts = item.contentUnitId.split('::');
+                    const sf = parts.length >= 2 ? parts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '') : null;
+                    return sf && sf !== item.tabName ? (
+                      <span className="text-zinc-500 text-xs ml-1.5">{sf}</span>
+                    ) : null;
+                  })()}
+                </span>
+              </div>
+
+              {/* Classification */}
+              <span className="text-xs text-zinc-600 flex-shrink-0">
+                {CLASSIFICATION_LABELS[item.classification]}
+                {item.partialSuccess && (
+                  <span className="ml-1.5 text-amber-400">partial</span>
+                )}
+              </span>
+
+              {/* Row count / status */}
               <span className={cn(
-                'text-sm',
-                item.status === 'pending' ? 'text-zinc-600' :
-                item.status === 'active' ? 'text-zinc-200' :
-                item.status === 'done' ? 'text-zinc-300' :
-                'text-red-400'
+                'text-xs tabular-nums w-28 text-right flex-shrink-0',
+                item.status === 'done' ? 'text-zinc-500' :
+                item.status === 'active' ? 'text-indigo-400' :
+                item.status === 'failed' ? 'text-red-400' :
+                'text-zinc-700'
               )}>
-                {item.tabName}
-                {(() => {
-                  const parts = item.contentUnitId.split('::');
-                  const sf = parts.length >= 2 ? parts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '') : null;
-                  return sf && sf !== item.tabName ? (
-                    <span className="text-zinc-500 text-xs ml-1.5">{sf}</span>
-                  ) : null;
-                })()}
+                {item.status === 'done' && item.rowsProcessed
+                  ? `${item.rowsProcessed.toLocaleString()} rows`
+                  : item.status === 'active'
+                    ? 'processing...'
+                    : item.status === 'failed'
+                      ? (item.error || 'Failed')
+                      : ''}
               </span>
             </div>
 
-            {/* Classification */}
-            <span className="text-xs text-zinc-600 flex-shrink-0">
-              {CLASSIFICATION_LABELS[item.classification]}
-            </span>
-
-            {/* Row count / status */}
-            <span className={cn(
-              'text-xs tabular-nums w-28 text-right flex-shrink-0',
-              item.status === 'done' ? 'text-zinc-500' :
-              item.status === 'active' ? 'text-indigo-400' :
-              item.status === 'failed' ? 'text-red-400' :
-              'text-zinc-700'
-            )}>
-              {item.status === 'done' && item.rowsProcessed
-                ? `${item.rowsProcessed.toLocaleString()} rows`
-                : item.status === 'active'
-                  ? 'processing...'
-                  : item.status === 'failed'
-                    ? (item.error || 'Failed')
-                    : ''}
-            </span>
+            {/* HF-248 Phase 3: per-component outcome rows for plan imports.
+                Renders only when componentOutcomes is populated (plan
+                classification, post-orchestration). Existing single-item
+                rows for non-plan classifications are unaffected. */}
+            {item.componentOutcomes && item.componentOutcomes.length > 0 && (
+              <div className="px-5 pb-3 pl-12 space-y-1">
+                {item.componentOutcomes.map(co => (
+                  <div key={co.id} className="flex items-center gap-2 text-xs">
+                    <span className="w-3 inline-flex justify-center">
+                      {co.status === 'success' ? (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-red-400" />
+                      )}
+                    </span>
+                    <span className={cn(
+                      'flex-1 min-w-0 truncate',
+                      co.status === 'success' ? 'text-zinc-400' : 'text-red-400',
+                    )}>
+                      {co.name}
+                      {co.skippedFromPrior && (
+                        <span className="ml-1.5 text-zinc-600">(reused from prior import)</span>
+                      )}
+                    </span>
+                    {co.status === 'failed' && co.errClass && (
+                      <span className="text-zinc-600 flex-shrink-0">{co.errClass}</span>
+                    )}
+                    {co.status === 'failed' && co.violations && (
+                      <span className="text-zinc-700 truncate max-w-[280px] flex-shrink-0" title={co.violations}>
+                        {co.violations.slice(0, 60)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -251,5 +309,10 @@ export function toProgressItems(
             'pending',
     rowsProcessed: u.result?.rowsProcessed,
     error: u.error,
+    // HF-248 Phase 3: forward per-component outcomes when the plan
+    // orchestrator populated them. Falls through to undefined for
+    // non-plan classifications.
+    componentOutcomes: u.result?.componentOutcomes,
+    partialSuccess: u.result?.partialSuccess,
   }));
 }
