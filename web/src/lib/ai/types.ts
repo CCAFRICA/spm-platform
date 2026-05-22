@@ -54,6 +54,8 @@ export type AITaskType =
   | 'plan_interpretation'           // Extract compensation rules from document (legacy monolithic; HF-248 retained for single-component plans)
   | 'plan_skeleton'                 // HF-248 Phase A: extract plan-level structure + component index (no DAG trees)
   | 'plan_component'                // HF-248 Phase B: extract a single component's calculationIntent DAG tree
+  | 'plan_component_with_chunking'  // HF-249: emit component as skeleton + chunks for large structures (single-response mode)
+  | 'plan_chunk'                    // HF-249: emit a single sub-tree chunk in multi-call fallback mode
   | 'workbook_analysis'             // Analyze multi-sheet workbook structure
   | 'import_field_mapping'          // Suggest field mappings for import data
   | 'entity_extraction'             // Extract entities (people, places, orgs) from data

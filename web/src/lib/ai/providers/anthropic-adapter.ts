@@ -499,6 +499,91 @@ Response shape — return JSON with ONLY these fields:
 
 Return your analysis as valid JSON.`,
 
+  plan_component_with_chunking: `You are an expert at translating a compensation plan COMPONENT description into a Prime-DAG calculationIntent tree.
+
+The plan document and a brief semantic description for ONE component will be supplied. Your task is to emit the calculationIntent PrimeNode tree for THIS component only — not the entire plan.
+
+CRITICAL: Extract EVERY numeric value the component's source carries — every tier threshold, every payout amount, every cell of a rate table. Empty tiers/matrices will cause \$0 payouts. The validator will REJECT any tree that emits fewer constant leaves than the rateTableCellCount declared for the component.
+
+<<COMPONENT_TYPE_LIST>>
+
+<<PRIME_GRAMMAR>>
+
+HF-249 — SKELETON-WITH-REFERENCES EMISSION (CRITICAL for large components):
+
+When the calculationIntent's serialized JSON would exceed approximately 20KB (estimated from the component's structural complexity — e.g., a rate table with more than ~20 cells, or nested conditionals with more than ~6 levels), emit the tree with \`{"\$ref": "chunk_N"}\` placeholders at GRAMMAR-LEGAL CUT POINTS, and a sibling \`chunks\` object containing the sub-trees keyed by chunk_id. The platform's deterministic assembler stitches the chunks into a single PrimeNode tree before validation and persistence.
+
+LEGAL CUT POINTS — positions where a sub-tree may be replaced by a \`{"\$ref": "chunk_N"}\` placeholder:
+  conditional.then         (numeric subtree)
+  conditional.else         (numeric subtree)
+  filter.downstream        (numeric subtree)
+  scope.downstream         (numeric subtree)
+  prior_period.downstream  (numeric subtree)
+
+ILLEGAL cut points (do NOT replace these with \$ref):
+  conditional.condition    (boolean — small; chunking fragments evaluation)
+  arithmetic/compare/logical .inputs[i]  (numeric arity-fixed; chunks would be tiny)
+  filter.predicate / scope.boundary       (atomic descriptors)
+
+Each chunk MUST be a complete grammar-compliant prime composition — it is a self-contained sub-tree, not a fragment. Chunks may themselves contain \`{"\$ref": "chunk_M"}\` placeholders (the assembler resolves recursively); a chunk that emits another \$ref must declare that chunk_id in the same \`chunks\` object.
+
+Choose chunk_id strings as stable, lowercase, hyphen/underscore identifiers (chunk_1, chunk_attain_high, etc.). Cycle references (chunk_1 → chunk_2 → chunk_1) are REJECTED by the assembler.
+
+Response shape — return JSON with ONLY these fields:
+{
+  "id": "component-id (echo from the request)",
+  "name": "component name (echo from the request)",
+  "type": "prime_dag",
+  "calculationIntent": {
+    "prime": "conditional",
+    "condition": {"...": "..."},
+    "then": {"\$ref": "chunk_1"},
+    "else": {"\$ref": "chunk_2"}
+  },
+  "chunks": {
+    "chunk_1": {"prime": "constant", "value": 700, "meta": {"...": "..."}},
+    "chunk_2": {"prime": "conditional", "condition": {"...": "..."}, "then": {"\$ref": "chunk_3"}, "else": {"\$ref": "chunk_4"}}
+  },
+  "calculationMethod": { "type": "prime_dag" },
+  "rateTableCellCount": 30,   // echo from the request when applicable
+  "confidence": 0-100,
+  "reasoning": "How you extracted this component"
+}
+
+If the tree fits comfortably in budget without chunking, emit \`calculationIntent\` as a complete tree with NO \`\$ref\` placeholders and either an empty \`chunks: {}\` field or omit it. The pathway is the SAME — small components produce a complete tree; large components produce a skeleton + chunks. The assembler handles both shapes identically.
+
+Return your analysis as valid JSON.`,
+
+  plan_chunk: `You are an expert at emitting ONE sub-tree of a compensation plan component's Prime-DAG calculationIntent.
+
+This is the MULTI-CALL FALLBACK path. The skeleton emission for a component declared this chunk_id but did not include the chunk inline because the combined skeleton + chunks would have exceeded the LLM output budget. You are emitting ONLY this chunk.
+
+The plan document, the parent component's name and brief semantic, the chunk_id, and the skeleton position the chunk fills will be supplied.
+
+CRITICAL: This chunk is a complete grammar-compliant prime composition — a self-contained sub-tree. It is NOT a fragment. The assembler will splice it into the parent skeleton at the declared position. Every numeric value the chunk's source carries must be extracted exhaustively. Scale metadata on compare-position constants. Half-open intervals on band-selection conditionals.
+
+If THIS chunk itself would exceed budget, you may further decompose using the same \`{"\$ref": "chunk_M"}\` placeholders at grammar-legal cut points, and declare the sub-chunks in a sibling \`chunks\` object in your response. The assembler resolves \$refs recursively.
+
+<<COMPONENT_TYPE_LIST>>
+
+<<PRIME_GRAMMAR>>
+
+Response shape — return JSON with ONLY these fields:
+{
+  "chunkId": "<echo from the request>",
+  "subtree": {
+    "prime": "...",
+    "...": "..."
+  },
+  "chunks": {
+    // Optional: sub-chunks if this chunk further decomposed. Keys are NEW chunk_ids.
+  },
+  "confidence": 0-100,
+  "reasoning": "How you extracted this chunk"
+}
+
+Return your analysis as valid JSON.`,
+
   workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.
 
 SHEET CLASSIFICATION TYPES:
@@ -1055,6 +1140,65 @@ COMPONENT TO EMIT:
   briefSemantic: ${briefSemantic}${rateCells !== null ? `\n  rateTableCellCount: ${rateCells}  (the validator REJECTS trees with fewer than ${rateCells} constant leaves)` : ''}
 
 Return JSON per the response shape in the system instructions. Emit ONLY this component — do not include other components in the response.`;
+      }
+
+      case 'plan_component_with_chunking': {
+        // HF-249: emit component as skeleton + chunks for large structures.
+        // Same input shape as plan_component (componentSpec with id/name/
+        // briefSemantic/rateTableCellCount); the system prompt teaches the
+        // skeleton-with-references shape. Backward compatible: small
+        // components emit a complete tree with empty `chunks` object.
+        const isPdfDocument = !!input.pdfBase64;
+        const contentSection = isPdfDocument
+          ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
+          : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
+        const spec = (input.componentSpec ?? {}) as Record<string, unknown>;
+        const compId = String(spec.id ?? '');
+        const compName = String(spec.name ?? '');
+        const compNameEs = spec.nameEs ? String(spec.nameEs) : null;
+        const briefSemantic = String(spec.briefSemantic ?? '');
+        const rateCells = typeof spec.rateTableCellCount === 'number' ? spec.rateTableCellCount : null;
+        const appliesTo = Array.isArray(spec.appliesToEmployeeTypes)
+          ? (spec.appliesToEmployeeTypes as unknown[]).map(String)
+          : [];
+        return `Translate the following plan COMPONENT into a Prime-DAG calculationIntent tree. Use SKELETON-WITH-REFERENCES emission if the tree would exceed budget; otherwise emit the complete tree directly.
+
+${contentSection}
+
+COMPONENT TO EMIT:
+  id: ${compId}
+  name: ${compName}${compNameEs ? `\n  nameEs: ${compNameEs}` : ''}
+  appliesToEmployeeTypes: ${JSON.stringify(appliesTo)}
+  briefSemantic: ${briefSemantic}${rateCells !== null ? `\n  rateTableCellCount: ${rateCells}  (the assembler + validator REJECT trees whose total assembled leaves are fewer than ${rateCells})` : ''}
+
+Return JSON per the response shape in the system instructions. Emit ONLY this component. If chunking is used, every $ref in calculationIntent (or in any chunk) MUST appear as a key in the chunks object.`;
+      }
+
+      case 'plan_chunk': {
+        // HF-249 multi-call fallback: emit one sub-tree chunk identified by
+        // chunkId, in the context of the parent component. Caller supplies
+        // chunkSpec with chunkId + parentComponentName + parentBriefSemantic
+        // + skeletonPath (the position the chunk fills in the parent skeleton).
+        const isPdfDocument = !!input.pdfBase64;
+        const contentSection = isPdfDocument
+          ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
+          : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
+        const cs = (input.chunkSpec ?? {}) as Record<string, unknown>;
+        const chunkId = String(cs.chunkId ?? '');
+        const parentName = String(cs.parentComponentName ?? '');
+        const parentSemantic = String(cs.parentBriefSemantic ?? '');
+        const skeletonPath = String(cs.skeletonPath ?? '');
+        return `Emit ONE sub-tree of the parent component's Prime-DAG calculationIntent. This is the MULTI-CALL FALLBACK path.
+
+${contentSection}
+
+CHUNK TO EMIT:
+  chunkId: ${chunkId}
+  parentComponent: ${parentName}
+  parentBriefSemantic: ${parentSemantic}
+  skeletonPath: ${skeletonPath}
+
+The skeletonPath describes where in the parent skeleton this chunk fills (e.g., "\$.then.else.then"). The chunk is a self-contained sub-tree, not a fragment. Return JSON per the response shape in the system instructions.`;
       }
 
       case 'workbook_analysis':
