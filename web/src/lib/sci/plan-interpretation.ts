@@ -155,14 +155,32 @@ export async function executeBatchedPlanInterpretation(
 
   const interpretation = response.result;
 
-  if (interpretation.fallback || interpretation.error) {
+  // HF-247 Phase 3: combined failure guard. Catches:
+  //   - .fallback / .error (existing semantic)
+  //   - .parseError — the silent JSON-parse fallback (parseJsonResponse:1089-1098)
+  //     now also sets .error, but we check both for belt-and-suspenders.
+  //   - components missing or empty on a workbook that was classified as plan
+  //     (the LLM was given plan content and returned nothing — failure).
+  // Pre-HF-247 the guard only checked .fallback || .error; parseError-shaped
+  // results silently persisted as components: [] and ruleSetName: "Unnamed Plan".
+  const components = interpretation.components;
+  const componentsCount = Array.isArray(components) ? components.length : 0;
+  if (interpretation.fallback || interpretation.error || interpretation.parseError || componentsCount === 0) {
+    const reason = interpretation.error
+      ? String(interpretation.error)
+      : interpretation.parseError
+      ? 'AI response failed JSON parse (truncation or malformed output)'
+      : componentsCount === 0
+      ? 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.'
+      : 'AI interpretation returned no results';
+    console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     return planUnits.map(u => ({
       contentUnitId: u.contentUnitId,
       classification: 'plan' as const,
       success: false,
       rowsProcessed: 0,
       pipeline: 'plan-interpretation',
-      error: String(interpretation.error || 'AI interpretation returned no results'),
+      error: reason,
     }));
   }
 
@@ -408,14 +426,26 @@ export async function executePlanPipeline(
 
   const interpretation = response.result;
 
-  if (interpretation.fallback || interpretation.error) {
+  // HF-247 Phase 3: combined failure guard (same as executeBatchedPlanInterpretation).
+  // Catches .fallback / .error / .parseError / empty-components on a plan workbook.
+  const components = interpretation.components;
+  const componentsCount = Array.isArray(components) ? components.length : 0;
+  if (interpretation.fallback || interpretation.error || interpretation.parseError || componentsCount === 0) {
+    const reason = interpretation.error
+      ? String(interpretation.error)
+      : interpretation.parseError
+      ? 'AI response failed JSON parse (truncation or malformed output)'
+      : componentsCount === 0
+      ? 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.'
+      : 'AI interpretation returned no results';
+    console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     return {
       contentUnitId: unit.contentUnitId,
       classification: 'plan',
       success: false,
       rowsProcessed: 0,
       pipeline: 'plan-interpretation',
-      error: String(interpretation.error || 'AI interpretation returned no results'),
+      error: reason,
     };
   }
 

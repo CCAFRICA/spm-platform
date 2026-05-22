@@ -297,6 +297,51 @@ export async function commitContentUnit(
     classification,
   );
 
+  // HF-247 Phase 4: commit-stage type validation. Refuse to write
+  // classification-content inconsistent commits. Pre-HF-247 a misclassified
+  // plan sheet (rate-table content classified as `entity`) committed rate
+  // table rows into the entities table with column titles like
+  // "C1: COLOCACIÓN DE CRÉDITO — Ejecutivo Senior" as the entity identifier.
+  //
+  // Structural heuristic over the resolved entity_id_field column NAME:
+  // a real entity identifier column has a stable, short identifier-like
+  // name. Plan component names appearing as column headers carry telltale
+  // structural prefixes (e.g., "C1:", "C2:"), descriptive content (em-dash
+  // separated phrases, all-caps multi-word labels), or length over the
+  // typical identifier ceiling. We don't enumerate domain vocabulary —
+  // the check fires on STRUCTURAL shape of the column name.
+  if (classification === 'entity' && entityIdField) {
+    const looksLikeContentTitle =
+      entityIdField.length > 40
+      || /^[A-Z]\d+\s*[:.]/.test(entityIdField)
+      || entityIdField.includes('—')
+      || entityIdField.includes(' – ')
+      || /:\s+[A-ZÁÉÍÓÚÑ]{2,}/.test(entityIdField);
+    if (looksLikeContentTitle) {
+      const reason = `Sheet "${tabName}" classified as 'entity' but resolved entity_id_field "${entityIdField}" matches plan-component-title pattern (length / structural-prefix / descriptive-punctuation). Refusing to commit — classification likely incorrect; the sheet appears to carry plan content.`;
+      console.error(`[commitContentUnit] HF-247 Phase 4 type-validation: ${reason}`);
+      await supabase
+        .from('import_batches')
+        .update({
+          status: 'failed',
+          error_summary: { error: reason, hf: 'HF-247-Phase-4' } as unknown as Json,
+        })
+        .eq('id', batchId);
+      return {
+        batchId,
+        totalInserted: 0,
+        dataType,
+        entityIdField,
+        fieldIdentities,
+        earliestDate: null,
+        latestDate: null,
+        dateCount: 0,
+        success: false,
+        error: reason,
+      };
+    }
+  }
+
   // OB-152/OB-157 — source_date extraction with period marker composition.
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
