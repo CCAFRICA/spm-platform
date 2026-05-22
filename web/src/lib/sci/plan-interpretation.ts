@@ -142,37 +142,39 @@ export async function executeBatchedPlanInterpretation(
   }
 
   console.log(`[SCI plan-interp] Interpretation starting — ${documentContent.length} chars`);
-  const { getAIService } = await import('@/lib/ai');
-  const aiService = getAIService();
 
-  const response = await aiService.interpretPlan(
+  // HF-248 Phase 1+3: per-component two-phase interpretation. The orchestrator
+  // calls plan_skeleton once (small JSON) then plan_component per index entry
+  // (each ~one component fits in max_tokens). Resume map is loaded from a
+  // prior partial-success import_batch when one exists for this tenant.
+  const { orchestratePerComponentInterpretation } = await import('./plan-orchestration');
+  const { loadResumeContext } = await import('./reimport-resume');
+  const resumeCtx = await loadResumeContext(supabase, tenantId, storagePath);
+  if (resumeCtx.priorBatchId) {
+    console.log(`[SCI plan-interp] HF-248 resume context loaded — priorBatchId=${resumeCtx.priorBatchId} skipIds=${Array.from(resumeCtx.resumeSkipIds).join(',') || '(none)'}`);
+  }
+  const orchestration = await orchestratePerComponentInterpretation({
     documentContent,
-    pdfBase64ForAI ? 'pdf' : 'text',
-    { tenantId },
-    pdfBase64ForAI,
+    format: pdfBase64ForAI ? 'pdf' : 'text',
+    pdfBase64: pdfBase64ForAI,
     pdfMediaType,
-  );
+    signalContext: { tenantId, userId },
+    resumeSkipIds: resumeCtx.resumeSkipIds,
+    priorComponents: resumeCtx.priorComponents,
+  });
 
-  const interpretation = response.result;
+  const interpretation = orchestration.interpretation as unknown as Record<string, unknown>;
 
-  // HF-247 Phase 3: combined failure guard. Catches:
-  //   - .fallback / .error (existing semantic)
-  //   - .parseError — the silent JSON-parse fallback (parseJsonResponse:1089-1098)
-  //     now also sets .error, but we check both for belt-and-suspenders.
-  //   - components missing or empty on a workbook that was classified as plan
-  //     (the LLM was given plan content and returned nothing — failure).
-  // Pre-HF-247 the guard only checked .fallback || .error; parseError-shaped
-  // results silently persisted as components: [] and ruleSetName: "Unnamed Plan".
-  const components = interpretation.components;
-  const componentsCount = Array.isArray(components) ? components.length : 0;
-  if (interpretation.fallback || interpretation.error || interpretation.parseError || componentsCount === 0) {
-    const reason = interpretation.error
-      ? String(interpretation.error)
-      : interpretation.parseError
-      ? 'AI response failed JSON parse (truncation or malformed output)'
-      : componentsCount === 0
-      ? 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.'
-      : 'AI interpretation returned no results';
+  // HF-247 Phase 3 + HF-248 Phase 1: combined failure guard. Catches skeleton
+  // failure, all-components-failed cases, and the existing fallback/error/parseError
+  // shapes. partialSuccess (some succeeded, some failed) is NOT a hard failure —
+  // it persists what worked and surfaces the rest via componentOutcomes.
+  const orchestratedComponents = orchestration.interpretation.components;
+  const componentsCount = orchestratedComponents.length;
+  if (orchestration.skeletonError || componentsCount === 0) {
+    const reason = orchestration.skeletonError
+      ? `Plan skeleton call failed: ${orchestration.skeletonError}`
+      : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     return planUnits.map(u => ({
       contentUnitId: u.contentUnitId,
@@ -238,14 +240,14 @@ export async function executeBatchedPlanInterpretation(
       population_config: { eligible_roles: [] },
       input_bindings: engineFormat.inputBindings as unknown as Json,
       components: engineFormat.components as unknown as Json,
-      cadence_config: { period_type: ((response as unknown as Record<string, unknown>).cadence as string) || 'monthly' } as unknown as Json,
+      cadence_config: { period_type: orchestration.interpretation.cadence || 'monthly' } as unknown as Json,
       outcome_config: {},
       metadata: {
         plan_type: 'additive_lookup',
         source: 'sci',
         contentUnitId: primaryContentUnitId,
         batchedSheets: planUnits.map(u => u.contentUnitId),
-        aiConfidence: response.confidence,
+        aiConfidence: orchestration.interpretation.confidence,
       } as unknown as Json,
       created_by: userId,
     });
@@ -271,15 +273,25 @@ export async function executeBatchedPlanInterpretation(
 
   try {
     const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
-    const componentsForSignals = (interpretation.components ?? []) as unknown as Array<Record<string, unknown>>;
+    const componentsForSignals = orchestration.interpretation.components as unknown as Array<Record<string, unknown>>;
     void emitPlanComprehensionSignals({
       tenantId,
       ruleSetId,
       interpretation: { components: componentsForSignals },
-      planConfidence: response.confidence,
+      planConfidence: orchestration.interpretation.confidence,
     });
   } catch (sigErr) {
     console.warn('[SCI plan-interp] Comprehension signal emission threw (non-blocking):', sigErr instanceof Error ? sigErr.message : String(sigErr));
+  }
+
+  // HF-248 Phase 3: persist componentOutcomes + partialSuccess marker on the
+  // import_batch so reimport-resume can pick up the failed components and
+  // skip the successful ones.
+  try {
+    const { persistComponentOutcomes } = await import('./reimport-resume');
+    await persistComponentOutcomes(supabase, tenantId, storagePath, ruleSetId, orchestration);
+  } catch (persistErr) {
+    console.warn('[SCI plan-interp] componentOutcomes persistence threw (non-blocking):', persistErr instanceof Error ? persistErr.message : String(persistErr));
   }
 
   return planUnits.map((u, i) => ({
@@ -351,8 +363,8 @@ export async function executePlanPipeline(
 
   console.log(`[SCI plan-interp] Plan interpretation starting for ${unit.contentUnitId}`);
 
-  const { getAIService } = await import('@/lib/ai');
-  const aiService = getAIService();
+  // HF-248 Phase 1: getAIService / interpretPlan call sites moved into
+  // plan-orchestration.ts. The orchestrator owns the two-phase LLM flow.
 
   const isPdf = mimeType === 'application/pdf';
   let documentContent = '';
@@ -416,28 +428,33 @@ export async function executePlanPipeline(
     }
   }
 
-  const response = await aiService.interpretPlan(
+  // HF-248 Phase 1+3: per-component orchestration replaces the monolithic
+  // interpretPlan call. Resume context loaded for the single-unit storagePath
+  // (falls back to contentUnitId when the caller didn't pass a storage path).
+  const resumeKey = storagePath ?? unit.contentUnitId;
+  const { orchestratePerComponentInterpretation } = await import('./plan-orchestration');
+  const { loadResumeContext } = await import('./reimport-resume');
+  const singleUnitResumeCtx = await loadResumeContext(supabase, tenantId, resumeKey);
+  if (singleUnitResumeCtx.priorBatchId) {
+    console.log(`[SCI plan-interp] HF-248 resume context loaded — priorBatchId=${singleUnitResumeCtx.priorBatchId} skipIds=${Array.from(singleUnitResumeCtx.resumeSkipIds).join(',') || '(none)'}`);
+  }
+  const orchestration = await orchestratePerComponentInterpretation({
     documentContent,
-    isPdf ? 'pdf' : 'text',
-    { tenantId },
+    format: isPdf ? 'pdf' : 'text',
     pdfBase64,
     pdfMediaType,
-  );
+    signalContext: { tenantId, userId },
+    resumeSkipIds: singleUnitResumeCtx.resumeSkipIds,
+    priorComponents: singleUnitResumeCtx.priorComponents,
+  });
 
-  const interpretation = response.result;
-
-  // HF-247 Phase 3: combined failure guard (same as executeBatchedPlanInterpretation).
-  // Catches .fallback / .error / .parseError / empty-components on a plan workbook.
-  const components = interpretation.components;
-  const componentsCount = Array.isArray(components) ? components.length : 0;
-  if (interpretation.fallback || interpretation.error || interpretation.parseError || componentsCount === 0) {
-    const reason = interpretation.error
-      ? String(interpretation.error)
-      : interpretation.parseError
-      ? 'AI response failed JSON parse (truncation or malformed output)'
-      : componentsCount === 0
-      ? 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.'
-      : 'AI interpretation returned no results';
+  const interpretation = orchestration.interpretation as unknown as Record<string, unknown>;
+  const orchestratedComponents = orchestration.interpretation.components;
+  const componentsCount = orchestratedComponents.length;
+  if (orchestration.skeletonError || componentsCount === 0) {
+    const reason = orchestration.skeletonError
+      ? `Plan skeleton call failed: ${orchestration.skeletonError}`
+      : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     return {
       contentUnitId: unit.contentUnitId,
@@ -500,13 +517,13 @@ export async function executePlanPipeline(
       population_config: { eligible_roles: [] },
       input_bindings: engineFormat.inputBindings as unknown as Json,
       components: engineFormat.components as unknown as Json,
-      cadence_config: { period_type: ((response as unknown as Record<string, unknown>).cadence as string) || 'monthly' } as unknown as Json,
+      cadence_config: { period_type: orchestration.interpretation.cadence || 'monthly' } as unknown as Json,
       outcome_config: {},
       metadata: {
         plan_type: 'additive_lookup',
         source: 'sci',
         contentUnitId: unit.contentUnitId,
-        aiConfidence: response.confidence,
+        aiConfidence: orchestration.interpretation.confidence,
       } as unknown as Json,
       created_by: userId,
     });
@@ -532,15 +549,23 @@ export async function executePlanPipeline(
 
   try {
     const { emitPlanComprehensionSignals } = await import('@/lib/compensation/plan-comprehension-emitter');
-    const componentsForSignals = (interpretation.components ?? []) as unknown as Array<Record<string, unknown>>;
+    const componentsForSignals = orchestration.interpretation.components as unknown as Array<Record<string, unknown>>;
     void emitPlanComprehensionSignals({
       tenantId,
       ruleSetId,
       interpretation: { components: componentsForSignals },
-      planConfidence: response.confidence,
+      planConfidence: orchestration.interpretation.confidence,
     });
   } catch (sigErr) {
     console.warn('[SCI plan-interp] Comprehension signal emission threw (non-blocking):', sigErr instanceof Error ? sigErr.message : String(sigErr));
+  }
+
+  // HF-248 Phase 3: persist componentOutcomes for reimport-resume.
+  try {
+    const { persistComponentOutcomes } = await import('./reimport-resume');
+    await persistComponentOutcomes(supabase, tenantId, resumeKey, ruleSetId, orchestration);
+  } catch (persistErr) {
+    console.warn('[SCI plan-interp] componentOutcomes persistence threw (non-blocking):', persistErr instanceof Error ? persistErr.message : String(persistErr));
   }
 
   return {

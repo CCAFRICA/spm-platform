@@ -430,6 +430,75 @@ IMPORTANT GUIDELINES:
 
 Return your analysis as valid JSON.`,
 
+  plan_skeleton: `You are an expert at analyzing compensation and commission plan documents. Your task in this PHASE A call is to extract the plan-level STRUCTURE and a COMPONENT INDEX. You do NOT emit calculationIntent or calculationMethod here — those are produced in a separate per-component call.
+
+Output is small JSON — keep it compact. Per-component DAG trees and rate-table contents are EXPLICITLY out of scope for this call.
+
+CRITICAL REQUIREMENTS:
+1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component.
+2. Detect ALL employee types/classifications if the document distinguishes payout levels by role.
+3. For each component declare rateTableCellCount (integer) when the component is backed by a rate table: 1D band table → number of tiers; 2D matrix → rows × columns. Omit the field when the component has no rate table (simple rate × metric, linear function, etc.).
+4. briefSemantic is a one-sentence prose description of what the component computes ("placement attainment matrix paying tier-specific bonus by attainment band × quality band"). It is NOT a DAG tree.
+
+Return JSON with this exact structure:
+{
+  "ruleSetName": "Name of the plan, verbatim from document title/header",
+  "ruleSetNameEs": "Spanish name if present, otherwise omit",
+  "description": "Brief description",
+  "currency": "MXN | USD | …",
+  "cadence": "monthly | biweekly | weekly | quarterly | annual",
+  "employeeTypes": [
+    { "id": "stable-id-1", "name": "Role name verbatim", "nameEs": "..." }
+  ],
+  "componentIndex": [
+    {
+      "id": "component-id-1",
+      "name": "Component name verbatim",
+      "nameEs": "Spanish name if present",
+      "appliesToEmployeeTypes": ["stable-id-1"] or ["all"],
+      "briefSemantic": "one-sentence prose describing what this component computes",
+      "rateTableCellCount": 30,   // omit when no rate table
+      "confidence": 0-100
+    }
+  ],
+  "requiredInputs": [
+    { "field": "field_name", "description": "what it measures", "scope": "employee|store", "dataType": "number|percentage|currency" }
+  ],
+  "confidence": 0-100,
+  "reasoning": "Overall analysis reasoning"
+}
+
+If the document is not a compensation plan, return componentIndex: [] and explain in reasoning. Do NOT emit empty componentIndex for a document that DOES describe a plan.
+
+Return your analysis as valid JSON.`,
+
+  plan_component: `You are an expert at translating a compensation plan COMPONENT description into a Prime-DAG calculationIntent tree.
+
+The plan document and a brief semantic description for ONE component will be supplied. Your task is to emit the calculationIntent PrimeNode tree for THIS component only — not the entire plan. Other components are handled by separate calls; do not include them.
+
+CRITICAL: Extract EVERY numeric value the component's source carries — every tier threshold, every payout amount, every cell of a rate table. Empty tiers/matrices will cause $0 payouts. The validator will REJECT any tree that emits fewer constant leaves than the rateTableCellCount declared for the component.
+
+<<COMPONENT_TYPE_LIST>>
+
+<<PRIME_GRAMMAR>>
+
+Response shape — return JSON with ONLY these fields:
+{
+  "id": "component-id (echo from the request)",
+  "name": "component name (echo from the request)",
+  "type": "prime_dag",
+  "calculationIntent": {
+    "prime": "...",
+    "...": "..."
+  },
+  "calculationMethod": { "type": "prime_dag" },
+  "rateTableCellCount": 30,   // echo from the request when applicable
+  "confidence": 0-100,
+  "reasoning": "How you extracted this component"
+}
+
+Return your analysis as valid JSON.`,
+
   workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.
 
 SHEET CLASSIFICATION TYPES:
@@ -942,6 +1011,50 @@ REQUIRED RESPONSE SHAPE — return a JSON object with these top-level fields. Th
 }
 
 If the document does not contain a compensation plan, return components: [] and set ruleSetName / reasoning to explain why. Do NOT return an empty components array for a document that DOES describe a plan — extract whatever components are visible.`;
+      }
+
+      case 'plan_skeleton': {
+        // HF-248 Phase A: plan-level structure + component index only.
+        const isPdfDocument = !!input.pdfBase64;
+        const contentSection = isPdfDocument
+          ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
+          : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
+        return `Analyze the following compensation plan document. PHASE A: emit plan-level structure and a COMPONENT INDEX only — do NOT emit calculationIntent or calculationMethod, those come in per-component calls.
+
+${contentSection}
+
+Return JSON per the schema in the system instructions.`;
+      }
+
+      case 'plan_component': {
+        // HF-248 Phase B: emit one component's calculationIntent. Caller
+        // supplies the component id/name/briefSemantic/rateTableCellCount in
+        // input.componentSpec; the plan content gives the LLM the source of
+        // truth for tier/matrix values.
+        const isPdfDocument = !!input.pdfBase64;
+        const contentSection = isPdfDocument
+          ? 'The compensation plan document has been provided above. Analyze it thoroughly.'
+          : `DOCUMENT CONTENT:\n---\n${input.content}\n---\nFormat: ${input.format}`;
+        const spec = (input.componentSpec ?? {}) as Record<string, unknown>;
+        const compId = String(spec.id ?? '');
+        const compName = String(spec.name ?? '');
+        const compNameEs = spec.nameEs ? String(spec.nameEs) : null;
+        const briefSemantic = String(spec.briefSemantic ?? '');
+        const rateCells = typeof spec.rateTableCellCount === 'number' ? spec.rateTableCellCount : null;
+        const appliesTo = Array.isArray(spec.appliesToEmployeeTypes)
+          ? (spec.appliesToEmployeeTypes as unknown[]).map(String)
+          : [];
+        return `Translate the following plan COMPONENT into a Prime-DAG calculationIntent tree. PHASE B: emit this component only.
+
+${contentSection}
+
+COMPONENT TO EMIT:
+  id: ${compId}
+  name: ${compName}${compNameEs ? `\n  nameEs: ${compNameEs}` : ''}
+  appliesToEmployeeTypes: ${JSON.stringify(appliesTo)}
+  briefSemantic: ${briefSemantic}${rateCells !== null ? `\n  rateTableCellCount: ${rateCells}  (the validator REJECTS trees with fewer than ${rateCells} constant leaves)` : ''}
+
+Return JSON per the response shape in the system instructions. Emit ONLY this component — do not include other components in the response.`;
       }
 
       case 'workbook_analysis':
