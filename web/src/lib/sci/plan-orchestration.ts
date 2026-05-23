@@ -319,14 +319,43 @@ interface PerComponentCallResult {
   outcome: ComponentOutcome;
 }
 
+/**
+ * HF-250 Phase 3: mode-selection heuristic for the per-component call.
+ *
+ * Mode A (direct emission): small components emit a complete tree via the
+ * HF-248 plan_component task. Backward-compatible with all components that
+ * succeeded pre-HF-249.
+ *
+ * Mode B (skeleton + per-chunk): large components emit a skeleton via the
+ * HF-250 plan_component_with_chunking task (now SKELETON_ONLY mode), then
+ * the orchestrator fires plan_chunk LLM calls in parallel for each $ref
+ * and the assembler stitches them.
+ *
+ * Korean Test compliant: the heuristic uses STRUCTURAL signals only
+ * (rateTableCellCount from the skeleton call, complexityHint extension
+ * point). No domain vocabulary. Threshold is conservative — borderline
+ * components route to Mode B (multiple small calls always succeed; one
+ * large call may truncate).
+ */
+function shouldUseChunking(spec: PerComponentCallArgs['componentSpec']): boolean {
+  if (typeof spec.rateTableCellCount === 'number' && spec.rateTableCellCount > 15) return true;
+  return false;
+}
+
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
   const spec = args.componentSpec;
+  const useChunking = shouldUseChunking(spec);
   let attempt = 0;
   let lastErrClass: InterpretationErrorClass = 'unknown';
   let lastErrMessage = '';
   let lastHttpStatus: number | undefined;
   let lastViolations: string | undefined;
+
+  console.log(
+    `[plan-component] mode=${useChunking ? 'B-skeleton-with-chunks' : 'A-direct'} ` +
+      `component=${spec.id} name="${spec.name}" rateTableCellCount=${spec.rateTableCellCount ?? '(absent)'}`,
+  );
 
   // Probe initial classification with a placeholder so we honor the policy
   // shape from the very first attempt. The classifier returns 'unknown' for
@@ -336,18 +365,32 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
     attempt += 1;
     const callStart = Date.now();
     try {
-      // HF-249 single-response mode: plan_component_with_chunking. LLM emits
-      // either a complete tree (chunks empty — small components) or a
-      // skeleton with $ref placeholders + chunks object (large components).
-      // The assembler stitches both shapes identically before validation.
-      const resp = await aiService.interpretPlanComponentWithChunking(
-        args.documentContent,
-        args.format,
-        spec,
-        args.signalContext,
-        args.pdfBase64,
-        args.pdfMediaType,
-      );
+      // HF-250 mode dispatch:
+      //   Mode A — interpretPlanComponent (HF-248): direct single-call emission.
+      //     Used for small components (rateTableCellCount <= 15). No chunking;
+      //     LLM emits the complete tree. Assembler is a no-op.
+      //   Mode B — interpretPlanComponentWithChunking (HF-250 prompt = skeleton
+      //     ONLY): the LLM emits the skeleton with $ref placeholders at
+      //     grammar-legal cut points. The orchestrator then fires plan_chunk
+      //     LLM calls in parallel (existing fetchChunksInParallel) for each
+      //     $ref. Per IRA v2 Option A: subsequent calls emit referenced sub-trees.
+      const resp = useChunking
+        ? await aiService.interpretPlanComponentWithChunking(
+            args.documentContent,
+            args.format,
+            spec,
+            args.signalContext,
+            args.pdfBase64,
+            args.pdfMediaType,
+          )
+        : await aiService.interpretPlanComponent(
+            args.documentContent,
+            args.format,
+            spec,
+            args.signalContext,
+            args.pdfBase64,
+            args.pdfMediaType,
+          );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;
 
@@ -380,16 +423,24 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               tree: intentRaw as SkeletonNode,
               chunks: chunks as Record<string, SkeletonNode>,
             };
-            // HF-249 multi-call fallback: if the skeleton carries $refs but
-            // chunks is incomplete (unresolved references), the LLM emitted
-            // a skeleton-only shape under budget pressure. Fetch the missing
-            // chunks individually via plan_chunk and merge before assembly.
+            // HF-250: in Mode B (skeleton-only), the LLM intentionally emits
+            // a skeleton with $refs and no chunks field. The orchestrator
+            // fires plan_chunk LLM calls in parallel (one per $ref) and
+            // merges the returned sub-trees before assembly. In Mode A
+            // (direct), the LLM emits a complete tree; this block is a
+            // no-op because collectReferences finds no $refs.
+            //
+            // The same code path also handles HF-249's fallback shape where
+            // the LLM emits chunks inline — defensive against an LLM that
+            // ignores HF-250's skeleton-only prompt and emits chunks anyway.
             const refsBefore = collectReferences(skeletonWithChunks);
             const missingChunkIds = Array.from(refsBefore.referenced).filter(id => !(id in chunks));
             if (missingChunkIds.length > 0) {
               console.log(
-                `[plan-component] HF-249 multi-call fallback component=${spec.id} ` +
-                  `missingChunks=${missingChunkIds.length} (${missingChunkIds.join(',')})`,
+                `[plan-skeleton-only] component=${spec.id} skeleton parsed — ${refsBefore.referenced.size} $refs found`,
+              );
+              console.log(
+                `[plan-chunk] FIRING parallel chunks: [${missingChunkIds.join(', ')}]`,
               );
               const fetched = await fetchChunksInParallel(
                 args,
@@ -400,6 +451,9 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               for (const [id, subtree] of Object.entries(fetched)) {
                 (chunks as Record<string, unknown>)[id] = subtree as unknown;
               }
+              console.log(
+                `[plan-assembler] component=${spec.id} chunksResolved=${Object.keys(chunks).length}/${refsBefore.referenced.size}`,
+              );
             }
             const assembleResult = assembleTree(skeletonWithChunks);
             intent = assembleResult.tree as Record<string, unknown>;
@@ -464,7 +518,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           console.log(
             `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
               `latencyMs=${latency} leaves=${intent ? '<populated>' : '<missing>'}` +
-              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount}` : ''}`,
+              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount} (multi-call mode)` : ' (direct mode)'}`,
           );
           return {
             component: {
