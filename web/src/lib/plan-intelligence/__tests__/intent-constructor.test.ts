@@ -24,26 +24,6 @@ import type { PrimeNode } from '../../calculation/intent-types';
 // Helpers
 // ─────────────────────────────────────────────
 
-function countConstantLeaves(node: PrimeNode): number {
-  if (node.prime === 'constant') return 1;
-  if (node.prime === 'conditional') {
-    return countConstantLeaves(node.then) + countConstantLeaves(node.else) + countConstantLeaves(node.condition);
-  }
-  if (node.prime === 'arithmetic') {
-    return countConstantLeaves(node.inputs[0]) + countConstantLeaves(node.inputs[1]);
-  }
-  if (node.prime === 'compare') {
-    return countConstantLeaves(node.inputs[0]) + countConstantLeaves(node.inputs[1]);
-  }
-  if (node.prime === 'logical') {
-    return node.inputs.reduce((acc, i) => acc + countConstantLeaves(i), 0);
-  }
-  if (node.prime === 'filter' || node.prime === 'scope' || node.prime === 'prior_period') {
-    return countConstantLeaves(node.downstream);
-  }
-  return 0;
-}
-
 // Count constant leaves that appear in OUTPUT positions (then/else terminals),
 // excluding constants that appear inside compare conditions.
 function countOutputLeaves(node: PrimeNode): number {

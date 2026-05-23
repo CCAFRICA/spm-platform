@@ -37,6 +37,8 @@ import {
   type SkeletonWithChunks,
   type SkeletonNode,
 } from '@/lib/calculation/prime-assembler';
+import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
+import { ConstructionError, type CompositionalIntent } from '@/lib/plan-intelligence/compositional-intent';
 import {
   classifyInterpretationError,
   retryPolicy,
@@ -87,6 +89,12 @@ export interface OrchestratedComponent {
   rateTableCellCount?: number;
   confidence: number;
   reasoning: string;
+  /**
+   * HF-251: orchestration-time metadata extension carried alongside the
+   * component. Populated with construction_method + compositional_intent
+   * for downstream signal-surface writers (Decision 153 L2 signals).
+   */
+  metadataExtension?: Record<string, unknown>;
 }
 
 export interface OrchestrationResult {
@@ -239,6 +247,7 @@ export async function orchestratePerComponentInterpretation(
         rateTableCellCount,
         confidence: componentResult.component.confidence ?? 0.8,
         reasoning: componentResult.component.reasoning ?? '',
+        metadataExtension: componentResult.component.metadataExtension,
       });
     }
   }
@@ -315,6 +324,8 @@ interface PerComponentCallResult {
     calculationMethod?: Record<string, unknown>;
     confidence?: number;
     reasoning?: string;
+    /** HF-251: carries construction_method + compositional_intent for the component's persisted metadata. */
+    metadataExtension?: Record<string, unknown>;
   } | null;
   outcome: ComponentOutcome;
 }
@@ -337,15 +348,22 @@ interface PerComponentCallResult {
  * components route to Mode B (multiple small calls always succeed; one
  * large call may truncate).
  */
+// HF-251: shouldUseChunking is RETAINED but no longer dispatched on. Under
+// Decision 158 + DS-024, the LLM emits CompositionalIntent (compact —
+// typically 200-1000 bytes) regardless of component complexity. The
+// constructor builds the tree. There is no token-budget reason to chunk.
+// Function preserved for HF-250 backward-compat callers; new code does not
+// reference it. Formal deprecation in HF-255.
 function shouldUseChunking(spec: PerComponentCallArgs['componentSpec']): boolean {
   if (typeof spec.rateTableCellCount === 'number' && spec.rateTableCellCount > 15) return true;
   return false;
 }
+// Silence unused-export lint when this function falls out of use post-HF-255.
+void shouldUseChunking;
 
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
   const spec = args.componentSpec;
-  const useChunking = shouldUseChunking(spec);
   let attempt = 0;
   let lastErrClass: InterpretationErrorClass = 'unknown';
   let lastErrMessage = '';
@@ -353,44 +371,34 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
   let lastViolations: string | undefined;
 
   console.log(
-    `[plan-component] mode=${useChunking ? 'B-skeleton-with-chunks' : 'A-direct'} ` +
-      `component=${spec.id} name="${spec.name}" rateTableCellCount=${spec.rateTableCellCount ?? '(absent)'}`,
+    `[plan-component] mode=construction component=${spec.id} name="${spec.name}" ` +
+      `rateTableCellCount=${spec.rateTableCellCount ?? '(absent)'}`,
   );
 
-  // Probe initial classification with a placeholder so we honor the policy
-  // shape from the very first attempt. The classifier returns 'unknown' for
-  // null input, which yields a 1-attempt policy — replaced below as soon as
-  // an actual error is observed.
+  // HF-251 — Decision 158 pathway: the LLM emits a compact CompositionalIntent
+  // describing the component's structure; the deterministic constructor (see
+  // intent-constructor.ts) builds the PrimeNode tree from the intent. Tree
+  // emission is no longer the LLM's responsibility; the LLM does recognition,
+  // code does construction. Mode A/B chunking dispatch from HF-250 is retired
+  // (the intent is always small enough for a single LLM call).
+  //
+  // Backward-compatibility: if the LLM emits the legacy `calculationIntent`
+  // tree directly (ignoring the HF-251 prompt), the orchestrator falls back
+  // to the HF-249/250 assembler path (assembleTree handles trees without
+  // $refs as a no-op; with $refs the existing chunk machinery still runs).
+  // This makes HF-251 deploy-able without breaking in-flight emissions.
   while (true) {
     attempt += 1;
     const callStart = Date.now();
     try {
-      // HF-250 mode dispatch:
-      //   Mode A — interpretPlanComponent (HF-248): direct single-call emission.
-      //     Used for small components (rateTableCellCount <= 15). No chunking;
-      //     LLM emits the complete tree. Assembler is a no-op.
-      //   Mode B — interpretPlanComponentWithChunking (HF-250 prompt = skeleton
-      //     ONLY): the LLM emits the skeleton with $ref placeholders at
-      //     grammar-legal cut points. The orchestrator then fires plan_chunk
-      //     LLM calls in parallel (existing fetchChunksInParallel) for each
-      //     $ref. Per IRA v2 Option A: subsequent calls emit referenced sub-trees.
-      const resp = useChunking
-        ? await aiService.interpretPlanComponentWithChunking(
-            args.documentContent,
-            args.format,
-            spec,
-            args.signalContext,
-            args.pdfBase64,
-            args.pdfMediaType,
-          )
-        : await aiService.interpretPlanComponent(
-            args.documentContent,
-            args.format,
-            spec,
-            args.signalContext,
-            args.pdfBase64,
-            args.pdfMediaType,
-          );
+      const resp = await aiService.interpretPlanComponent(
+        args.documentContent,
+        args.format,
+        spec,
+        args.signalContext,
+        args.pdfBase64,
+        args.pdfMediaType,
+      );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;
 
@@ -404,43 +412,41 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} message=${message}`,
         );
       } else {
-        // HF-249 assembly: branch on chunks presence. When chunks is empty
-        // AND the calculationIntent has no $ref placeholders, the assembler
-        // is a no-op (small components pass through identically to HF-248).
-        // When chunks is non-empty OR the tree carries $refs, the assembler
-        // stitches the skeleton + chunks into a single PrimeNode tree. The
-        // validator then runs against the ASSEMBLED tree — exhaustive
-        // emission counts leaves across the full assembled structure, not
-        // just the skeleton's surface leaves.
+        // HF-251 primary path: detect compositional_intent and construct.
+        const compositionalIntentRaw = result.compositional_intent as Record<string, unknown> | undefined;
         const intentRaw = result.calculationIntent as Record<string, unknown> | undefined;
         const chunks = (result.chunks ?? {}) as Record<string, unknown>;
-        let intent: Record<string, unknown> | undefined = intentRaw;
+        let intent: Record<string, unknown> | undefined;
         let chunksResolvedCount = 0;
+        let constructionMethod: 'compositional_intent' | 'legacy_tree' | 'legacy_skeleton_chunks' = 'legacy_tree';
 
-        if (intentRaw) {
-          try {
+        try {
+          if (compositionalIntentRaw) {
+            // HF-251 Decision 158 pathway: LLM emitted a CompositionalIntent.
+            // Validate structurally inside constructTree; throw ConstructionError
+            // on malformed input (caught below and mapped to error class).
+            const ci = compositionalIntentRaw as unknown as CompositionalIntent;
+            const constructedTree = constructTree(ci);
+            intent = constructedTree as unknown as Record<string, unknown>;
+            constructionMethod = 'compositional_intent';
+            console.log(
+              `[plan-component] constructed component=${spec.id} from compositional_intent ` +
+                `shape=${ci.structure?.shape ?? '(unknown)'}`,
+            );
+          } else if (intentRaw) {
+            // Backward-compat: LLM ignored the HF-251 prompt and emitted the
+            // legacy calculationIntent tree (HF-249/HF-250 shape). Pass
+            // through the assembler — handles direct trees as no-op and
+            // skeleton+chunks via fetchChunksInParallel.
             const skeletonWithChunks: SkeletonWithChunks = {
               tree: intentRaw as SkeletonNode,
               chunks: chunks as Record<string, SkeletonNode>,
             };
-            // HF-250: in Mode B (skeleton-only), the LLM intentionally emits
-            // a skeleton with $refs and no chunks field. The orchestrator
-            // fires plan_chunk LLM calls in parallel (one per $ref) and
-            // merges the returned sub-trees before assembly. In Mode A
-            // (direct), the LLM emits a complete tree; this block is a
-            // no-op because collectReferences finds no $refs.
-            //
-            // The same code path also handles HF-249's fallback shape where
-            // the LLM emits chunks inline — defensive against an LLM that
-            // ignores HF-250's skeleton-only prompt and emits chunks anyway.
             const refsBefore = collectReferences(skeletonWithChunks);
             const missingChunkIds = Array.from(refsBefore.referenced).filter(id => !(id in chunks));
             if (missingChunkIds.length > 0) {
               console.log(
-                `[plan-skeleton-only] component=${spec.id} skeleton parsed — ${refsBefore.referenced.size} $refs found`,
-              );
-              console.log(
-                `[plan-chunk] FIRING parallel chunks: [${missingChunkIds.join(', ')}]`,
+                `[plan-skeleton-only] component=${spec.id} legacy skeleton parsed — ${refsBefore.referenced.size} $refs found`,
               );
               const fetched = await fetchChunksInParallel(
                 args,
@@ -451,65 +457,67 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               for (const [id, subtree] of Object.entries(fetched)) {
                 (chunks as Record<string, unknown>)[id] = subtree as unknown;
               }
-              console.log(
-                `[plan-assembler] component=${spec.id} chunksResolved=${Object.keys(chunks).length}/${refsBefore.referenced.size}`,
-              );
+              constructionMethod = 'legacy_skeleton_chunks';
             }
             const assembleResult = assembleTree(skeletonWithChunks);
             intent = assembleResult.tree as Record<string, unknown>;
             chunksResolvedCount = assembleResult.chunksResolved;
-            if (chunksResolvedCount > 0) {
-              console.log(
-                `[plan-component] assembled component=${spec.id} chunksResolved=${chunksResolvedCount}`,
-              );
-            }
-          } catch (asmErr) {
-            const errLatency = Date.now() - callStart;
-            if (asmErr instanceof AssemblerUnresolvedReferenceError) {
-              lastErrClass = 'cognition_truncation';
-              lastErrMessage = asmErr.message;
-            } else if (asmErr instanceof AssemblerCyclicReferenceError) {
-              lastErrClass = 'cognition_violation';
-              lastErrMessage = asmErr.message;
-            } else if (asmErr instanceof AssemblerOrphanChunkError) {
-              lastErrClass = 'cognition_violation';
-              lastErrMessage = asmErr.message;
-            } else {
-              lastErrClass = 'unknown';
-              lastErrMessage = asmErr instanceof Error ? asmErr.message : String(asmErr);
-            }
-            console.log(
-              `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
-                `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${errLatency} ` +
-                `assembler="${lastErrMessage}"`,
-            );
-            // Skip the validator branch; flow falls to retry-policy decision below.
-            const policy = retryPolicy(lastErrClass);
-            if (attempt >= policy.maxAttempts) {
-              return {
-                component: null,
-                outcome: {
-                  id: spec.id,
-                  name: spec.name,
-                  status: 'failed',
-                  attempts: attempt,
-                  errClass: lastErrClass,
-                  errMessage: lastErrMessage,
-                  lastAttemptAt: new Date().toISOString(),
-                },
-              };
-            }
-            const delayMs = policy.backoffMs * Math.pow(2, attempt - 1);
-            if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
-            continue;
           }
+        } catch (constructErr) {
+          const errLatency = Date.now() - callStart;
+          if (constructErr instanceof ConstructionError) {
+            // HF-251: constructor rejected the CompositionalIntent.
+            // Output-count mismatch / breaks ordering / unknown shape →
+            // cognition_violation (LLM's structural recognition was wrong).
+            // Exhaustive-emission analog (insufficient outputs for declared
+            // dimensions) → cognition_truncation.
+            lastErrClass = constructErr.message.includes('output count')
+              ? 'cognition_truncation'
+              : 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof AssemblerUnresolvedReferenceError) {
+            lastErrClass = 'cognition_truncation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof AssemblerCyclicReferenceError) {
+            lastErrClass = 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof AssemblerOrphanChunkError) {
+            lastErrClass = 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else {
+            lastErrClass = 'unknown';
+            lastErrMessage = constructErr instanceof Error ? constructErr.message : String(constructErr);
+          }
+          console.log(
+            `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
+              `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${errLatency} ` +
+              `construction="${lastErrMessage}"`,
+          );
+          const policy = retryPolicy(lastErrClass);
+          if (attempt >= policy.maxAttempts) {
+            return {
+              component: null,
+              outcome: {
+                id: spec.id,
+                name: spec.name,
+                status: 'failed',
+                attempts: attempt,
+                errClass: lastErrClass,
+                errMessage: lastErrMessage,
+                lastAttemptAt: new Date().toISOString(),
+              },
+            };
+          }
+          const delayMs = policy.backoffMs * Math.pow(2, attempt - 1);
+          if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+          continue;
         }
 
-        // Validate the emitted intent against PRIME_GRAMMAR. Critical violations
-        // (e.g., exhaustive_emission when rateTableCellCount is declared) reject
-        // the component the same way ai-plan-interpreter's convertComponent does
-        // downstream. Catching here lets us surface the validator output as a
-        // per-component error class without persisting a half-formed rule_set.
+        // Validate the constructed/assembled tree against PRIME_GRAMMAR.
+        // Under HF-251 the constructor's structural guarantees (exhaustive
+        // emission, half-open intervals, terminal completeness) should
+        // satisfy the validator on every well-formed intent. Validator-
+        // rejections under HF-251 indicate a constructor bug.
         const validation = validateComponentIntent(intent, {
           componentLabel: spec.name,
           expectedCellCount: spec.rateTableCellCount,
@@ -517,15 +525,26 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         if (validation.valid) {
           console.log(
             `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
-              `latencyMs=${latency} leaves=${intent ? '<populated>' : '<missing>'}` +
-              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount} (multi-call mode)` : ' (direct mode)'}`,
+              `latencyMs=${latency} method=${constructionMethod}` +
+              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount}` : ''}`,
           );
+          // HF-251: persist the CompositionalIntent in component metadata
+          // when present, so the signal surface (Decision 153) carries the
+          // semantic structure alongside the tree. Tree shape that the
+          // engine consumes is unchanged.
+          const metadataExtension: Record<string, unknown> = {
+            construction_method: constructionMethod,
+          };
+          if (compositionalIntentRaw) {
+            metadataExtension.compositional_intent = compositionalIntentRaw;
+          }
           return {
             component: {
               calculationIntent: intent,
               calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
               confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
               reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+              metadataExtension,
             },
             outcome: {
               id: spec.id,

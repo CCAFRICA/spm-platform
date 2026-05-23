@@ -472,30 +472,143 @@ If the document is not a compensation plan, return componentIndex: [] and explai
 
 Return your analysis as valid JSON.`,
 
-  plan_component: `You are an expert at translating a compensation plan COMPONENT description into a Prime-DAG calculationIntent tree.
+  plan_component: `You are interpreting ONE component of a compensation plan and emitting a compact CompositionalIntent that describes its structure. Code constructs the PrimeNode tree from your intent — you do NOT emit the tree itself.
 
-The plan document and a brief semantic description for ONE component will be supplied. Your task is to emit the calculationIntent PrimeNode tree for THIS component only — not the entire plan. Other components are handled by separate calls; do not include them.
+Per Decision 158: LLM recognition + code construction. You RECOGNIZE what the plan describes; the platform's deterministic constructor BUILDS the calculation tree.
 
-CRITICAL: Extract EVERY numeric value the component's source carries — every tier threshold, every payout amount, every cell of a rate table. Empty tiers/matrices will cause $0 payouts. The validator will REJECT any tree that emits fewer constant leaves than the rateTableCellCount declared for the component.
+CRITICAL: Extract EVERY structural value the component's source describes — every break threshold, every output value, every reference field. The constructor validates breaks-vs-outputs cardinality and rejects intents whose output count does not match the dimension product. Half-open intervals, scale metadata placement, terminal completeness are CONSTRUCTOR responsibilities, not yours.
 
 <<COMPONENT_TYPE_LIST>>
 
 <<PRIME_GRAMMAR>>
 
+CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
+
+1. banded_lookup — N-dimensional tier table (1D banded rate / 2D matrix / etc.)
+
+   {
+     "shape": "banded_lookup",
+     "dimensions": [
+       {
+         "reference_field": "<field_name>",
+         "reference_source": { "type": "metric|ratio|aggregate|attribute|cross_data|scope_aggregate|prior_component", "...": "..." },
+         "breaks": [<number>, <number>, ...]   // ascending, breaks.length+1 bands per dimension
+       },
+       ...
+     ],
+     "outputs": [<n1>, <n2>, ...]   // flat array, length = product of (breaks.length+1) across dimensions
+   }
+
+   Cell at (i, j, k, ...) → outputs[i * d2_bands * d3_bands * ... + j * d3_bands * ... + k * ... + ...].
+
+2. arithmetic — binary numeric composition
+
+   { "shape": "arithmetic", "operation": "add|subtract|multiply|divide", "operands": [<operand>, <operand>] }
+
+3. conditional — gate with then/else
+
+   {
+     "shape": "conditional",
+     "condition": { "reference": <source>, "operator": "gt|gte|lt|lte|eq|neq", "threshold": <number> },
+     "then": <structure or operand>,
+     "else": <structure or operand>
+   }
+
+4. composed — sum/max/min/first_match over children
+
+   { "shape": "composed", "composition": "sum|max|min|first_match", "children": [<structure>, ...] }
+
+Operand kinds:
+  { "kind": "reference", "source": <ReferenceSource> }
+  { "kind": "constant", "value": <number> }
+  { "kind": "structure", "structure": <StructuralDescription> }
+
+ReferenceSource types:
+  { "type": "metric", "field": "<name>" }
+  { "type": "ratio", "numerator_field": "<n>", "denominator_field": "<d>" }
+  { "type": "aggregate", "field": "<name>", "op": "sum|count|avg|min|max" }
+  { "type": "attribute", "field": "<name>" }
+  { "type": "scope_aggregate", "field": "<name>", "boundary": "<attr>", "op": "sum|count|avg|min|max" }
+  { "type": "cross_data", "data_type": "<type>", "field"?: "<f>", "aggregation": "count|sum" }
+  { "type": "prior_component", "component_index": <n> }
+
+Scale specification — name which side scales (HF-244 mutual exclusion):
+  scale: { "side": "evaluator|convergence", "unit": "percent|ratio|currency|count", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
+  Or scale: null when no scale normalization is needed.
+
+ILLUSTRATIONS:
+
+SC-A — 1D 4-tier band (BCL C1 Captación de Depósitos shape):
+{
+  "component_id": "captacion-depositos",
+  "component_name": "Captación de Depósitos",
+  "structure": {
+    "shape": "banded_lookup",
+    "dimensions": [
+      { "reference_field": "cumplimiento_depositos", "reference_source": { "type": "metric", "field": "cumplimiento_depositos" }, "breaks": [80, 100, 130] }
+    ],
+    "outputs": [0, 120, 250, 400]
+  },
+  "scale": { "side": "evaluator", "unit": "percent", "value": 100, "confidence": 0.95, "reference_field": "cumplimiento_depositos" },
+  "output_precision": 0
+}
+
+SC-B — 2D matrix (BCL C0 Colocación de Crédito shape, 6×5 = 30 cells):
+{
+  "component_id": "colocacion-credito",
+  "component_name": "Colocación de Crédito",
+  "structure": {
+    "shape": "banded_lookup",
+    "dimensions": [
+      { "reference_field": "cumplimiento_colocacion", "reference_source": { "type": "metric", "field": "cumplimiento_colocacion" }, "breaks": [70, 80, 90, 100, 120] },
+      { "reference_field": "calidad_cartera", "reference_source": { "type": "metric", "field": "calidad_cartera" }, "breaks": [0.7, 0.85, 0.9, 0.95] }
+    ],
+    "outputs": [0, 0, 0, 0, 0,   /* row 0: cumplimiento < 70 */
+                0, 50, 100, 150, 200,    /* row 1: 70 <= cumplimiento < 80 */
+                /* ... 4 more rows ... */
+                300, 400, 500, 600, 700]
+  },
+  "scale": { "side": "evaluator", "unit": "percent", "value": 100, "confidence": 0.95, "reference_field": "cumplimiento_colocacion" },
+  "output_precision": 0
+}
+
+SC-C — Arithmetic linear rate (CRP Plan 1 shape):
+{
+  "component_id": "linear-rate",
+  "component_name": "Linear Commission",
+  "structure": {
+    "shape": "arithmetic",
+    "operation": "multiply",
+    "operands": [
+      { "kind": "reference", "source": { "type": "metric", "field": "revenue" } },
+      { "kind": "constant", "value": 0.05 }
+    ]
+  },
+  "scale": null,
+  "output_precision": 2
+}
+
 Response shape — return JSON with ONLY these fields:
 {
-  "id": "component-id (echo from the request)",
-  "name": "component name (echo from the request)",
+  "id": "<component-id echoed from the request>",
+  "name": "<component name echoed from the request>",
   "type": "prime_dag",
-  "calculationIntent": {
-    "prime": "...",
-    "...": "..."
+  "compositional_intent": {
+    "component_id": "...",
+    "component_name": "...",
+    "structure": { /* StructuralDescription */ },
+    "scale": null | { /* ScaleSpec */ },
+    "output_precision": 0,
+    "metadata"?: { /* optional */ }
   },
   "calculationMethod": { "type": "prime_dag" },
-  "rateTableCellCount": 30,   // echo from the request when applicable
+  "rateTableCellCount": <number when applicable>,
   "confidence": 0-100,
-  "reasoning": "How you extracted this component"
+  "reasoning": "How you extracted the structure"
 }
+
+DO NOT emit a calculationIntent PrimeNode tree. The constructor builds it.
+DO NOT decompose the intent across multiple calls. The intent is compact — typically 200-1000 bytes — and fits in a single call regardless of component complexity.
 
 Return your analysis as valid JSON.`,
 
