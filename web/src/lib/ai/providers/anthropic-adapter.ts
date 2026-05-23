@@ -499,21 +499,21 @@ Response shape — return JSON with ONLY these fields:
 
 Return your analysis as valid JSON.`,
 
-  plan_component_with_chunking: `You are an expert at translating a compensation plan COMPONENT description into a Prime-DAG calculationIntent tree.
+  plan_component_with_chunking: `You are emitting the SKELETON of one plan component's Prime-DAG calculationIntent.
 
-The plan document and a brief semantic description for ONE component will be supplied. Your task is to emit the calculationIntent PrimeNode tree for THIS component only — not the entire plan.
+MODE: SKELETON_ONLY
 
-CRITICAL: Extract EVERY numeric value the component's source carries — every tier threshold, every payout amount, every cell of a rate table. Empty tiers/matrices will cause \$0 payouts. The validator will REJECT any tree that emits fewer constant leaves than the rateTableCellCount declared for the component.
+This call returns ONLY the structural skeleton tree. Each leaf-bearing sub-tree is replaced by a \`{"\$ref": "chunk_<id>"}\` placeholder at a GRAMMAR-LEGAL CUT POINT. A SEPARATE LLM call is fired in parallel for EACH \$ref to emit that chunk's content. DO NOT include a \`chunks\` field in this response — chunks come from the per-chunk calls.
+
+This separation exists because the combined skeleton + chunks emission exceeded the LLM output token budget for large components (HF-249 verification 2026-05-23: BCL C0 30-cell matrix truncated at JSON position 23609 when chunks were emitted inline). Splitting the calls means each call's output stays well under budget.
+
+CRITICAL: Extract EVERY structural boundary the component's source describes — every tier break, every band threshold, every matrix row/column boundary. The skeleton declares the SHAPE; per-chunk calls fill the values. The downstream validator rejects skeletons whose total chunk count is fewer than the rateTableCellCount declared for the component.
 
 <<COMPONENT_TYPE_LIST>>
 
 <<PRIME_GRAMMAR>>
 
-HF-249 — SKELETON-WITH-REFERENCES EMISSION (CRITICAL for large components):
-
-When the calculationIntent's serialized JSON would exceed approximately 20KB (estimated from the component's structural complexity — e.g., a rate table with more than ~20 cells, or nested conditionals with more than ~6 levels), emit the tree with \`{"\$ref": "chunk_N"}\` placeholders at GRAMMAR-LEGAL CUT POINTS, and a sibling \`chunks\` object containing the sub-trees keyed by chunk_id. The platform's deterministic assembler stitches the chunks into a single PrimeNode tree before validation and persistence.
-
-LEGAL CUT POINTS — positions where a sub-tree may be replaced by a \`{"\$ref": "chunk_N"}\` placeholder:
+LEGAL CUT POINTS — positions where a sub-tree MUST be replaced by a \`{"\$ref": "chunk_<id>"}\` placeholder:
   conditional.then         (numeric subtree)
   conditional.else         (numeric subtree)
   filter.downstream        (numeric subtree)
@@ -521,13 +521,29 @@ LEGAL CUT POINTS — positions where a sub-tree may be replaced by a \`{"\$ref":
   prior_period.downstream  (numeric subtree)
 
 ILLEGAL cut points (do NOT replace these with \$ref):
-  conditional.condition    (boolean — small; chunking fragments evaluation)
-  arithmetic/compare/logical .inputs[i]  (numeric arity-fixed; chunks would be tiny)
-  filter.predicate / scope.boundary       (atomic descriptors)
+  conditional.condition    (boolean predicate — must be emitted inline in the skeleton)
+  arithmetic/compare/logical .inputs[i]  (numeric arity-fixed; emit inline)
+  filter.predicate / scope.boundary       (atomic descriptors — emit inline)
 
-Each chunk MUST be a complete grammar-compliant prime composition — it is a self-contained sub-tree, not a fragment. Chunks may themselves contain \`{"\$ref": "chunk_M"}\` placeholders (the assembler resolves recursively); a chunk that emits another \$ref must declare that chunk_id in the same \`chunks\` object.
+DECOMPOSITION GUIDANCE — emit a \$ref at EVERY legal cut point whose downstream content carries multiple leaves or nested conditionals. For an N×M 2D band-lookup matrix: the outer conditional structure (row selection) is emitted inline in the skeleton, with each then/else branch carrying a \$ref to a per-row chunk that handles the column selection. This produces ~N chunks (one per row), each containing ~M leaves — every chunk fits comfortably in the per-call budget.
 
-Choose chunk_id strings as stable, lowercase, hyphen/underscore identifiers (chunk_1, chunk_attain_high, etc.). Cycle references (chunk_1 → chunk_2 → chunk_1) are REJECTED by the assembler.
+Example skeleton for a 6-row × 5-column matrix (illustrative — actual structure follows the source):
+{
+  "prime": "conditional",
+  "condition": {"prime":"compare","op":"gte","inputs":[{"prime":"reference","field":"row_axis_metric"},{"prime":"constant","value":120,"meta":{"unit":"percent","scale":100,"confidence":0.95}}]},
+  "then": {"\$ref": "chunk_row_120plus"},
+  "else": {
+    "prime": "conditional",
+    "condition": {"prime":"logical","op":"and","inputs":[
+      {"prime":"compare","op":"gte","inputs":[{"prime":"reference","field":"row_axis_metric"},{"prime":"constant","value":100,"meta":{"unit":"percent","scale":100,"confidence":0.95}}]},
+      {"prime":"compare","op":"lt","inputs":[{"prime":"reference","field":"row_axis_metric"},{"prime":"constant","value":120,"meta":{"unit":"percent","scale":100,"confidence":0.95}}]}
+    ]},
+    "then": {"\$ref": "chunk_row_100_120"},
+    "else": {"\$ref": "chunk_row_below_100"}
+  }
+}
+
+The skeleton above carries no leaf payouts — those come from per-chunk calls. Three \$refs declared. Choose chunk_id strings as stable, semantic, lowercase, hyphen/underscore identifiers (chunk_row_120plus, chunk_attain_high, chunk_1, etc.).
 
 Response shape — return JSON with ONLY these fields:
 {
@@ -537,32 +553,29 @@ Response shape — return JSON with ONLY these fields:
   "calculationIntent": {
     "prime": "conditional",
     "condition": {"...": "..."},
-    "then": {"\$ref": "chunk_1"},
-    "else": {"\$ref": "chunk_2"}
+    "then": {"\$ref": "chunk_<id>"},
+    "else": {"\$ref": "chunk_<id>"}
   },
-  "chunks": {
-    "chunk_1": {"prime": "constant", "value": 700, "meta": {"...": "..."}},
-    "chunk_2": {"prime": "conditional", "condition": {"...": "..."}, "then": {"\$ref": "chunk_3"}, "else": {"\$ref": "chunk_4"}}
-  },
+  "expectedChunkIds": ["chunk_row_120plus", "chunk_row_100_120", "chunk_row_below_100"],
   "calculationMethod": { "type": "prime_dag" },
   "rateTableCellCount": 30,   // echo from the request when applicable
   "confidence": 0-100,
-  "reasoning": "How you extracted this component"
+  "reasoning": "How you decomposed this component into skeleton + chunks"
 }
 
-If the tree fits comfortably in budget without chunking, emit \`calculationIntent\` as a complete tree with NO \`\$ref\` placeholders and either an empty \`chunks: {}\` field or omit it. The pathway is the SAME — small components produce a complete tree; large components produce a skeleton + chunks. The assembler handles both shapes identically.
+The \`expectedChunkIds\` array lists every \$ref used in the skeleton. The orchestrator validates this list matches the \$refs collected from the tree before firing per-chunk calls.
 
-Return your analysis as valid JSON.`,
+DO NOT include a \`chunks\` field — chunks come from separate calls. Return your analysis as valid JSON.`,
 
-  plan_chunk: `You are an expert at emitting ONE sub-tree of a compensation plan component's Prime-DAG calculationIntent.
+  plan_chunk: `You are emitting ONE sub-tree of a plan component's Prime-DAG calculationIntent.
 
-This is the MULTI-CALL FALLBACK path. The skeleton emission for a component declared this chunk_id but did not include the chunk inline because the combined skeleton + chunks would have exceeded the LLM output budget. You are emitting ONLY this chunk.
+The parent component's skeleton call declared this chunk_id at the supplied skeletonPath. THIS call returns the complete sub-tree that fills that position. The orchestrator assembles all chunks into the parent skeleton via the deterministic assembler.
 
-The plan document, the parent component's name and brief semantic, the chunk_id, and the skeleton position the chunk fills will be supplied.
+The plan document, the parent component's name and brief semantic, the chunk_id, and the skeletonPath will be supplied in the user message.
 
-CRITICAL: This chunk is a complete grammar-compliant prime composition — a self-contained sub-tree. It is NOT a fragment. The assembler will splice it into the parent skeleton at the declared position. Every numeric value the chunk's source carries must be extracted exhaustively. Scale metadata on compare-position constants. Half-open intervals on band-selection conditionals.
+CRITICAL: This sub-tree is COMPLETE — it carries every leaf value the source describes for this position. NOT a fragment. Every numeric value, every tier threshold, every payout amount must be present. Scale metadata on compare-position constants per the grammar. Half-open intervals on band-selection conditionals (Decision 127).
 
-If THIS chunk itself would exceed budget, you may further decompose using the same \`{"\$ref": "chunk_M"}\` placeholders at grammar-legal cut points, and declare the sub-chunks in a sibling \`chunks\` object in your response. The assembler resolves \$refs recursively.
+IMPORTANT: DO NOT emit \`{"\$ref": "..."}\` placeholders inside this sub-tree. This chunk must be COMPLETE — fully expanded, no nested references. If the chunk's content seems too large, you may use compact serialization (less whitespace) but every leaf must appear. The assembler will REJECT trees with unresolved references inside chunks.
 
 <<COMPONENT_TYPE_LIST>>
 
@@ -575,14 +588,11 @@ Response shape — return JSON with ONLY these fields:
     "prime": "...",
     "...": "..."
   },
-  "chunks": {
-    // Optional: sub-chunks if this chunk further decomposed. Keys are NEW chunk_ids.
-  },
   "confidence": 0-100,
   "reasoning": "How you extracted this chunk"
 }
 
-Return your analysis as valid JSON.`,
+DO NOT include a \`chunks\` field. The subtree must be complete and self-contained. Return your analysis as valid JSON.`,
 
   workbook_analysis: `You are an expert at analyzing compensation data workbooks for a Sales Performance Management (SPM) platform. Your task is to analyze ALL sheets in a workbook together to understand how they relate and feed into compensation calculations.
 
