@@ -146,6 +146,56 @@ export const PRIME_GRAMMAR: Record<PrimeType, PrimeRule> = {
 };
 
 // ──────────────────────────────────────────────
+// HF-249: Grammar-Aware Subtree Decomposition Cut Points
+// ──────────────────────────────────────────────
+//
+// Per IRA v2 OPTION_A (Rank 1): when a calculationIntent tree's serialized
+// emission exceeds the LLM's output-token budget, the LLM emits a skeleton
+// with $ref placeholders at grammar-legal cut points and a sibling `chunks`
+// object containing the sub-trees. A deterministic assembler stitches the
+// chunks back into a single PrimeNode tree (assembleTree in this file).
+//
+// Cut points are POSITIONS within a prime's structure where a sub-tree may
+// be replaced by a {$ref: "chunk_N"} placeholder during emission. They are
+// derived from the grammar's nine primes — not from domain vocabulary or
+// plan-content patterns (T1-E910 v2 Korean Test compliance). The set below
+// is a projection of the grammar's existing nested-child structure:
+//
+//   conditional { condition, then, else } — `then` / `else` are cut points
+//   filter      { predicate, downstream } — `downstream` is a cut point
+//   scope       { boundary, downstream }  — `downstream` is a cut point
+//   prior_period { downstream }           — `downstream` is a cut point
+//
+// The `condition` child of `conditional` is intentionally NOT a cut point:
+// conditions are small (compare/logical compositions) and chunking them
+// fragments the boolean evaluation across calls without scale benefit.
+//
+// arithmetic/compare/logical inputs are NOT cut points either — they are
+// numeric arity-fixed and short; replacing one input with a ref would
+// produce verbose chunks for negligible gain.
+//
+// aggregate, constant, reference are leaves — no children, no cut points.
+//
+// Adding a new prime to PRIME_GRAMMAR with nestable children extends this
+// declaration as part of the prime's definition; the assembler picks up
+// the new cut points without changes.
+
+export type CutPointField = 'downstream' | 'then' | 'else';
+
+export const GRAMMAR_CUT_POINTS: Partial<Record<PrimeType, ReadonlyArray<CutPointField>>> = {
+  conditional: ['then', 'else'],
+  filter: ['downstream'],
+  scope: ['downstream'],
+  prior_period: ['downstream'],
+} as const;
+
+export function isLegalCutPoint(parentPrime: PrimeType, fieldName: string): boolean {
+  const cutPoints = GRAMMAR_CUT_POINTS[parentPrime];
+  if (!cutPoints) return false;
+  return cutPoints.includes(fieldName as CutPointField);
+}
+
+// ──────────────────────────────────────────────
 // Scale metadata (Phase 2 — consumed by convergence + evaluator)
 // ──────────────────────────────────────────────
 

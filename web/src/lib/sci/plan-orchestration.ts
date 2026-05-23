@@ -29,6 +29,15 @@
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
 import {
+  assembleTree,
+  AssemblerCyclicReferenceError,
+  AssemblerOrphanChunkError,
+  AssemblerUnresolvedReferenceError,
+  collectReferences,
+  type SkeletonWithChunks,
+  type SkeletonNode,
+} from '@/lib/calculation/prime-assembler';
+import {
   classifyInterpretationError,
   retryPolicy,
   type InterpretationErrorClass,
@@ -327,7 +336,11 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
     attempt += 1;
     const callStart = Date.now();
     try {
-      const resp = await aiService.interpretPlanComponent(
+      // HF-249 single-response mode: plan_component_with_chunking. LLM emits
+      // either a complete tree (chunks empty — small components) or a
+      // skeleton with $ref placeholders + chunks object (large components).
+      // The assembler stitches both shapes identically before validation.
+      const resp = await aiService.interpretPlanComponentWithChunking(
         args.documentContent,
         args.format,
         spec,
@@ -348,12 +361,101 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} message=${message}`,
         );
       } else {
+        // HF-249 assembly: branch on chunks presence. When chunks is empty
+        // AND the calculationIntent has no $ref placeholders, the assembler
+        // is a no-op (small components pass through identically to HF-248).
+        // When chunks is non-empty OR the tree carries $refs, the assembler
+        // stitches the skeleton + chunks into a single PrimeNode tree. The
+        // validator then runs against the ASSEMBLED tree — exhaustive
+        // emission counts leaves across the full assembled structure, not
+        // just the skeleton's surface leaves.
+        const intentRaw = result.calculationIntent as Record<string, unknown> | undefined;
+        const chunks = (result.chunks ?? {}) as Record<string, unknown>;
+        let intent: Record<string, unknown> | undefined = intentRaw;
+        let chunksResolvedCount = 0;
+
+        if (intentRaw) {
+          try {
+            const skeletonWithChunks: SkeletonWithChunks = {
+              tree: intentRaw as SkeletonNode,
+              chunks: chunks as Record<string, SkeletonNode>,
+            };
+            // HF-249 multi-call fallback: if the skeleton carries $refs but
+            // chunks is incomplete (unresolved references), the LLM emitted
+            // a skeleton-only shape under budget pressure. Fetch the missing
+            // chunks individually via plan_chunk and merge before assembly.
+            const refsBefore = collectReferences(skeletonWithChunks);
+            const missingChunkIds = Array.from(refsBefore.referenced).filter(id => !(id in chunks));
+            if (missingChunkIds.length > 0) {
+              console.log(
+                `[plan-component] HF-249 multi-call fallback component=${spec.id} ` +
+                  `missingChunks=${missingChunkIds.length} (${missingChunkIds.join(',')})`,
+              );
+              const fetched = await fetchChunksInParallel(
+                args,
+                spec,
+                missingChunkIds,
+                refsBefore.referencingPaths,
+              );
+              for (const [id, subtree] of Object.entries(fetched)) {
+                (chunks as Record<string, unknown>)[id] = subtree as unknown;
+              }
+            }
+            const assembleResult = assembleTree(skeletonWithChunks);
+            intent = assembleResult.tree as Record<string, unknown>;
+            chunksResolvedCount = assembleResult.chunksResolved;
+            if (chunksResolvedCount > 0) {
+              console.log(
+                `[plan-component] assembled component=${spec.id} chunksResolved=${chunksResolvedCount}`,
+              );
+            }
+          } catch (asmErr) {
+            const errLatency = Date.now() - callStart;
+            if (asmErr instanceof AssemblerUnresolvedReferenceError) {
+              lastErrClass = 'cognition_truncation';
+              lastErrMessage = asmErr.message;
+            } else if (asmErr instanceof AssemblerCyclicReferenceError) {
+              lastErrClass = 'cognition_violation';
+              lastErrMessage = asmErr.message;
+            } else if (asmErr instanceof AssemblerOrphanChunkError) {
+              lastErrClass = 'cognition_violation';
+              lastErrMessage = asmErr.message;
+            } else {
+              lastErrClass = 'unknown';
+              lastErrMessage = asmErr instanceof Error ? asmErr.message : String(asmErr);
+            }
+            console.log(
+              `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
+                `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${errLatency} ` +
+                `assembler="${lastErrMessage}"`,
+            );
+            // Skip the validator branch; flow falls to retry-policy decision below.
+            const policy = retryPolicy(lastErrClass);
+            if (attempt >= policy.maxAttempts) {
+              return {
+                component: null,
+                outcome: {
+                  id: spec.id,
+                  name: spec.name,
+                  status: 'failed',
+                  attempts: attempt,
+                  errClass: lastErrClass,
+                  errMessage: lastErrMessage,
+                  lastAttemptAt: new Date().toISOString(),
+                },
+              };
+            }
+            const delayMs = policy.backoffMs * Math.pow(2, attempt - 1);
+            if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+            continue;
+          }
+        }
+
         // Validate the emitted intent against PRIME_GRAMMAR. Critical violations
         // (e.g., exhaustive_emission when rateTableCellCount is declared) reject
         // the component the same way ai-plan-interpreter's convertComponent does
         // downstream. Catching here lets us surface the validator output as a
         // per-component error class without persisting a half-formed rule_set.
-        const intent = result.calculationIntent as Record<string, unknown> | undefined;
         const validation = validateComponentIntent(intent, {
           componentLabel: spec.name,
           expectedCellCount: spec.rateTableCellCount,
@@ -361,7 +463,8 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         if (validation.valid) {
           console.log(
             `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
-              `latencyMs=${latency} leaves=${intent ? '<populated>' : '<missing>'}`,
+              `latencyMs=${latency} leaves=${intent ? '<populated>' : '<missing>'}` +
+              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount}` : ''}`,
           );
           return {
             component: {
@@ -427,6 +530,91 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
+}
+
+/**
+ * HF-249 multi-call fallback — fetch missing chunks in parallel via
+ * interpretPlanChunk. Each chunk gets one LLM call; total latency is bounded
+ * by the slowest chunk (Promise.all), not the sum. Per T1-E947 chunks are
+ * independent of each other so parallel emission is scope-correct.
+ *
+ * Returns a map of chunkId → emitted sub-tree. A chunk that itself fails
+ * (parseError / fallback / API throw) is OMITTED from the map; the caller's
+ * subsequent assemble step will raise AssemblerUnresolvedReferenceError for
+ * the still-missing chunkIds and the orchestrator's existing error-class
+ * path takes over.
+ */
+async function fetchChunksInParallel(
+  args: PerComponentCallArgs,
+  spec: PerComponentCallArgs['componentSpec'],
+  missingChunkIds: string[],
+  referencingPaths: Map<string, string>,
+): Promise<Record<string, unknown>> {
+  const aiService = getAIService();
+  const settled = await Promise.allSettled(
+    missingChunkIds.map(async chunkId => {
+      const chunkStart = Date.now();
+      const skeletonPath = referencingPaths.get(chunkId) ?? '$';
+      try {
+        const resp = await aiService.interpretPlanChunk(
+          args.documentContent,
+          args.format,
+          {
+            chunkId,
+            parentComponentName: spec.name,
+            parentBriefSemantic: spec.briefSemantic,
+            skeletonPath,
+          },
+          args.signalContext,
+          args.pdfBase64,
+          args.pdfMediaType,
+        );
+        const r = (resp.result ?? {}) as Record<string, unknown>;
+        const chunkLatency = Date.now() - chunkStart;
+        if (r.parseError || r.error || r.fallback) {
+          const message = String(r.error || (r.parseError ? 'JSON parse failed' : 'Fallback returned'));
+          console.log(
+            `[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} ` +
+              `latencyMs=${chunkLatency} message=${message}`,
+          );
+          return null;
+        }
+        const subtree = r.subtree;
+        if (!subtree || typeof subtree !== 'object') {
+          console.log(`[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} reason=missing-subtree`);
+          return null;
+        }
+        // Merge any nested sub-chunks the chunk itself declared, then return
+        // the subtree as the chunk's value. The orchestrator's assembler
+        // resolves nested $refs recursively from the merged chunks map.
+        const subChunks = (r.chunks ?? {}) as Record<string, unknown>;
+        console.log(
+          `[plan-chunk] SUCCESS chunkId=${chunkId} parent=${spec.id} latencyMs=${chunkLatency}` +
+            `${Object.keys(subChunks).length > 0 ? ` subChunks=${Object.keys(subChunks).length}` : ''}`,
+        );
+        return { chunkId, subtree, subChunks };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(
+          `[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} ` +
+            `latencyMs=${Date.now() - chunkStart} message=${message}`,
+        );
+        return null;
+      }
+    }),
+  );
+  const merged: Record<string, unknown> = {};
+  for (const s of settled) {
+    if (s.status !== 'fulfilled' || s.value === null) continue;
+    const { chunkId, subtree, subChunks } = s.value as {
+      chunkId: string;
+      subtree: unknown;
+      subChunks: Record<string, unknown>;
+    };
+    merged[chunkId] = subtree;
+    for (const [sId, sValue] of Object.entries(subChunks)) merged[sId] = sValue;
+  }
+  return merged;
 }
 
 function emptyOrchestrationResult(
