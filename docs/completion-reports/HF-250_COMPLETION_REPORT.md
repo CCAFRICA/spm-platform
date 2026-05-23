@@ -305,8 +305,44 @@ Phase 4:
 
 ## BUILD AND DEPLOY (per SR-43)
 
-Subsequent sections of this report (filled by CC at end of Phase 4):
-- PR creation
-- PR squash-merge
-- Vercel production deployment verification
-- Dev sync with main
+### PR creation
+
+- PR #438 opened: https://github.com/CCAFRICA/spm-platform/pull/438
+- Title: "HF-250: Multi-call skeleton/chunk separation — complete HF-249 per IRA Option A specification"
+- Vercel preview check: SUCCESS (`https://vercel.com/seaside-altas-projects/vialuce-prod/a3ptdPiDwYEnRJQ4ikcaTzYck7CA`)
+- `mergeStateStatus: CLEAN`, `mergeable: MERGEABLE`
+
+### PR squash-merge
+
+- Merged at `2026-05-23T03:29:17Z`
+- Squash commit on main: `37a9f76d47437267678797423ae3c7b1777b0b54`
+- main HEAD: `37a9f76d` HF-250: Multi-call skeleton/chunk separation … (#438)
+
+### Vercel production deployment verification
+
+| Field | Value |
+|---|---|
+| Production deployment SHA | `37a9f76d47437267678797423ae3c7b1777b0b54` (matches main HEAD) |
+| Production deployment created | `2026-05-23T03:30:49Z` (~90s after merge) |
+| Deployment ID | `4790717921` |
+| Deployment status | `success` (`2026-05-23T03:30:50Z`) |
+| Deployment URL | `https://vialuce-prod-id2auok4g-seaside-altas-projects.vercel.app` |
+
+Vercel webhook fired correctly for this merge (no repeat of the HF-249 anomaly where the webhook silently missed the main-branch push). Production is now serving HF-250.
+
+### Dev sync with main
+
+```
+$ git checkout main && git pull origin main  →  Fast-forward to 37a9f76d
+$ git checkout dev && git merge main          →  Merge made by the 'ort' strategy
+$ git push origin dev                          →  b544e904..0e9481ea dev → dev
+$ git log dev --oneline -2
+0e9481ea Merge branch 'main' into dev
+37a9f76d HF-250: Multi-call skeleton/chunk separation — complete HF-249 per IRA Option A specification (#438)
+```
+
+`dev` now reflects production state. Subsequent work branches from a clean post-HF-250 baseline.
+
+### Architect-manual verification next
+
+Per directive §6.2 and the architect-fill table above, the BCL clean-slate plan import test should now exercise HF-250's Mode B path for C0. Expected log signatures listed in Phase 4 verification section above.
