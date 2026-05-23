@@ -88,6 +88,14 @@ export interface InterpretedComponent {
   rateTableCellCount?: number;
   confidence: number;
   reasoning: string;
+  /**
+   * HF-251: orchestration-time metadata carried into the persisted component.
+   * Populated by plan-orchestration.ts when the CompositionalIntent
+   * construction pathway (Decision 158) ran for this component, carrying
+   * the original intent and the construction_method marker. Merged into the
+   * persisted component's metadata in convertComponent.
+   */
+  metadataExtension?: Record<string, unknown>;
 }
 
 export interface EmployeeType {
@@ -207,6 +215,10 @@ function normalizeComponents(components: unknown): InterpretedComponent[] {
       // HF-244 Phase 2: integer cell-count declaration for rate-table components.
       rateTableCellCount: typeof c.rateTableCellCount === 'number' && c.rateTableCellCount > 0
         ? Math.floor(c.rateTableCellCount)
+        : undefined,
+      // HF-251: carry the orchestrator's metadataExtension (compositional_intent + construction_method).
+      metadataExtension: c.metadataExtension && typeof c.metadataExtension === 'object'
+        ? c.metadataExtension as Record<string, unknown>
         : undefined,
       confidence: Number.isFinite(rawConf) ? rawConf : 0.5,
       reasoning: String(c.reasoning || ''),
@@ -458,6 +470,12 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
       metadata: {
         ...(base.metadata || {}),
         intent: base.calculationIntent,
+        // HF-251: merge orchestrator-carried construction_method +
+        // compositional_intent into the persisted component metadata.
+        // Downstream signal-surface writers (Decision 153 L2 signals) can
+        // read these from rule_sets.components[].metadata for diagnostic
+        // and progressive-performance use.
+        ...(comp?.metadataExtension ? comp.metadataExtension : {}),
       },
     };
   }
