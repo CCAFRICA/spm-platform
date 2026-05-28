@@ -161,6 +161,29 @@ export interface ScaleSpec {
 export interface CompositionalIntent {
   component_id: string;
   component_name: string;
+  /**
+   * HF-252: which entity categories this component applies to. Maps to
+   * appliesToEmployeeTypes in the existing variant decomposition pipeline
+   * (interpretationToPlanConfig filters allComponents by appliesToEmployeeTypes
+   * per employee type; HF-119 variant router selects each entity's variant
+   * before component evaluation).
+   *
+   * Role / category differentiation lives HERE — at the variant boundary,
+   * ABOVE component evaluation. A CompositionalIntent's `structure` field
+   * MUST NOT encode role differentiation via internal categorical conditionals
+   * or `attribute` references; the platform's variant assignment handles
+   * that upstream. If a plan pays different rates by category, the LLM
+   * emits the component ONCE per category and declares which category
+   * each emission applies to via this field.
+   *
+   * Semantics:
+   *   omitted / empty / ['all'] = applies to all variants
+   *   ['<category-id>', ...]    = applies only to the listed variant ids
+   *
+   * The category ids must match those declared in the plan_skeleton's
+   * employeeTypes index so variant filtering routes correctly.
+   */
+  applies_to?: string[];
   structure: StructuralDescription;
   scale: ScaleSpec | null;
   output_precision: number;
@@ -184,6 +207,25 @@ export class ConstructionError extends Error {
   ) {
     super(`[intent-constructor] ${path}: ${message}`);
     this.name = 'ConstructionError';
+  }
+}
+
+/**
+ * HF-252: structured failure when an LLM plan_component response lacks
+ * compositional_intent. Per Decision 154 + T0-E03: the construction pathway
+ * is the sole plan-interpretation pathway; there is no fallback to the
+ * deprecated emission pathway. Missing compositional_intent is a typed
+ * failure raised to the caller, mapped to cognition_failure for retry
+ * via the HF-248 error class taxonomy. NEVER silent downgrade.
+ */
+export class MissingCompositionalIntentError extends Error {
+  constructor(public readonly componentId: string, public readonly componentName: string) {
+    super(
+      `[plan-component] Response for component "${componentName}" (id="${componentId}") lacked ` +
+      `compositional_intent. Construction pathway (Decision 158) is the sole plan-interpretation ` +
+      `pathway. No fallback. Classify as cognition_failure and retry per error class taxonomy.`,
+    );
+    this.name = 'MissingCompositionalIntentError';
   }
 }
 
