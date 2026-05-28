@@ -236,12 +236,24 @@ export async function orchestratePerComponentInterpretation(
 
     outcomes.push(componentResult.outcome);
     if (componentResult.component) {
+      // HF-252: CompositionalIntent.applies_to (from the per-component call)
+      // takes precedence over the skeleton's appliesToEmployeeTypes. Per-component
+      // emission sees the actual semantics of which variants this component
+      // applies to. Falls back to the skeleton value when intent didn't declare.
+      const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
+        | { applies_to?: unknown }
+        | undefined)?.applies_to;
+      const resolvedAppliesTo: string[] =
+        Array.isArray(intentAppliesTo) && intentAppliesTo.length > 0
+          ? (intentAppliesTo as unknown[]).map(String)
+          : appliesTo;
+
       components.push({
         id: compId,
         name: compName,
         nameEs: compNameEs,
         type: 'prime_dag',
-        appliesToEmployeeTypes: appliesTo,
+        appliesToEmployeeTypes: resolvedAppliesTo,
         calculationIntent: componentResult.component.calculationIntent,
         calculationMethod: componentResult.component.calculationMethod ?? { type: 'prime_dag' },
         rateTableCellCount,

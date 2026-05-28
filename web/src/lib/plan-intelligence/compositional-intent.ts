@@ -161,6 +161,29 @@ export interface ScaleSpec {
 export interface CompositionalIntent {
   component_id: string;
   component_name: string;
+  /**
+   * HF-252: which entity categories this component applies to. Maps to
+   * appliesToEmployeeTypes in the existing variant decomposition pipeline
+   * (interpretationToPlanConfig filters allComponents by appliesToEmployeeTypes
+   * per employee type; HF-119 variant router selects each entity's variant
+   * before component evaluation).
+   *
+   * Role / category differentiation lives HERE — at the variant boundary,
+   * ABOVE component evaluation. A CompositionalIntent's `structure` field
+   * MUST NOT encode role differentiation via internal categorical conditionals
+   * or `attribute` references; the platform's variant assignment handles
+   * that upstream. If a plan pays different rates by category, the LLM
+   * emits the component ONCE per category and declares which category
+   * each emission applies to via this field.
+   *
+   * Semantics:
+   *   omitted / empty / ['all'] = applies to all variants
+   *   ['<category-id>', ...]    = applies only to the listed variant ids
+   *
+   * The category ids must match those declared in the plan_skeleton's
+   * employeeTypes index so variant filtering routes correctly.
+   */
+  applies_to?: string[];
   structure: StructuralDescription;
   scale: ScaleSpec | null;
   output_precision: number;

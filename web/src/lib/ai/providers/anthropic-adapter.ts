@@ -436,9 +436,12 @@ Output is small JSON — keep it compact. Per-component DAG trees and rate-table
 
 CRITICAL REQUIREMENTS:
 1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component.
-2. Detect ALL employee types/classifications if the document distinguishes payout levels by role.
-3. For each component declare rateTableCellCount (integer) when the component is backed by a rate table: 1D band table → number of tiers; 2D matrix → rows × columns. Omit the field when the component has no rate table (simple rate × metric, linear function, etc.).
-4. briefSemantic is a one-sentence prose description of what the component computes ("placement attainment matrix paying tier-specific bonus by attainment band × quality band"). It is NOT a DAG tree.
+2. Detect ALL employee types/classifications if the document distinguishes payout levels by role. Enumerate them in \`employeeTypes\` with stable ids.
+3. PER-VARIANT ENUMERATION (HF-252): when a component pays DIFFERENTLY by entity category (different rates, different breaks, different outputs for different roles/levels/tiers), enumerate it ONCE PER CATEGORY in \`componentIndex\` — each entry's \`appliesToEmployeeTypes\` carries the single category id. When a component pays UNIFORMLY across categories, enumerate it once with \`appliesToEmployeeTypes: ["all"]\`.
+4. For each component declare rateTableCellCount (integer) when the component is backed by a rate table: 1D band table → number of tiers; 2D matrix → rows × columns. Omit the field when the component has no rate table (simple rate × metric, linear function, etc.).
+5. briefSemantic is a one-sentence prose description of what the component computes ("placement attainment matrix paying tier-specific bonus by attainment band × quality band"). It is NOT a DAG tree.
+
+Per-variant enumeration example: a plan with components C0/C1/C2/C3 that pay different rates to Senior vs Ejecutivo produces 8 componentIndex entries (4 components × 2 categories). Each entry's appliesToEmployeeTypes is a single-element array of the category id it applies to. The per-component intent calls then receive the correct category context and emit a metric-only intent for that variant.
 
 Return JSON with this exact structure:
 {
@@ -477,6 +480,23 @@ Return your analysis as valid JSON.`,
 Per Decision 158: LLM recognition + code construction. You RECOGNIZE what the plan describes; the platform's deterministic constructor BUILDS the calculation tree.
 
 CRITICAL: Extract EVERY structural value the component's source describes — every break threshold, every output value, every reference field. The constructor validates breaks-vs-outputs cardinality and rejects intents whose output count does not match the dimension product. Half-open intervals, scale metadata placement, terminal completeness are CONSTRUCTOR responsibilities, not yours.
+
+EMISSION DISCIPLINE (HF-252 — read this before drafting the intent):
+
+A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`scope_aggregate\`, \`prior_component\`.
+
+DO NOT reference categorical entity properties (role, level, tier, classification, type, segment) inside a component's \`structure\`. If a plan pays different rates to different categories of people, that is VARIANT differentiation — the platform's variant assignment routes each entity to the correct variant and evaluates the matching component. Do NOT encode the categorical differentiation as a conditional or attribute reference inside the structure.
+
+When a component's rates or outputs differ by an entity category:
+  • Emit the component ONCE per category — each emission is its own per-component call.
+  • Declare which category each emission applies to via the top-level \`applies_to\` field.
+  • The platform routes each entity to the variant whose components match its category.
+
+\`applies_to\` semantics:
+  • Omitted, empty, or \`["all"]\` — applies to all variants of the plan.
+  • \`["<category-id>", ...]\` — applies only to the listed category id(s). Category ids match what the plan_skeleton call enumerated in \`employeeTypes\`.
+
+\`attribute\` ReferenceSource is reserved for numeric attributes (entity-level numeric properties consumed by the calculation, e.g., a quota the entity carries). It MUST NOT drive categorical payout differentiation.
 
 <<COMPONENT_TYPE_LIST>>
 
@@ -596,6 +616,7 @@ Response shape — return JSON with ONLY these fields:
   "compositional_intent": {
     "component_id": "...",
     "component_name": "...",
+    "applies_to": ["<category-id>", ...],  // HF-252: which variant(s) this emission applies to. Use ["all"] when uniform across variants.
     "structure": { /* StructuralDescription */ },
     "scale": null | { /* ScaleSpec */ },
     "output_precision": 0,
@@ -609,6 +630,7 @@ Response shape — return JSON with ONLY these fields:
 
 DO NOT emit a calculationIntent PrimeNode tree. The constructor builds it.
 DO NOT decompose the intent across multiple calls. The intent is compact — typically 200-1000 bytes — and fits in a single call regardless of component complexity.
+DO NOT encode role/category differentiation inside \`structure\`. Use \`applies_to\` at the top level (HF-252 variant routing).
 
 Return your analysis as valid JSON.`,
 
