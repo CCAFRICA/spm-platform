@@ -28,17 +28,16 @@
 
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
-import {
-  assembleTree,
-  AssemblerCyclicReferenceError,
-  AssemblerOrphanChunkError,
-  AssemblerUnresolvedReferenceError,
-  collectReferences,
-  type SkeletonWithChunks,
-  type SkeletonNode,
-} from '@/lib/calculation/prime-assembler';
 import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
-import { ConstructionError, type CompositionalIntent } from '@/lib/plan-intelligence/compositional-intent';
+import {
+  ConstructionError,
+  MissingCompositionalIntentError,
+  type CompositionalIntent,
+} from '@/lib/plan-intelligence/compositional-intent';
+// HF-252: prime-assembler imports retired from the plan_component call path
+// per T0-E03 single-pipeline restoration. The assembler module file is
+// preserved per DD-7 (no smuggled expansion); formal file deprecation is
+// HF-255. Construction pathway is the sole route.
 import {
   classifyInterpretationError,
   retryPolicy,
@@ -342,36 +341,13 @@ interface PerComponentCallResult {
   outcome: ComponentOutcome;
 }
 
-/**
- * HF-250 Phase 3: mode-selection heuristic for the per-component call.
- *
- * Mode A (direct emission): small components emit a complete tree via the
- * HF-248 plan_component task. Backward-compatible with all components that
- * succeeded pre-HF-249.
- *
- * Mode B (skeleton + per-chunk): large components emit a skeleton via the
- * HF-250 plan_component_with_chunking task (now SKELETON_ONLY mode), then
- * the orchestrator fires plan_chunk LLM calls in parallel for each $ref
- * and the assembler stitches them.
- *
- * Korean Test compliant: the heuristic uses STRUCTURAL signals only
- * (rateTableCellCount from the skeleton call, complexityHint extension
- * point). No domain vocabulary. Threshold is conservative — borderline
- * components route to Mode B (multiple small calls always succeed; one
- * large call may truncate).
- */
-// HF-251: shouldUseChunking is RETAINED but no longer dispatched on. Under
-// Decision 158 + DS-024, the LLM emits CompositionalIntent (compact —
-// typically 200-1000 bytes) regardless of component complexity. The
-// constructor builds the tree. There is no token-budget reason to chunk.
-// Function preserved for HF-250 backward-compat callers; new code does not
-// reference it. Formal deprecation in HF-255.
-function shouldUseChunking(spec: PerComponentCallArgs['componentSpec']): boolean {
-  if (typeof spec.rateTableCellCount === 'number' && spec.rateTableCellCount > 15) return true;
-  return false;
-}
-// Silence unused-export lint when this function falls out of use post-HF-255.
-void shouldUseChunking;
+// HF-252: shouldUseChunking and the Mode A/B dispatch retired entirely per
+// T0-E03 (Single Pipeline) restoration. Construction pathway (Decision 158)
+// is the sole plan-interpretation route. The function's prior body —
+// `rateTableCellCount > 15 → chunking` — is irrelevant under the construction
+// pathway because the LLM emits a compact CompositionalIntent regardless of
+// component complexity. Formal removal from compilation per AP-17. See HF-255
+// for the prime-assembler.ts file-level deprecation.
 
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
@@ -394,11 +370,9 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
   // code does construction. Mode A/B chunking dispatch from HF-250 is retired
   // (the intent is always small enough for a single LLM call).
   //
-  // Backward-compatibility: if the LLM emits the legacy `calculationIntent`
-  // tree directly (ignoring the HF-251 prompt), the orchestrator falls back
-  // to the HF-249/250 assembler path (assembleTree handles trees without
-  // $refs as a no-op; with $refs the existing chunk machinery still runs).
-  // This makes HF-251 deploy-able without breaking in-flight emissions.
+  // HF-252: legacy fallback removed. A response without compositional_intent
+  // raises MissingCompositionalIntentError → cognition_violation per the
+  // HF-248 error class taxonomy. Single pipeline per T0-E03 / AP-17.
   while (true) {
     attempt += 1;
     const callStart = Date.now();
@@ -424,77 +398,43 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} message=${message}`,
         );
       } else {
-        // HF-251 primary path: detect compositional_intent and construct.
+        // HF-252 single pipeline: construction pathway is the sole route.
+        // Response MUST contain compositional_intent. Absence is a structured
+        // failure (MissingCompositionalIntentError), not a silent downgrade to
+        // a deprecated emission pathway (T0-E03 / AP-17 / Decision 154).
         const compositionalIntentRaw = result.compositional_intent as Record<string, unknown> | undefined;
-        const intentRaw = result.calculationIntent as Record<string, unknown> | undefined;
-        const chunks = (result.chunks ?? {}) as Record<string, unknown>;
         let intent: Record<string, unknown> | undefined;
-        let chunksResolvedCount = 0;
-        let constructionMethod: 'compositional_intent' | 'legacy_tree' | 'legacy_skeleton_chunks' = 'legacy_tree';
+        const constructionMethod = 'compositional_intent' as const;
 
         try {
-          if (compositionalIntentRaw) {
-            // HF-251 Decision 158 pathway: LLM emitted a CompositionalIntent.
-            // Validate structurally inside constructTree; throw ConstructionError
-            // on malformed input (caught below and mapped to error class).
-            const ci = compositionalIntentRaw as unknown as CompositionalIntent;
-            const constructedTree = constructTree(ci);
-            intent = constructedTree as unknown as Record<string, unknown>;
-            constructionMethod = 'compositional_intent';
-            console.log(
-              `[plan-component] constructed component=${spec.id} from compositional_intent ` +
-                `shape=${ci.structure?.shape ?? '(unknown)'}`,
-            );
-          } else if (intentRaw) {
-            // Backward-compat: LLM ignored the HF-251 prompt and emitted the
-            // legacy calculationIntent tree (HF-249/HF-250 shape). Pass
-            // through the assembler — handles direct trees as no-op and
-            // skeleton+chunks via fetchChunksInParallel.
-            const skeletonWithChunks: SkeletonWithChunks = {
-              tree: intentRaw as SkeletonNode,
-              chunks: chunks as Record<string, SkeletonNode>,
-            };
-            const refsBefore = collectReferences(skeletonWithChunks);
-            const missingChunkIds = Array.from(refsBefore.referenced).filter(id => !(id in chunks));
-            if (missingChunkIds.length > 0) {
-              console.log(
-                `[plan-skeleton-only] component=${spec.id} legacy skeleton parsed — ${refsBefore.referenced.size} $refs found`,
-              );
-              const fetched = await fetchChunksInParallel(
-                args,
-                spec,
-                missingChunkIds,
-                refsBefore.referencingPaths,
-              );
-              for (const [id, subtree] of Object.entries(fetched)) {
-                (chunks as Record<string, unknown>)[id] = subtree as unknown;
-              }
-              constructionMethod = 'legacy_skeleton_chunks';
-            }
-            const assembleResult = assembleTree(skeletonWithChunks);
-            intent = assembleResult.tree as Record<string, unknown>;
-            chunksResolvedCount = assembleResult.chunksResolved;
+          if (!compositionalIntentRaw) {
+            throw new MissingCompositionalIntentError(spec.id, spec.name);
           }
+          // Decision 158 pathway: LLM emitted a CompositionalIntent.
+          // Validate structurally inside constructTree; throw ConstructionError
+          // on malformed input (caught below and mapped to error class).
+          const ci = compositionalIntentRaw as unknown as CompositionalIntent;
+          const constructedTree = constructTree(ci);
+          intent = constructedTree as unknown as Record<string, unknown>;
+          console.log(
+            `[plan-component] constructed component=${spec.id} from compositional_intent ` +
+              `shape=${ci.structure?.shape ?? '(unknown)'}`,
+          );
         } catch (constructErr) {
           const errLatency = Date.now() - callStart;
-          if (constructErr instanceof ConstructionError) {
-            // HF-251: constructor rejected the CompositionalIntent.
-            // Output-count mismatch / breaks ordering / unknown shape →
-            // cognition_violation (LLM's structural recognition was wrong).
-            // Exhaustive-emission analog (insufficient outputs for declared
-            // dimensions) → cognition_truncation.
+          if (constructErr instanceof MissingCompositionalIntentError) {
+            // Structured failure: response lacked compositional_intent.
+            // Map to cognition_failure per HF-248 taxonomy so retry policy
+            // governs whether the prompt is re-attempted with refinement.
+            lastErrClass = 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof ConstructionError) {
+            // Constructor rejected the CompositionalIntent.
+            // Output-count mismatch → cognition_truncation. Unknown shape /
+            // breaks-ordering / structural malformation → cognition_violation.
             lastErrClass = constructErr.message.includes('output count')
               ? 'cognition_truncation'
               : 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof AssemblerUnresolvedReferenceError) {
-            lastErrClass = 'cognition_truncation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof AssemblerCyclicReferenceError) {
-            lastErrClass = 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof AssemblerOrphanChunkError) {
-            lastErrClass = 'cognition_violation';
             lastErrMessage = constructErr.message;
           } else {
             lastErrClass = 'unknown';
@@ -537,8 +477,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         if (validation.valid) {
           console.log(
             `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
-              `latencyMs=${latency} method=${constructionMethod}` +
-              `${chunksResolvedCount > 0 ? ` chunksResolved=${chunksResolvedCount}` : ''}`,
+              `latencyMs=${latency} method=${constructionMethod}`,
           );
           // HF-251: persist the CompositionalIntent in component metadata
           // when present, so the signal surface (Decision 153) carries the
@@ -617,90 +556,11 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
   }
 }
 
-/**
- * HF-249 multi-call fallback — fetch missing chunks in parallel via
- * interpretPlanChunk. Each chunk gets one LLM call; total latency is bounded
- * by the slowest chunk (Promise.all), not the sum. Per T1-E947 chunks are
- * independent of each other so parallel emission is scope-correct.
- *
- * Returns a map of chunkId → emitted sub-tree. A chunk that itself fails
- * (parseError / fallback / API throw) is OMITTED from the map; the caller's
- * subsequent assemble step will raise AssemblerUnresolvedReferenceError for
- * the still-missing chunkIds and the orchestrator's existing error-class
- * path takes over.
- */
-async function fetchChunksInParallel(
-  args: PerComponentCallArgs,
-  spec: PerComponentCallArgs['componentSpec'],
-  missingChunkIds: string[],
-  referencingPaths: Map<string, string>,
-): Promise<Record<string, unknown>> {
-  const aiService = getAIService();
-  const settled = await Promise.allSettled(
-    missingChunkIds.map(async chunkId => {
-      const chunkStart = Date.now();
-      const skeletonPath = referencingPaths.get(chunkId) ?? '$';
-      try {
-        const resp = await aiService.interpretPlanChunk(
-          args.documentContent,
-          args.format,
-          {
-            chunkId,
-            parentComponentName: spec.name,
-            parentBriefSemantic: spec.briefSemantic,
-            skeletonPath,
-          },
-          args.signalContext,
-          args.pdfBase64,
-          args.pdfMediaType,
-        );
-        const r = (resp.result ?? {}) as Record<string, unknown>;
-        const chunkLatency = Date.now() - chunkStart;
-        if (r.parseError || r.error || r.fallback) {
-          const message = String(r.error || (r.parseError ? 'JSON parse failed' : 'Fallback returned'));
-          console.log(
-            `[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} ` +
-              `latencyMs=${chunkLatency} message=${message}`,
-          );
-          return null;
-        }
-        const subtree = r.subtree;
-        if (!subtree || typeof subtree !== 'object') {
-          console.log(`[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} reason=missing-subtree`);
-          return null;
-        }
-        // Merge any nested sub-chunks the chunk itself declared, then return
-        // the subtree as the chunk's value. The orchestrator's assembler
-        // resolves nested $refs recursively from the merged chunks map.
-        const subChunks = (r.chunks ?? {}) as Record<string, unknown>;
-        console.log(
-          `[plan-chunk] SUCCESS chunkId=${chunkId} parent=${spec.id} latencyMs=${chunkLatency}` +
-            `${Object.keys(subChunks).length > 0 ? ` subChunks=${Object.keys(subChunks).length}` : ''}`,
-        );
-        return { chunkId, subtree, subChunks };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.log(
-          `[plan-chunk] FAILED chunkId=${chunkId} parent=${spec.id} ` +
-            `latencyMs=${Date.now() - chunkStart} message=${message}`,
-        );
-        return null;
-      }
-    }),
-  );
-  const merged: Record<string, unknown> = {};
-  for (const s of settled) {
-    if (s.status !== 'fulfilled' || s.value === null) continue;
-    const { chunkId, subtree, subChunks } = s.value as {
-      chunkId: string;
-      subtree: unknown;
-      subChunks: Record<string, unknown>;
-    };
-    merged[chunkId] = subtree;
-    for (const [sId, sValue] of Object.entries(subChunks)) merged[sId] = sValue;
-  }
-  return merged;
-}
+// HF-252: fetchChunksInParallel removed. The plan_chunk multi-call path
+// (HF-249/250) is retired from orchestration per T0-E03 single-pipeline
+// restoration. The construction pathway emits a compact CompositionalIntent
+// in one call; no chunking is needed. The `interpretPlanChunk` ai-service
+// method is preserved (DD-7: no smuggled expansion); formal removal in HF-255.
 
 function emptyOrchestrationResult(
   args: { ruleSetName: string; reasoning: string; skeletonError: string },

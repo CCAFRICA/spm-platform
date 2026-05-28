@@ -210,6 +210,25 @@ export class ConstructionError extends Error {
   }
 }
 
+/**
+ * HF-252: structured failure when an LLM plan_component response lacks
+ * compositional_intent. Per Decision 154 + T0-E03: the construction pathway
+ * is the sole plan-interpretation pathway; there is no fallback to the
+ * deprecated emission pathway. Missing compositional_intent is a typed
+ * failure raised to the caller, mapped to cognition_failure for retry
+ * via the HF-248 error class taxonomy. NEVER silent downgrade.
+ */
+export class MissingCompositionalIntentError extends Error {
+  constructor(public readonly componentId: string, public readonly componentName: string) {
+    super(
+      `[plan-component] Response for component "${componentName}" (id="${componentId}") lacked ` +
+      `compositional_intent. Construction pathway (Decision 158) is the sole plan-interpretation ` +
+      `pathway. No fallback. Classify as cognition_failure and retry per error class taxonomy.`,
+    );
+    this.name = 'MissingCompositionalIntentError';
+  }
+}
+
 // ─────────────────────────────────────────────
 // Re-exports for downstream callers
 // ─────────────────────────────────────────────
