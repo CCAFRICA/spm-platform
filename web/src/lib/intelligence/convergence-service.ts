@@ -2514,17 +2514,10 @@ async function generateAllComponentBindings(
 
   if (measureColumns.length === 0 || !primaryCap) return;
 
-  // Collect all input requirements across all matched components
-  const allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }> = [];
-  for (const match of matches) {
-    const reqs = extractInputRequirements(match.component);
-    for (const req of reqs) {
-      allRequirements.push({ compIndex: match.component.index, compName: match.component.name, req });
-    }
-  }
-
-  // HF-112 / HF-199 D2: AI-assisted column mapping (ONE call) with metric_comprehension
+  // HF-112 / HF-199 D2: AI-assisted column mapping with metric_comprehension
   // signals as authoritative semantic intent.
+  // HF-253: the mapping call is now made ONCE PER VARIANT GROUP (see the variant
+  // grouping below), not once globally. Requirements are collected per group.
   //
   // HF-234 — categorical-field aggregation REMOVED from this call site.
   // Categorical-subset filter discovery has moved to Pass 4
@@ -2562,31 +2555,60 @@ async function generateAllComponentBindings(
     }
   }
 
-  console.log('[Convergence] HF-112 Requesting AI column mapping');
-  const aiMapping = await resolveColumnMappingsViaAI(
-    components,
-    allRequirements,
-    measureColumns,
-    metricComprehension,
-  );
-  console.log(`[Convergence] HF-112 AI proposed ${Object.keys(aiMapping).length} mappings`);
-
-  // Build bindings using AI mapping + boundary validation
-  // HF-243: boundColumns scoped by (column → metricField). Pre-HF-243 this was a
-  // bare Set<string> of columns, which blocked variant duplicates: components 0-3
-  // (Senior variant) bound columns A/B/C/D for fields f1/f2/f3/f4, then components
-  // 4-7 (Executive variant) requesting the SAME fields f1/f2/f3/f4 found A/B/C/D
-  // already excluded and got no bindings. The exclusion is now keyed on
-  // (column, field): a column can be re-used by a later component if it's binding
-  // to the SAME field, but is still excluded if a different field tries to claim
-  // it. This preserves the original guard (no two distinct fields share a column)
-  // while allowing legitimate variant rebinding.
-  const boundColumnToField = new Map<string, string>();
-
+  // HF-253: group matches by structural variantId before binding. The engine's
+  // variant router (HF-119) evaluates exactly ONE variant per entity, so columns
+  // are never contended ACROSS variants at calculation time. Binding each variant
+  // in its own scope — its own AI mapping call and its own one-column-once exclusion
+  // map — removes the spurious cross-variant contention that forced a variant's
+  // ratio operand off the correct column (Cause A). A plan with no variants yields a
+  // single group keyed `undefined`, which preserves byte-identical pre-HF behavior
+  // (one AI call, one exclusion map, same component order). variantId is the persisted
+  // structural key — never field-name or value content (Korean Test).
+  const variantGroups = new Map<string | undefined, BindingMatch[]>();
   for (const match of matches) {
-    const comp = match.component;
-    const cap = capabilities.find(c => c.dataType === match.dataType);
-    if (!cap) continue;
+    const key = match.component.variantId;
+    if (!variantGroups.has(key)) variantGroups.set(key, []);
+    variantGroups.get(key)!.push(match);
+  }
+  console.log(`[Convergence] HF-253 binding ${variantGroups.size} variant group(s): ${Array.from(variantGroups.keys()).map(k => k ?? '(non-variant)').join(', ')}`);
+
+  for (const [variantId, groupMatches] of Array.from(variantGroups.entries())) {
+    const variantLabel = variantId ?? '(non-variant)';
+
+    // Collect input requirements for THIS variant group only.
+    const allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }> = [];
+    for (const match of groupMatches) {
+      const reqs = extractInputRequirements(match.component);
+      for (const req of reqs) {
+        allRequirements.push({ compIndex: match.component.index, compName: match.component.name, req });
+      }
+    }
+
+    // Per-group component list (used for semantic-intent matching in the AI call).
+    const groupComponents = groupMatches.map(m => m.component);
+
+    console.log(`[Convergence] HF-253 Requesting AI column mapping for variant group ${variantLabel}`);
+    const aiMapping = await resolveColumnMappingsViaAI(
+      groupComponents,
+      allRequirements,
+      measureColumns,
+      metricComprehension,
+    );
+    console.log(`[Convergence] HF-253 AI proposed ${Object.keys(aiMapping).length} mappings for variant group ${variantLabel}`);
+
+    // Build bindings using AI mapping + boundary validation.
+    // HF-253: the exclusion map is reset PER VARIANT GROUP. This closes the
+    // cross-variant contention at BOTH consumer sites — the AI-mapping path and the
+    // boundary-fallback `candidates` filter (DD-2). Within a single variant group the
+    // (column → metricField) one-column-once guard is preserved unchanged (HF-243
+    // semantics): a column may be reused by a later component binding to the SAME
+    // field, but a different field cannot claim an already-bound column.
+    const boundColumnToField = new Map<string, string>();
+
+    for (const match of groupMatches) {
+      const comp = match.component;
+      const cap = capabilities.find(c => c.dataType === match.dataType);
+      if (!cap) continue;
 
     const compKey = `component_${comp.index}`;
     if (!bindings[compKey]) bindings[compKey] = {};
@@ -2806,7 +2828,8 @@ async function generateAllComponentBindings(
         },
       };
     }
-  }
+    } // end for (match of groupMatches)
+  } // HF-253 end for (variant group)
 
   // Log complete binding map
   for (const [compKey, cb] of Object.entries(bindings)) {
