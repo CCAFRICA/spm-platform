@@ -203,7 +203,9 @@ build exit code is 0.
 - **D.2 (cache clear + build):** `rm -rf .next` → `npm run build` (exit 0) → `npm run dev`
   → localhost:3000 responds. Run at Phase 3.3.4 (code-bearing phase); docs-only Phases
   1/2 carried no code change.
-- **D.3 (PR):** `gh pr create --base main --head dev` — PR URL in KNOWN ISSUES / below.
+- **D.3 (PR):** `gh pr create --base main --head dev` — **PR #441**:
+  https://github.com/CCAFRICA/spm-platform/pull/441 (NOT merged — architect merges after
+  review + live EPG-2/EPG-3).
 - **D.4 (ASCII commits):** all commit messages ASCII.
 - **Section B (ADR before code):** ADR committed (`ad286d32`) before any implementation.
 - **AP-25 / Korean Test:** EPG-4 PASS; prebuild korean-test-gate PASS.
