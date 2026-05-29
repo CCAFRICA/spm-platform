@@ -33,6 +33,11 @@ interface PlanComponent {
   calculationRate?: number;
   // HF-111: Carry raw calculationIntent for boundary extraction
   calculationIntent?: Record<string, unknown>;
+  // HF-253: structural variant grouping carried from components.variants[].variantId.
+  // Undefined for direct-array (non-variant) plans — those take a single implicit
+  // binding group, preserving byte-identical pre-HF behavior. Never derived from
+  // field-name or value content (Korean Test): it is the persisted structural key.
+  variantId?: string;
 }
 
 // OB-191: Enriched metric context for Pass 4 AI prompt
@@ -758,6 +763,8 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
   // Format 1: { variants: [{ variantId: "...", components: [...] }] }
   // Format 2: Direct array of components [{ name: "...", ... }]
   let comps: Array<Record<string, unknown>> = [];
+  // HF-253: variantId aligned by index with `comps`. undefined for non-variant plans.
+  const compVariantIds: Array<string | undefined> = [];
 
   if (Array.isArray(componentsJson)) {
     // Direct array of components
@@ -775,9 +782,20 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
       // for component_4..7 because those components were never extracted.
       // Order is variant 0 components first, then variant 1, etc., matching the
       // engine's flat indexing.
+      // HF-253: capture each variant's structural identifier (variantId) and align
+      // it by index with the flattened component pushed from that variant. Verified
+      // against the persisted shape (DIAG-051: variants[].variantId present, e.g.
+      // "ejecutivo-senior", "ejecutivo"). AP-13: no assumption — fall through to
+      // undefined if the key is absent (HALT-1 territory, surfaced by EPG-1).
       for (const v of variants) {
+        const variantId = typeof v.variantId === 'string' ? v.variantId : undefined;
         const vc = v.components as Array<Record<string, unknown>> | undefined;
-        if (Array.isArray(vc)) comps.push(...vc);
+        if (Array.isArray(vc)) {
+          for (const c of vc) {
+            comps.push(c);
+            compVariantIds.push(variantId);
+          }
+        }
       }
     }
   }
@@ -877,6 +895,8 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
       calculationRate: rate,
       // HF-111: Carry raw calculationIntent for boundary extraction
       calculationIntent: intent || undefined,
+      // HF-253: structural variant grouping (undefined for non-variant plans).
+      variantId: compVariantIds[i],
     });
   }
 
