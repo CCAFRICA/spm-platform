@@ -2280,10 +2280,19 @@ async function resolveColumnMappingsViaAI(
     return `${i + 1}. "${f}"`;
   }).join('\n');
 
-  // Build column list with contextual identities
-  const columnList = measureColumns.map((c, i) =>
-    `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})`
-  ).join('\n');
+  // Build column list with contextual identities.
+  // HF-253 (Cause B): surface the per-column value distribution (min/max/mean) that is
+  // already carried on `c.stats` (ColumnValueStats) but was previously discarded when
+  // building the prompt. The magnitude of a column is a structural discriminator: a
+  // computed ratio/achievement column (e.g. ~0-1.3) and a currency-magnitude operand
+  // (e.g. ~10^5) read identically by prose label but differ by orders of magnitude in
+  // their values. Korean Test: numeric min/max/mean only — no field-name or
+  // language-specific content is introduced.
+  const columnList = measureColumns.map((c, i) => {
+    const s = c.stats;
+    const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
+    return `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})${range}`;
+  }).join('\n');
 
   // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
   // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
@@ -2296,6 +2305,11 @@ async function resolveColumnMappingsViaAI(
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
 Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
 satisfy the stated intent over columns that merely share contextual labels.
+When a metric field participates in a ratio (a numerator or denominator), use the
+value ranges shown in brackets as a consistency signal: prefer a column whose
+magnitude is consistent with the role the field plays, rather than a column that
+merely resembles the field by label. A value range bounded near 0-1 typically
+indicates an already-computed proportion, not a raw operand.
 
 METRIC FIELDS:
 ${metricList}
