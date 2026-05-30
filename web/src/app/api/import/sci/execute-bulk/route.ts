@@ -94,7 +94,11 @@ interface BulkContentUnit {
 interface BulkRequest {
   proposalId: string;
   tenantId: string;
-  storagePath: string;
+  storagePath?: string;  // HF-256: back-compat single-file path; superseded by storagePaths
+  // HF-256 (Decision 82 multi-file): per-file storage map (fileName -> path). Every file
+  // in the import is downloaded and processed by its own format. When absent, the import
+  // degrades to the single-file `storagePath` (byte-identical pre-HF behavior).
+  storagePaths?: Record<string, string>;
   contentUnits: BulkContentUnit[];
 }
 
@@ -115,11 +119,13 @@ export async function POST(req: NextRequest) {
     );
 
     const body: BulkRequest = await req.json();
-    const { proposalId, tenantId, storagePath, contentUnits } = body;
+    const { proposalId, tenantId, storagePath, storagePaths, contentUnits } = body;
 
-    if (!tenantId || !proposalId || !storagePath || !contentUnits?.length) {
+    // HF-256: accept either the per-file map (storagePaths) or the single path (storagePath).
+    const haveAnyPath = (storagePaths && Object.keys(storagePaths).length > 0) || !!storagePath;
+    if (!tenantId || !proposalId || !haveAnyPath || !contentUnits?.length) {
       return NextResponse.json(
-        { error: 'tenantId, proposalId, storagePath, and contentUnits required' },
+        { error: 'tenantId, proposalId, (storagePath or storagePaths), and contentUnits required' },
         { status: 400 }
       );
     }
@@ -140,71 +146,80 @@ export async function POST(req: NextRequest) {
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
 
-    // ── Step 1: Download file from Supabase Storage ──
-    console.log(`[SCI Bulk] Downloading from Storage: ${storagePath}`);
-    const { data: fileData, error: downloadErr } = await supabase.storage
-      .from('ingestion-raw')
-      .download(storagePath);
+    // ── Step 1+2 (HF-256, Decision 82 multi-file): per-file download + format-aware parse ──
+    // Every file in the import is downloaded and parsed by its OWN format. The per-file
+    // map (storagePaths) supersedes the single storagePath; when only the single path is
+    // present, the import degrades to exactly one file — byte-identical to the pre-HF path.
+    type FileParse = {
+      fileName: string;
+      path: string;
+      fileHash: string;
+      fileNameFromPath: string;
+      sheetDataMap: Map<string, { rows: Record<string, unknown>[]; columns: string[] }>;
+    };
 
-    if (downloadErr || !fileData) {
-      return NextResponse.json(
-        { error: `Failed to download file from Storage: ${downloadErr?.message || 'No data'}` },
-        { status: 500 }
-      );
-    }
+    const fileEntries: Array<{ fileName: string; path: string }> =
+      storagePaths && Object.keys(storagePaths).length > 0
+        ? Object.entries(storagePaths).map(([fileName, path]) => ({ fileName, path }))
+        : [{ fileName: (storagePath!.split('/').pop()?.replace(/^\d+_/, '') || 'unknown'), path: storagePath! }];
 
-    const downloadMs = Date.now() - startTime;
-    console.log(`[SCI Bulk] Downloaded ${(fileData.size / 1024 / 1024).toFixed(1)}MB in ${downloadMs}ms`);
-
-    // ── Step 2: Parse file server-side ──
-    const parseStart = Date.now();
-    const buffer = await fileData.arrayBuffer();
-    // HF-196 Phase 1F: compute SHA-256 of file content bytes ONCE; thread to all
-    // process functions for import_batches.file_hash_sha256 + supersession trigger.
-    const fileHashSha256 = computeFileHashSha256(buffer);
-
-    // Build sheet data map: sheetName → rows
-    const sheetDataMap = new Map<string, {
-      rows: Record<string, unknown>[];
-      columns: string[];
-    }>();
-
-    // HF-256 (Decision 82): format-aware parse. Documents (PDF/PPTX/DOCX) are PLAN
-    // sources — they are NOT workbook-parsed here. Their plan unit routes to the
-    // format-aware plan pipeline (executeBatchedPlanInterpretation below), which
-    // downloads and self-extracts by format and emits comprehension signals.
-    // Workbook-parsing a document would throw "Could not find workbook" before the plan
-    // arm is reached (the regressed crash). Spreadsheets parse exactly as before — for a
-    // single XLSX file the sheetDataMap is byte-identical to the pre-HF path.
-    if (isSpreadsheetPath(storagePath)) {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      for (const sheetName of workbook.SheetNames) {
-        const ws = workbook.Sheets[sheetName];
-        if (!ws) continue;
-
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-        const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-
-        sheetDataMap.set(sheetName, { rows: jsonData, columns });
+    const fileParseByName = new Map<string, FileParse>();
+    for (const { fileName, path } of fileEntries) {
+      const parseStart = Date.now();
+      console.log(`[SCI Bulk] Downloading from Storage: ${path}`);
+      const { data: fileData, error: downloadErr } = await supabase.storage
+        .from('ingestion-raw')
+        .download(path);
+      if (downloadErr || !fileData) {
+        return NextResponse.json(
+          { error: `Failed to download file from Storage: ${downloadErr?.message || 'No data'} (${path})` },
+          { status: 500 }
+        );
       }
-    } else {
-      console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(storagePath)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
-    }
+      const buffer = await fileData.arrayBuffer();
+      // HF-196 Phase 1F: SHA-256 of file content bytes for import_batches.file_hash_sha256
+      // + supersession trigger — computed per file.
+      const fileHash = computeFileHashSha256(buffer);
 
-    const parseMs = Date.now() - parseStart;
-    const totalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
-    console.log(`[SCI Bulk] Parsed ${totalRows} rows across ${sheetDataMap.size} sheets in ${parseMs}ms`);
-
-    // HF-141: Diagnostic — log unique source_dates found in this file
-    const uniqueDates = new Set<string>();
-    for (const [, sheet] of Array.from(sheetDataMap.entries())) {
-      for (const row of sheet.rows.slice(0, 10)) {
-        const periodo = row['Periodo'] ?? row['periodo'] ?? row['PERIODO'];
-        if (periodo) uniqueDates.add(String(periodo).substring(0, 10));
+      const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[] }>();
+      // HF-256: format-aware parse (file-format.ts). Documents (PDF/PPTX/DOCX) are PLAN
+      // sources — NOT workbook-parsed; their plan unit routes to the format-aware plan
+      // pipeline below. Workbook-parsing a document would throw "Could not find workbook".
+      // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
+      if (isSpreadsheetPath(path)) {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        for (const sheetName of workbook.SheetNames) {
+          const ws = workbook.Sheets[sheetName];
+          if (!ws) continue;
+          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+          const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+          sheetDataMap.set(sheetName, { rows: jsonData, columns });
+        }
+      } else {
+        console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
       }
+      const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+      console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+      fileParseByName.set(fileName, {
+        fileName,
+        path,
+        fileHash,
+        fileNameFromPath: path.split('/').pop()?.replace(/^\d+_/, '') || fileName,
+        sheetDataMap,
+      });
     }
-    console.log(`[HF-141] File: ${storagePath}, rows: ${totalRows}, source_dates: [${Array.from(uniqueDates).join(', ')}]`);
+
+    // Resolve which file's parse a content unit belongs to. A single-file import (one
+    // parse) ALWAYS resolves to that one parse — byte-identical to the pre-HF path.
+    const allParses = Array.from(fileParseByName.values());
+    const resolveParse = (unit: BulkContentUnit): FileParse => {
+      if (fileParseByName.size === 1) return allParses[0];
+      const bySource = unit.sourceFile ? fileParseByName.get(unit.sourceFile) : undefined;
+      if (bySource) return bySource;
+      const src = unit.contentUnitId.split('::')[0];
+      return fileParseByName.get(src) ?? allParses[0];
+    };
 
     // ── Step 3: Sort content units by processing order ──
     const sortedUnits = [...contentUnits].sort(
@@ -213,8 +228,6 @@ export async function POST(req: NextRequest) {
 
     // ── Step 4: Process each content unit ──
     const results: ContentUnitResult[] = [];
-    // Extract fileName from storagePath for data_type resolution
-    const fileNameFromPath = storagePath.split('/').pop()?.replace(/^\d+_/, '') || 'unknown';
 
     // HF-239: Batched plan interpretation. Plan-classified units from the
     // same file are interpreted in ONE AI call (HF-130 pattern lifted from
@@ -223,26 +236,40 @@ export async function POST(req: NextRequest) {
     const planUnits = sortedUnits.filter(u => u.confirmedClassification === 'plan');
     const handledPlanUnitIds = new Set<string>();
     if (planUnits.length > 0) {
-      try {
-        const batchResults = await executeBatchedPlanInterpretation(
-          supabase,
-          tenantId,
-          planUnits as unknown as ContentUnitExecution[],
-          profileId,
-          storagePath,
-        );
-        for (const r of batchResults) {
-          results.push(r);
-          handledPlanUnitIds.add(r.contentUnitId);
+      // HF-256: group plan units by their source file; each plan file is interpreted with
+      // its OWN storage path, producing its own rule set (the proven multi-plan shape).
+      // For a single plan file this is one group with one path — identical to pre-HF.
+      const planByPath = new Map<string, BulkContentUnit[]>();
+      for (const pu of planUnits) {
+        const planPath = resolveParse(pu).path;
+        if (!planByPath.has(planPath)) planByPath.set(planPath, []);
+        planByPath.get(planPath)!.push(pu);
+      }
+      for (const [planPath, group] of Array.from(planByPath.entries())) {
+        try {
+          const batchResults = await executeBatchedPlanInterpretation(
+            supabase,
+            tenantId,
+            group as unknown as ContentUnitExecution[],
+            profileId,
+            planPath,
+          );
+          for (const r of batchResults) {
+            results.push(r);
+            handledPlanUnitIds.add(r.contentUnitId);
+          }
+        } catch (err) {
+          console.error(`[SCI Bulk] Batched plan interpretation failed for ${planPath}, falling back to per-unit:`, err);
         }
-      } catch (err) {
-        console.error('[SCI Bulk] Batched plan interpretation failed, falling back to per-unit:', err);
       }
     }
 
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
       try {
+        // HF-256: resolve this unit's source file's parse (single-file => the one parse).
+        const parse = resolveParse(unit);
+        const sheetDataMap = parse.sheetDataMap;
         // Resolve sheet data for this content unit
         const parts = unit.contentUnitId.split('::');
         const tabName = parts[1] || 'Sheet1';
@@ -284,8 +311,8 @@ export async function POST(req: NextRequest) {
 
         const result = await processContentUnit(
           supabase, tenantId, proposalId, profileId,
-          effectiveUnit.unit, effectiveUnit.rows, fileNameFromPath, tabName,
-          fileHashSha256, storagePath,
+          effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
+          parse.fileHash, parse.path,
         );
         results.push(result);
       } catch (err) {
@@ -318,6 +345,7 @@ export async function POST(req: NextRequest) {
     // blocks import.
     const rowsByContentUnitId = new Map<string, Record<string, unknown>[]>();
     for (const unit of sortedUnits) {
+      const sheetDataMap = resolveParse(unit).sheetDataMap;  // HF-256: per-file sheet map
       const parts = unit.contentUnitId.split('::');
       const tabName = parts[1] || 'Sheet1';
       let sheetData = sheetDataMap.get(tabName);

@@ -329,10 +329,12 @@ export function SCIExecution({
       }).filter(Boolean);
 
       try {
-        // HF-239: plan batching now flows through execute-bulk's new
-        // `case 'plan'` dispatcher arm (batched interpretation in the POST
-        // handler tail). storagePath is required.
-        if (!storagePath) {
+        // HF-239: plan batching flows through execute-bulk's `case 'plan'` arm.
+        // HF-256: send the per-file storage map so the server groups plan units by their
+        // source file — each plan file is interpreted with its own path and produces its
+        // own rule set (multi-plan-file). storagePath is retained for single-file back-compat.
+        const haveAnyPath = !!storagePath || !!(storagePaths && Object.keys(storagePaths).length > 0);
+        if (!haveAnyPath) {
           throw new Error('storagePath required: HF-239 unified import requires Storage transport for plan units');
         }
         const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
@@ -342,6 +344,7 @@ export function SCIExecution({
             proposalId: proposal.proposalId,
             tenantId,
             storagePath,
+            storagePaths,
             contentUnits: planExecUnits,
           }),
         });
