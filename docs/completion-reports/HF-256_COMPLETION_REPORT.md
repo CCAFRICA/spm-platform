@@ -125,7 +125,7 @@ $ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 - **Vertical Slice:** import → classify → execute → signals (comprehension emitter, EPG-1) →
   calculate (EPG-8) — one PR.
 - **Decision-82 scope line honored:** NO document-as-data extraction added; documents are plan units only.
-- **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next`→build(0)→dev→307; PR opened (URL below), NOT merged. ASCII commits.
+- **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next`→build(0)→dev→307; PR **#444** (https://github.com/CCAFRICA/spm-platform/pull/444), NOT merged — architect merges after live EPGs. ASCII commits.
 
 ## KNOWN ISSUES
 1. **EPG-1/2/3/4/5/8 are architect-gated (live).** They require clean-slate imports of the
