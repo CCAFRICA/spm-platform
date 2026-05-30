@@ -99,17 +99,26 @@ export default function OperateImportPage() {
         rawDataRef.current = files[0].parsedData;
       }
 
-      // HF-141: Upload ALL spreadsheet files to Supabase Storage in parallel.
+      // HF-255: DECOUPLE the Storage-upload set from the async-process set.
+      // - uploadableFiles = every file carrying raw bytes (XLSX, CSV/TSV, AND
+      //   PDF/PPTX/DOCX documents). ALL formats upload to ingestion-raw so a
+      //   document-format plan obtains a storagePath (restores OB-133 any-format
+      //   import regressed by HF-239). Format-agnostic: keys on `rawFile`
+      //   presence only, no extension/format literal (Korean Test).
+      // - spreadsheetFiles (non-document) continues to gate the spreadsheet-only
+      //   async processing-jobs / XLSX-worker path below — unchanged.
+      const uploadableFiles = files.filter(f => f.rawFile);
+      const spreadsheetFiles = files.filter(f => f.rawFile && !f.parsedData.documentBase64);
+      // HF-141: Upload ALL uploadable files to Supabase Storage in parallel.
       // Each file gets its own storage path with a unique suffix (index + random)
       // to prevent any collision or ambiguity. Keyed by filename for lookup.
-      const spreadsheetFiles = files.filter(f => f.rawFile && !f.parsedData.documentBase64);
-      if (spreadsheetFiles.length > 0) {
+      if (uploadableFiles.length > 0) {
         storageUploadPromiseRef.current = (async () => {
           try {
             const supabase = createClient();
             const paths: Record<string, string> = {};
             const baseTimestamp = Date.now();
-            await Promise.all(spreadsheetFiles.map(async (file, index) => {
+            await Promise.all(uploadableFiles.map(async (file, index) => {
               // HF-141: Unique path per file — timestamp + index + random suffix
               const uniqueSuffix = `${baseTimestamp}_${index}_${crypto.randomUUID().substring(0, 8)}`;
               const sanitized = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -125,7 +134,7 @@ export default function OperateImportPage() {
               }
             }));
             storagePathsRef.current = paths;
-            console.log(`[HF-141] Upload complete: ${Object.keys(paths).length}/${spreadsheetFiles.length} files`);
+            console.log(`[HF-141] Upload complete: ${Object.keys(paths).length}/${uploadableFiles.length} files`);
           } catch (err) {
             console.error('[HF-141] Storage upload error:', err);
           }
@@ -145,8 +154,11 @@ export default function OperateImportPage() {
           }
           const storagePaths = storagePathsRef.current;
 
-          // Check if all files were uploaded
-          if (Object.keys(storagePaths).length === spreadsheetFiles.length) {
+          // Check that every spreadsheet file was uploaded. HF-255: storagePaths may now
+          // also contain document paths (the upload set was decoupled from this async
+          // set), so check per-file presence rather than total-count equality. For a
+          // non-document (pure-spreadsheet) import this is identical to the prior check.
+          if (spreadsheetFiles.every(f => storagePaths[f.name])) {
             const supabase = createClient();
             const sessionId = crypto.randomUUID();
             const jobIds: string[] = [];
