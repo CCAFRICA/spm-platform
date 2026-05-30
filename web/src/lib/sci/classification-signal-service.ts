@@ -5,7 +5,7 @@
 // Zero domain vocabulary. AP-31: presence-based only.
 
 import { createClient } from '@supabase/supabase-js';
-import type { ContentProfile } from './sci-types';
+import type { ContentProfile, VocabularyBindingValue, ColumnRole } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
 import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
@@ -91,7 +91,8 @@ export interface ClassificationSignalPayload {
   confidence: number;
   decisionSource: string;
   classificationTrace: ClassificationTrace;
-  vocabularyBindings: Record<string, string> | null;
+  // HF-254 Fix 3a: role-bearing ({semanticMeaning, columnRole, confidence}) or legacy string.
+  vocabularyBindings: Record<string, VocabularyBindingValue> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
   calculationRunId?: string;
@@ -533,12 +534,22 @@ export async function aggregateToDomain(
 // VOCABULARY BINDING RECALL — Queries DEDICATED COLUMN (HF-092)
 // ============================================================
 
+// HF-254 Fix 3a: recalled binding carries the full interpretation when the persisted
+// row is role-bearing. A legacy string-shaped row yields columnRole=null (NO fabrication
+// — a recalled meaning string cannot manufacture a role), so the lexical prior (Phase 6)
+// contributes nothing for it.
+export interface RecalledVocabularyBinding {
+  semanticMeaning: string;
+  columnRole: ColumnRole | null;
+  confidence: number | null;
+}
+
 export async function recallVocabularyBindings(
   tenantId: string,
   columnHeaders: string[],
   supabaseUrl: string,
   supabaseServiceKey: string,
-): Promise<Map<string, string>> {
+): Promise<Map<string, RecalledVocabularyBinding>> {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -554,14 +565,22 @@ export async function recallVocabularyBindings(
       return new Map();
     }
 
-    // Merge bindings from recent signals, most recent takes precedence
-    const bindings = new Map<string, string>();
+    // Merge bindings from recent signals, most recent takes precedence.
+    const bindings = new Map<string, RecalledVocabularyBinding>();
     for (const row of data.reverse()) {
-      const vb = row.vocabulary_bindings as Record<string, string> | null;
+      const vb = row.vocabulary_bindings as Record<string, VocabularyBindingValue> | null;
       if (vb && typeof vb === 'object') {
-        for (const [header, meaning] of Object.entries(vb)) {
-          if (columnHeaders.includes(header)) {
-            bindings.set(header, meaning);
+        for (const [header, value] of Object.entries(vb)) {
+          if (!columnHeaders.includes(header)) continue;
+          if (typeof value === 'string') {
+            // Legacy meaning-only row — role-less, contributes nothing to the role prior.
+            bindings.set(header, { semanticMeaning: value, columnRole: null, confidence: null });
+          } else if (value && typeof value === 'object') {
+            bindings.set(header, {
+              semanticMeaning: value.semanticMeaning ?? 'unknown',
+              columnRole: value.columnRole ?? null,
+              confidence: typeof value.confidence === 'number' ? value.confidence : null,
+            });
           }
         }
       }
@@ -572,4 +591,63 @@ export async function recallVocabularyBindings(
     console.error('[SCI Signal] Vocabulary recall exception:', err);
     return new Map();
   }
+}
+
+// ============================================================
+// HF-254 Fix 3b: LEXICAL CLASSIFICATION PRIOR (additive, non-gating)
+// ============================================================
+//
+// Sibling of lookupPriorSignals (structural fingerprint prior). Recalls role-bearing
+// vocabulary_bindings for the sheet's columns and derives a classification from the
+// recalled columnRole DISTRIBUTION — NOT by matching column-name strings (Korean Test).
+// Returns PriorSignal[] in the SAME shape lookupPriorSignals returns, so it flows through
+// the identical additive contribution path (resolver extractClassificationSignals ->
+// sourceType 'prior_signal' -> Bayesian posterior). By construction it is additive only:
+// it produces a prior signal and nothing else — it never early-returns a decision, never
+// skips the LLM, never narrows persistence, and never caps competing agents.
+//
+// A legacy string-shaped (role-less) recalled binding contributes nothing (columnRole is
+// null — a recalled meaning cannot manufacture a role; AP-7 / no fabrication). The
+// contributed confidence is the mean of the recalled bindings' own (LLM-emitted)
+// confidences — never a constant.
+export async function lookupLexicalPrior(
+  tenantId: string,
+  columnHeaders: string[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<PriorSignal[]> {
+  const recalled = await recallVocabularyBindings(tenantId, columnHeaders, supabaseUrl, supabaseServiceKey);
+  if (recalled.size === 0) return [];
+
+  let measure = 0, temporal = 0, identifier = 0, name = 0;
+  const confidences: number[] = [];
+  for (const b of Array.from(recalled.values())) {
+    if (!b.columnRole) continue; // legacy/role-less binding contributes nothing
+    if (typeof b.confidence === 'number') confidences.push(b.confidence);
+    switch (b.columnRole) {
+      case 'measure': measure++; break;
+      case 'temporal': temporal++; break;
+      case 'identifier': identifier++; break;
+      case 'name': name++; break;
+      default: break;
+    }
+  }
+  if (confidences.length === 0) return [];
+
+  // Role-distribution → classification (structural, language-agnostic).
+  // measure + temporal ⇒ transaction; identifier + name with no measure ⇒ entity.
+  // Any other distribution contributes no lexical prior (let structural arms decide).
+  let classification: string | null = null;
+  if (measure > 0 && temporal > 0) classification = 'transaction';
+  else if (identifier > 0 && name > 0 && measure === 0) classification = 'entity';
+  if (!classification) return [];
+
+  const confidence = confidences.reduce((a, c) => a + c, 0) / confidences.length;
+  return [{
+    classification,
+    confidence,
+    source: 'lexical',
+    fingerprintMatch: false,
+    signalId: 'lexical_vocabulary_prior',
+  }];
 }

@@ -134,6 +134,14 @@ export interface VocabularyBinding {
   lastConfirmed: string;           // ISO timestamp
 }
 
+// HF-254 Fix 3a (T1-E902): persisted vocabulary_bindings value. Legacy rows are a
+// bare meaning string; HF-254+ rows carry the full interpretation (columnRole +
+// confidence) so the lexical flywheel is a role-bearing prior, not a meaning-only
+// cache. Persistence carries the full interpretation — nothing is narrowed.
+export type VocabularyBindingValue =
+  | string
+  | { semanticMeaning: string; columnRole: ColumnRole; confidence: number };
+
 // Trace entry for Phase C ClassificationTrace integration
 export interface HeaderComprehensionTraceEntry {
   metrics: HeaderComprehensionMetrics;
@@ -320,7 +328,7 @@ export interface ContentUnitProposal {
   // OB-160E: Flywheel data — passed through to execute for signal write
   structuralFingerprint?: Record<string, unknown>;
   classificationTrace?: Record<string, unknown>;
-  vocabularyBindings?: Record<string, string>;
+  vocabularyBindings?: Record<string, VocabularyBindingValue>;  // HF-254: role-bearing or legacy string
   // OB-176: Recognition tier from DS-017 fingerprint flywheel
   recognitionTier?: 1 | 2 | 3;
 }
@@ -357,7 +365,7 @@ export interface ContentUnitExecution {
   // OB-160E: Flywheel data — passed from proposal for signal write
   structuralFingerprint?: Record<string, unknown>;
   classificationTrace?: Record<string, unknown>;
-  vocabularyBindings?: Record<string, string>;
+  vocabularyBindings?: Record<string, VocabularyBindingValue>;  // HF-254: role-bearing or legacy string
   sourceFile?: string;
   tabName?: string;
 }

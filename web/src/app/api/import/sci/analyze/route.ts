@@ -17,7 +17,7 @@ import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
 // (canonical writer accepts CanonicalSignalInput directly). Type import removed.
@@ -128,42 +128,19 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // HF-236 (DIAG-050 closure Layer 1): Per T1-E910 v2 (Korean Test, locked
-      // 2026-05-18: structural primitives in exactly one canonical declaration;
-      // no hardcoded role registries in foundational code), cached flywheel
-      // bindings that lack a native HeaderInterpretation.columnRole — or carry
-      // a non-native value — cannot be promoted into HC without a hardcoded
-      // semanticRole → columnRole registry. Such sheets are flagged as
-      // insufficient-cache and routed through fresh-LLM HC re-emission. This
-      // closes the materialization-layer drift identified by DIAG-050: under
-      // HF-236, fresh-LLM and flywheel-replay paths emit the same
-      // HeaderInterpretation shape because the only flywheel-replay path that
-      // skips HC is one whose cached bindings ALREADY carry native columnRole.
-      const NATIVE_COLUMN_ROLES = new Set(['identifier', 'name', 'temporal', 'measure', 'attribute', 'reference_key']);
-      const insufficientFlywheelCache = new Set<string>();
-      for (const sheet of file.sheets) {
-        const r = sheetFlywheelResults.get(sheet.sheetName);
-        if (!(r?.tier === 1 && r.match)) continue;
-        const cached = (r.classificationResult as Record<string, unknown> | undefined)?.fieldBindings as
-          Array<{ columnRole?: string }> | undefined;
-        if (!cached || cached.length === 0) {
-          insufficientFlywheelCache.add(sheet.sheetName);
-          continue;
-        }
-        const allHaveNativeRole = cached.every(fb => fb.columnRole !== undefined && NATIVE_COLUMN_ROLES.has(fb.columnRole));
-        if (!allHaveNativeRole) {
-          insufficientFlywheelCache.add(sheet.sheetName);
-          console.log(`[SCI-FINGERPRINT] HF-236: ${sheet.sheetName} flywheel cache missing native columnRole on ≥1 binding — forcing fresh-LLM HC re-emission`);
-        }
-      }
-
-      // HF-197B: per-sheet skipHC determination (was: single file-level skipHC).
-      // HF-236: additionally gated on insufficientFlywheelCache to force fresh-
-      // LLM HC re-emission when the cached bindings cannot satisfy
-      // materialization-layer shape compatibility.
+      // HF-254 Fix 2b: the HF-236 divert gate (NATIVE_COLUMN_ROLES set +
+      // insufficientFlywheelCache) is DELETED. HF-236 was a compensation (SR-34) for an
+      // unreliable fingerprint write: when the cached fieldBindings lacked native
+      // columnRole, it diverted the sheet into fresh-LLM HC — which, after HF-239 armed
+      // the warm caches, routed straight into the now-deleted vocabulary fabrication gate
+      // (D1) and corrupted the import to entity. HF-254 Fix 2a makes the fingerprint write
+      // always carry native columnRole server-side, so the cache the warm import reads is
+      // reliable and the compensation is removed. The fingerprint flywheel is now the SOLE
+      // LLM-skip authority. (HF-247's lookupFingerprint column_roles-'unknown' outcome gate
+      // is unchanged — it remains the failure-quality guard on the READ surface.)
       const sheetSkipHC = (sheetName: string) => {
         const r = sheetFlywheelResults.get(sheetName);
-        return r?.tier === 1 && r.match && !insufficientFlywheelCache.has(sheetName);
+        return r?.tier === 1 && r.match;
       };
 
       // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
@@ -192,12 +169,11 @@ export async function POST(req: NextRequest) {
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
-      // HF-236 Layer 1 (DIAG-050 closure): No hardcoded semanticRole → columnRole
-      // registry. The cached binding's native columnRole is read directly. Sheets
-      // whose cache lacks native columnRole on any binding were diverted to the
-      // fresh-LLM HC path by the insufficientFlywheelCache gate above, so by
-      // construction every sheet reaching this loop has cached bindings with
-      // native columnRole values.
+      // HF-254 Fix 2: the cached binding's native columnRole is read directly. With Fix 2a
+      // the fingerprint write always carries native columnRole server-side, so a tier-1
+      // cache hit reliably yields real roles here (no registry, no HF-236 divert). Legacy
+      // pre-HF-254 cache rows that lack native columnRole self-heal on clean re-import
+      // (§6A); the HF-247 read-surface column_roles-'unknown' gate remains the failure guard.
       for (const sheet of file.sheets) {
         const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
         if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
@@ -217,7 +193,7 @@ export async function POST(req: NextRequest) {
 
         const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
         for (const fb of flywheelBindings) {
-          // HF-236: native columnRole guaranteed present by insufficientFlywheelCache gate.
+          // HF-254 Fix 2a: native columnRole reliably present on the cached binding.
           interpretations.set(fb.sourceField, {
             columnName: fb.sourceField,
             semanticMeaning: fb.displayContext || fb.semanticRole,
@@ -234,7 +210,7 @@ export async function POST(req: NextRequest) {
           llmModel: 'flywheel-tier1',
           fromVocabularyBinding: false,
         };
-        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-236)`);
+        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-254)`);
       }
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
@@ -280,8 +256,19 @@ export async function POST(req: NextRequest) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!,
             tenantDomainId,
           );
-          if (priors.length > 0) {
-            state.priorSignals.set(profile.contentUnitId, priors);
+          // HF-254 Fix 3b: additive lexical prior (sibling of the structural prior). Recalls
+          // role-bearing vocabulary_bindings for this sheet's columns and contributes via
+          // columnRole distribution through the SAME prior-signal path. Non-gating; legacy
+          // role-less bindings contribute nothing.
+          const lexicalPriors = await lookupLexicalPrior(
+            tenantId,
+            sheet.columns,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+          const allPriors = [...priors, ...lexicalPriors];
+          if (allPriors.length > 0) {
+            state.priorSignals.set(profile.contentUnitId, allPriors);
           }
 
           // OB-160K: Compute classification density per content unit
@@ -592,6 +579,25 @@ export async function POST(req: NextRequest) {
         for (const binding of unit.fieldBindings) {
           columnRoles[binding.sourceField] = binding.semanticRole;
         }
+        // HF-254 Fix 2a: enrich fieldBindings with NATIVE columnRole, server-side, so the
+        // cold-import cache the warm import reads carries real roles independent of the
+        // client round-trip. SemanticBinding carries no columnRole; the only native source
+        // is the HC interpretations, which resolveClassification builds onto the trace
+        // server-side (synaptic-ingestion-state buildProposalFromState assigns it to every
+        // unit). Identical enriched shape to emitFlywheelSignals (AP-17).
+        const hcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
+          ?.headerComprehension as
+            | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+            | undefined;
+        const interpMap = hcInterps?.interpretations ?? {};
+        const enrichedFieldBindings = unit.fieldBindings.map(b => {
+          const interp = interpMap[b.sourceField];
+          return {
+            ...b,
+            ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
+            ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+          };
+        });
         // HF-197B: locate the unit's OWN sheet for the hash, not sheets[0].
         const sourceFile = files.find(f => f.fileName === unit.sourceFile);
         const sheetForUnit = sourceFile?.sheets.find(s => s.sheetName === unit.tabName);
@@ -609,7 +615,7 @@ export async function POST(req: NextRequest) {
           {
             classification: unit.classification,
             confidence: unit.confidence,
-            fieldBindings: unit.fieldBindings,
+            fieldBindings: enrichedFieldBindings,
             tabName: unit.tabName,
           },
           columnRoles,

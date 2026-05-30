@@ -30,6 +30,7 @@ import { writeFingerprint } from './fingerprint-flywheel';
 import { computeFingerprintHashSync } from './structural-fingerprint';
 import type { StructuralFingerprint } from './classification-signal-service';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
+import type { VocabularyBindingValue, ColumnRole } from './sci-types';
 
 /**
  * Minimal shape required by the emitter. Both BulkContentUnit (execute-bulk)
@@ -76,6 +77,32 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
       const traceData = unit.classificationTrace as ClassificationTrace | undefined;
 
       const confidenceValue = wasOverridden ? 1.0 : (unit.originalConfidence || 0);
+
+      // HF-254 Fix 3a (T1-E902): persist role-bearing vocabulary_bindings from the trace
+      // HC — {semanticMeaning, columnRole, confidence} per column, the full interpretation,
+      // nothing narrowed. confidence is the LLM's emitted value (AP-7: never a constant).
+      // Columns whose HC role is absent/'unknown' are omitted (no fabrication). Falls back
+      // to the legacy passthrough only when the trace carries no HC.
+      const vocabHcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
+        ?.headerComprehension as
+          | { interpretations?: Record<string, { semanticMeaning?: string; columnRole?: string; confidence?: number }> }
+          | undefined;
+      const vocabInterpMap = vocabHcInterps?.interpretations ?? {};
+      const roleBearingVocab: Record<string, VocabularyBindingValue> = {};
+      for (const [col, interp] of Object.entries(vocabInterpMap)) {
+        if (interp.columnRole && interp.columnRole !== 'unknown' && typeof interp.confidence === 'number') {
+          roleBearingVocab[col] = {
+            semanticMeaning: interp.semanticMeaning ?? 'unknown',
+            columnRole: interp.columnRole as ColumnRole,
+            confidence: interp.confidence,
+          };
+        }
+      }
+      const vocabularyBindingsToWrite: Record<string, VocabularyBindingValue> | null =
+        Object.keys(roleBearingVocab).length > 0
+          ? roleBearingVocab
+          : ((unit.vocabularyBindings as Record<string, VocabularyBindingValue> | null | undefined) ?? null);
+
       writeClassificationSignal({
         tenantId,
         sourceFileName: unit.sourceFile || '',
@@ -85,7 +112,7 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
         confidence: confidenceValue,
         decisionSource: wasOverridden ? 'human_override' : (traceData?.decisionSource || 'heuristic'),
         classificationTrace: (traceData ?? ({} as unknown as ClassificationTrace)),
-        vocabularyBindings: (unit.vocabularyBindings as Record<string, string> | null | undefined) ?? null,
+        vocabularyBindings: vocabularyBindingsToWrite,
         agentScores: traceData
           ? Object.fromEntries(traceData.round1.map(s => [s.agent, s.confidence]))
           : {},
