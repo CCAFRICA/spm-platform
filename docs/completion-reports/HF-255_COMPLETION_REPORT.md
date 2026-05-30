@@ -137,7 +137,7 @@ ANALYZE call (page.tsx 207-219) is untouched. Live confirmation is architect-run
 - **Vertical Slice:** import → classify → execute → **signals** (EPG-2, via existing
   emitter, restored by transport) → calculate (EPG-7) — one path, one PR.
 - **Korean Test (EPG-5):** PASS. **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next` →
-  build (0) → dev → localhost 307; PR opened (URL below), NOT merged. ASCII commits.
+  build (0) → dev → localhost 307; PR **#443** (https://github.com/CCAFRICA/spm-platform/pull/443), NOT merged — architect merges after EPG-1/2/4/7. ASCII commits.
 
 ## KNOWN ISSUES
 1. **EPG-1/2/4/7 architect-gated (live).** Require a clean-slate import of the document-plan
