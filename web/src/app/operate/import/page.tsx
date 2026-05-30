@@ -140,13 +140,18 @@ export default function OperateImportPage() {
           }
         })();
       }
-      const firstFile = files[0];
-      const isDocument = !!firstFile?.parsedData.documentBase64;
+      // HF-256: the async spreadsheet fast-path is eligible only when the import is
+      // PURELY spreadsheets (no document files). A mixed set (any PDF/PPTX/DOCX present)
+      // takes the synchronous per-file dispatch below, which routes documents to the Plan
+      // Agent AND tabular files to analyze — so documents are never dropped by the
+      // spreadsheet-only async worker. (Was: gated on files[0] only, which dropped
+      // documents whenever the first file happened to be a spreadsheet.)
+      const allSpreadsheets = spreadsheetFiles.length === files.length;
 
       // OB-174: Try async processing path for spreadsheet files
       // Creates processing_jobs records and fires parallel workers.
       // Falls back to synchronous analyze if processing_jobs table doesn't exist.
-      if (!isDocument && spreadsheetFiles.length > 0) {
+      if (allSpreadsheets && spreadsheetFiles.length > 0) {
         try {
           // Wait for storage uploads to complete
           if (storageUploadPromiseRef.current) {
@@ -213,29 +218,19 @@ export default function OperateImportPage() {
         }
       }
 
-      // Synchronous analysis path (existing — fallback for async unavailable or document imports)
-      let proposal: SCIProposal;
+      // HF-256 (Decision 82): per-file route + unified proposal. The import is NOT
+      // classified by files[0]. Each file is dispatched to its format's analyzer —
+      // documents (PDF/PPTX/DOCX) -> analyze-document (one call per document, concurrent);
+      // tabular files -> analyze (one call; the route already loops files server-side).
+      // All content units merge into ONE proposal. Single-file / single-call imports
+      // (one document, or tabular-only) use that one proposal verbatim — byte-identical
+      // to the pre-HF path; merging happens only for genuinely mixed / multi-document sets.
+      const documentFiles = files.filter(f => f.parsedData.documentBase64);
+      const tabularFiles = files.filter(f => !f.parsedData.documentBase64);
 
-      if (isDocument) {
-        const res = await fetch('/api/import/sci/analyze-document', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tenantId,
-            fileName: firstFile.parsedData.fileName,
-            fileBase64: firstFile.parsedData.documentBase64,
-            mimeType: firstFile.parsedData.documentMimeType,
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Document analysis failed' }));
-          throw new Error(err.error || `Document analysis failed (${res.status})`);
-        }
-
-        proposal = await res.json();
-      } else {
-        const analysisFiles = files.map(f => ({
+      let tabularProposal: SCIProposal | null = null;
+      if (tabularFiles.length > 0) {
+        const analysisFiles = tabularFiles.map(f => ({
           fileName: f.parsedData.fileName,
           sheets: f.parsedData.sheets.map(s => ({
             sheetName: s.sheetName,
@@ -244,19 +239,64 @@ export default function OperateImportPage() {
             totalRowCount: s.totalRowCount,
           })),
         }));
-
         const res = await fetch('/api/import/sci/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tenantId, files: analysisFiles }),
         });
-
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
           throw new Error(err.error || `Analysis failed (${res.status})`);
         }
+        tabularProposal = await res.json();
+      }
 
-        proposal = await res.json();
+      const documentProposals = await Promise.all(documentFiles.map(async (f) => {
+        const res = await fetch('/api/import/sci/analyze-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            fileName: f.parsedData.fileName,
+            fileBase64: f.parsedData.documentBase64,
+            mimeType: f.parsedData.documentMimeType,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Document analysis failed' }));
+          throw new Error(err.error || `Document analysis failed (${res.status})`);
+        }
+        return res.json() as Promise<SCIProposal>;
+      }));
+
+      let proposal: SCIProposal;
+      if (documentFiles.length === 0 && tabularProposal) {
+        // Tabular-only (single XLSX or multi-spreadsheet) — verbatim, byte-identical.
+        proposal = tabularProposal;
+      } else if (tabularFiles.length === 0 && documentProposals.length === 1) {
+        // Single document — verbatim, identical to the pre-HF isDocument path.
+        proposal = documentProposals[0];
+      } else {
+        // Mixed-format and/or multi-document: merge all content units into ONE proposal.
+        const base = tabularProposal ?? documentProposals[0];
+        if (!base) {
+          throw new Error('No files could be analyzed');
+        }
+        const mergedContentUnits = [
+          ...(tabularProposal?.contentUnits ?? []),
+          ...documentProposals.flatMap(p => p.contentUnits ?? []),
+        ];
+        proposal = {
+          ...base,
+          contentUnits: mergedContentUnits,
+          sourceFiles: files.map(f => f.parsedData.fileName),
+          processingOrder: mergedContentUnits.map(u => u.contentUnitId),
+          overallConfidence: mergedContentUnits.length > 0
+            ? mergedContentUnits.reduce((s, u) => s + (u.confidence ?? 0), 0) / mergedContentUnits.length
+            : base.overallConfidence,
+          requiresHumanReview: (tabularProposal?.requiresHumanReview ?? false)
+            || documentProposals.some(p => p.requiresHumanReview),
+        };
       }
 
       setState({
