@@ -5,7 +5,7 @@
 // Zero domain vocabulary. AP-31: presence-based only.
 
 import { createClient } from '@supabase/supabase-js';
-import type { ContentProfile } from './sci-types';
+import type { ContentProfile, VocabularyBindingValue, ColumnRole } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
 import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
@@ -91,7 +91,8 @@ export interface ClassificationSignalPayload {
   confidence: number;
   decisionSource: string;
   classificationTrace: ClassificationTrace;
-  vocabularyBindings: Record<string, string> | null;
+  // HF-254 Fix 3a: role-bearing ({semanticMeaning, columnRole, confidence}) or legacy string.
+  vocabularyBindings: Record<string, VocabularyBindingValue> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
   calculationRunId?: string;
@@ -533,12 +534,22 @@ export async function aggregateToDomain(
 // VOCABULARY BINDING RECALL — Queries DEDICATED COLUMN (HF-092)
 // ============================================================
 
+// HF-254 Fix 3a: recalled binding carries the full interpretation when the persisted
+// row is role-bearing. A legacy string-shaped row yields columnRole=null (NO fabrication
+// — a recalled meaning string cannot manufacture a role), so the lexical prior (Phase 6)
+// contributes nothing for it.
+export interface RecalledVocabularyBinding {
+  semanticMeaning: string;
+  columnRole: ColumnRole | null;
+  confidence: number | null;
+}
+
 export async function recallVocabularyBindings(
   tenantId: string,
   columnHeaders: string[],
   supabaseUrl: string,
   supabaseServiceKey: string,
-): Promise<Map<string, string>> {
+): Promise<Map<string, RecalledVocabularyBinding>> {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -554,14 +565,22 @@ export async function recallVocabularyBindings(
       return new Map();
     }
 
-    // Merge bindings from recent signals, most recent takes precedence
-    const bindings = new Map<string, string>();
+    // Merge bindings from recent signals, most recent takes precedence.
+    const bindings = new Map<string, RecalledVocabularyBinding>();
     for (const row of data.reverse()) {
-      const vb = row.vocabulary_bindings as Record<string, string> | null;
+      const vb = row.vocabulary_bindings as Record<string, VocabularyBindingValue> | null;
       if (vb && typeof vb === 'object') {
-        for (const [header, meaning] of Object.entries(vb)) {
-          if (columnHeaders.includes(header)) {
-            bindings.set(header, meaning);
+        for (const [header, value] of Object.entries(vb)) {
+          if (!columnHeaders.includes(header)) continue;
+          if (typeof value === 'string') {
+            // Legacy meaning-only row — role-less, contributes nothing to the role prior.
+            bindings.set(header, { semanticMeaning: value, columnRole: null, confidence: null });
+          } else if (value && typeof value === 'object') {
+            bindings.set(header, {
+              semanticMeaning: value.semanticMeaning ?? 'unknown',
+              columnRole: value.columnRole ?? null,
+              confidence: typeof value.confidence === 'number' ? value.confidence : null,
+            });
           }
         }
       }

@@ -11,7 +11,6 @@ import type {
   HeaderInterpretation,
   HeaderComprehensionMetrics,
   ColumnRole,
-  VocabularyBinding,
   FieldIdentity,
 } from './sci-types';
 import { getAIService } from '@/lib/ai/ai-service';
@@ -113,43 +112,11 @@ async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<{
 // prior in HF-254 Phase 6 (consumed in the resolver via recallVocabularyBindings),
 // never re-fabricating a role.
 
-/**
- * Prepare vocabulary bindings for storage after classification is confirmed.
- * Phase B: creates binding objects, returns them for future storage
- * Phase E: writes to classification_signals table
- */
-export function prepareVocabularyBindings(
-  tenantId: string,
-  profiles: ContentProfile[],
-  confirmationSource: VocabularyBinding['confirmationSource'],
-): VocabularyBinding[] {
-  void tenantId; // Phase E: used for tenant-scoped storage
-  const bindings: VocabularyBinding[] = [];
-
-  for (const profile of profiles) {
-    if (!profile.headerComprehension) continue;
-
-    for (const [colName, interp] of Array.from(profile.headerComprehension.interpretations.entries())) {
-      const field = profile.fields.find(f => f.fieldName === colName);
-      bindings.push({
-        columnName: colName,
-        interpretation: interp,
-        structuralContext: {
-          sheetColumnCount: profile.structure.columnCount,
-          sheetRowCountBucket: profile.structure.rowCount < 50 ? 'small' :
-                               profile.structure.rowCount < 500 ? 'medium' : 'large',
-          columnPosition: field?.fieldIndex ?? 0,
-          dataType: field?.dataType ?? 'unknown',
-        },
-        confirmationSource,
-        confirmationCount: 1,
-        lastConfirmed: new Date().toISOString(),
-      });
-    }
-  }
-
-  return bindings;
-}
+// HF-254 Fix 3a: `prepareVocabularyBindings` DELETED. It was uncalled scaffolding (the
+// "Phase E wires storage" comment never wired). Cache B is completed inline at
+// emitFlywheelSignals, which builds the role-bearing vocabulary_bindings map
+// ({semanticMeaning, columnRole, confidence}) directly from the trace HC — the same
+// source as the fingerprint fieldBindings enrichment (AP-17). No dead scaffolding remains.
 
 // ============================================================
 // VALID COLUMN ROLES
