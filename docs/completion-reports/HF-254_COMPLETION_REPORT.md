@@ -225,7 +225,7 @@ $ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 - **SR-34:** HF-236 compensation removed by fixing the write structurally (4a), not worked around.
 - **AP-25 / Korean Test (EPG-3):** PASS.
 - **D.1:** 7 phase commits, each pushed to `dev` (hashes above). **D.2:** `rm -rf .next` →
-  build (exit 0) → dev → localhost 307. **D.3:** PR opened (URL below), NOT merged. **D.4:** ASCII commits.
+  build (exit 0) → dev → localhost 307. **D.3:** PR **#442** opened (https://github.com/CCAFRICA/spm-platform/pull/442), NOT merged — architect merges after EPG-1/2/4/7. **D.4:** ASCII commits.
 - **Section B:** ADR committed (`2ca1c5d4`) before implementation.
 
 ## KNOWN ISSUES
