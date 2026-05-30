@@ -14,7 +14,6 @@ import type {
   VocabularyBinding,
   FieldIdentity,
 } from './sci-types';
-import { recallVocabularyBindings } from './classification-signal-service';
 import { getAIService } from '@/lib/ai/ai-service';
 
 // ============================================================
@@ -104,51 +103,15 @@ async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<{
 // VOCABULARY BINDING INTERFACE (Phase E wires storage)
 // ============================================================
 
-/**
- * Check if stored vocabulary bindings exist for these headers.
- * Phase E: wired to classification_signals table via recallVocabularyBindings
- */
-export async function lookupVocabularyBindings(
-  tenantId: string, columns: string[],
-  structuralContext: { columnCount: number; rowCountBucket: string },
-): Promise<Map<string, VocabularyBinding>> {
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) return new Map();
-
-    const recalled = await recallVocabularyBindings(tenantId, columns, supabaseUrl, supabaseKey);
-    if (recalled.size === 0) return new Map();
-
-    // Convert recalled column→semanticMeaning into VocabularyBinding objects
-    const bindings = new Map<string, VocabularyBinding>();
-    for (const [colName, semanticMeaning] of Array.from(recalled.entries())) {
-      bindings.set(colName, {
-        columnName: colName,
-        interpretation: {
-          columnName: colName,
-          semanticMeaning,
-          dataExpectation: 'recalled',
-          columnRole: 'unknown' as ColumnRole,
-          confidence: 0.85,
-        },
-        structuralContext: {
-          sheetColumnCount: structuralContext.columnCount,
-          sheetRowCountBucket: structuralContext.rowCountBucket as 'small' | 'medium' | 'large',
-          columnPosition: 0,
-          dataType: 'unknown',
-        },
-        confirmationSource: 'classification_success',
-        confirmationCount: 2,
-        lastConfirmed: new Date().toISOString(),
-      });
-    }
-
-    return bindings;
-  } catch {
-    return new Map();
-  }
-}
+// HF-254 Fix 1 (Principle 1 / AP-7): `lookupVocabularyBindings` DELETED. It
+// fabricated columnRole='unknown', confidence=0.85, confirmationCount=2 to wrap
+// the meaning-only recalled strings into VocabularyBinding objects, then the
+// Step-2 skip gate in comprehendHeaders used those rigged values to skip the LLM —
+// resolving every role to 'unknown' and corrupting warm imports to entity. The
+// vocabulary cache is no longer an LLM-skip authority (that is solely the
+// fingerprint flywheel). The cache is completed as an additive classification
+// prior in HF-254 Phase 6 (consumed in the resolver via recallVocabularyBindings),
+// never re-fabricating a role.
 
 /**
  * Prepare vocabulary bindings for storage after classification is confirmed.
@@ -238,33 +201,10 @@ function buildComprehensionFromLLM(
   return result;
 }
 
-function buildComprehensionFromBindings(
-  input: HeaderComprehensionInput,
-  bindings: Map<string, VocabularyBinding>,
-): Map<string, HeaderComprehension> {
-  const result = new Map<string, HeaderComprehension>();
-
-  for (const sheet of input.sheets) {
-    const interpretations = new Map<string, HeaderInterpretation>();
-
-    for (const col of sheet.columns) {
-      const binding = bindings.get(col);
-      if (binding) {
-        interpretations.set(col, binding.interpretation);
-      }
-    }
-
-    result.set(sheet.sheetName, {
-      interpretations,
-      crossSheetInsights: [],
-      llmCallDuration: 0,
-      llmModel: 'vocabulary_binding',
-      fromVocabularyBinding: true,
-    });
-  }
-
-  return result;
-}
+// HF-254 Fix 1: `buildComprehensionFromBindings` DELETED — it materialized the
+// fabricated `fromVocabularyBinding: true` comprehension that the skip gate returned.
+// With the skip gate gone, comprehendHeaders always produces comprehension from the
+// LLM (or null when the LLM is unavailable).
 
 // ============================================================
 // MAIN ENTRY POINT
@@ -283,34 +223,13 @@ export async function comprehendHeaders(
 }> {
   const allColumns = input.sheets.flatMap(s => s.columns);
 
-  // Step 1: Check vocabulary bindings (Phase E will populate these)
-  const existingBindings = await lookupVocabularyBindings(tenantId, allColumns, {
-    columnCount: input.sheets[0]?.columns.length ?? 0,
-    rowCountBucket: 'medium',
-  });
-  // Step 2: If ALL columns have confirmed bindings with high confidence, skip LLM
-  const allBound = allColumns.length > 0 && allColumns.every(col => {
-    const binding = existingBindings.get(col);
-    return binding && binding.confirmationCount >= 2 && binding.interpretation.confidence >= 0.85;
-  });
+  // HF-254 Fix 1: the vocabulary-binding LLM-skip gate (former Step 1-2) is REMOVED.
+  // The fingerprint flywheel is the sole LLM-skip authority; comprehendHeaders is only
+  // invoked for sheets the flywheel did NOT skip (analyze's `sheetsNeedingHC`), so it
+  // must always produce real interpretation — never a fabricated 'unknown' skip.
+  void tenantId; // retained in signature for call-site compatibility
 
-  if (allBound) {
-    const comprehensions = buildComprehensionFromBindings(input, existingBindings);
-    const metrics: HeaderComprehensionMetrics = {
-      llmCalled: false,
-      llmCallDuration: null,
-      llmModel: null,
-      columnsInterpreted: allColumns.length,
-      columnsFromBindings: allColumns.length,
-      columnsFromLLM: 0,
-      averageConfidence: computeAverageConfidence(comprehensions),
-      crossSheetInsightCount: 0,
-      timestamp: new Date().toISOString(),
-    };
-    return { comprehensions, metrics };
-  }
-
-  // Step 3: Call LLM via AIService for all headers
+  // Call LLM via AIService for all headers
   const llmResponse = await callLLMForHeaders(input);
 
   if (!llmResponse) {
