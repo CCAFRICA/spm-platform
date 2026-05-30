@@ -22,6 +22,7 @@ import type {
 // helper is still needed at this layer (computed once over the raw file bytes
 // and threaded into commitContentUnit per content unit).
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
+import { isSpreadsheetPath, extensionOf } from '@/lib/sci/file-format';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -157,12 +158,10 @@ export async function POST(req: NextRequest) {
 
     // ── Step 2: Parse file server-side ──
     const parseStart = Date.now();
-    const XLSX = await import('xlsx');
     const buffer = await fileData.arrayBuffer();
     // HF-196 Phase 1F: compute SHA-256 of file content bytes ONCE; thread to all
     // process functions for import_batches.file_hash_sha256 + supersession trigger.
     const fileHashSha256 = computeFileHashSha256(buffer);
-    const workbook = XLSX.read(buffer, { type: 'array' });
 
     // Build sheet data map: sheetName → rows
     const sheetDataMap = new Map<string, {
@@ -170,14 +169,27 @@ export async function POST(req: NextRequest) {
       columns: string[];
     }>();
 
-    for (const sheetName of workbook.SheetNames) {
-      const ws = workbook.Sheets[sheetName];
-      if (!ws) continue;
+    // HF-256 (Decision 82): format-aware parse. Documents (PDF/PPTX/DOCX) are PLAN
+    // sources — they are NOT workbook-parsed here. Their plan unit routes to the
+    // format-aware plan pipeline (executeBatchedPlanInterpretation below), which
+    // downloads and self-extracts by format and emits comprehension signals.
+    // Workbook-parsing a document would throw "Could not find workbook" before the plan
+    // arm is reached (the regressed crash). Spreadsheets parse exactly as before — for a
+    // single XLSX file the sheetDataMap is byte-identical to the pre-HF path.
+    if (isSpreadsheetPath(storagePath)) {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        if (!ws) continue;
 
-      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-      const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+        const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
 
-      sheetDataMap.set(sheetName, { rows: jsonData, columns });
+        sheetDataMap.set(sheetName, { rows: jsonData, columns });
+      }
+    } else {
+      console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(storagePath)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
     }
 
     const parseMs = Date.now() - parseStart;
