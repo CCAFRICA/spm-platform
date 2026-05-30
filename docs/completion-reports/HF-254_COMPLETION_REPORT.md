@@ -10,12 +10,12 @@
 | Hash | Phase | Description |
 |---|---|---|
 | `2ca1c5d4` | 1 | Architecture Decision Record (+ directive, Rule 29) |
-| (this) | 2 | Pre-edit reference enumeration + resolver read |
-| (pending) | 3 | Remove vocabulary-binding LLM-skip gate (D1) |
-| (pending) | 4a/4b | Native-columnRole fingerprint write; delete HF-236 divert (D2) |
-| (pending) | 5 | Role-bearing vocabulary_bindings (T1-E902) |
-| (pending) | 6 | Lexical vocabulary prior (additive, non-gating) |
-| (pending) | 7 | Completion report + build verification |
+| `7d9a828e` | 2 | Pre-edit reference enumeration + resolver read |
+| `bbe6e422` | 3 | Remove vocabulary-binding LLM-skip gate (D1) |
+| `f0e28bc1` | 4a/4b | Native-columnRole fingerprint write; delete HF-236 divert (D2) |
+| `278c1b17` | 5 | Role-bearing vocabulary_bindings (T1-E902) |
+| `e5e921db` | 6 | Lexical vocabulary prior (additive, non-gating) |
+| (this commit) | 7 | Completion report + build verification |
 
 ## FILES MODIFIED
 
@@ -118,16 +118,22 @@ interpretations can**.
 update (no merge), and the HF-247 gate skips writes whose `column_roles` (the semanticRole
 map) contains `'unknown'`. In a cold import both writers fire for the same (tenant, hash):
 analyze (insert) then emit (update, post-commit) — **emit's write is the final cache state the
-warm import reads.** Consequently, enriching the analyze write alone is insufficient if emit
-later overwrites with role-less bindings (the D2 mechanism: bulk round-trip drops trace HC →
-`interpMap` empty → role-less `enrichedFieldBindings` → overwrite). **Phase 4a therefore
-enriches BOTH sites from the trace HC AND adds a monotonic guard in `writeFingerprint`: on
-update, native `columnRole` already present on the existing row's `fieldBindings` is preserved
-when the incoming binding lacks it** (role-richness cannot regress). This delivers Phase 4's
-stated guarantee — "the fingerprint write always carries native `columnRole` ... regardless of
-the client round-trip" — structurally (SR-34), without changing the `writeFingerprint`
-signature. EPG-2 (architect-run live) confirms; HALT-2 if a clean-cache tier-1 structure still
-diverts or never skips.
+warm import reads.** **Phase 4a enriches BOTH write sites identically (AP-17) from the trace HC**
+(`classificationTrace.headerComprehension.interpretations`), so each writer emits native
+`columnRole`. At analyze the trace is reliably server-side (resolver-built); at emit it is
+present when the execute-bulk round-trip preserved the trace HC.
+
+**Scope decision — `writeFingerprint` is NOT modified.** A tempting belt-and-suspenders would
+be a monotonic merge-guard in `writeFingerprint` (preserve existing native `columnRole` when an
+incoming binding lacks it). It is deliberately NOT done: `writeFingerprint` is **Cache A's
+writer**, and HALT-3 / EPG-7 require Cache A's behavior to remain byte-identical for the proven
+tenants (BCL Oct, Meridian, CRP). Changing the shared writer to protect one path risks the
+anchor. Instead, the residual risk — if the execute-bulk round-trip drops the trace HC, emit's
+`interpMap` is empty and emit's update could overwrite analyze's native roles with role-less
+bindings — is surfaced as a KNOWN ISSUE and validated by **EPG-2 (architect-run live): after a
+clean-slate cold import the fingerprint row must carry native `columnRole` on every binding.**
+If it does not, **HALT-2** — the disposition is then either a bulk-path trace-preservation fix
+or an explicitly-authorized Cache-A-writer guard, not a silent change here.
 
 ## PHASE-6 SEAM READ (HALT-1 check)
 
@@ -156,23 +162,95 @@ is keyed by the sheet's own columns, mirroring how the structural prior recalls 
 
 | # | Criterion (VERBATIM) | PASS/FAIL | Evidence |
 |---|---|---|---|
-| EPG-1 | Warm second same-structure import classifies `transaction` (not `entity`), commits non-null `source_dates` | PENDING — architect-run | live import; `[commitContentUnit]`+`[SCI-HC-DIAG]`+`[SCI-SCORES-DIAG]` |
-| EPG-2 | Fingerprint write carries native `columnRole` on every `fieldBinding` (no `'unknown'`) | PENDING — architect-run | SQL row |
-| EPG-3 | Korean Test: zero new hardcoded field-name / language literals in touched files | (pending) | grep |
-| EPG-3a | Fabrication + vocabulary skip-gate removed from `header-comprehension.ts` | (pending) | grep |
-| EPG-4 | `vocabulary_bindings` persists `{semanticMeaning, columnRole, confidence}` with real values | PENDING — architect-run | SQL row |
-| EPG-5 | Lexical prior additive-only (no early-return/LLM-skip/score cap); `comprehendHeaders` has no vocab-skip return | (pending) | code/grep |
-| EPG-6 | `npm run build` exits 0; `localhost:3000` responds | (pending) | exit code + HTTP |
+| EPG-1 | Warm second same-structure import classifies `transaction` (not `entity`), commits non-null `source_dates` | PENDING — architect-run | live import on clean-slate tenant; `[commitContentUnit]`+`[SCI-HC-DIAG]`+`[SCI-SCORES-DIAG]` lines |
+| EPG-2 | Fingerprint write carries native `columnRole` on every `fieldBinding` (no `'unknown'`) | PENDING — architect-run | SQL row (see §3.4 query) |
+| EPG-3 | Korean Test: zero new hardcoded field-name / language literals in touched files | **PASS** | grep below |
+| EPG-3a | Fabrication + vocabulary skip-gate removed from `header-comprehension.ts` | **PASS** | grep below |
+| EPG-4 | `vocabulary_bindings` persists `{semanticMeaning, columnRole, confidence}` with real values | PENDING — architect-run | SQL row (see §3.5 query) |
+| EPG-5 | Lexical prior additive-only (no early-return/LLM-skip/score cap); `comprehendHeaders` has no vocab-skip return | **PASS** | grep below |
+| EPG-6 | `npm run build` exits 0; `localhost:3000` responds | **PASS** | output below |
 | EPG-7 | Non-regression: Meridian / CRP / BCL Oct reconcile unchanged | PENDING — architect-run | grand totals |
+
+### EPG-3 (PASS)
+```
+$ grep -rnE '"(Pct_|Meta_|Depositos|Cumplimiento|Ingreso|Sucursal|Empleado)[A-Za-z_]*"' <6 touched files>
+ZERO domain/language column literals — PASS
+```
+Role tokens introduced (`'measure'|'temporal'|'identifier'|'name'`) are `ColumnRole` switch
+cases against the LLM-emitted vocabulary, and the derived classifications (`'transaction'`,
+`'entity'`) are `AgentType` values — structural platform vocabulary, not field-name/language
+matching.
+
+### EPG-3a (PASS)
+```
+$ grep -nE "columnRole: 'unknown'|confidence: 0.85|allBound|confirmationCount: 2|lookupVocabularyBindings|buildComprehensionFromBindings|fromVocabularyBinding: true" header-comprehension.ts  (non-comment)
+ZERO non-comment fabrication/skip remnants — PASS
+```
+The fabrication functions, the `allBound` skip gate + early return, and the dead
+`prepareVocabularyBindings` builder are all deleted; only descriptive comments remain.
+
+### EPG-5 (PASS)
+```
+# lookupLexicalPrior — all return statements:
+  if (recalled.size === 0) return [];
+  if (confidences.length === 0) return [];
+  if (!classification) return [];
+  return [{ classification, confidence, source:'lexical', fingerprintMatch:false, signalId:'lexical_vocabulary_prior' }];
+# zero Math.min/score-cap, zero llmCalled/skip. Produces a PriorSignal only.
+# comprehendHeaders: ZERO vocab-skip return — PASS
+```
+
+### EPG-6 (PASS)
+```
+$ rm -rf .next && npm run build
+[korean-test-gate] PASS: zero hardcoded legacy primitive-name string literals outside registry
+ ✓ Compiled successfully
+BUILD_EXIT=0
+$ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+307   (redirect to auth — expected; dev "✓ Ready")
+```
+`tsc --noEmit -p tsconfig.json`: 0 errors (verified after each of Phases 3,4,5,6).
 
 ## PROOF GATES — SOFT
 (n/a)
 
 ## STANDING RULE COMPLIANCE
-(filled at completion)
+
+- **Principle 1 / AP-7 closure:** the fabricated `columnRole:'unknown'` / `confidence:0.85` /
+  `confirmationCount:2` are deleted (Phase 3). The lexical prior's confidence is the mean of
+  the recalled bindings' LLM-emitted confidences — never a constant. EPG-3a PASS.
+- **AP-17:** one LLM-skip authority (fingerprint flywheel); lexical cache is a non-gating
+  prior. The three fingerprint-write sites (analyze, process-job, emitFlywheelSignals) now
+  emit the identical enriched `fieldBindings` shape. (Residual: two writers remain — §6A.)
+- **SR-34:** HF-236 compensation removed by fixing the write structurally (4a), not worked around.
+- **AP-25 / Korean Test (EPG-3):** PASS.
+- **D.1:** 7 phase commits, each pushed to `dev` (hashes above). **D.2:** `rm -rf .next` →
+  build (exit 0) → dev → localhost 307. **D.3:** PR opened (URL below), NOT merged. **D.4:** ASCII commits.
+- **Section B:** ADR committed (`2ca1c5d4`) before implementation.
 
 ## KNOWN ISSUES
-(filled at completion)
+
+1. **EPG-1/2/4/7 are architect-gated (live).** They require a clean-slate re-import of the
+   poisoned BCL tenant (five months currently committed as `data_type=entity`, null
+   source_dates) and non-regression runs (Meridian/CRP/BCL Oct). Code + queries shipped; the
+   architect runs them and merges after they pass.
+2. **Write-ordering risk for EPG-2 (documented in AP-13 section).** `writeFingerprint`
+   overwrites on update and emit runs after analyze in a cold import. Phase 4a enriches BOTH
+   writers from the trace HC, but emit's source on the execute-bulk path is the round-trip
+   trace; if the client drops `classificationTrace.headerComprehension`, emit's `interpMap`
+   is empty and could overwrite analyze's native roles. `writeFingerprint` was deliberately
+   NOT modified (protects Cache A / EPG-7 / HALT-3). If EPG-2 shows the cache still role-less
+   → **HALT-2**: disposition is a bulk-path trace-preservation fix or an explicitly-authorized
+   Cache-A-writer guard.
+3. **Legacy vocabulary_bindings rows** (string-shaped) and **legacy fingerprint rows** (no
+   native columnRole) self-heal on clean re-import; `recallVocabularyBindings` tolerates legacy
+   strings (columnRole=null → contributes nothing to the lexical prior). No migration (§6A).
+4. **Staging boundary (§6A):** Phases 3–4 are the complete corruption fix; Phases 5–6 the
+   enhancement. Shipped as one PR per directive; the architect may split at review.
 
 ## VERIFICATION SCRIPT OUTPUT
-(filled at completion)
+- EPG-3 grep: `ZERO domain/language column literals — PASS`.
+- EPG-3a grep: `ZERO non-comment fabrication/skip remnants — PASS`.
+- EPG-5: lexical-prior return inventory (additive-only) pasted above.
+- Build: `BUILD_EXIT=0`, `[korean-test-gate] PASS`, `✓ Compiled successfully`.
+- `tsc --noEmit`: 0 errors (Phases 3/4/5/6). localhost:3000: HTTP 307.
