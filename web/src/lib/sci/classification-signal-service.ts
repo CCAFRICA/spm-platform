@@ -592,3 +592,62 @@ export async function recallVocabularyBindings(
     return new Map();
   }
 }
+
+// ============================================================
+// HF-254 Fix 3b: LEXICAL CLASSIFICATION PRIOR (additive, non-gating)
+// ============================================================
+//
+// Sibling of lookupPriorSignals (structural fingerprint prior). Recalls role-bearing
+// vocabulary_bindings for the sheet's columns and derives a classification from the
+// recalled columnRole DISTRIBUTION — NOT by matching column-name strings (Korean Test).
+// Returns PriorSignal[] in the SAME shape lookupPriorSignals returns, so it flows through
+// the identical additive contribution path (resolver extractClassificationSignals ->
+// sourceType 'prior_signal' -> Bayesian posterior). By construction it is additive only:
+// it produces a prior signal and nothing else — it never early-returns a decision, never
+// skips the LLM, never narrows persistence, and never caps competing agents.
+//
+// A legacy string-shaped (role-less) recalled binding contributes nothing (columnRole is
+// null — a recalled meaning cannot manufacture a role; AP-7 / no fabrication). The
+// contributed confidence is the mean of the recalled bindings' own (LLM-emitted)
+// confidences — never a constant.
+export async function lookupLexicalPrior(
+  tenantId: string,
+  columnHeaders: string[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<PriorSignal[]> {
+  const recalled = await recallVocabularyBindings(tenantId, columnHeaders, supabaseUrl, supabaseServiceKey);
+  if (recalled.size === 0) return [];
+
+  let measure = 0, temporal = 0, identifier = 0, name = 0;
+  const confidences: number[] = [];
+  for (const b of Array.from(recalled.values())) {
+    if (!b.columnRole) continue; // legacy/role-less binding contributes nothing
+    if (typeof b.confidence === 'number') confidences.push(b.confidence);
+    switch (b.columnRole) {
+      case 'measure': measure++; break;
+      case 'temporal': temporal++; break;
+      case 'identifier': identifier++; break;
+      case 'name': name++; break;
+      default: break;
+    }
+  }
+  if (confidences.length === 0) return [];
+
+  // Role-distribution → classification (structural, language-agnostic).
+  // measure + temporal ⇒ transaction; identifier + name with no measure ⇒ entity.
+  // Any other distribution contributes no lexical prior (let structural arms decide).
+  let classification: string | null = null;
+  if (measure > 0 && temporal > 0) classification = 'transaction';
+  else if (identifier > 0 && name > 0 && measure === 0) classification = 'entity';
+  if (!classification) return [];
+
+  const confidence = confidences.reduce((a, c) => a + c, 0) / confidences.length;
+  return [{
+    classification,
+    confidence,
+    source: 'lexical',
+    fingerprintMatch: false,
+    signalId: 'lexical_vocabulary_prior',
+  }];
+}

@@ -17,7 +17,7 @@ import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
 // (canonical writer accepts CanonicalSignalInput directly). Type import removed.
@@ -256,8 +256,19 @@ export async function POST(req: NextRequest) {
             process.env.SUPABASE_SERVICE_ROLE_KEY!,
             tenantDomainId,
           );
-          if (priors.length > 0) {
-            state.priorSignals.set(profile.contentUnitId, priors);
+          // HF-254 Fix 3b: additive lexical prior (sibling of the structural prior). Recalls
+          // role-bearing vocabulary_bindings for this sheet's columns and contributes via
+          // columnRole distribution through the SAME prior-signal path. Non-gating; legacy
+          // role-less bindings contribute nothing.
+          const lexicalPriors = await lookupLexicalPrior(
+            tenantId,
+            sheet.columns,
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+          const allPriors = [...priors, ...lexicalPriors];
+          if (allPriors.length > 0) {
+            state.priorSignals.set(profile.contentUnitId, allPriors);
           }
 
           // OB-160K: Compute classification density per content unit

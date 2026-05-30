@@ -21,7 +21,7 @@ import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
@@ -218,8 +218,16 @@ export async function POST(req: NextRequest) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
         '',
       );
-      if (priors.length > 0) {
-        state.priorSignals.set(profile.contentUnitId, priors);
+      // HF-254 Fix 3b: additive lexical prior via columnRole distribution (same path).
+      const lexicalPriors = await lookupLexicalPrior(
+        tenantId,
+        profile.fields.map(f => f.fieldName),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+      const allPriors = [...priors, ...lexicalPriors];
+      if (allPriors.length > 0) {
+        state.priorSignals.set(profile.contentUnitId, allPriors);
       }
     }
 
