@@ -325,9 +325,23 @@ export async function POST(req: NextRequest) {
       const unitHash = computeFingerprintHashSync(sheetForUnit.columns, sheetForUnit.rows);
       const columnRoles: Record<string, string> = {};
       for (const b of unit.fieldBindings) columnRoles[b.sourceField] = b.semanticRole;
+      // HF-254 Fix 2a: enrich fieldBindings with native columnRole from the server-side
+      // trace HC (identical shape to analyze + emitFlywheelSignals, AP-17).
+      const pjInterpMap = ((unit.classificationTrace as Record<string, unknown> | undefined)
+        ?.headerComprehension as
+          | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+          | undefined)?.interpretations ?? {};
+      const pjEnrichedFieldBindings = unit.fieldBindings.map(b => {
+        const interp = pjInterpMap[b.sourceField];
+        return {
+          ...b,
+          ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
+          ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+        };
+      });
       writeFingerprint(
         tenantId, unitHash,
-        { classification: unit.classification, confidence: unit.confidence, fieldBindings: unit.fieldBindings, tabName: unit.tabName },
+        { classification: unit.classification, confidence: unit.confidence, fieldBindings: pjEnrichedFieldBindings, tabName: unit.tabName },
         columnRoles, fileName,
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
