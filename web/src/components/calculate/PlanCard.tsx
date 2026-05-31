@@ -30,6 +30,11 @@ export interface PlanReadiness {
   dataRowCount: number;
   lastBatchDate: string | null;
   lastTotal: number | null;
+  // HF-259 Q6 (Vertical-Slice experience half): rule_set lifecycle state surfaced where plans
+  // display. The plan-readiness API already returns `status`; surfacing it here makes the
+  // active/superseded lifecycle visible. The audited predecessor/actor/reason detail is recorded
+  // in rule_set_lifecycle_events (a dedicated audit viewer is a separate feature, out of scope).
+  status?: string; // 'active' | 'draft' | 'superseded' | 'archived'
 }
 
 interface ComponentSummary {
@@ -152,6 +157,23 @@ export function PlanCard({
             <h3 className="text-sm font-medium text-zinc-200 truncate">
               {plan.planName}
             </h3>
+            {/* HF-259 Q6: rule_set lifecycle state, visible where plans display. */}
+            {plan.status && plan.status !== 'active' && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  'text-[10px] shrink-0',
+                  plan.status === 'superseded' || plan.status === 'archived'
+                    ? 'text-zinc-400 border-zinc-600'
+                    : 'text-sky-400 border-sky-700',
+                )}
+              >
+                {plan.status === 'superseded' ? 'Superseded'
+                  : plan.status === 'archived' ? 'Archived'
+                  : plan.status === 'draft' ? 'Draft'
+                  : plan.status}
+              </Badge>
+            )}
           </div>
           <Badge
             variant="outline"

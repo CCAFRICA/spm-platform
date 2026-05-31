@@ -22,6 +22,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import type { ContentUnitExecution, ContentUnitResult } from './sci-types';
+// HF-259 Q3/Q6: idempotency (single-flight + fingerprint reuse) + lifecycle audit. Degrade-safe.
+import {
+  computePlanContentHash,
+  findCompletedRuleSet,
+  claimRun,
+  completeRun,
+  failRun,
+  writeRuleSetLifecycleEvent,
+} from './plan-idempotency';
 
 export async function executeBatchedPlanInterpretation(
   supabase: SupabaseClient,
@@ -142,6 +151,38 @@ export async function executeBatchedPlanInterpretation(
     }));
   }
 
+  // ── HF-259 Q3: idempotency guard (before the expensive 1+N orchestration) ──
+  // content_hash = SHA-256 of the plan file bytes (format-invariant; the unified-content key).
+  const contentHash = computePlanContentHash(fileBuffer);
+  const sourceFileName = storagePath.split('/').pop()?.replace(/^\d+_/, '') || primaryContentUnitId;
+  // Layer 1 — read-before-derive / moat reuse: a completed run for this content → return its
+  // rule_set without re-executing (~zero cost). Degrade-safe (null when the table is unapplied).
+  const reusedRuleSetId = await findCompletedRuleSet(supabase, tenantId, contentHash);
+  if (reusedRuleSetId) {
+    console.log(`[SCI plan-interp] HF-259 idempotent REUSE — content_hash matched completed rule_set ${reusedRuleSetId}; no re-execution`);
+    return planUnits.map((u, i) => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: true,
+      rowsProcessed: 0,
+      pipeline: i === 0 ? 'plan-interpretation-reused' : 'plan-batch-included',
+    }));
+  }
+  // Layer 2 — single-flight: claim the execution. A concurrent second import of the same content
+  // loses the UNIQUE(tenant_id, content_hash) race → does NOT run a second interpretation.
+  const claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
+  if (!claim.claimed) {
+    const concurrent = await findCompletedRuleSet(supabase, tenantId, contentHash);
+    console.log(`[SCI plan-interp] HF-259 SINGLE-FLIGHT — another execution holds the claim for this content_hash (${concurrent ? 'returning its rule_set' : 'in-progress'}); not double-executing`);
+    return planUnits.map((u, i) => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: true,
+      rowsProcessed: 0,
+      pipeline: i === 0 ? (concurrent ? 'plan-interpretation-reused' : 'plan-interpretation-deduped') : 'plan-batch-included',
+    }));
+  }
+
   console.log(`[SCI plan-interp] Interpretation starting — ${documentContent.length} chars`);
 
   // HF-248 Phase 1+3: per-component two-phase interpretation. The orchestrator
@@ -177,6 +218,7 @@ export async function executeBatchedPlanInterpretation(
       ? `Plan skeleton call failed: ${orchestration.skeletonError}`
       : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
+    await failRun(supabase, tenantId, contentHash); // HF-259: release the single-flight claim so a retry can re-claim
     return planUnits.map(u => ({
       contentUnitId: u.contentUnitId,
       classification: 'plan' as const,
@@ -216,6 +258,7 @@ export async function executeBatchedPlanInterpretation(
     .select('id, name, status');
   if (supersedeError) {
     console.error('[SCI plan-interp] Supersession query failed — aborting upsert to prevent multi-active state:', supersedeError);
+    await failRun(supabase, tenantId, contentHash); // HF-259: release the claim
     return planUnits.map(u => ({
       contentUnitId: u.contentUnitId,
       classification: 'plan' as const,
@@ -227,6 +270,19 @@ export async function executeBatchedPlanInterpretation(
   }
   if (supersededRows && supersededRows.length > 0) {
     console.log(`[SCI plan-interp] Superseded ${supersededRows.length} prior rule_set(s) for tenant=${tenantId}`);
+    // HF-259 Q6: explicit audited supersession. With Q3 idempotency upstream, a duplicate import
+    // is deduped before this point, so these events record only GENUINE re-interpretations.
+    for (const prior of supersededRows as Array<{ id: string }>) {
+      if (prior.id === ruleSetId) continue; // don't record the just-created row superseding itself
+      await writeRuleSetLifecycleEvent(supabase, {
+        tenantId,
+        ruleSetId: prior.id,
+        eventType: 'superseded',
+        predecessorId: ruleSetId, // the new rule_set that replaces this prior one
+        actor: userId,
+        reason: `reinterpretation: superseded by rule_set ${ruleSetId} (${planName})`,
+      });
+    }
   }
 
   const { error: upsertError } = await supabase
@@ -255,6 +311,7 @@ export async function executeBatchedPlanInterpretation(
 
   if (upsertError) {
     console.error('[SCI plan-interp] Batched plan save failed:', upsertError);
+    await failRun(supabase, tenantId, contentHash); // HF-259: release the claim
     return planUnits.map(u => ({
       contentUnitId: u.contentUnitId,
       classification: 'plan' as const,
@@ -264,6 +321,18 @@ export async function executeBatchedPlanInterpretation(
       error: upsertError.message,
     }));
   }
+
+  // HF-259 Q3: bind the completed run to its rule_set (the reuse pointer) — a later import of the
+  // same content now returns this without re-deriving. Q6: record the 'created' lifecycle event.
+  await completeRun(supabase, tenantId, contentHash, ruleSetId);
+  await writeRuleSetLifecycleEvent(supabase, {
+    tenantId,
+    ruleSetId,
+    eventType: 'created',
+    predecessorId: null,
+    actor: userId,
+    reason: `plan interpretation: ${planName} (content_hash ${contentHash.substring(0, 12)})`,
+  });
 
   const variants = engineFormat.components.variants || [];
   const componentCount = variants.reduce(
