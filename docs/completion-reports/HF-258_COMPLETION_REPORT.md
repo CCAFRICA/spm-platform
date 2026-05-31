@@ -67,7 +67,7 @@ $ grep -rnE 'fileBase64' web/src/lib/sci/sci-types.ts web/src/app/api/import/sci
   gate-extension per §1.4). **Korean Test:** structural dispatch, zero literal. **AP-1:** no body bytes;
   storage-reference transport. **AP-17 / DD-7:** single plan path (HF-257), fingerprint moat, calc
   handoff, and text-format extraction all untouched; text units attach no block (identical message
-  content). **D.1/D.2/D.3:** per-phase commit+push; build(0)→dev→307; PR below.
+  content). **D.1/D.2/D.3:** per-phase commit+push; build(0)→dev→307; PR #446: https://github.com/CCAFRICA/spm-platform/pull/446 (NOT merged — architect merges after live EPGs).
 
 ## KNOWN ISSUES
 1. **EPG-PDF/PPTX/XLSX are architect-gated (live).** Phase 4's three-format coverage gate needs
