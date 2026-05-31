@@ -31,13 +31,11 @@ import { executePostCommitConstruction } from '@/lib/sci/post-commit-constructio
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
 import { commitContentUnit } from '@/lib/sci/commit-content-unit';
-// HF-239 Phase 0.1: plan interpretation extracted into shared module so this
-// route's `case 'plan'` arm calls the same logic that execute/route.ts (now
-// deleted) used to carry inline. Closes the plan/data path divergence.
-import {
-  executeBatchedPlanInterpretation,
-  executePlanPipeline,
-} from '@/lib/sci/plan-interpretation';
+// HF-239 Phase 0.1: plan interpretation extracted into a shared module.
+// HF-257 (AP-17): plan interpretation runs in ONE function —
+// executeBatchedPlanInterpretation. The per-unit duplicate (executePlanPipeline)
+// was removed; it is no longer imported or called.
+import { executeBatchedPlanInterpretation } from '@/lib/sci/plan-interpretation';
 // HF-239 Phase 0.2: flywheel signal emission extracted. The bulk path used
 // to write zero flywheel signals; this restores fingerprint / classification
 // / foundational / domain emission for every import.
@@ -259,7 +257,23 @@ export async function POST(req: NextRequest) {
             handledPlanUnitIds.add(r.contentUnitId);
           }
         } catch (err) {
-          console.error(`[SCI Bulk] Batched plan interpretation failed for ${planPath}, falling back to per-unit:`, err);
+          // HF-257 (AP-17): the per-unit plan duplicate is removed, so the batched path is
+          // the SOLE plan pipeline. On an unexpected throw, record an explicit failure for
+          // each plan unit in this group — do NOT silently drop them, and do NOT re-run a
+          // duplicate interpreter. (executeBatchedPlanInterpretation returns its KNOWN
+          // failures as values; this catch is only for an unexpected runtime throw.)
+          console.error(`[SCI Bulk] Batched plan interpretation threw for ${planPath} (units reported as failures):`, err);
+          for (const pu of group) {
+            results.push({
+              contentUnitId: pu.contentUnitId,
+              classification: 'plan',
+              success: false,
+              rowsProcessed: 0,
+              pipeline: 'plan-interpretation',
+              error: `Batched plan interpretation failed: ${err instanceof Error ? err.message : String(err)}`,
+            });
+            handledPlanUnitIds.add(pu.contentUnitId);
+          }
         }
       }
     }
@@ -448,13 +462,19 @@ async function processContentUnit(
     case 'reference':
       return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
     case 'plan':
-      // HF-239: per-unit plan dispatch (single-unit fallback when the
-      // batched interpretation at the POST handler did not handle this
-      // unit). Delegates to the shared plan-interpretation module which
-      // mirrors the deleted execute/route.ts executePlanPipeline behavior.
-      return executePlanPipeline(
-        supabase, tenantId, unit as unknown as ContentUnitExecution, profileId, storagePath,
-      );
+      // HF-257 (AP-17): the per-unit plan duplicate (executePlanPipeline) is REMOVED.
+      // Plan interpretation runs EXCLUSIVELY in executeBatchedPlanInterpretation. The
+      // batched dispatch marks every plan unit handled (success OR explicit failure), so
+      // this switch arm is reached only if a plan unit was somehow not accounted for —
+      // surface an explicit failure rather than silently re-running a second interpreter.
+      return {
+        contentUnitId: unit.contentUnitId,
+        classification: 'plan',
+        success: false,
+        rowsProcessed: 0,
+        pipeline: 'plan-interpretation',
+        error: 'Plan unit not handled by the batched plan pipeline (unexpected). The per-unit plan interpreter was removed for AP-17 single-pipeline (HF-257).',
+      };
     default:
       return {
         contentUnitId: unit.contentUnitId,
