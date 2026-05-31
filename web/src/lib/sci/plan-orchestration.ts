@@ -183,14 +183,22 @@ export async function orchestratePerComponentInterpretation(
     });
   }
 
-  // ── Phase B: per-component ──────────────────────────────────────────
-  const components: OrchestratedComponent[] = [];
-  const outcomes: ComponentOutcome[] = [];
+  // ── Phase B: per-component (HF-259 Q4: bounded-concurrency parallel) ──────────
+  // The N component phases are independent (each receives the full manifest + its own
+  // componentSpec); they run with BOUNDED concurrency instead of sequentially, collapsing
+  // ~(sum of components) into ~(max within the limit). Per-component inputs, retry, and
+  // construction are UNCHANGED — only scheduling differs (DD-7: outputs byte-identical to
+  // sequential). Results are assembled in componentIndex order, so components[]/outcomes[]
+  // are identical in content and order to the prior sequential build.
   const skipIds = input.resumeSkipIds ?? new Set<string>();
+  const PHASE_B_CONCURRENCY = 4; // bounded fan-out (not unbounded) — avoids rate-limit storms
+  const entries = componentIndex as Array<Record<string, unknown>>;
 
-  for (const rawEntry of componentIndex as Array<Record<string, unknown>>) {
-    const compId = String(rawEntry.id ?? `comp-${components.length}`);
-    const compName = String(rawEntry.name ?? `Component ${components.length + 1}`);
+  type IndexedComponentResult = { component: OrchestratedComponent | null; outcome: ComponentOutcome };
+
+  const runOne = async (rawEntry: Record<string, unknown>, index: number): Promise<IndexedComponentResult> => {
+    const compId = String(rawEntry.id ?? `comp-${index}`);
+    const compName = String(rawEntry.name ?? `Component ${index + 1}`);
     const compNameEs = rawEntry.nameEs ? String(rawEntry.nameEs) : undefined;
     const appliesTo = Array.isArray(rawEntry.appliesToEmployeeTypes)
       ? (rawEntry.appliesToEmployeeTypes as unknown[]).map(String)
@@ -203,51 +211,35 @@ export async function orchestratePerComponentInterpretation(
     // HF-248 Phase 3: resume — skip this component if it succeeded on a prior import.
     if (skipIds.has(compId) && input.priorComponents?.has(compId)) {
       const cached = input.priorComponents.get(compId)!;
-      components.push(cached);
-      outcomes.push({
-        id: compId,
-        name: cached.name,
-        status: 'success',
-        attempts: 0,
-        skippedFromPrior: true,
-        lastAttemptAt: new Date().toISOString(),
-      });
       console.log(`[plan-component] SKIPPED (reimport-resume) component=${compId} name="${cached.name}" — reusing prior successful tree`);
-      continue;
+      return {
+        component: cached,
+        outcome: { id: compId, name: cached.name, status: 'success', attempts: 0, skippedFromPrior: true, lastAttemptAt: new Date().toISOString() },
+      };
     }
 
-    // Per-component call with bounded retry.
+    // Per-component call with bounded retry (unchanged).
     const componentResult = await callPlanComponentWithRetry({
       documentContent: input.documentContent,
       format: input.format,
       pdfBase64: input.pdfBase64,
       pdfMediaType: input.pdfMediaType,
       signalContext: input.signalContext,
-      componentSpec: {
-        id: compId,
-        name: compName,
-        nameEs: compNameEs,
-        appliesToEmployeeTypes: appliesTo,
-        briefSemantic,
-        rateTableCellCount,
-      },
+      componentSpec: { id: compId, name: compName, nameEs: compNameEs, appliesToEmployeeTypes: appliesTo, briefSemantic, rateTableCellCount },
     });
 
-    outcomes.push(componentResult.outcome);
-    if (componentResult.component) {
-      // HF-252: CompositionalIntent.applies_to (from the per-component call)
-      // takes precedence over the skeleton's appliesToEmployeeTypes. Per-component
-      // emission sees the actual semantics of which variants this component
-      // applies to. Falls back to the skeleton value when intent didn't declare.
-      const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
-        | { applies_to?: unknown }
-        | undefined)?.applies_to;
-      const resolvedAppliesTo: string[] =
-        Array.isArray(intentAppliesTo) && intentAppliesTo.length > 0
-          ? (intentAppliesTo as unknown[]).map(String)
-          : appliesTo;
-
-      components.push({
+    if (!componentResult.component) {
+      return { component: null, outcome: componentResult.outcome };
+    }
+    // HF-252: CompositionalIntent.applies_to takes precedence over the skeleton's value.
+    const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
+      | { applies_to?: unknown } | undefined)?.applies_to;
+    const resolvedAppliesTo: string[] =
+      Array.isArray(intentAppliesTo) && intentAppliesTo.length > 0
+        ? (intentAppliesTo as unknown[]).map(String)
+        : appliesTo;
+    return {
+      component: {
         id: compId,
         name: compName,
         nameEs: compNameEs,
@@ -259,8 +251,31 @@ export async function orchestratePerComponentInterpretation(
         confidence: componentResult.component.confidence ?? 0.8,
         reasoning: componentResult.component.reasoning ?? '',
         metadataExtension: componentResult.component.metadataExtension,
-      });
+      },
+      outcome: componentResult.outcome,
+    };
+  };
+
+  // Order-preserving bounded-concurrency pool: a shared cursor hands indices to N workers;
+  // each result is written to its index slot, so assembly order == componentIndex order.
+  const indexed: IndexedComponentResult[] = new Array(entries.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = cursor++;
+      if (i >= entries.length) return;
+      indexed[i] = await runOne(entries[i], i);
     }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(PHASE_B_CONCURRENCY, entries.length) }, () => worker()),
+  );
+
+  const components: OrchestratedComponent[] = [];
+  const outcomes: ComponentOutcome[] = [];
+  for (const r of indexed) {
+    outcomes.push(r.outcome);
+    if (r.component) components.push(r.component);
   }
 
   const successCount = outcomes.filter(o => o.status === 'success').length;
