@@ -84,3 +84,6 @@ RESULT: NOT fully applied — architect to apply 017 via Dashboard.
 ## VERIFICATION OUTPUT
 - tsc: 0 errors (after each phase). Build: `BUILD_EXIT=0`, `[korean-test-gate] PASS`, `✓ Compiled successfully`. localhost: 307.
 - Structural greps (Q3 guard / Q6 audit / Q4 pool): pasted in Phase 7 verification.
+
+## PR
+PR #447: https://github.com/CCAFRICA/spm-platform/pull/447 (NOT merged — architect applies 017 + runs EPGs first).
