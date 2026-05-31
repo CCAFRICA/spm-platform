@@ -144,7 +144,7 @@ catch fires only on an unexpected runtime throw.
 - **AP-1:** removing the duplicate removes the execute-side `documentMetadata.fileBase64`
   CONSUMER; the field itself (analyze-document/SCIExecution) is a separate cleanup (§6A).
 - **Korean Test (EPG-5):** removal only; zero new literals.
-- **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next`→build(0)→dev→307; PR opened (URL below), NOT merged. ASCII commits.
+- **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next`→build(0)→dev→307; PR **#445** (https://github.com/CCAFRICA/spm-platform/pull/445), NOT merged — architect merges after live EPGs. ASCII commits.
 
 ## KNOWN ISSUES
 1. **EPG-1/2/4/7 are architect-gated (live).** Single-sheet + multi-sheet plan imports
