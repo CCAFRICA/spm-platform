@@ -1024,12 +1024,22 @@ export class AnthropicAdapter implements AIProviderAdapter {
       systemPrompt = systemPrompt.replace('<<PRIME_GRAMMAR>>', generatePromptGrammarSection());
     }
 
-    // Build message content — supports both plain text and document blocks (PDF)
+    // Build message content — supports both plain text and document blocks.
+    // HF-258 (Q2 content-channel unification): attach the document block based on the
+    // content unit's structural TYPE, not the task name. A `document` content unit carries
+    // a base64 payload (materialized server-side from storage upstream); a `text` unit does
+    // not. `contentType` is the explicit content-unit type produced at ingestion; the
+    // `pdfBase64 ? 'document' : 'text'` fallback makes this self-sufficient and
+    // regression-proof for any task that carries a document payload (incl. the previously
+    // gated plan_interpretation/document_analysis). Korean Test: dispatch on content
+    // identity, never on task-name or format-name literals. This restores PDF on the
+    // orchestrator's plan_skeleton/plan_component/chunk tasks (DIAG-058 regression).
     const pdfBase64 = request.input.pdfBase64 as string | undefined;
     const pdfMediaType = (request.input.pdfMediaType as string) || 'application/pdf';
+    const contentType = (request.input.contentType as string | undefined) ?? (pdfBase64 ? 'document' : 'text');
     let messageContent: unknown;
 
-    if (pdfBase64 && (request.task === 'plan_interpretation' || request.task === 'document_analysis')) {
+    if (pdfBase64 && contentType === 'document') {
       // PDF document block — send directly to Claude for native reading
       // HF-064: Strip data URI prefix if present (safety net)
       const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, '');

@@ -126,6 +126,7 @@ export async function POST(req: NextRequest) {
     if (isPdf) {
       aiInput.pdfBase64 = fileBase64;
       aiInput.pdfMediaType = mimeType;
+      aiInput.contentType = 'document'; // HF-258: explicit content-unit type for the adapter document-block gate
     } else {
       aiInput.extractedText = extractedText || '';
     }
@@ -238,7 +239,9 @@ export async function POST(req: NextRequest) {
         ? ['If the document structure differs from what was analyzed, classification may change']
         : [],
       documentMetadata: {
-        fileBase64,
+        // HF-258 (Q5): fileBase64 no longer set on the proposal — dead at execute
+        // (unconsumed). Execute reads the document from storagePath; base64 materialized
+        // server-side. mimeType marker retained for the proposal doc-plan UI flag.
         mimeType,
         extractionSummary: {
           documentType: analysis.documentType,

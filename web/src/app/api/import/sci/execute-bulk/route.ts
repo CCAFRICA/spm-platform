@@ -83,10 +83,10 @@ interface BulkContentUnit {
   vocabularyBindings?: unknown;
   sourceFile?: string;
   tabName?: string;
-  // HF-239: optional plan-classification document metadata. Plan units may
-  // arrive with a fileBase64 in the request body (legacy single-unit fallback)
-  // or rely on storagePath; either is accepted.
-  documentMetadata?: { fileBase64?: string; mimeType?: string };
+  // HF-258 (Q5): fileBase64 retired from the request body (dead at execute — unconsumed;
+  // AUD-0015/HALT-3). Plan units are read from storagePath; base64 is materialized
+  // server-side from storage. mimeType marker retained (no file bytes in the body, AP-1).
+  documentMetadata?: { mimeType?: string };
 }
 
 interface BulkRequest {
