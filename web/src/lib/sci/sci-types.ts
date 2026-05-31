@@ -315,7 +315,10 @@ export interface ContentUnitProposal {
   whatChangesMyMind: string[];        // falsifiable conditions that would flip classification
   // OB-133: Document metadata for PPTX/PDF/DOCX plan proposals
   documentMetadata?: {
-    fileBase64: string;
+    // HF-258 (Q5): fileBase64 retired — dead at execute (unconsumed; AUD-0015/HALT-3).
+    // Document content is referenced by storagePath and base64 is materialized server-side
+    // from storage; no file bytes ride request bodies (AP-1). mimeType marker retained so
+    // the proposal UI doc-plan flag (SCIProposal: !!unit.documentMetadata) still works.
     mimeType: string;
     extractionSummary?: Record<string, unknown>;
   };
@@ -351,7 +354,10 @@ export interface ContentUnitExecution {
   rawData: Record<string, unknown>[];  // the actual rows to process
   // OB-133: Document metadata for plan interpretation pipeline
   documentMetadata?: {
-    fileBase64: string;
+    // HF-258 (Q5): fileBase64 retired — dead at execute (unconsumed; AUD-0015/HALT-3).
+    // Document content is referenced by storagePath and base64 is materialized server-side
+    // from storage; no file bytes ride request bodies (AP-1). mimeType marker retained so
+    // the proposal UI doc-plan flag (SCIProposal: !!unit.documentMetadata) still works.
     mimeType: string;
     extractionSummary?: Record<string, unknown>;
   };

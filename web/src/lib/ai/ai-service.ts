@@ -251,6 +251,7 @@ export class AIService {
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
+      input.contentType = 'document'; // HF-258: explicit content-unit type — adapter attaches the document block on this, not task name
     }
     const response = await this.execute(
       {
@@ -281,6 +282,7 @@ export class AIService {
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
+      input.contentType = 'document'; // HF-258: explicit content-unit type — adapter attaches the document block on this, not task name
     }
     return this.execute(
       {
@@ -318,6 +320,7 @@ export class AIService {
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
+      input.contentType = 'document'; // HF-258: explicit content-unit type — adapter attaches the document block on this, not task name
     }
     return this.execute(
       {
@@ -357,6 +360,7 @@ export class AIService {
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
+      input.contentType = 'document'; // HF-258: explicit content-unit type — adapter attaches the document block on this, not task name
     }
     return this.execute(
       {
@@ -394,6 +398,7 @@ export class AIService {
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
+      input.contentType = 'document'; // HF-258: explicit content-unit type — adapter attaches the document block on this, not task name
     }
     return this.execute(
       {
