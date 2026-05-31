@@ -326,7 +326,7 @@ export async function POST(req: NextRequest) {
         const result = await processContentUnit(
           supabase, tenantId, proposalId, profileId,
           effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
-          parse.fileHash, parse.path,
+          parse.fileHash,
         );
         results.push(result);
       } catch (err) {
@@ -450,7 +450,8 @@ async function processContentUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
-  storagePath: string,
+  // HF-257: `storagePath` parameter removed — only the deleted per-unit `case 'plan'`
+  // (executePlanPipeline) used it; the four data pipelines bind by parsed rows.
 ): Promise<ContentUnitResult> {
   switch (unit.confirmedClassification) {
     case 'entity':

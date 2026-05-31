@@ -9,9 +9,9 @@
 | Hash | Phase | Description |
 |---|---|---|
 | `27d241c4` | 1 | Architecture Decision Record (+ directive, Rule 29) |
-| (this) | 2+3 | Pre-edit enumeration + fold-or-drop analysis (report only) |
-| (pending) | 4 | Remove duplicate per-unit plan path; harden batched catch |
-| (pending) | 5 | Completion report + build |
+| `a537735e` | 2+3 | Pre-edit enumeration + fold-or-drop analysis (report only) |
+| `3dbf1518` | 4 | Remove duplicate per-unit plan path; harden batched catch |
+| (this commit) | 5 | Completion report + build (incl. dead `storagePath` param cleanup) |
 
 ## FILES MODIFIED
 | File | Change |
@@ -74,21 +74,90 @@ explicit failure reporting in the single path).
 |---|---|---|---|
 | EPG-1 | Single-sheet plan import (the batched path) produces the same rule_set and the same `[PlanComprehensionEmitter] Emitted N …` as before removal | PENDING — architect-run | live |
 | EPG-2 | Multi-sheet plan import (the batched path) produces the same rule_set as before removal | PENDING — architect-run | live |
-| EPG-3 | Single plan pipeline confirmed: `executePlanPipeline` is deleted; the only plan-interpretation function is `executeBatchedPlanInterpretation`; no caller of the removed function remains | (pending) | grep |
-| EPG-4 | Non-plan pipelines untouched — target/transaction/entity/reference imports still classify and commit | PENDING — architect-run | live |
-| EPG-5 | Korean Test — zero new hardcoded format/language/domain literals (removal only) | (pending) | grep |
-| EPG-6 | `npm run build` exits 0 (incl. korean-test gate); `tsc --noEmit` clean (no dangling refs); `localhost:3000` responds | (pending) | output |
+| EPG-3 | Single plan pipeline confirmed: `executePlanPipeline` is deleted; the only plan-interpretation function is `executeBatchedPlanInterpretation`; no caller of the removed function remains | **PASS** | grep below |
+| EPG-4 | Non-plan pipelines untouched — target/transaction/entity/reference imports still classify and commit | PENDING — architect-run | live (preserved-by-construction; arms unchanged) |
+| EPG-5 | Korean Test — zero new hardcoded format/language/domain literals (removal only) | **PASS** | grep below |
+| EPG-6 | `npm run build` exits 0 (incl. korean-test gate); `tsc --noEmit` clean (no dangling refs); `localhost:3000` responds | **PASS** | output below |
 | EPG-7 | Document-plan import end-to-end still works through the single path (no regression of HF-256) | PENDING — architect-run | live |
-| EPG-8 | Batched-throw safety: if the batched path throws, the affected plan units are reported as explicit failures (not silently dropped, not re-interpreted by a duplicate) | (pending) | code |
+| EPG-8 | Batched-throw safety: if the batched path throws, the affected plan units are reported as explicit failures (not silently dropped, not re-interpreted by a duplicate) | **PASS** (code) | code below |
+
+### EPG-3 (PASS)
+```
+$ grep -rnE 'executePlanPipeline\(' web/src --include='*.ts'
+ZERO calls/definitions — PASS (single plan pipeline)
+$ grep -nE '^export (async )?function' web/src/lib/sci/plan-interpretation.ts
+26:export async function executeBatchedPlanInterpretation(   ← the ONLY plan-interpretation function
+```
+The `case 'plan'` switch arm no longer calls a plan interpreter — it returns an explicit
+failure (any plan unit reaching it is unexpected, since the batched dispatch marks all plan
+units handled). Remaining `executePlanPipeline` text matches are comments only.
+
+### EPG-5 (PASS)
+```
+$ grep -rnE '"(pdf|pptx|docx|xlsx|BCL|Meridian|Periodo)"' web/src/app/api/import/sci/execute-bulk/route.ts
+ZERO new literals in execute-bulk — PASS
+```
+Removal only; no format/language/domain literal introduced.
+
+### EPG-6 (PASS)
+```
+$ rm -rf .next && npm run build
+[korean-test-gate] PASS: zero hardcoded legacy primitive-name string literals outside registry
+ ✓ Compiled successfully
+BUILD_EXIT=0
+$ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+307
+```
+`tsc --noEmit`: 0 errors. **Build-surfaced cleanup:** removing the `case 'plan'` call left the
+`processContentUnit` `storagePath` parameter unused (`@typescript-eslint/no-unused-vars`
+error); the dead parameter + its argument were removed (only the deleted plan arm used it;
+the four data pipelines bind by parsed rows).
+
+### EPG-8 (PASS — code)
+The batched dispatch catch now records explicit per-unit failures (and marks them handled)
+rather than relying on the removed duplicate:
+```ts
+} catch (err) {
+  console.error(`[SCI Bulk] Batched plan interpretation threw for ${planPath} (units reported as failures):`, err);
+  for (const pu of group) {
+    results.push({ contentUnitId: pu.contentUnitId, classification: 'plan', success: false,
+      rowsProcessed: 0, pipeline: 'plan-interpretation',
+      error: `Batched plan interpretation failed: ${err instanceof Error ? err.message : String(err)}` });
+    handledPlanUnitIds.add(pu.contentUnitId);
+  }
+}
+```
+And the `case 'plan'` arm returns an explicit failure (never re-interprets). Note: the
+batched function returns its KNOWN failures as values (download/no-content/AI/save), so this
+catch fires only on an unexpected runtime throw.
 
 ## PROOF GATES — SOFT
 (n/a)
 
 ## STANDING RULE COMPLIANCE
-(filled at completion)
+- **AP-17 closure:** one plan-interpretation function (`executeBatchedPlanInterpretation`);
+  the per-unit duplicate is deleted (EPG-3). The single-pipeline requirement is met
+  unconditionally — not gated on the duplicate's reachability (reverses HF-256's conditional).
+- **SR-34:** structural close (duplicate removed), not left-unreachable.
+- **DD-7 / preserved paths:** the batched plan path (single + multi-sheet) is unchanged; the
+  four non-plan arms (entity/target/transaction/reference) are untouched (EPG-4).
+- **AP-1:** removing the duplicate removes the execute-side `documentMetadata.fileBase64`
+  CONSUMER; the field itself (analyze-document/SCIExecution) is a separate cleanup (§6A).
+- **Korean Test (EPG-5):** removal only; zero new literals.
+- **D.1/D.2/D.3:** per-phase commit+push; `rm -rf .next`→build(0)→dev→307; PR opened (URL below), NOT merged. ASCII commits.
 
 ## KNOWN ISSUES
-(filled at completion)
+1. **EPG-1/2/4/7 are architect-gated (live).** Single-sheet + multi-sheet plan imports
+   (same rule_set as before), non-plan imports (still commit), document-plan end-to-end
+   (HF-256 non-regression). Code shipped; architect runs + merges.
+2. **`documentMetadata.fileBase64` field retirement (§6A residual).** With the duplicate
+   consumer gone, the field is set (`analyze-document`) and forwarded (`SCIExecution`) but no
+   longer consumed at execute by any plan path. Removing it from analyze/forward (AP-1
+   Storage-only end-state) is a separate transport-cleanup item, named not done here.
+3. **`plan-deferred` branch removed (dead).** It returned a deferred success only when a unit
+   had neither `fileBase64` nor `storagePath`; post HF-255/256 every uploaded file has a
+   storagePath, so it was dead. Removed with the duplicate.
 
 ## VERIFICATION SCRIPT OUTPUT
-(filled at completion)
+- EPG-3 grep (zero calls; one exported plan function), EPG-5 grep (zero new literals): above.
+- Build: `BUILD_EXIT=0`, `[korean-test-gate] PASS`, `✓ Compiled successfully`. `tsc`: 0 errors. localhost: 307.
