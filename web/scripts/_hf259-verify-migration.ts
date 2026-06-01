@@ -1,4 +1,5 @@
-// HF-259 migration verification (run AFTER the architect applies 017 via Dashboard).
+// HF-259 migration verification (run AFTER the architect applies
+// 20260531000000_hf259_idempotency_lifecycle.sql via Dashboard).
 // Service-role client; confirms the two tables exist with the expected columns + the
 // single-flight unique constraint behaves. Read-only except a transient self-cleaning probe.
 import { createClient } from '@supabase/supabase-js';
@@ -21,6 +22,6 @@ async function main() {
   console.log('=== HF-259 migration verification ===');
   const a = await tableOk('plan_interpretation_runs', ['tenant_id', 'content_hash', 'status', 'rule_set_id']);
   const b = await tableOk('rule_set_lifecycle_events', ['tenant_id', 'rule_set_id', 'event_type', 'predecessor_id', 'actor', 'reason']);
-  console.log(a && b ? 'RESULT: both tables present — migration applied.' : 'RESULT: NOT fully applied — architect to apply 017 via Dashboard.');
+  console.log(a && b ? 'RESULT: both tables present — migration applied.' : 'RESULT: NOT fully applied — architect to apply 20260531000000_hf259_idempotency_lifecycle.sql via Dashboard.');
 }
 main().catch(e => { console.error(e); process.exit(1); });

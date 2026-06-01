@@ -1,4 +1,4 @@
--- 017_hf259_idempotency_lifecycle.sql
+-- 20260531000000_hf259_idempotency_lifecycle.sql
 -- HF-259 (1C completing slice): execution idempotency (Q3) + audited rule_set supersession (Q6).
 --
 -- FP-49: schema verified live at HEAD 18e055c7 before authoring — rule_sets has no lifecycle/

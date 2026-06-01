@@ -75,7 +75,7 @@ status badge + "supersedes <predecessor>" where a plan card renders. A dedicated
 ## Scope / HALT
 In scope: Q3+Q6+Q4 + lifecycle visibility. No HALT fires (design fits the live structure; schema is additive;
 parallelization preserves per-component logic). OUT: HF-258 (merged), calc internals (AUD-005), dedicated audit
-UI, VG substrate work. SQL: CC authors `017_hf259_*.sql`; architect applies via Dashboard; CC verifies via tsx.
+UI, VG substrate work. SQL: CC authors `web/supabase/migrations/20260531000000_hf259_idempotency_lifecycle.sql` (relocated from a mis-placed repo-root `017_*` per the of-record dir + timestamp scheme); architect applies via Dashboard; CC verifies via tsx.
 
 ## Anti-pattern check
 SR-34: structural guards (single-flight + fingerprint dedup + lifecycle table), not another supersede-site point

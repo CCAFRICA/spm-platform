@@ -9,7 +9,7 @@ Start: `18e055c7` (dev reset to main). Final code commit: `d93e9d88`.
 | Hash | Phase | Description |
 |---|---|---|
 | `1bf13a84` | 1 | ADR + FP-49 schema gate (in ADR) |
-| `d378df7c` | 3 | Migration 017 (idempotency + lifecycle tables) + verification script |
+| `d378df7c` | 3 | Migration (idempotency + lifecycle tables) + verification script — authored as repo-root `017_*`, later relocated to `web/supabase/migrations/20260531000000_hf259_idempotency_lifecycle.sql` (of-record dir + timestamp scheme) |
 | `2c534214` | 4+5 | Idempotency (Q3) + audited supersession (Q6) + lifecycle UI |
 | `d93e9d88` | 6 | Bounded-concurrency parallel Phase B (Q4) |
 | (this commit) | 8 | Completion report + build |
@@ -17,7 +17,7 @@ Start: `18e055c7` (dev reset to main). Final code commit: `d93e9d88`.
 ## FILES MODIFIED / ADDED
 | File | Change |
 |---|---|
-| `supabase/migrations/017_hf259_idempotency_lifecycle.sql` | NEW — `plan_interpretation_runs` (single-flight + reuse) + `rule_set_lifecycle_events` (audit). |
+| `web/supabase/migrations/20260531000000_hf259_idempotency_lifecycle.sql` | NEW — `plan_interpretation_runs` (single-flight + reuse) + `rule_set_lifecycle_events` (audit). Of-record dir + timestamp scheme. |
 | `web/src/lib/sci/plan-idempotency.ts` | NEW — degrade-safe Q3/Q6 helpers. |
 | `web/src/lib/sci/plan-interpretation.ts` | Q3 guard (reuse + single-flight) at the sole plan path; failRun/completeRun; Q6 audited supersede. |
 | `web/src/lib/sci/plan-orchestration.ts` | Q4 — sequential Phase B loop → order-preserving bounded-concurrency pool. |
@@ -44,7 +44,7 @@ import_batches: ... file_hash_sha256, content_unit_hash_sha256, superseded_by, s
 structural_fingerprints: ... [the tabular moat — PRESERVED read-only, untouched]
 proposed tables rule_set_lifecycle_events / plan_interpretation_runs: ABSENT → safe to create (no HALT-2)
 ```
-Migration `017` authored AFTER this paste. **Architect applies via Supabase Dashboard SQL Editor.**
+Migration `20260531000000_hf259_idempotency_lifecycle.sql` (web/supabase/migrations/) authored AFTER this paste. **Architect applies via Supabase Dashboard SQL Editor.**
 Pre-apply verification baseline (`_hf259-verify-migration.ts`):
 ```
 plan_interpretation_runs: MISSING — Could not find the table ... (expected pre-apply)
@@ -75,7 +75,7 @@ RESULT: NOT fully applied — architect to apply 017 via Dashboard.
 - **D.1/D.2/D.3:** per-phase commit+push; build(0)→dev→307; PR below.
 
 ## KNOWN ISSUES
-1. **Migration apply is architect-gated (Dashboard).** All behavioral EPGs (idempotency, reuse, audit, parallel) require `017` applied + live imports. Code is degrade-safe pre-apply (no idempotency/audit until applied, but no crash). `_hf259-verify-migration.ts` confirms post-apply.
+1. **Migration apply is architect-gated (Dashboard).** All behavioral EPGs (idempotency, reuse, audit, parallel) require `20260531000000_hf259_idempotency_lifecycle.sql` applied + live imports. Code is degrade-safe pre-apply (no idempotency/audit until applied, but no crash). `_hf259-verify-migration.ts` confirms post-apply.
 2. **RLS subquery shape** on the two tables references `profiles(auth_user_id, tenant_id)` — confirm against the live profiles policy shape at apply (writes are service-role; SELECT is the only RLS-gated path).
 3. **Stuck single-flight claim:** a process crash between claim and complete/fail leaves a stale `in_progress` row that would block re-import of that exact content. failRun covers all in-code failure returns; an out-of-band crash needs a TTL/age reclaim (documented as the "thin async envelope" follow-on; not the full async queue — Q4's larger form is out of scope).
 4. **Default component name fallback** (Q4): missing-id/name entries now use `index` not `components.length` — deterministic; real plans carry skeleton ids/names (no effect). Documented for DD-7 completeness.

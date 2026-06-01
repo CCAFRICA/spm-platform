@@ -1,7 +1,7 @@
 // HF-259 (Q3 idempotency + Q6 lifecycle audit) — degrade-safe helpers.
 //
 // All functions are best-effort: if the backing tables (plan_interpretation_runs,
-// rule_set_lifecycle_events; migration 017) are NOT yet applied, or any unexpected error
+// rule_set_lifecycle_events; migration 20260531000000_hf259_idempotency_lifecycle.sql) are NOT yet applied, or any unexpected error
 // occurs, they DEGRADE to current (pre-HF-259) behavior — never crash the import:
 //   - findCompletedRuleSet → null (no reuse; proceed to derive)
 //   - claimRun → { claimed: true } on table-missing/unknown (proceed to execute);
