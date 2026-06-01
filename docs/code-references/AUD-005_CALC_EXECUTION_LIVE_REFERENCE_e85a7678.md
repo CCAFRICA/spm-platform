@@ -1,7 +1,7 @@
 # AUD-005 — CALC-EXECUTION LIVE CODE REFERENCE (post-HF-238 Prime-DAG Engine)
 
 ## Generated at SHA: `e85a7678da579e60531a86a19f08bb1857853e59` (branch `dev`)
-## Date: 2026-06-01 · Refresh trigger: DIAG-053 (HF-238 engine rebuild) · Classification: read-only live-code SSOT
+## Date: 2026-06-01 · Refresh trigger: DIAG-58 (HF-238 engine rebuild) · Classification: read-only live-code SSOT
 ## Supersedes for calc-execution citation: `AUD-005_..._5314c365.md` (2026-05-06, **pre-HF-238 — describes a DELETED engine**)
 ## Companion: `AUD-0015_..._dede922b.md` (ingestion/interpretation half — separately pinned, NOT refreshed here)
 
@@ -110,17 +110,17 @@ context.metrics any longer."* `EntityData.scopeAggregates` field **deleted** (`:
 | `scope_aggregate` → DAG | `legacy-intent-to-dag.ts:130-156` | translation |
 | `allEntityRowsForPeriod` build/wire | `run/route.ts:1704-1720, 2436-2450` | read-only-context |
 
-## §7 — Aggregate-scope capability boundary (the DIAG-053 finding, anchored here)
-- **Peer-entity aggregation (sum a field across sibling ENTITIES sharing a metadata boundary, self-excluded): IMPLEMENTED & COMPLETE.** This is the CRP-Plan-4 / district-override class. Runtime: `scope(district)→aggregate(sum,revenue)` over D1 reps = **300** (DIAG-053 harness).
+## §7 — Aggregate-scope capability boundary (the DIAG-58 finding, anchored here)
+- **Peer-entity aggregation (sum a field across sibling ENTITIES sharing a metadata boundary, self-excluded): IMPLEMENTED & COMPLETE.** This is the CRP-Plan-4 / district-override class. Runtime: `scope(district)→aggregate(sum,revenue)` over D1 reps = **300** (DIAG-58 harness).
 - **Reference-row→member projection (take ONE boundary-keyed reference row carrying hub totals and resolve it as each member's input): NOT IMPLEMENTED.** The scope prime keys on `entityMetadata[boundary]`; a hub reference row's entity metadata is `{}` (live) → never matched. Runtime: faithful projection attempt = **0**. The Meridian fleet shape has no engine path.
 - **Pre-HF-238 parity:** the deleted `aggregateScopeRows` (HF-155/OB-186) ALSO matched on `entities.metadata` (`district`/`region`/`store_id`) over peer entities — same semantic class. Reference-row projection was **never** present. ⇒ **Condition A (additive gap), not a regression.**
-- **Latent footgun (separate):** when an entity lacks the boundary attribute, `boundaryValue=undefined` matches every sibling whose `entityMetadata[boundary]` is also `undefined` (`undefined===undefined`), spuriously aggregating metadata-less rows. Observed in DIAG-053; not the fleet determination — recorded for hardening.
+- **Latent footgun (separate):** when an entity lacks the boundary attribute, `boundaryValue=undefined` matches every sibling whose `entityMetadata[boundary]` is also `undefined` (`undefined===undefined`), spuriously aggregating metadata-less rows. Observed in DIAG-58; not the fleet determination — recorded for hardening.
 
-*AUD-005 (calc-execution) refreshed to `e85a7678` by DIAG-053. No code edited. Refresh on any calc-surface change.*
+*AUD-005 (calc-execution) refreshed to `e85a7678` by DIAG-58. No code edited. Refresh on any calc-surface change.*
 
 ### Refresh log
 | SHA | Date | Trigger |
 |---|---|---|
 | `f6e3dca1` | (prior) | original AUD-005 calc-execution reference |
 | `5314c365` | 2026-05-06 | post-HF-205 (pre-HF-238 — now historical) |
-| `e85a7678` | 2026-06-01 | **DIAG-053 — HF-238 prime-DAG engine rebuild** |
+| `e85a7678` | 2026-06-01 | **DIAG-58 — HF-238 prime-DAG engine rebuild** |
