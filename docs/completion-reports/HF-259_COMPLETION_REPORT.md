@@ -49,7 +49,7 @@ Pre-apply verification baseline (`_hf259-verify-migration.ts`):
 ```
 plan_interpretation_runs: MISSING — Could not find the table ... (expected pre-apply)
 rule_set_lifecycle_events: MISSING — ...
-RESULT: NOT fully applied — architect to apply 017 via Dashboard.
+RESULT: NOT fully applied — architect to apply the HF-259 migration via Dashboard.
 ```
 
 ## PROOF GATES
@@ -70,7 +70,7 @@ RESULT: NOT fully applied — architect to apply 017 via Dashboard.
 - **SR-34:** structural guards (single-flight + fingerprint reuse + lifecycle table), not another supersede-site point fix (the BCL/HF-244 recurrence class). **Read-before-derive:** Q3 layer 1.
 - **DD-7 / moat:** Q4 changes scheduling only (per-component inputs/logic unchanged → byte-identical); the tabular `structural_fingerprints` moat is not read or written (Q3 uses its own content-hash key in `plan_interpretation_runs`). Single plan path (HF-257) + HF-258 channel + calc handoff untouched.
 - **AP-1/AP-17:** preserved from HF-258. **AP-13/FP-49:** schema verified before SQL.
-- **Degrade-safe:** all new-table access falls back to current behavior pre-apply (claimRun → execute on table-missing; reuse → null; audit → no-op) — build/path never crashes before the architect applies 017.
+- **Degrade-safe:** all new-table access falls back to current behavior pre-apply (claimRun → execute on table-missing; reuse → null; audit → no-op) — build/path never crashes before the architect applies the migration.
 - **Vertical Slice:** engine half (Q3/Q6/Q4) + experience half (PlanCard lifecycle badge) in one PR.
 - **D.1/D.2/D.3:** per-phase commit+push; build(0)→dev→307; PR below.
 
@@ -86,4 +86,4 @@ RESULT: NOT fully applied — architect to apply 017 via Dashboard.
 - Structural greps (Q3 guard / Q6 audit / Q4 pool): pasted in Phase 7 verification.
 
 ## PR
-PR #447: https://github.com/CCAFRICA/spm-platform/pull/447 (NOT merged — architect applies 017 + runs EPGs first).
+PR #447: https://github.com/CCAFRICA/spm-platform/pull/447 (NOT merged — architect applies 20260531000000_hf259_idempotency_lifecycle.sql + runs EPGs first).
