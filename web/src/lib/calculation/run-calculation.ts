@@ -1416,7 +1416,9 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       // OB-196 Phase 2: Legacy SHAPE fields removed; precision derives from foundational
       // intent only. inferOutputPrecision tolerates undefined componentConfig.
       const componentIntent = component.calculationIntent as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(componentIntent, undefined);
+      // HF-265 (P3): force integer precision (Decision-122 banker's rounding via roundComponentOutput);
+      // see run/route.ts — no-op for already-integer components, rounds fractional ones (e.g. fleet C5).
+      const precision = { ...inferOutputPrecision(componentIntent, undefined), decimalPlaces: 0 };
       const { rounded } = roundComponentOutput(result.payout, componentResults.length, component.name, precision);
       result.payout = toNumber(rounded);
 

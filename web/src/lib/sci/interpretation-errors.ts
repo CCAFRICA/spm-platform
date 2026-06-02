@@ -119,8 +119,15 @@ export function classifyInterpretationError(
  */
 export function retryPolicy(errClass: InterpretationErrorClass): RetryPolicySpec {
   switch (errClass) {
-    case 'cognition_truncation':
     case 'cognition_violation':
+      // HF-265 (P2.2): bounded retry. A malformed CompositionalIntent (missing shape/kind
+      // discriminants on branch nodes) can vary across attempts, so 3 attempts gives the LLM a
+      // chance to self-correct. CAVEAT (HALT-2): interpretPlanComponent runs at temperature 0 and
+      // takes no retry-hint parameter, so without a prompt-level structural hint (threading that
+      // requires the adapter plan_component prompt-build — out of HF-265 scope, §6) the retry may
+      // reproduce the same output. The effective-retry hint is deferred to the §6A emission DIAG.
+      return { maxAttempts: 3, backoffMs: 0 };
+    case 'cognition_truncation':
       return { maxAttempts: 1, backoffMs: 0 };
     case 'adapter_rate_limit':
       return { maxAttempts: 3, backoffMs: 2000 };  // 2s, 4s
