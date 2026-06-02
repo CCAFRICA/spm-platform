@@ -34,9 +34,11 @@ export async function resolveEntitiesFromCommittedData(
   // HF-199 D3: also discover attribute columns per batch for entities.materializedState projection
   const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null; attributeColumns: string[] }>();
   const batchLabels = new Map<string, string>(); // batchId -> informational_label
-  // HF-263: batchId -> committed_data.data_type ('entity' | 'transaction' | 'reference' | ...),
-  // for structural entity-type classification (reference-only provenance → grouping entity).
-  const batchDataType = new Map<string, string>();
+  // HF-263 (corrected, Decision 111): batchId -> the structuralType of the column that produced
+  // this batch's external_ids (its idColumn). 'identifier' => individual; 'reference_key' => a
+  // grouping entity (location). Import-order independent — HC classifies the column the same way
+  // regardless of what was imported before. Korean Test: structuralType enum only, no column names.
+  const batchIdStructType = new Map<string, string>();
   const BATCH_SIZE = 200;
 
   const seenBatches = new Set<string>();
@@ -47,7 +49,7 @@ export async function resolveEntitiesFromCommittedData(
   while (true) {
     const { data: rows } = await supabase
       .from('committed_data')
-      .select('import_batch_id, metadata, data_type')
+      .select('import_batch_id, metadata')
       .eq('tenant_id', tenantId)
       .range(offset, offset + 999);
 
@@ -57,11 +59,6 @@ export async function resolveEntitiesFromCommittedData(
       const batchId = row.import_batch_id as string | null;
       if (!batchId || seenBatches.has(batchId)) continue;
       seenBatches.add(batchId);
-
-      // HF-263: record the batch's data_type before any metadata-based continue,
-      // so reference-classified batches are classifiable even when metadata is sparse.
-      const batchDt = (row as { data_type?: string | null }).data_type;
-      if (batchDt) batchDataType.set(batchId, batchDt);
 
       const meta = row.metadata as Record<string, unknown> | null;
       if (!meta) continue;
@@ -92,24 +89,12 @@ export async function resolveEntitiesFromCommittedData(
       }> | undefined;
 
       if (fieldIds && Object.keys(fieldIds).length > 0) {
-        // Korean Test: match on structuralType, not column names
-        if (!idColumn) {
-          for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (fi.structuralType === 'identifier' &&
-                fi.contextualIdentity?.toLowerCase().includes('person')) {
-              idColumn = colName;
-              break; // HF-196 Phase 1B: first-match-wins (was: last-match-wins, source of regression)
-            }
-          }
-        }
-        for (const [colName, fi] of Object.entries(fieldIds)) {
-          if (fi.structuralType === 'name' &&
-              fi.contextualIdentity?.toLowerCase().includes('person')) {
-            nameColumn = colName;
-            break;
-          }
-        }
-        // Fallback within field_identities: any name column
+        // HF-263 (corrected): Korean Test — select by structuralType ONLY. The prior
+        // `contextualIdentity.toLowerCase().includes('person')` content-matching (on both the
+        // identifier and name selection) was a hardcoded-vocabulary violation and is removed.
+        // entity_id_field (above) remains the authoritative override; these are first-match
+        // structural fallbacks.
+        // Name: first name column
         if (!nameColumn) {
           for (const [colName, fi] of Object.entries(fieldIds)) {
             if (fi.structuralType === 'name') {
@@ -141,6 +126,14 @@ export async function resolveEntitiesFromCommittedData(
       }
 
       if (idColumn) {
+        // HF-263 (corrected): record the idColumn's structuralType (from field_identities) so the
+        // external_ids it produces inherit it for Decision-111 entity typing. Works even when
+        // idColumn was chosen via entity_id_field or semantic_roles, as long as field_identities
+        // carries the column (Meridian reference batch: idColumn=Hub via semantic_roles, but
+        // field_identities[Hub].structuralType === 'reference_key').
+        const idFi = fieldIds?.[idColumn];
+        if (idFi?.structuralType) batchIdStructType.set(batchId, idFi.structuralType);
+
         // HF-199 D3: discover attribute columns from field_identities (Korean Test compliant —
         // iterates structuralType only; no language-specific column-name matching).
         // Only entity-typed batches (Plantilla / roster) carry attribute projections — exclude
@@ -179,9 +172,9 @@ export async function resolveEntitiesFromCommittedData(
   // Iterates field_identities-marked attribute columns only — no language-specific
   // column-name matching. Korean Test compliant.
   const entityAttributes = new Map<string, Record<string, unknown>>();
-  // HF-263: external_id -> set of source data_types it was discovered from. An id seen
-  // ONLY in reference-classified rows is a grouping entity (typed 'location' below).
-  const extIdDataTypes = new Map<string, Set<string>>();
+  // HF-263 (corrected): external_id -> set of structuralTypes of the idColumns that produced it.
+  // 'identifier' => individual (a real person id wins); else 'reference_key' => grouping (location).
+  const extIdStructTypes = new Map<string, Set<string>>();
 
   for (const batchId of discoveryBatchIds) {
     const { idColumn, nameColumn, attributeColumns } = batchIdentifiers.get(batchId)!;
@@ -209,12 +202,13 @@ export async function resolveEntitiesFromCommittedData(
           allEntities.set(extId, name);
         }
 
-        // HF-263: accumulate the source data_type for this external_id.
-        const srcDt = batchDataType.get(batchId);
-        if (srcDt) {
-          let dts = extIdDataTypes.get(extId);
-          if (!dts) { dts = new Set<string>(); extIdDataTypes.set(extId, dts); }
-          dts.add(srcDt);
+        // HF-263 (corrected): record the structuralType of the idColumn that produced this
+        // external_id, for Decision-111 entity typing at creation below.
+        const idStruct = batchIdStructType.get(batchId);
+        if (idStruct) {
+          let sts = extIdStructTypes.get(extId);
+          if (!sts) { sts = new Set<string>(); extIdStructTypes.set(extId, sts); }
+          sts.add(idStruct);
         }
 
         // HF-199 D3: project attribute columns from entity-typed batches only.
@@ -246,7 +240,7 @@ export async function resolveEntitiesFromCommittedData(
       for (const val of sampleValues) {
         allEntities.delete(val);
         entityAttributes.delete(val); // HF-199 D3: also drop spurious attribute projections
-        extIdDataTypes.delete(val);   // HF-263: drop provenance tracking for skipped ids
+        extIdStructTypes.delete(val);   // HF-263: drop provenance tracking for skipped ids
       }
     }
   }
@@ -296,16 +290,18 @@ export async function resolveEntitiesFromCommittedData(
 
   for (const [extId, name] of Array.from(allEntities.entries())) {
     if (!existingMap.has(extId)) {
-      // HF-263 (CPI Phase 1): structural entity-type classification. An external_id
-      // discovered ONLY from reference-classified source rows is a grouping entity
-      // (hub / territory / department), not a payable individual — type it 'location'.
-      // Korean Test: keys on data_type classification, never on the entity name or
-      // external_id format. A Hangul-named hub from a reference sheet classifies identically.
-      const sourceDataTypes = extIdDataTypes.get(extId);
-      const entityType = sourceDataTypes && sourceDataTypes.size > 0
-        && Array.from(sourceDataTypes).every(t => t === 'reference')
-        ? 'location'
-        : 'individual';
+      // HF-263 (CPI Phase 1, corrected — Decision 111): entity_type derives from the structuralType
+      // of the idColumn(s) that produced this external_id. A real person identifier wins (always an
+      // 'individual'); otherwise an id discovered as a 'reference_key' is a grouping entity →
+      // 'location'. Anything else (or no field_identity) defaults to 'individual'. Import-order
+      // independent (HC classifies the column stably). Korean Test: structuralType enum ONLY — never
+      // the entity name, external_id format, or contextualIdentity string content.
+      const structTypes = extIdStructTypes.get(extId);
+      const entityType = structTypes?.has('identifier')
+        ? 'individual'
+        : structTypes?.has('reference_key')
+          ? 'location'
+          : 'individual';
       newEntities.push({
         tenant_id: tenantId,
         external_id: extId,
