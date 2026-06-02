@@ -2850,6 +2850,55 @@ async function generateAllComponentBindings(
       };
     }
     } // end for (match of groupMatches)
+
+    // ── HF-263 P3.2 (HALT-B): post-pass cross-source redirect ──
+    // entity_identifier is now bound for every component in this group, so its
+    // batch is known. Sweep the measure bindings: a cross_source_numeric column
+    // that has a same-batch (same key space as the entity identifier) alternative
+    // of matching magnitude is redirected, so the engine resolves it through
+    // resolveColumnFromBatch without a boundary join. Structural; no literals.
+    for (const match of groupMatches) {
+      const compKey = `component_${match.component.index}`;
+      const cb = bindings[compKey];
+      if (!cb) continue;
+      const eidBatchId = (cb.entity_identifier as { learning_provenance?: { batch_id?: string } } | undefined)
+        ?.learning_provenance?.batch_id;
+      if (!eidBatchId) continue;
+
+      for (const [role, bindingRaw] of Object.entries(cb)) {
+        if (role === 'entity_identifier' || role === 'period') continue;
+        const binding = bindingRaw as {
+          column: string;
+          field_identity?: { contextualIdentity?: string };
+          confidence: number;
+          learning_provenance?: { batch_id?: string };
+        };
+        if (binding.field_identity?.contextualIdentity !== 'cross_source_numeric') continue;
+
+        const currentMC = measureColumns.find(mc => mc.name === binding.column);
+        if (!currentMC?.stats) continue;
+
+        const sameBatchAlt = measureColumns.find(alt =>
+          alt.batchId === eidBatchId &&
+          alt.name !== binding.column &&
+          alt.stats &&
+          Math.abs(
+            Math.log10(Math.max(alt.stats.mean, 0.001)) -
+            Math.log10(Math.max(currentMC.stats.mean, 0.001)),
+          ) < 1,
+        );
+        if (!sameBatchAlt) continue;
+
+        console.log(
+          `[Convergence] HF-263 P3.2: post-pass redirect ${compKey}:${role} ` +
+          `from cross-source "${binding.column}" to same-batch "${sameBatchAlt.name}" (key-space alignment)`,
+        );
+        binding.column = sameBatchAlt.name;
+        binding.field_identity = sameBatchAlt.fi;
+        binding.confidence = Math.max(binding.confidence, 0.7);
+        if (binding.learning_provenance) binding.learning_provenance.batch_id = sameBatchAlt.batchId;
+      }
+    }
   } // HF-253 end for (variant group)
 
   // Log complete binding map
