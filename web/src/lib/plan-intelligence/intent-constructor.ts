@@ -104,7 +104,11 @@ function normalizeNode(node: unknown): void {
   if (!node || typeof node !== 'object' || Array.isArray(node)) return;
   const n = node as Record<string, unknown>;
 
-  if (!('shape' in n) && !('kind' in n)) {
+  // HF-266 patch: value-truthiness, not key-existence. The LLM emits nodes like
+  // { shape: undefined, operands: [...] } — `'shape' in n` is true (key present) so the
+  // original guard skipped them and the dispatcher threw `unknown shape "undefined"`.
+  // `!n.shape` catches both an absent key and a present-but-falsy value.
+  if (!n.shape && !n.kind) {
     // Operand discriminant (`kind`) — a leaf value, a data reference, or a wrapped structure.
     if (typeof n.value === 'number' || typeof n.value === 'string' || typeof n.value === 'boolean') {
       n.kind = 'constant';
