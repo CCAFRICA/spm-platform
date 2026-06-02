@@ -2467,7 +2467,12 @@ export async function POST(request: NextRequest) {
       // Apply Decision 122 rounding to intent executor results
       const comp = selectedComponents[ci.componentIndex];
       const compIntent = comp?.calculationIntent as Record<string, unknown> | undefined;
-      const precision = inferOutputPrecision(compIntent, undefined);
+      // HF-265 (P3): round each component payout to an integer. inferOutputPrecision otherwise
+      // infers >0 decimals when the intent carries a fractional constant (e.g. the fleet clamp
+      // threshold 1.5), yielding penny values (Meridian C5 = 373.16) where GT expects integers.
+      // Forcing decimalPlaces:0 keeps Decision-122 banker's rounding (roundComponentOutput uses
+      // ROUND_HALF_EVEN) — NOT native Math.round — and is a no-op for already-integer components.
+      const precision = { ...inferOutputPrecision(compIntent, undefined), decimalPlaces: 0 };
       const { rounded, trace: roundingTrace } = roundComponentOutput(
         intentResult.outcome, ci.componentIndex, ci.label, precision
       );
