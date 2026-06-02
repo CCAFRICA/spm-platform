@@ -406,6 +406,7 @@ export async function POST(request: NextRequest) {
         .from('entities')
         .select('id')
         .eq('tenant_id', tenantId)
+        .eq('entity_type', 'individual')  // HF-263: never self-assign grouping entities for calculation
         .range(entPage * PAGE_SIZE, (entPage + 1) * PAGE_SIZE - 1);
       if (!ep || ep.length === 0) break;
       allTenantEntityIds.push(...ep.map(e => e.id));
@@ -505,7 +506,8 @@ export async function POST(request: NextRequest) {
     const { data: page, error: entErr } = await supabase
       .from('entities')
       .select('id, external_id, display_name, metadata')
-      .in('id', batch);
+      .in('id', batch)
+      .eq('entity_type', 'individual');  // HF-263: exclude grouping entities (hubs/territories) from calc
     if (entErr) {
       console.log(`[R3-DIAG] Entity batch ${i}-${i+batch.length} ERROR: ${entErr.message}`);
     }
@@ -513,6 +515,18 @@ export async function POST(request: NextRequest) {
   }
 
   const entityMap = new Map(entities.map(e => [e.id, e]));
+
+  // HF-263: drop grouping (non-individual) entities from the calculation population.
+  // entityMap was fetched with entity_type='individual', so any assigned id absent from
+  // it is a grouping entity (e.g. a hub). They remain in committed_data / dataByEntity /
+  // allEntityRowsForPeriod as the scope SOURCE (HALT-5 preserved) — only excluded as payees.
+  {
+    const beforeCount = entityIds.length;
+    entityIds = entityIds.filter(id => entityMap.has(id));
+    if (entityIds.length !== beforeCount) {
+      addLog(`HF-263: excluded ${beforeCount - entityIds.length} grouping (non-individual) entities from calculation population`);
+    }
+  }
 
   // ── 3. Fetch period (OB-152: include end_date for source_date hybrid path) ──
   const { data: period } = await supabase
