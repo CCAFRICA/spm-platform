@@ -173,7 +173,12 @@ export async function executeBatchedPlanInterpretation(
   const claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
   if (!claim.claimed) {
     const concurrent = await findCompletedRuleSet(supabase, tenantId, contentHash);
-    console.log(`[SCI plan-interp] HF-259 SINGLE-FLIGHT — another execution holds the claim for this content_hash (${concurrent ? 'returning its rule_set' : 'in-progress'}); not double-executing`);
+    console.warn(
+      `[SCI plan-interp] HF-259 SINGLE-FLIGHT — plan interpretation blocked by an existing in-progress ` +
+      `claim for content_hash=${contentHash.substring(0, 12)} (${concurrent ? 'returning its rule_set' : 'no completed rule_set yet'}); ` +
+      `not double-executing. If this persists, the claim may be stale — HF-264 TTL auto-expires claims ` +
+      `older than 5 minutes on the next import attempt.`,
+    );
     return planUnits.map((u, i) => ({
       contentUnitId: u.contentUnitId,
       classification: 'plan' as const,
