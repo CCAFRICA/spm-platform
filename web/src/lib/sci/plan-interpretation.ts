@@ -183,6 +183,12 @@ export async function executeBatchedPlanInterpretation(
     }));
   }
 
+  // HF-264: try/finally backstop so the single-flight claim is ALWAYS released — including on an
+  // uncaught throw between claimRun and completeRun. Pre-HF-264 such a throw stranded an in_progress
+  // claim with no TTL, permanently blocking re-import of this plan (two prod incidents). The TTL in
+  // claimRun (HF-264 Phase 2) is the cross-process backstop; this finally is the in-process one.
+  let interpretationCompleted = false;
+  try {
   console.log(`[SCI plan-interp] Interpretation starting — ${documentContent.length} chars`);
 
   // HF-248 Phase 1+3: per-component two-phase interpretation. The orchestrator
@@ -325,6 +331,7 @@ export async function executeBatchedPlanInterpretation(
   // HF-259 Q3: bind the completed run to its rule_set (the reuse pointer) — a later import of the
   // same content now returns this without re-deriving. Q6: record the 'created' lifecycle event.
   await completeRun(supabase, tenantId, contentHash, ruleSetId);
+  interpretationCompleted = true; // HF-264: claim transitioned to 'completed'; finally must NOT release it
   await writeRuleSetLifecycleEvent(supabase, {
     tenantId,
     ruleSetId,
@@ -376,4 +383,17 @@ export async function executeBatchedPlanInterpretation(
     componentOutcomes: i === 0 ? orchestration.componentOutcomes : undefined,
     partialSuccess: i === 0 ? orchestration.partialSuccess : undefined,
   }));
+  } finally {
+    // HF-264: release the in_progress claim on every non-completed exit — the three explicit
+    // failure returns above AND any uncaught throw between claim and completeRun. failRun is an
+    // idempotent delete of the in_progress row, so it is safe even where a failure path already
+    // released it. Only the success path (interpretationCompleted=true) skips release, because
+    // completeRun has already transitioned the row to 'completed'.
+    if (!interpretationCompleted) {
+      try {
+        await failRun(supabase, tenantId, contentHash);
+        console.log(`[SCI plan-interp] HF-264: released in_progress claim on non-completed exit (content_hash=${contentHash.substring(0, 12)})`);
+      } catch { /* best-effort */ }
+    }
+  }
 }
