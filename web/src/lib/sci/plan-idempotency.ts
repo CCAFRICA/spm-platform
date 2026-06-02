@@ -50,6 +50,12 @@ export async function findCompletedRuleSet(
  * Returns { claimed:false } ONLY for a real unique-violation; degrades to { claimed:true } (execute)
  * for a missing table or any other error so the import is never blocked pre-migration.
  */
+// HF-264: a claim older than this is treated as abandoned (a prior execution crashed between
+// claim and complete/fail, stranding the in_progress row — pre-HF-264 there was no TTL, so it
+// blocked re-import forever). 5 min is ~10x the longest observed interpretation (~35s Meridian
+// Phase A+B). Numeric duration only (Korean Test — no domain/language value).
+const CLAIM_TTL_MS = 5 * 60 * 1000;
+
 export async function claimRun(
   supabase: SupabaseClient, tenantId: string, contentHash: string, sourceFileName: string,
 ): Promise<{ claimed: boolean }> {
@@ -61,10 +67,50 @@ export async function claimRun(
       source_file_name: sourceFileName,
     });
     if (!error) return { claimed: true };
-    if ((error as { code?: string }).code === '23505') return { claimed: false }; // genuine single-flight conflict
+    if ((error as { code?: string }).code === '23505') {
+      // A row already exists for (tenant, content_hash). HF-264: reclaim it only if it is a
+      // STALE in_progress claim; a completed/failed row or a fresh claim is respected.
+      return await reclaimIfStale(supabase, tenantId, contentHash, sourceFileName);
+    }
     return { claimed: true }; // table-missing / other → degrade to execute (current behavior)
   } catch {
     return { claimed: true };
+  }
+}
+
+/**
+ * HF-264 single-flight recovery. On a UNIQUE conflict, inspect the existing row. Only an
+ * in_progress claim older than CLAIM_TTL_MS is reclaimable — it means the prior execution
+ * crashed between claimRun and completeRun/failRun. The UNIQUE(tenant_id, content_hash)
+ * constraint allows only one row, so the slot is reclaimed in place via UPDATE (guarded on
+ * status='in_progress'). updated_at is the liveness timestamp (set on insert-default,
+ * completeRun, and reclaim). Degrade-safe: any error → { claimed:false } (respect the row).
+ */
+async function reclaimIfStale(
+  supabase: SupabaseClient, tenantId: string, contentHash: string, sourceFileName: string,
+): Promise<{ claimed: boolean }> {
+  try {
+    const { data: existing } = await supabase
+      .from('plan_interpretation_runs')
+      .select('id, status, created_at, updated_at')
+      .eq('tenant_id', tenantId).eq('content_hash', contentHash)
+      .maybeSingle();
+    if (!existing) return { claimed: true }; // row vanished (race) → execute
+    if ((existing as { status?: string }).status !== 'in_progress') return { claimed: false }; // completed/failed
+    const liveness = (existing as { updated_at?: string | null; created_at?: string | null }).updated_at
+      ?? (existing as { created_at?: string | null }).created_at;
+    const ageMs = liveness ? Date.now() - new Date(liveness).getTime() : 0;
+    if (ageMs <= CLAIM_TTL_MS) return { claimed: false }; // recent — a real execution likely holds it
+    const id = (existing as { id: string }).id;
+    const { error: updErr } = await supabase
+      .from('plan_interpretation_runs')
+      .update({ status: 'in_progress', source_file_name: sourceFileName, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('status', 'in_progress'); // guard: still in_progress (lost-update safe)
+    if (updErr) return { claimed: false };
+    console.log(`[plan-idempotency] HF-264: reclaimed stale in_progress claim ${id} (age=${Math.round(ageMs / 60000)}min) for content_hash=${contentHash.substring(0, 12)}`);
+    return { claimed: true };
+  } catch {
+    return { claimed: false };
   }
 }
 
