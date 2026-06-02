@@ -2291,7 +2291,14 @@ async function resolveColumnMappingsViaAI(
   const columnList = measureColumns.map((c, i) => {
     const s = c.stats;
     const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
-    return `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})${range}`;
+    // HF-263: key-space annotation. A cross-source column is keyed by a different entity
+    // than the primary identifier; prefer a same-batch alternative when one carries
+    // equivalent data, since same-batch columns resolve through resolveColumnFromBatch
+    // without a boundary join. Structural (cross_source_numeric flag), not name-based.
+    const crossSourceNote = c.fi.contextualIdentity === 'cross_source_numeric'
+      ? ' [WARN] CROSS-SOURCE: keyed by a different entity than the primary identifier - prefer same-batch alternatives when available'
+      : '';
+    return `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})${range}${crossSourceNote}`;
   }).join('\n');
 
   // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
