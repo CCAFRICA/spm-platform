@@ -170,22 +170,42 @@ export async function executeBatchedPlanInterpretation(
   }
   // Layer 2 — single-flight: claim the execution. A concurrent second import of the same content
   // loses the UNIQUE(tenant_id, content_hash) race → does NOT run a second interpretation.
-  const claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
+  let claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
   if (!claim.claimed) {
     const concurrent = await findCompletedRuleSet(supabase, tenantId, contentHash);
-    console.warn(
-      `[SCI plan-interp] HF-259 SINGLE-FLIGHT — plan interpretation blocked by an existing in-progress ` +
-      `claim for content_hash=${contentHash.substring(0, 12)} (${concurrent ? 'returning its rule_set' : 'no completed rule_set yet'}); ` +
-      `not double-executing. If this persists, the claim may be stale — HF-264 TTL auto-expires claims ` +
-      `older than 5 minutes on the next import attempt.`,
-    );
-    return planUnits.map((u, i) => ({
-      contentUnitId: u.contentUnitId,
-      classification: 'plan' as const,
-      success: true,
-      rowsProcessed: 0,
-      pipeline: i === 0 ? (concurrent ? 'plan-interpretation-reused' : 'plan-interpretation-deduped') : 'plan-batch-included',
-    }));
+    // HF-265: claim refused with NO surviving rule_set. Distinguish an ORPHANED 'completed' claim
+    // (the rule_set was deleted but the claim row survived → findCompletedRuleSet returns null and
+    // blocks re-import forever) from a genuine fresh 'in_progress' claim (a real concurrent run).
+    // Only the orphan is cleared — deleting an in_progress row would permit a double-execution.
+    if (!concurrent) {
+      const { data: blockingRow } = await supabase
+        .from('plan_interpretation_runs')
+        .select('status')
+        .eq('tenant_id', tenantId).eq('content_hash', contentHash)
+        .maybeSingle();
+      if ((blockingRow as { status?: string } | null)?.status === 'completed') {
+        await supabase.from('plan_interpretation_runs')
+          .delete().eq('tenant_id', tenantId).eq('content_hash', contentHash);
+        console.log(`[SCI plan-interp] HF-265: deleted orphaned completed claim for content_hash=${contentHash.substring(0, 12)} (completed row with no surviving rule_set) — re-attempting interpretation`);
+        claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
+      }
+    }
+    if (!claim.claimed) {
+      console.warn(
+        `[SCI plan-interp] HF-259 SINGLE-FLIGHT — plan interpretation blocked by an existing in-progress ` +
+        `claim for content_hash=${contentHash.substring(0, 12)} (${concurrent ? 'returning its rule_set' : 'no completed rule_set yet'}); ` +
+        `not double-executing. If this persists, the claim may be stale — HF-264 TTL auto-expires claims ` +
+        `older than 5 minutes on the next import attempt.`,
+      );
+      return planUnits.map((u, i) => ({
+        contentUnitId: u.contentUnitId,
+        classification: 'plan' as const,
+        success: true,
+        rowsProcessed: 0,
+        pipeline: i === 0 ? (concurrent ? 'plan-interpretation-reused' : 'plan-interpretation-deduped') : 'plan-batch-included',
+      }));
+    }
+    // orphan recovered (claim now granted) → fall through to interpretation
   }
 
   // HF-264: try/finally backstop so the single-flight claim is ALWAYS released — including on an
@@ -225,9 +245,17 @@ export async function executeBatchedPlanInterpretation(
   const orchestratedComponents = orchestration.interpretation.components;
   const componentsCount = orchestratedComponents.length;
   if (orchestration.skeletonError || componentsCount === 0) {
+    // HF-265 (P5): surface the ACTUAL per-component construction failures instead of a generic
+    // "produced no components" message. componentOutcomes carries errClass + errMessage + violations.
+    const failed = (orchestration.componentOutcomes || []).filter(o => o.status === 'failed');
+    const failureDetails = failed
+      .map(f => `${f.name}: ${f.errClass ?? 'error'}${f.errMessage ? ` — ${f.errMessage}` : ''}${f.violations ? ` (${f.violations})` : ''}`)
+      .join('; ');
     const reason = orchestration.skeletonError
       ? `Plan skeleton call failed: ${orchestration.skeletonError}`
-      : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
+      : failureDetails
+        ? `Plan interpretation produced no usable components — ${failed.length} component construction failure(s): ${failureDetails}`
+        : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     await failRun(supabase, tenantId, contentHash); // HF-259: release the single-flight claim so a retry can re-claim
     return planUnits.map(u => ({
