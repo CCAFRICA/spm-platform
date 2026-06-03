@@ -32,10 +32,10 @@ async function main(){
   const benchHr:Record<string,number>={CD:4275,TV:3006,MB:3263};
   for(const loc of locs){ const m=loc.metadata; const bc=m.brand_code; const L=byLoc.get(loc.id)||{rev:0,gross:1,covers:0,n:1,tips:0,cancel:0,comp:0};
     const shiftHours=21*16; const revPerHr=L.rev/shiftHours; const avgCheck=L.rev/Math.max(1,L.n); const tipRate=L.tips/Math.max(1,L.rev); const cancelComp=(L.cancel+L.comp)/Math.max(1,L.gross);
-    const sRev=Math.min(100, revPerHr/benchHr[bc]*100);
-    const sSvc=Math.min(100, (avgCheck*tipRate)/(m.avg_check_benchmark*0.14)*100);
-    const sDisc=Math.max(0,(1-cancelComp)*100);
-    const sVol=Math.min(100, L.covers/(21*m.daily_covers_target)*100);
+    const sRev=Math.min(100, revPerHr/benchHr[bc]*72);
+    const sSvc=Math.min(100, (avgCheck*tipRate)/(m.avg_check_benchmark*0.14)*72);
+    const sDisc=Math.max(0,(1-Math.min(1,cancelComp*5))*100);
+    const sVol=Math.min(100, L.covers/(21*m.daily_covers_target)*72);
     const weighted=r2(0.30*sRev+0.25*sSvc+0.25*sDisc+0.20*sVol);
     const tier = weighted>=85?['Estrella','estrella']:weighted>=70?['Destacado','destacado']:weighted>=50?['Estándar','estandar']:['En Desarrollo','en_desarrollo'];
     results.push({ tenant_id:tid, batch_id:bid, entity_id:loc.id, rule_set_id:rsPerf, period_id:monthly, total_payout:0,
