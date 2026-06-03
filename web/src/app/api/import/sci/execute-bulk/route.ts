@@ -344,6 +344,30 @@ export async function POST(req: NextRequest) {
     // HF-196 Phase 1: post-commit construction — entity resolution + back-link.
     await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
 
+    // HF-269 Phase C (OB-195 cache invalidation): new data was just imported, so any persisted
+    // input_bindings are stale — they may bind columns that no longer resolve against the new data,
+    // and the HF-165 calc gate would skip convergence and re-use them, producing zero. Clear them
+    // (write {} — rule_sets.input_bindings is jsonb NOT NULL) so convergence RE-DERIVES on the next
+    // calculation (Decision 92 keeps binding at calc time; it re-runs because the bindings are empty,
+    // not because the gate changed). Scoped STRICTLY to the importing tenant's active/draft rule_sets —
+    // never touches other tenants. (HF-239 deleted a BLANKET wipe that masked stale bindings; this is
+    // the scoped OB-195-correct form, now that Phase B's filter-carrying bindings re-derive correctly.)
+    try {
+      const { data: clearedRs, error: clearErr } = await supabase
+        .from('rule_sets')
+        .update({ input_bindings: {} })
+        .eq('tenant_id', tenantId)
+        .in('status', ['active', 'draft'])
+        .select('id');
+      if (clearErr) {
+        console.error('[SCI Bulk] input_bindings invalidation failed (non-blocking):', clearErr.message);
+      } else {
+        console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRs?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+      }
+    } catch (err) {
+      console.error('[SCI Bulk] input_bindings invalidation threw (non-blocking):', err instanceof Error ? err.message : String(err));
+    }
+
     // HF-239 Phase 0.3: HF-126 rule_set_assignments creation. Calculation
     // engine requires assignments to route entities to plans. Fire-and-forget
     // at the surface level — failures are logged but do not block.
