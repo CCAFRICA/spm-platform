@@ -108,7 +108,7 @@ export async function executeBatchedPlanInterpretation(
     }
     documentContent = sheetTexts.join('\n');
     console.log(`[SCI plan-interp] XLSX text extracted: ${documentContent.length} chars from ${planSheetNames.size} sheets`);
-  } else {
+  } else if (ext === 'pptx' || ext === 'docx') {
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(fileBuffer);
     if (ext === 'pptx') {
@@ -137,6 +137,23 @@ export async function executeBatchedPlanInterpretation(
         documentContent = matches.map(m => m[1].trim()).filter(Boolean).join(' ');
       }
     }
+  } else {
+    // HF-267 P2 (Carry Everything safety net): a tabular/unknown-format file reached the plan
+    // pipeline (misclassified as plan). Do NOT run JSZip document extraction — JSZip.loadAsync on a
+    // CSV throws "Can't find end of central directory" (and other tabular inputs hang downstream).
+    // Return an explicit, non-crashing failure so the import surfaces a clear message. No re-route
+    // (that would risk the duplicate-execution class HF-264 closed). This guard runs BEFORE the
+    // single-flight claim, so it strands nothing. XLSX/XLS plans are handled in their own branch
+    // above and are unaffected (HALT-4 CLEAR).
+    console.error(`[SCI plan-interp] HF-267: tabular/non-document file (.${ext}) reached plan interpretation — refusing document extraction (misclassified as plan).`);
+    return planUnits.map(u => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: false,
+      rowsProcessed: 0,
+      pipeline: 'plan-interpretation',
+      error: `File format ".${ext ?? '?'}" is a tabular data file, not a plan document — it was misclassified as a plan. Re-import it (or correct its classification: entity/target/transaction/reference). No plan was interpreted.`,
+    }));
   }
 
   if (!documentContent && !pdfBase64ForAI) {
