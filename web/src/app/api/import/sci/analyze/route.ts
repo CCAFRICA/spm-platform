@@ -434,14 +434,23 @@ export async function POST(req: NextRequest) {
           );
           let totalRows = 0;
           let hasRateTableSignal = false;
+          // HF-267 P1 (Decision 108): a strong entity-identifier signal — HC's authoritative
+          // identifier role, surfaced structurally as profile.patterns.hasEntityIdentifier (the
+          // SAME signal the Plan Agent reads for its has_entity_id weight) — excludes a file from
+          // the plan override. A roster/quota carries an entity identifier; a plan document does not.
+          let anyHasEntityIdentifier = false;
           for (const r of fileResolutions) {
             if (!r.profile) continue;
             totalRows += r.profile.structure.rowCount;
+            if (r.profile.patterns.hasEntityIdentifier) anyHasEntityIdentifier = true;
             if (
+              // HF-267 P1: GENUINE plan discriminants only. rowCountCategory === 'reference'
+              // (merely rowCount < 50) was REMOVED — it is a row-count threshold, not a plan
+              // signal, and it let small rosters/quotas trip the override (a 32-row CRP roster
+              // scored entity:0.93 but was force-routed to plan@0.80).
               r.profile.structure.sparsity > 0.30
               || r.profile.patterns.hasPercentageValues
               || r.profile.structure.headerQuality === 'auto_generated'
-              || r.profile.patterns.rowCountCategory === 'reference'
             ) {
               hasRateTableSignal = true;
             }
@@ -457,7 +466,11 @@ export async function POST(req: NextRequest) {
           const matchesPlanSignature =
             !hasTransaction
             && totalRows < 1000
-            && hasRateTableSignal;
+            && hasRateTableSignal
+            // HF-267 P1: exclude files carrying a strong entity-identifier (rosters/quotas).
+            // A genuine plan document has no entity-identifier column; this preserves cold-start
+            // plan detection while stopping the override from capturing entity/target data.
+            && !anyHasEntityIdentifier;
           if (matchesPlanSignature) {
             console.log(
               `[SCI-PLAN-WORKBOOK] file=${file.fileName} sheets=${fileResolutions.length} ` +
