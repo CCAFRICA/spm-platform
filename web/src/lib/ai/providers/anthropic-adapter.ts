@@ -1284,10 +1284,24 @@ Return JSON per the schema in the system instructions.`;
         const appliesTo = Array.isArray(spec.appliesToEmployeeTypes)
           ? (spec.appliesToEmployeeTypes as unknown[]).map(String)
           : [];
+        // HF-270: AVAILABLE COMPREHENDED FIELDS — the runtime resolution anchor.
+        // Built verbatim from the threaded field set (HC of this import's data sheets,
+        // or the plan's own declared fields when no data sheet accompanies the plan).
+        // Every reference_field the intent emits MUST be one of these <field> tokens.
+        // Korean Test: the list is runtime HC/declared output — the only literals here
+        // are prose/format scaffolding, never a field name or synonym.
+        const fieldAnchor = Array.isArray(input.fieldAnchor)
+          ? (input.fieldAnchor as Array<{ field?: unknown; meaning?: unknown; role?: unknown }>)
+          : [];
+        const comprehendedFieldsBlock = fieldAnchor.length > 0
+          ? `\nAVAILABLE COMPREHENDED FIELDS (resolve every reference to one of these):\n${fieldAnchor
+              .map(f => `  ${String(f.field ?? '')} — ${String(f.meaning ?? '')} (${String(f.role ?? '')})`)
+              .join('\n')}\n\nFIELD RESOLUTION RULE: every \`reference_field\` / \`ReferenceSource.field\` you emit MUST be exactly one of the field identifiers listed above, chosen by matching this component's described metric to the field whose meaning fits — match by SEMANTIC MEANING, not string similarity to the prose. Do not invent a field name from the plan text. If this component's metric matches NO listed field, say so explicitly in \`reasoning\` and emit the closest available identifier (a deterministic post-construction check enforces membership and will reject an unresolved reference).\n`
+          : '';
         return `Translate the following plan COMPONENT into a Prime-DAG calculationIntent tree. PHASE B: emit this component only.
 
 ${contentSection}
-
+${comprehendedFieldsBlock}
 COMPONENT TO EMIT:
   id: ${compId}
   name: ${compName}${compNameEs ? `\n  nameEs: ${compNameEs}` : ''}

@@ -32,8 +32,12 @@ import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
 import {
   ConstructionError,
   MissingCompositionalIntentError,
+  FieldResolutionError,
   type CompositionalIntent,
 } from '@/lib/plan-intelligence/compositional-intent';
+// HF-270: reuse the canonical DAG reference-leaf walk (pure structural, Korean-Test
+// compliant) to enforce that every constructed reference resolves to a comprehended field.
+import { extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
 // HF-252: prime-assembler imports retired from the plan_component call path
 // per T0-E03 single-pipeline restoration. The assembler module file is
 // preserved per DD-7 (no smuggled expansion); formal file deprecation is
@@ -75,6 +79,14 @@ export interface OrchestrationInput {
    * for skipped components from this map.
    */
   priorComponents?: Map<string, OrchestratedComponent>;
+  /**
+   * HF-270: the runtime comprehended-field set (HC of the data sheets in this
+   * import). Primary resolution anchor — every reference a component emits must
+   * resolve to one of these field identities (Phase 3 enforcement). Absent/empty
+   * triggers the plan-declared-fields fallback (skeletonRaw.requiredInputs) so a
+   * plan-only import is still bounded to a runtime-derived set, never free-text.
+   */
+  fieldComprehension?: Array<{ field: string; meaning: string; role: string }>;
 }
 
 export interface OrchestratedComponent {
@@ -183,6 +195,29 @@ export async function orchestratePerComponentInterpretation(
     });
   }
 
+  // ── HF-270: resolve the field anchor (primary = HC of the data sheets in this
+  // import; fallback = the plan's own declared fields from plan_skeleton.requiredInputs).
+  // Every reference the per-component call emits must resolve to a member of this
+  // runtime-derived set (Phase 3 enforcement). Korean Test: both sources are
+  // runtime-discovered for THIS upload — no enumerated vocabulary, no synonym table.
+  // The orchestrator is the natural seam because it holds both skeletonRaw and
+  // input.fieldComprehension.
+  const fieldAnchor: Array<{ field: string; meaning: string; role: string }> =
+    input.fieldComprehension && input.fieldComprehension.length > 0
+      ? input.fieldComprehension
+      : Array.isArray(skeletonRaw.requiredInputs)
+        ? (skeletonRaw.requiredInputs as Array<Record<string, unknown>>)
+            .map(ri => ({
+              field: String(ri.field ?? ''),
+              meaning: String(ri.description ?? ''),
+              role: String(ri.dataType ?? ri.scope ?? 'unknown'),
+            }))
+            .filter(f => f.field.length > 0)
+        : [];
+  const fieldAnchorSource =
+    input.fieldComprehension && input.fieldComprehension.length > 0 ? 'HC-data-sheets' : 'plan-declared';
+  console.log(`[plan-orchestrator] HF-270 field anchor = ${fieldAnchorSource} (${fieldAnchor.length} fields)`);
+
   // ── Phase B: per-component (HF-259 Q4: bounded-concurrency parallel) ──────────
   // The N component phases are independent (each receives the full manifest + its own
   // componentSpec); they run with BOUNDED concurrency instead of sequentially, collapsing
@@ -226,6 +261,7 @@ export async function orchestratePerComponentInterpretation(
       pdfMediaType: input.pdfMediaType,
       signalContext: input.signalContext,
       componentSpec: { id: compId, name: compName, nameEs: compNameEs, appliesToEmployeeTypes: appliesTo, briefSemantic, rateTableCellCount },
+      fieldAnchor, // HF-270: runtime comprehended/declared field set for reference resolution
     });
 
     if (!componentResult.component) {
@@ -342,6 +378,9 @@ interface PerComponentCallArgs {
     briefSemantic: string;
     rateTableCellCount?: number;
   };
+  // HF-270: runtime field anchor (HC of data sheets, or plan-declared fallback).
+  // Forwarded into the adapter prompt (Phase 3.1) and enforced post-construction (3.2).
+  fieldAnchor: Array<{ field: string; meaning: string; role: string }>;
 }
 
 interface PerComponentCallResult {
@@ -399,6 +438,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         args.signalContext,
         args.pdfBase64,
         args.pdfMediaType,
+        args.fieldAnchor, // HF-270: comprehended/declared field set for the prompt anchor
       );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;
@@ -431,6 +471,30 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           const ci = compositionalIntentRaw as unknown as CompositionalIntent;
           const constructedTree = constructTree(ci);
           intent = constructedTree as unknown as Record<string, unknown>;
+          // HF-270: deterministic post-construction resolution check (the enforcement).
+          // Every `reference`/`aggregate` leaf the tree names MUST resolve to a member of
+          // the runtime field anchor (HC of the data sheets, or plan-declared fallback).
+          // Membership is compared under a STRUCTURAL token normalization (lowercase +
+          // non-alphanumeric runs collapsed to a single underscore) so a legitimately-present
+          // field is never rejected on pure casing/separator drift between the HC column
+          // header (`Volumen_Rutas_Hub`) and the emitted reference (`volumen_rutas_hub`).
+          // This is a structural transform, NOT a synonym table (Korean Test): it matches
+          // `Volumen_Rutas_Hub`↔`volumen_rutas_hub` but still rejects a genuinely-absent
+          // field such as an invented `cargas_mes_hub` (≠ `cargas_flota_hub`). A reference
+          // resolving to no comprehended identity is a structured failure (FieldResolutionError
+          // → cognition_violation), routed through the existing retry policy — never a silent
+          // guess. When the anchor is empty (no HC and no declared fields), the check is
+          // skipped (DD-7: pre-HF-270 behavior preserved).
+          if (args.fieldAnchor.length > 0) {
+            const normalizeToken = (s: string): string =>
+              s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+            const anchorSet = new Set(args.fieldAnchor.map(f => normalizeToken(f.field)));
+            const referencedFields = extractReferencesFromDAG(constructedTree);
+            const unresolved = referencedFields.find(f => !anchorSet.has(normalizeToken(f)));
+            if (unresolved !== undefined) {
+              throw new FieldResolutionError(spec.id, unresolved, args.fieldAnchor.map(f => f.field));
+            }
+          }
           console.log(
             `[plan-component] constructed component=${spec.id} from compositional_intent ` +
               `shape=${ci.structure?.shape ?? '(unknown)'}`,
@@ -450,6 +514,14 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             lastErrClass = constructErr.message.includes('output count')
               ? 'cognition_truncation'
               : 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof FieldResolutionError) {
+            // HF-270: a constructed reference resolved to no comprehended/declared
+            // field identity. Structured failure → cognition_violation so the retry
+            // policy re-attempts with the field anchor still in the prompt. On
+            // exhaustion the per-component path below records a `failed` outcome —
+            // a component with an unresolved reference is NEVER persisted.
+            lastErrClass = 'cognition_violation';
             lastErrMessage = constructErr.message;
           } else {
             lastErrClass = 'unknown';

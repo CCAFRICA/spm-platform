@@ -233,6 +233,41 @@ export async function POST(req: NextRequest) {
     // per-unit dispatch loop below.
     const planUnits = sortedUnits.filter(u => u.confirmedClassification === 'plan');
     const handledPlanUnitIds = new Set<string>();
+
+    // ── HF-270: comprehended-field set — the runtime anchor for plan reference resolution ──
+    // The field identity a plan_component reference names MUST resolve to a column the
+    // platform actually comprehended in THIS import (not free-text minted from prose).
+    // Assemble the deduplicated set of HC-comprehended column identities from the non-plan
+    // units (data/reference/target/entity), each carrying its sheet's HC interpretations on
+    // classificationTrace.headerComprehension (Phase-1 AUD 1.2 proved presence at this seam).
+    // Korean Test: every value is runtime HC output for this upload; zero enumerated field
+    // names, zero synonym table. Empty set (plan-only import) triggers the orchestrator's
+    // plan-declared-fields fallback (Phase 2.4).
+    const comprehendedFieldMap = new Map<string, { field: string; meaning: string; role: string }>();
+    let comprehendedSheetCount = 0;
+    for (const unit of sortedUnits) {
+      if (unit.confirmedClassification === 'plan') continue;
+      const hc = (unit.classificationTrace as Record<string, unknown> | undefined)
+        ?.headerComprehension as
+          | { interpretations?: Record<string, { semanticMeaning?: string; columnRole?: string; confidence?: number }> }
+          | null
+          | undefined;
+      const interps = hc?.interpretations;
+      if (!interps || Object.keys(interps).length === 0) continue;
+      comprehendedSheetCount++;
+      for (const [colName, interp] of Object.entries(interps)) {
+        if (!comprehendedFieldMap.has(colName)) {
+          comprehendedFieldMap.set(colName, {
+            field: colName,
+            meaning: interp.semanticMeaning || '',
+            role: interp.columnRole || 'unknown',
+          });
+        }
+      }
+    }
+    const comprehendedFields = Array.from(comprehendedFieldMap.values());
+    console.log(`[SCI Bulk] HF-270 comprehended-field set: ${comprehendedFields.length} fields from ${comprehendedSheetCount} data sheets`);
+
     if (planUnits.length > 0) {
       // HF-256: group plan units by their source file; each plan file is interpreted with
       // its OWN storage path, producing its own rule set (the proven multi-plan shape).
@@ -251,6 +286,7 @@ export async function POST(req: NextRequest) {
             group as unknown as ContentUnitExecution[],
             profileId,
             planPath,
+            comprehendedFields, // HF-270: runtime anchor for reference resolution
           );
           for (const r of batchResults) {
             results.push(r);

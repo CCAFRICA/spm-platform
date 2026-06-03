@@ -229,6 +229,31 @@ export class MissingCompositionalIntentError extends Error {
   }
 }
 
+/**
+ * HF-270: structured failure when a constructed component's `reference` leaf
+ * names a field that resolves to NO comprehended/declared field identity in
+ * this import. Per the Korean Test (IGF-T1-E910), an unrecognized identifier is
+ * a typed failure naming the unresolved token and the available set — never a
+ * silent guess or fallback. Raised post-construction in plan-orchestration.ts,
+ * mapped to cognition_violation for retry via the HF-248 error class taxonomy.
+ */
+export class FieldResolutionError extends Error {
+  constructor(
+    public readonly componentId: string,
+    public readonly unresolvedField: string,
+    public readonly availableFields: string[],
+  ) {
+    super(
+      `[plan-component] component "${componentId}" emitted reference field "${unresolvedField}" ` +
+      `which resolves to NO comprehended/declared field identity in this import. ` +
+      `Available fields: [${availableFields.join(', ')}]. ` +
+      `Field identity must resolve against the runtime-derived set (Korean Test); ` +
+      `no free-text field names. Classify as cognition_violation and retry.`,
+    );
+    this.name = 'FieldResolutionError';
+  }
+}
+
 // ─────────────────────────────────────────────
 // Re-exports for downstream callers
 // ─────────────────────────────────────────────

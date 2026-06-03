@@ -314,9 +314,17 @@ export class AIService {
     },
     signalContext?: { tenantId?: string; userId?: string },
     pdfBase64?: string,
-    pdfMediaType?: string
+    pdfMediaType?: string,
+    // HF-270: runtime comprehended/declared field set. Forwarded to the adapter's
+    // plan_component prompt as the AVAILABLE COMPREHENDED FIELDS anchor so the LLM
+    // resolves each reference_field to a comprehended identity instead of minting
+    // one from prose. Absent/empty → no anchor block (pre-HF-270 behavior, DD-7).
+    fieldAnchor?: Array<{ field: string; meaning: string; role: string }>
   ): Promise<AIResponse> {
     const input: Record<string, unknown> = { content, format, componentSpec };
+    if (fieldAnchor && fieldAnchor.length > 0) {
+      input.fieldAnchor = fieldAnchor;
+    }
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
       input.pdfMediaType = pdfMediaType || 'application/pdf';
