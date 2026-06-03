@@ -32,8 +32,12 @@ import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
 import {
   ConstructionError,
   MissingCompositionalIntentError,
+  FieldResolutionError,
   type CompositionalIntent,
 } from '@/lib/plan-intelligence/compositional-intent';
+// HF-270: reuse the canonical DAG reference-leaf walk (pure structural, Korean-Test
+// compliant) to enforce that every constructed reference resolves to a comprehended field.
+import { extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
 // HF-252: prime-assembler imports retired from the plan_component call path
 // per T0-E03 single-pipeline restoration. The assembler module file is
 // preserved per DD-7 (no smuggled expansion); formal file deprecation is
@@ -467,6 +471,21 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           const ci = compositionalIntentRaw as unknown as CompositionalIntent;
           const constructedTree = constructTree(ci);
           intent = constructedTree as unknown as Record<string, unknown>;
+          // HF-270: deterministic post-construction resolution check (the enforcement).
+          // Every `reference`/`aggregate` leaf the tree names MUST be a member of the
+          // runtime field anchor (HC of the data sheets, or plan-declared fallback).
+          // A reference resolving to no comprehended identity is a structured failure
+          // (FieldResolutionError → cognition_violation), routed through the existing
+          // retry policy — never a silent guess. When the anchor is empty (no HC and no
+          // declared fields), the check is skipped (DD-7: pre-HF-270 behavior preserved).
+          if (args.fieldAnchor.length > 0) {
+            const anchorSet = new Set(args.fieldAnchor.map(f => f.field));
+            const referencedFields = extractReferencesFromDAG(constructedTree);
+            const unresolved = referencedFields.find(f => !anchorSet.has(f));
+            if (unresolved !== undefined) {
+              throw new FieldResolutionError(spec.id, unresolved, Array.from(anchorSet));
+            }
+          }
           console.log(
             `[plan-component] constructed component=${spec.id} from compositional_intent ` +
               `shape=${ci.structure?.shape ?? '(unknown)'}`,
@@ -486,6 +505,14 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             lastErrClass = constructErr.message.includes('output count')
               ? 'cognition_truncation'
               : 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof FieldResolutionError) {
+            // HF-270: a constructed reference resolved to no comprehended/declared
+            // field identity. Structured failure → cognition_violation so the retry
+            // policy re-attempts with the field anchor still in the prompt. On
+            // exhaustion the per-component path below records a `failed` outcome —
+            // a component with an unresolved reference is NEVER persisted.
+            lastErrClass = 'cognition_violation';
             lastErrMessage = constructErr.message;
           } else {
             lastErrClass = 'unknown';
