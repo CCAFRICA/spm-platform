@@ -587,30 +587,53 @@ export async function POST(req: NextRequest) {
     try {
       for (const unit of proposal.contentUnits) {
         if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
-        // Build column_roles map from field bindings
-        const columnRoles: Record<string, string> = {};
-        for (const binding of unit.fieldBindings) {
-          columnRoles[binding.sourceField] = binding.semanticRole;
-        }
         // HF-254 Fix 2a: enrich fieldBindings with NATIVE columnRole, server-side, so the
         // cold-import cache the warm import reads carries real roles independent of the
         // client round-trip. SemanticBinding carries no columnRole; the only native source
-        // is the HC interpretations, which resolveClassification builds onto the trace
-        // server-side (synaptic-ingestion-state buildProposalFromState assigns it to every
-        // unit). Identical enriched shape to emitFlywheelSignals (AP-17).
+        // is the HC interpretations (resolveClassification builds them onto the trace).
         const hcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
           ?.headerComprehension as
-            | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+            | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string; confidence?: number; semanticMeaning?: string }> }
             | undefined;
         const interpMap = hcInterps?.interpretations ?? {};
-        const enrichedFieldBindings = unit.fieldBindings.map(b => {
+        // HF-268 A1 (Carry Everything — T1-E902 v2): the flywheel cache must carry EVERY
+        // HC-interpreted column's structural role, not just the subset that became a
+        // semanticBinding. Previously this mapped unit.fieldBindings only (e.g. 5 of 11),
+        // dropping sales_rep_id:reference_key — so a Tier-1 warm replay reconstructed an
+        // incomplete role set and the entity pointer vanished, causing phantom entities (A2).
+        // Build from the semantic bindings first (they carry semanticRole + confidence), then
+        // ADD any HC column with a real structural columnRole not already covered. Low-quality
+        // roles ('unknown'/empty) are gated out (HALT-4 — carry all STRUCTURAL roles, not blanket).
+        const STRUCTURAL_ROLES = new Set(['identifier', 'reference_key', 'measure', 'temporal', 'name', 'attribute']);
+        const enrichedBySource = new Map<string, Record<string, unknown>>();
+        for (const b of unit.fieldBindings) {
           const interp = interpMap[b.sourceField];
-          return {
+          enrichedBySource.set(b.sourceField, {
             ...b,
             ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
             ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
-          };
-        });
+          });
+        }
+        for (const [colName, interp] of Object.entries(interpMap)) {
+          if (enrichedBySource.has(colName)) continue;
+          const role = interp.columnRole;
+          if (!role || !STRUCTURAL_ROLES.has(role)) continue;
+          enrichedBySource.set(colName, {
+            sourceField: colName,
+            semanticRole: role,
+            confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.8,
+            displayContext: interp.semanticMeaning,
+            columnRole: role,
+            ...(interp.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+          });
+        }
+        const enrichedFieldBindings = Array.from(enrichedBySource.values());
+        // column_roles map mirrors the COMPLETE binding set (native columnRole), so the
+        // poisoned-cache quality gate and warm-replay role reconstruction both see all roles.
+        const columnRoles: Record<string, string> = {};
+        for (const fb of enrichedFieldBindings) {
+          columnRoles[fb.sourceField as string] = (fb.columnRole as string) ?? (fb.semanticRole as string);
+        }
         // HF-197B: locate the unit's OWN sheet for the hash, not sheets[0].
         const sourceFile = files.find(f => f.fileName === unit.sourceFile);
         const sheetForUnit = sourceFile?.sheets.find(s => s.sheetName === unit.tabName);
