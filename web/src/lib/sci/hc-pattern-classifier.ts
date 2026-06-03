@@ -85,6 +85,11 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // it should join this disjunction. For now the tree reads only the union
   // values that actually exist in the type.
   const measurePresent = hasMeasure;
+  // HF-268 B: restore the target/transaction discriminant (Decision 108). idRepeatRatio is the
+  // structural signal HC's profile already encodes — > 1.5 means repeated entities over time
+  // (transaction); <= 1.5 means one row per entity (a per-period TARGET, e.g. a quota whose
+  // temporal column is an effective-date/period marker, not a transaction timestamp).
+  const idRepeatRatio = profile.structure.identifierRepeatRatio;
 
   // ── Branch 1: dimensional lookup ─────────────────────────
   // A categorical lookup key with no entity identifier — hub capacity,
@@ -155,7 +160,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       ],
     };
   }
-  if (identifierCount >= 1 && hasTemporal) {
+  if (identifierCount >= 1 && hasTemporal && idRepeatRatio > 1.5) {
     return {
       classification: 'transaction',
       confidence: 0.85,
@@ -163,6 +168,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       matchedConditions: [
         'HAS measure',
         'HAS temporal — per-period event data',
+        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (>1.5 — repeated entities over time)`,
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
@@ -173,7 +179,12 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // Has an identifier but NO reference_key AND NO temporal — this IS the
   // entity record, not referencing another, and not per-period.
   // "One value set per entity — quotas, targets, thresholds, rates."
-  if (identifierCount >= 1 && !hasReferenceKey && !hasTemporal) {
+  // HF-268 B: a per-entity record with measures and NO reference_key is a target. This now
+  // INCLUDES per-period temporal targets: the high-repeat temporal case (idRepeatRatio > 1.5) was
+  // already classified transaction above, so any temporal file reaching here has idRepeatRatio <= 1.5
+  // — a quota whose effective-date is a period marker, one row per entity (idRepeatRatio=1.00) lands
+  // target, not transaction. Decision 108: HC's structural idRepeatRatio is authoritative.
+  if (identifierCount >= 1 && !hasReferenceKey) {
     return {
       classification: 'target',
       confidence: 0.85,
@@ -181,7 +192,9 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       matchedConditions: [
         'HAS measure',
         'NO reference_key — entity-level record',
-        'NO temporal — snapshot, not per-period',
+        hasTemporal
+          ? `HAS temporal but idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5 — per-period target, not events)`
+          : 'NO temporal — snapshot, not per-period',
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
