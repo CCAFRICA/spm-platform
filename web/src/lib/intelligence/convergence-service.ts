@@ -2233,6 +2233,7 @@ async function resolveColumnMappingsViaAI(
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
   metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
+  categoricals: Array<{ field: string; distinctValues: string[] }> = [], // HF-269 B
 ): Promise<Record<string, ColumnMappingValue>> {
   const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
   const columnNames = measureColumns.map(c => c.name);
@@ -2301,22 +2302,38 @@ async function resolveColumnMappingsViaAI(
     return `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})${range}${crossSourceNote}`;
   }).join('\n');
 
-  // HF-114 / HF-199 D2: User prompt now carries plan-agent semantic intent per metric
-  // when comprehension:plan_interpretation signals are present (HF-198 E5 read).
-  // System prompt is defined in SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
-  //
-  // HF-234 — categorical-context block REMOVED. Column mapping is structural;
-  // filter discovery belongs to Pass 4 (generateAISemanticDerivations) which
-  // produces metric_derivations rules consumed by the engine alongside these
-  // bindings. The prompt now asks for a single concern — pure column mapping.
+  // HF-269 B: surface the runtime CATEGORICAL DIMENSIONS (field + distinct values) so the AI can
+  // express the filter that turns a shared column into the per-plan metric (SUM(col) WHERE cat=X).
+  // Korean Test: every field name and value is read VERBATIM from runtime data
+  // (capabilities[*].categoricalFields[*].distinctValues) — no hardcoded names, no language literals.
+  const categoricalList = categoricals.length > 0
+    ? categoricals
+        .map((c, i) => `${i + 1}. "${c.field}" distinct values: [${c.distinctValues.map(v => `"${v}"`).join(', ')}]`)
+        .join('\n')
+    : '(none)';
+  // Enriched example built from runtime arrays (Korean Test: not literals). Falls back to structural
+  // placeholders only when no categorical dimension exists at runtime.
+  const firstCat = categoricals.find(c => c.distinctValues.length > 0);
+  const enrichedExample = firstCat
+    ? `{"${metricFields[0] || 'metric_a'}": {"column": "${columnNames[0] || 'Column_A'}", "filters": [{"field": "${firstCat.field}", "operator": "eq", "value": "${firstCat.distinctValues[0]}"}]}}`
+    : `{"${metricFields[0] || 'metric_a'}": {"column": "${columnNames[0] || 'Column_A'}", "filters": [{"field": "<categorical_col>", "operator": "eq", "value": "<one_of_its_distinct_values>"}]}}`;
+
+  // HF-114 / HF-199 D2: User prompt carries plan-agent semantic intent per metric.
+  // System prompt is SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
+  // HF-269 B: restores filter vocabulary (HF-234 removed it) — the binding the engine reads
+  // (Decision 111) must carry the authoritative comprehension's filter, not just a flat column.
   const userPrompt = `Match each metric field to the best data column. Each column used at most once.
-Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that
-satisfy the stated intent over columns that merely share contextual labels.
-When a metric field participates in a ratio (a numerator or denominator), use the
-value ranges shown in brackets as a consistency signal: prefer a column whose
-magnitude is consistent with the role the field plays, rather than a column that
-merely resembles the field by label. A value range bounded near 0-1 typically
-indicates an already-computed proportion, not a raw operand.
+Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that satisfy the stated
+intent over columns that merely share contextual labels, for BOTH the column choice and the filter.
+When a metric field participates in a ratio (a numerator or denominator), use the value ranges shown
+in brackets as a consistency signal: prefer a column whose magnitude is consistent with the role the
+field plays. A value range bounded near 0-1 typically indicates an already-computed proportion.
+
+When a metric's plan-agent intent implies a SUBSET of a broader/shared column (the metric is that
+column summed/counted WHERE a categorical dimension equals a specific value), return the ENRICHED form
+{"column": "<col>", "filters": [{"field": "<categorical_col>", "operator": "eq", "value": "<distinct_value>"}]},
+choosing "field" ONLY from a listed CATEGORICAL DIMENSION and "value" ONLY from that field's listed
+distinct values. When no subset is implied, return the flat column-name string.
 
 METRIC FIELDS:
 ${metricList}
@@ -2324,8 +2341,14 @@ ${metricList}
 DATA COLUMNS:
 ${columnList}
 
-EXAMPLE OUTPUT (flat metric-to-column map):
-{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}", "${metricFields[1] || 'metric_b'}": "${columnNames[1] || 'Column_B'}"}`;
+CATEGORICAL DIMENSIONS (any filter "field" and "value" MUST come from these):
+${categoricalList}
+
+EXAMPLE OUTPUT (flat — no filter needed):
+{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}"}
+
+EXAMPLE OUTPUT (filtered — metric is a subset of a shared column):
+${enrichedExample}`;
 
   try {
     const aiService = getAIService();
@@ -2609,11 +2632,23 @@ async function generateAllComponentBindings(
     const groupComponents = groupMatches.map(m => m.component);
 
     console.log(`[Convergence] HF-253 Requesting AI column mapping for variant group ${variantLabel}`);
+    // HF-269 B: collect the runtime categorical dimensions (field + distinct values) across all
+    // capabilities so the mapping call can express filters from real data (Korean Test — runtime only).
+    const categoricalDims: Array<{ field: string; distinctValues: string[] }> = [];
+    const seenCatFields = new Set<string>();
+    for (const cap of capabilities) {
+      for (const cf of cap.categoricalFields ?? []) {
+        if (!cf.field || seenCatFields.has(cf.field)) continue;
+        seenCatFields.add(cf.field);
+        categoricalDims.push({ field: cf.field, distinctValues: cf.distinctValues });
+      }
+    }
     const aiMapping = await resolveColumnMappingsViaAI(
       groupComponents,
       allRequirements,
       measureColumns,
       metricComprehension,
+      categoricalDims,
     );
     console.log(`[Convergence] HF-253 AI proposed ${Object.keys(aiMapping).length} mappings for variant group ${variantLabel}`);
 
