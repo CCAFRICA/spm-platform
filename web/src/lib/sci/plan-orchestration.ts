@@ -75,6 +75,14 @@ export interface OrchestrationInput {
    * for skipped components from this map.
    */
   priorComponents?: Map<string, OrchestratedComponent>;
+  /**
+   * HF-270: the runtime comprehended-field set (HC of the data sheets in this
+   * import). Primary resolution anchor — every reference a component emits must
+   * resolve to one of these field identities (Phase 3 enforcement). Absent/empty
+   * triggers the plan-declared-fields fallback (skeletonRaw.requiredInputs) so a
+   * plan-only import is still bounded to a runtime-derived set, never free-text.
+   */
+  fieldComprehension?: Array<{ field: string; meaning: string; role: string }>;
 }
 
 export interface OrchestratedComponent {
@@ -183,6 +191,29 @@ export async function orchestratePerComponentInterpretation(
     });
   }
 
+  // ── HF-270: resolve the field anchor (primary = HC of the data sheets in this
+  // import; fallback = the plan's own declared fields from plan_skeleton.requiredInputs).
+  // Every reference the per-component call emits must resolve to a member of this
+  // runtime-derived set (Phase 3 enforcement). Korean Test: both sources are
+  // runtime-discovered for THIS upload — no enumerated vocabulary, no synonym table.
+  // The orchestrator is the natural seam because it holds both skeletonRaw and
+  // input.fieldComprehension.
+  const fieldAnchor: Array<{ field: string; meaning: string; role: string }> =
+    input.fieldComprehension && input.fieldComprehension.length > 0
+      ? input.fieldComprehension
+      : Array.isArray(skeletonRaw.requiredInputs)
+        ? (skeletonRaw.requiredInputs as Array<Record<string, unknown>>)
+            .map(ri => ({
+              field: String(ri.field ?? ''),
+              meaning: String(ri.description ?? ''),
+              role: String(ri.dataType ?? ri.scope ?? 'unknown'),
+            }))
+            .filter(f => f.field.length > 0)
+        : [];
+  const fieldAnchorSource =
+    input.fieldComprehension && input.fieldComprehension.length > 0 ? 'HC-data-sheets' : 'plan-declared';
+  console.log(`[plan-orchestrator] HF-270 field anchor = ${fieldAnchorSource} (${fieldAnchor.length} fields)`);
+
   // ── Phase B: per-component (HF-259 Q4: bounded-concurrency parallel) ──────────
   // The N component phases are independent (each receives the full manifest + its own
   // componentSpec); they run with BOUNDED concurrency instead of sequentially, collapsing
@@ -226,6 +257,7 @@ export async function orchestratePerComponentInterpretation(
       pdfMediaType: input.pdfMediaType,
       signalContext: input.signalContext,
       componentSpec: { id: compId, name: compName, nameEs: compNameEs, appliesToEmployeeTypes: appliesTo, briefSemantic, rateTableCellCount },
+      fieldAnchor, // HF-270: runtime comprehended/declared field set for reference resolution
     });
 
     if (!componentResult.component) {
@@ -342,6 +374,9 @@ interface PerComponentCallArgs {
     briefSemantic: string;
     rateTableCellCount?: number;
   };
+  // HF-270: runtime field anchor (HC of data sheets, or plan-declared fallback).
+  // Forwarded into the adapter prompt (Phase 3.1) and enforced post-construction (3.2).
+  fieldAnchor: Array<{ field: string; meaning: string; role: string }>;
 }
 
 interface PerComponentCallResult {
@@ -399,6 +434,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         args.signalContext,
         args.pdfBase64,
         args.pdfMediaType,
+        args.fieldAnchor, // HF-270: comprehended/declared field set for the prompt anchor
       );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;

@@ -38,6 +38,11 @@ export async function executeBatchedPlanInterpretation(
   planUnits: ContentUnitExecution[],
   userId: string,
   storagePath: string,
+  // HF-270: runtime comprehended-field set (HC of the data sheets in this import).
+  // Threaded to the per-component call so reference identities resolve against
+  // comprehended columns instead of being minted from prose. Empty/absent →
+  // orchestrator falls back to the plan's declared fields (plan-only import).
+  comprehendedFields: Array<{ field: string; meaning: string; role: string }> = [],
 ): Promise<ContentUnitResult[]> {
   const primaryUnit = planUnits[0];
   const primaryContentUnitId = primaryUnit.contentUnitId;
@@ -251,6 +256,7 @@ export async function executeBatchedPlanInterpretation(
     signalContext: { tenantId, userId },
     resumeSkipIds: resumeCtx.resumeSkipIds,
     priorComponents: resumeCtx.priorComponents,
+    fieldComprehension: comprehendedFields, // HF-270
   });
 
   const interpretation = orchestration.interpretation as unknown as Record<string, unknown>;
