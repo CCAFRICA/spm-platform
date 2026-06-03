@@ -49,7 +49,7 @@ export async function resolveEntitiesFromCommittedData(
   while (true) {
     const { data: rows } = await supabase
       .from('committed_data')
-      .select('import_batch_id, metadata')
+      .select('import_batch_id, metadata, data_type')
       .eq('tenant_id', tenantId)
       .range(offset, offset + 999);
 
@@ -59,6 +59,11 @@ export async function resolveEntitiesFromCommittedData(
       const batchId = row.import_batch_id as string | null;
       if (!batchId || seenBatches.has(batchId)) continue;
       seenBatches.add(batchId);
+
+      // HF-268 A2: the batch's classification gates the idColumn FALLBACK. A transaction/target
+      // unit's identifier is the EVENT ID, not an entity — never discover entities from it.
+      const dataType = (row as { data_type?: string | null }).data_type ?? undefined;
+      const isEventUnit = dataType === 'transaction' || dataType === 'target';
 
       const meta = row.metadata as Record<string, unknown> | null;
       if (!meta) continue;
@@ -103,10 +108,15 @@ export async function resolveEntitiesFromCommittedData(
             }
           }
         }
-        // Fallback within field_identities: any identifier
+        // Fallback within field_identities. HF-268 A2: an event unit (transaction/target) must
+        // discover entities from its reference_key (the entity pointer), NEVER its identifier (the
+        // event ID — keying on it created 170 phantom entities from CRP transaction_ids). When no
+        // reference_key is present, idColumn stays null → no entities (calc-time resolution, OB-183).
+        // Entity/reference units keep identifier-based discovery (the identifier IS the entity).
         if (!idColumn) {
+          const fallbackType = isEventUnit ? 'reference_key' : 'identifier';
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (fi.structuralType === 'identifier') {
+            if (fi.structuralType === fallbackType) {
               idColumn = colName;
               break;
             }
@@ -118,8 +128,10 @@ export async function resolveEntitiesFromCommittedData(
       if (!idColumn) {
         const semanticRoles = meta.semantic_roles as Record<string, { role?: string }> | undefined;
         if (semanticRoles) {
+          // HF-268 A2: do not let an event unit (transaction/target) fall back to its
+          // entity_identifier semantic role either — that is the event ID, not an entity.
           for (const [colName, sr] of Object.entries(semanticRoles)) {
-            if (sr.role === 'entity_identifier' && !idColumn) idColumn = colName;
+            if (sr.role === 'entity_identifier' && !idColumn && !isEventUnit) idColumn = colName;
             if (sr.role === 'entity_name' && !nameColumn) nameColumn = colName;
           }
         }

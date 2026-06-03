@@ -165,10 +165,14 @@ function resolveEntityIdField(
   // Structural fallback still consults confirmedBindings.entity_identifier in
   // case HC didn't assign a reference_key role above threshold.
   if (classification === 'transaction') {
-    const hcReferenceKey = findHcRole(classificationTrace, 'reference_key');
-    if (hcReferenceKey) return hcReferenceKey;
-    const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
-    return binding?.sourceField ?? null;
+    // HF-268 A2: a transaction's entity association is its reference_key (the foreign key to the
+    // entity the event BELONGS TO). The transaction's OWN identifier is the EVENT ID, not an entity.
+    // The prior fallback to the entity_identifier binding selected that event ID when the
+    // reference_key was absent (e.g. dropped by a flywheel Tier-1 replay), and entity resolution
+    // then created phantom entities from transaction IDs (170 from one CRP sales file). When no
+    // reference_key is present, leave entity_id_field null — the engine resolves at calc time
+    // (Decision 92 / OB-183). NEVER key a transaction's entity on its own identifier (HF-263 lineage).
+    return findHcRole(classificationTrace, 'reference_key');
   }
 
   // Entity and target files: the identifier IS the entity (entity files) or
