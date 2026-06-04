@@ -33,6 +33,7 @@ import {
   ConstructionError,
   MissingCompositionalIntentError,
   FieldResolutionError,
+  StructuralCoherenceError,
   type CompositionalIntent,
 } from '@/lib/plan-intelligence/compositional-intent';
 // HF-270: reuse the canonical DAG reference-leaf walk (pure structural, Korean-Test
@@ -403,6 +404,55 @@ interface PerComponentCallResult {
 // component complexity. Formal removal from compilation per AP-17. See HF-255
 // for the prime-assembler.ts file-level deprecation.
 
+// ─────────────────────────────────────────────
+// HF-271: structural-coherence proofread helpers
+// ─────────────────────────────────────────────
+//
+// Pure structure-to-structure traversal — no catalog, no field literals, no shape names.
+// `collectDeclaredRatios` walks the emitted CompositionalIntent for every ReferenceSource
+// of type `ratio` (the structure the LLM RECOGNIZED). `collectTwoFieldDivides` walks the
+// constructed PrimeNode DAG for every `arithmetic`/`divide` over two `reference` leaves
+// (what the constructor BUILT). The proofread asserts the two agree: a declared ratio that
+// did not surface as a two-distinct-field divide, or whose numerator/denominator is missing
+// or identical, is structurally incoherent.
+
+function collectDeclaredRatios(node: unknown, out: Array<{ num: string; denom: string }>): void {
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  if (obj.type === 'ratio') {
+    out.push({
+      num: typeof obj.numerator_field === 'string' ? obj.numerator_field : '',
+      denom: typeof obj.denominator_field === 'string' ? obj.denominator_field : '',
+    });
+  }
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) {
+      for (const child of v) collectDeclaredRatios(child, out);
+    } else if (v && typeof v === 'object') {
+      collectDeclaredRatios(v, out);
+    }
+  }
+}
+
+function collectTwoFieldDivides(node: unknown, out: Array<[string, string]>): void {
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  if (obj.prime === 'arithmetic' && obj.op === 'divide' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+    const a = obj.inputs[0] as Record<string, unknown> | undefined;
+    const b = obj.inputs[1] as Record<string, unknown> | undefined;
+    const af = a && a.prime === 'reference' && typeof a.field === 'string' ? a.field : null;
+    const bf = b && b.prime === 'reference' && typeof b.field === 'string' ? b.field : null;
+    if (af && bf) out.push([af, bf]);
+  }
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) {
+      for (const child of v) collectTwoFieldDivides(child, out);
+    } else if (v && typeof v === 'object') {
+      collectTwoFieldDivides(v, out);
+    }
+  }
+}
+
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
   const spec = args.componentSpec;
@@ -495,6 +545,37 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               throw new FieldResolutionError(spec.id, unresolved, args.fieldAnchor.map(f => f.field));
             }
           }
+          // HF-271: structural-coherence proofread (the ribosome's exonuclease). The emitted
+          // `ci` IS the structure the LLM recognized; `constructedTree` is what was built.
+          // Verify INTERNAL coherence — never against a catalog: every `ratio` the intent
+          // declared must surface as a `divide` over TWO DISTINCT reference fields in the DAG.
+          // A declared ratio that collapsed to a single field, or whose numerator/denominator
+          // is missing or identical, is structurally incoherent → structured failure
+          // (StructuralCoherenceError → cognition_violation), routed through the existing retry
+          // policy, never persisted. Korean Test: purely structure-to-structure; the only
+          // literals are grammar tokens and error text. (Arithmetic operand-arity is already
+          // constructor-guaranteed — constructArithmetic throws on ≠2 operands — so the ratio
+          // assertion is the substantive first coherence assertion; append-only by design.)
+          const declaredRatios: Array<{ num: string; denom: string }> = [];
+          collectDeclaredRatios(ci as unknown, declaredRatios);
+          if (declaredRatios.length > 0) {
+            const degenerate = declaredRatios.find(r => !r.num || !r.denom || r.num === r.denom);
+            if (degenerate) {
+              throw new StructuralCoherenceError(
+                spec.id,
+                `a declared ratio has a missing or identical numerator/denominator (numerator="${degenerate.num}" denominator="${degenerate.denom}")`,
+              );
+            }
+            const twoFieldDivides: Array<[string, string]> = [];
+            collectTwoFieldDivides(constructedTree, twoFieldDivides);
+            const coherentDivides = twoFieldDivides.filter(([a, b]) => a !== b);
+            if (coherentDivides.length < declaredRatios.length) {
+              throw new StructuralCoherenceError(
+                spec.id,
+                `${declaredRatios.length} ratio(s) declared but only ${coherentDivides.length} two-distinct-field divide(s) constructed — a declared ratio collapsed to a single field`,
+              );
+            }
+          }
           console.log(
             `[plan-component] constructed component=${spec.id} from compositional_intent ` +
               `shape=${ci.structure?.shape ?? '(unknown)'}`,
@@ -521,6 +602,14 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             // policy re-attempts with the field anchor still in the prompt. On
             // exhaustion the per-component path below records a `failed` outcome —
             // a component with an unresolved reference is NEVER persisted.
+            lastErrClass = 'cognition_violation';
+            lastErrMessage = constructErr.message;
+          } else if (constructErr instanceof StructuralCoherenceError) {
+            // HF-271: the composed structure is internally incoherent (a declared ratio
+            // collapsed to a single field, or had an identical/missing numerator-denominator).
+            // Structured failure → cognition_violation so retry re-attempts with the
+            // grammar-description prompt; on exhaustion a `failed` outcome is recorded —
+            // a structurally-incoherent component is NEVER persisted.
             lastErrClass = 'cognition_violation';
             lastErrMessage = constructErr.message;
           } else {
