@@ -556,57 +556,27 @@ Scale specification — name which side scales (HF-244 mutual exclusion):
   scale: { "side": "evaluator|convergence", "unit": "percent|ratio|currency|count", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
   Or scale: null when no scale normalization is needed.
 
-ILLUSTRATIONS:
+HOW TO DESCRIBE THE STRUCTURE — describe what the plan text actually says, using the primitives below and the one rule that composes them. There is NO catalog of component shapes to match against: a finite set of primitives composes without bound. Read the structure and describe it; do NOT match the plan to a remembered kind of plan.
 
-SC-A — 1D 4-tier band (BCL C1 Captación de Depósitos shape):
-{
-  "component_id": "captacion-depositos",
-  "component_name": "Captación de Depósitos",
-  "structure": {
-    "shape": "banded_lookup",
-    "dimensions": [
-      { "reference_field": "cumplimiento_depositos", "reference_source": { "type": "metric", "field": "cumplimiento_depositos" }, "breaks": [80, 100, 130] }
-    ],
-    "outputs": [0, 120, 250, 400]
-  },
-  "scale": { "side": "evaluator", "unit": "percent", "value": 100, "confidence": 0.95, "reference_field": "cumplimiento_depositos" },
-  "output_precision": 0
-}
+REFERENCE TYPES — how a single value is read from the data:
+  • A value that is one quantity → a metric reference; name that one field.
+  • A value that is one quantity DIVIDED BY another (a rate, a per-unit, an attainment of one amount over another — anything of the form X over Y) → a ratio reference; name BOTH the numerator field AND the denominator field. NEVER collapse a divided quantity to a single field. Even when the plan also mentions a pre-computed column that already holds the quotient, describe the division the plan defines (numerator ÷ denominator), not the pre-baked column.
+  • A value summed / counted / averaged over a group → an aggregate reference (scope_aggregate when aggregated within a boundary); name the field and the operation.
+  • A value carried from an earlier component → a prior_component reference.
 
-SC-B — 2D matrix (BCL C0 Colocación de Crédito shape, 6×5 = 30 cells):
-{
-  "component_id": "colocacion-credito",
-  "component_name": "Colocación de Crédito",
-  "structure": {
-    "shape": "banded_lookup",
-    "dimensions": [
-      { "reference_field": "cumplimiento_colocacion", "reference_source": { "type": "metric", "field": "cumplimiento_colocacion" }, "breaks": [70, 80, 90, 100, 120] },
-      { "reference_field": "calidad_cartera", "reference_source": { "type": "metric", "field": "calidad_cartera" }, "breaks": [0.7, 0.85, 0.9, 0.95] }
-    ],
-    "outputs": [0, 0, 0, 0, 0,   /* row 0: cumplimiento < 70 */
-                0, 50, 100, 150, 200,    /* row 1: 70 <= cumplimiento < 80 */
-                /* ... 4 more rows ... */
-                300, 400, 500, 600, 700]
-  },
-  "scale": { "side": "evaluator", "unit": "percent", "value": 100, "confidence": 0.95, "reference_field": "cumplimiento_colocacion" },
-  "output_precision": 0
-}
+STRUCTURAL SHAPES — how values combine:
+  • Values combined by an operation (× ÷ + −) → arithmetic; state the operation and its two operands. An operand may itself be a nested structure.
+  • A value that changes at a threshold/condition → conditional; state the condition (reference, operator, threshold), the then-value, and the else-value.
+  • A bound on a value — a cap, floor, limit, "no more than", "no less than", "maximum/minimum of" — → a conditional clamp applied to THAT value, in the same space the bound is stated (a cap on a ratio clamps the ratio), applied BEFORE that value combines further.
+  • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values.
+  • Independently-computed parts combined into one result → composed (sum / max / min / first_match).
 
-SC-C — Arithmetic linear rate (CRP Plan 1 shape):
-{
-  "component_id": "linear-rate",
-  "component_name": "Linear Commission",
-  "structure": {
-    "shape": "arithmetic",
-    "operation": "multiply",
-    "operands": [
-      { "kind": "reference", "source": { "type": "metric", "field": "revenue" } },
-      { "kind": "constant", "value": 0.05 }
-    ]
-  },
-  "scale": null,
-  "output_precision": 2
-}
+THE COMPOSITION RULE (the generative core): these primitives nest and combine freely and recursively to match whatever the plan describes — a ratio can be the operand of a clamp, a clamp can be the operand of a multiply, a multiply can be a child of a sum, to whatever depth the plan's text implies. There is no fixed template to select; describe the actual structure you read. If a value is bounded and then multiplied by a base, that is an arithmetic multiply whose operands are the clamped value and the base — composed from primitives, not retrieved as a named shape.
+
+SINGLE-PRIMITIVE FORMS (abstract placeholders — NOT a real plan; no field names, no real thresholds, no component kind. Replace each <…> with what the plan states):
+  • a ratio reference:                          { "type": "ratio", "numerator_field": "<numerator>", "denominator_field": "<denominator>" }
+  • a conditional clamp of value V at limit L:   { "shape": "conditional", "condition": { "reference": <V's source>, "operator": "gte", "threshold": <L> }, "then": { "kind": "constant", "value": <L> }, "else": <V as an operand> }
+  • an arithmetic multiply of two operands:      { "shape": "arithmetic", "operation": "multiply", "operands": [ <operand A>, <operand B> ] }
 
 Response shape — return JSON with ONLY these fields:
 {

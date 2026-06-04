@@ -254,6 +254,31 @@ export class FieldResolutionError extends Error {
   }
 }
 
+/**
+ * HF-271: structural-coherence failure. The emitted compositional_intent is the
+ * structure the LLM recognized; the constructed DAG is what was built. When the two
+ * are internally incoherent — a declared `ratio` that did not surface as a `divide`
+ * over two DISTINCT reference fields, or whose numerator and denominator are identical
+ * or missing — the composition is structurally wrong even though it is grammar-valid.
+ * Per AUD-009 + the Korean Test, this is a structured failure (a structure-to-structure
+ * coherence assertion, NOT a catalog lookup) raised post-construction in
+ * plan-orchestration.ts, mapped to cognition_violation for retry. Never a silent wrong
+ * answer; never steers toward any named shape.
+ */
+export class StructuralCoherenceError extends Error {
+  constructor(
+    public readonly componentId: string,
+    public readonly incoherence: string,
+  ) {
+    super(
+      `[plan-component] component "${componentId}" composed a structurally-incoherent intent: ` +
+      `${incoherence}. The recognized structure and the constructed DAG disagree; ` +
+      `classify as cognition_violation and retry.`,
+    );
+    this.name = 'StructuralCoherenceError';
+  }
+}
+
 // ─────────────────────────────────────────────
 // Re-exports for downstream callers
 // ─────────────────────────────────────────────
