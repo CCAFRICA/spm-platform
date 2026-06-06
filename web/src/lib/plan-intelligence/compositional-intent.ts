@@ -229,30 +229,11 @@ export class MissingCompositionalIntentError extends Error {
   }
 }
 
-/**
- * HF-270: structured failure when a constructed component's `reference` leaf
- * names a field that resolves to NO comprehended/declared field identity in
- * this import. Per the Korean Test (IGF-T1-E910), an unrecognized identifier is
- * a typed failure naming the unresolved token and the available set — never a
- * silent guess or fallback. Raised post-construction in plan-orchestration.ts,
- * mapped to cognition_violation for retry via the HF-248 error class taxonomy.
- */
-export class FieldResolutionError extends Error {
-  constructor(
-    public readonly componentId: string,
-    public readonly unresolvedField: string,
-    public readonly availableFields: string[],
-  ) {
-    super(
-      `[plan-component] component "${componentId}" emitted reference field "${unresolvedField}" ` +
-      `which resolves to NO comprehended/declared field identity in this import. ` +
-      `Available fields: [${availableFields.join(', ')}]. ` +
-      `Field identity must resolve against the runtime-derived set (Korean Test); ` +
-      `no free-text field names. Classify as cognition_violation and retry.`,
-    );
-    this.name = 'FieldResolutionError';
-  }
-}
+// HF-272: FieldResolutionError (HF-270) was REMOVED with the interpretation-time
+// field-resolution gate (AUD-009). The hallucination-catch it served — a token that
+// maps to no real column — is relocated to convergence as a loud per-component failure
+// at calc time (HF-272 Phase 3), where "no real column" is knowable against the real
+// columns present (complete-by-construction), never against an incomplete declared set.
 
 /**
  * HF-271: structural-coherence failure. The emitted compositional_intent is the
