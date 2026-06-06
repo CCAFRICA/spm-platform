@@ -34,7 +34,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
-import { convergeBindings, extractLeafSources, extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
+import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure } from '@/lib/intelligence/convergence-service';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
@@ -144,6 +144,12 @@ export async function POST(request: NextRequest) {
   // Populated at component_complete site UNCONDITIONALLY (every entity, every component);
   // surfaced in [CalcRecon] block per-component breakdown for direct ground-truth reconciliation.
   const componentTotals: Map<number, { name: string; total: number }> = new Map();
+
+  // HF-272: per-component resolution failures — componentIndex → { name, token, reason }.
+  // Populated once per failed component (a required reference token mapped to NO real column
+  // at convergence; the relocated hallucination-catch). Surfaced distinctly in the
+  // [CalcRecon-T1] footer (a loud `failed`, never counted as a $0 success).
+  const resolutionFailures: Map<number, { name: string; token: string; reason: string }> = new Map();
 
   // HF-212: Variant distribution accumulator — variantKey → count of entities matched.
   // Populated at variant decision site (after exclusion check); surfaced in Tier 1 footer.
@@ -1879,6 +1885,11 @@ export async function POST(request: NextRequest) {
       // metrics = {} (Decision 153 atomic cutover completion).
       const compBindingKey = `component_${compIdx}`;
       const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
+      // HF-272: relocated hallucination-catch — read the per-component resolution-failure
+      // marker (a required reference token that mapped to NO real column at convergence).
+      // This is a DATA read from the persisted binding; it flows here regardless of the
+      // convergence swallow-catch (Phase 3.4), which only guards genuine infra throws.
+      const componentResolutionFailure = findComponentResolutionFailure(compBindings);
       let metrics: Record<string, number>;
       let usedConvergenceBindings = false;
       // HF-218 Component 2 — Engine binding verification at calc time.
@@ -2006,7 +2017,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (compBindings && !bindingVerified) {
+      if (componentResolutionFailure) {
+        // HF-272: a required reference token mapped to NO real column at convergence — the
+        // relocated hallucination-catch fires here as a LOUD per-component failure (Option 1,
+        // no run abort). Empty metrics → no computed payout; the componentResult below is
+        // marked `failed` with the named token, and the [CalcRecon-T1] footer surfaces it
+        // distinctly — never a silent $0. The run CONTINUES; every other component computes
+        // normally. DD-7: a component whose tokens resolve to real columns never enters here.
+        if (!resolutionFailures.has(compIdx)) {
+          resolutionFailures.set(compIdx, {
+            name: component.name,
+            token: componentResolutionFailure.token,
+            reason: componentResolutionFailure.reason,
+          });
+          addLog(`[CalcRecon-T3] RESOLUTION_FAILURE component=${compIdx} name="${component.name}" token="${componentResolutionFailure.token}" reason=${componentResolutionFailure.reason} — loud per-component failure (not silent $0)`);
+        }
+        metrics = {};
+      } else if (compBindings && !bindingVerified) {
         // HF-218 Component 2: structural exception — binding cannot be verified; refuse to calculate.
         // Emit signal + addLog + skip metric resolution for this entity-component.
         addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=structural_exception reason="${bindingExceptionReason}"`);
@@ -2373,7 +2400,15 @@ export async function POST(request: NextRequest) {
         componentType: component.componentType,
         payout: 0,
         metricValues: metrics,
-        details: {},
+        details: componentResolutionFailure
+          ? { failed: true, reason: 'resolution_failure', unresolvedToken: componentResolutionFailure.token }
+          : {},
+        // HF-272: loud per-component failure marker (a required token mapped to no real
+        // column). Carries through to persistence + footer so a failed component is never
+        // a silent $0. Absent on components whose tokens resolve to real columns (DD-7).
+        ...(componentResolutionFailure
+          ? { status: 'failed' as const, resolutionFailure: { token: componentResolutionFailure.token, reason: componentResolutionFailure.reason } }
+          : {}),
       });
       perComponentMetrics.push(metrics);
     }
@@ -2931,6 +2966,18 @@ export async function POST(request: NextRequest) {
   const t1SortedComponents = Array.from(componentTotals.entries()).sort((a, b) => a[0] - b[0]);
   const t1ComponentSummary = t1SortedComponents.map(([idx, info]) => `c${idx}:${info.total}`).join(' | ');
   addLog(`[CalcRecon-T1] componentTotals=[${t1ComponentSummary}]`);
+  // HF-272: surface per-component resolution failures distinctly (loud, never a $0 success).
+  // A required reference token that mapped to NO real column at convergence (the relocated
+  // hallucination-catch) — the component is `failed`, not silently $0.
+  if (resolutionFailures.size > 0) {
+    const t1Failures = Array.from(resolutionFailures.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([idx, info]) => `c${idx}("${info.name}"):token="${info.token}"/${info.reason}`)
+      .join(' | ');
+    addLog(`[CalcRecon-T1] resolutionFailures=[${t1Failures}]`);
+  } else {
+    addLog(`[CalcRecon-T1] resolutionFailures=[none]`);
+  }
   addLog(`[CalcRecon-T1] flags={diag003Fallback:${diag003FallbackCount}/${t1FooterTotalLookups} boundaryFallback:${boundaryFallbackCount}}`);
   const t1VariantBreakdown = Array.from(variantCounts.entries()).map(([k, v]) => `${k}:${v}`).join(' | ');
   addLog(`[CalcRecon-T1] variantDistribution={${t1VariantBreakdown}}`);
