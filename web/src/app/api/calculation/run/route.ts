@@ -1340,6 +1340,12 @@ export async function POST(request: NextRequest) {
       const dagMetrics: Record<string, number> = {};
       for (const field of refs) {
         const fieldBinding = compBindings[field] as ConvergenceBindingEntry | undefined;
+        // HF-273 Defect B: a structural "no column binding for this DAG reference" gap is now
+        // caught LOUD upstream — the consumer's pre-resolution check (see componentResolutionFailure
+        // assembly) fails the whole component before this resolver is even called, so this `continue`
+        // no longer silently converts a missing required field into a band-collapsing ZERO. The
+        // `continue` remains as defense-in-depth; the `rawValue === null` case below stays a silent
+        // per-entity skip on purpose (per-entity data absence, NOT a binding gap — DD-7).
         if (!fieldBinding?.column) continue;
         const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters);
         if (rawValue === null) continue;
@@ -1883,13 +1889,66 @@ export async function POST(request: NextRequest) {
       // post-HF-220. Convergence bindings tell us exactly which batch + column has each
       // input; absence or empty-resolver-output emits engine:exception observability +
       // metrics = {} (Decision 153 atomic cutover completion).
-      const compBindingKey = `component_${compIdx}`;
-      const compBindings = convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined;
+      // HF-273 Defect A: convergence_bindings is keyed `component_N` against the FLATTENED
+      // all-variants component list (extractComponents order — see convergence-service.ts
+      // generateAllComponentBindings, `component_${comp.index}`). `selectedComponents` is the
+      // per-entity VARIANT-SELECTED array; its ordinal equals the flattened ordinal ONLY for
+      // variant 0. For a non-0 variant, `selectedComponents[compIdx]` sits at flattened
+      // position offset(variant)+compIdx, so reading `component_${compIdx}` consults the WRONG
+      // variant's binding (the BCL Ejecutivo C1 collapse: compIdx 0 read Senior `component_0`
+      // instead of Ejecutivo `component_4`). Recover the flattened ordinal by OBJECT IDENTITY:
+      // `component` IS an element of `variants.flatMap(v => v.components)`, so its indexOf there
+      // is exactly the producer's binding key. Korean Test: structural identity (object), no
+      // name/role/variant string. DD-7: for variant 0 and single-variant plans (variants.length
+      // <= 1 OR selectedVariantIndex === 0) the flattened ordinal equals compIdx, so the key is
+      // byte-identical to today — the remap only runs for selectedVariantIndex > 0.
+      let compBindingKey: string | null = `component_${compIdx}`;
+      if (variants.length > 1 && selectedVariantIndex > 0) {
+        const flattenedComponents = variants.flatMap(
+          v => ((v.components as PlanComponent[] | undefined) ?? []),
+        );
+        const flattenedIdx = flattenedComponents.indexOf(component);
+        // flattenedIdx < 0 is a structural impossibility (component IS from variants). If it
+        // ever occurs, key = null → loud per-component failure below (never component_0).
+        compBindingKey = flattenedIdx >= 0 ? `component_${flattenedIdx}` : null;
+      }
+      const compBindings = compBindingKey
+        ? (convergenceBindings?.[compBindingKey] as Record<string, unknown> | undefined)
+        : undefined;
       // HF-272: relocated hallucination-catch — read the per-component resolution-failure
       // marker (a required reference token that mapped to NO real column at convergence).
       // This is a DATA read from the persisted binding; it flows here regardless of the
       // convergence swallow-catch (Phase 3.4), which only guards genuine infra throws.
-      const componentResolutionFailure = findComponentResolutionFailure(compBindings);
+      // HF-273 Defect B: an unresolvable prime_dag DAG reference must be LOUD, not a silent
+      // skip (the silent skip → ZERO → band collapse is the exact HF-272 class recurring at
+      // the binding-resolution path). Detect it structurally (parallel to the HF-272 binding
+      // marker, same per-component shape) and route it through the SAME resolutionFailure
+      // surface — no new channel (Decision 158 / HALT-2). Scoped to a field with NO column
+      // binding (a per-component structural gap, identical across entities); the per-entity
+      // `rawValue === null` data-absence case inside resolveMetricsFromConvergenceBindings is
+      // deliberately NOT promoted (DD-7 — it must not mass-fail sparse-data entities). A null
+      // compBindingKey (flattenedIdx < 0 above) is also a loud failure here, never silent.
+      let componentResolutionFailure = findComponentResolutionFailure(compBindings);
+      if (!componentResolutionFailure && compBindingKey === null) {
+        // candidatesConsidered: 0 — no flattened binding slot exists for this selected component.
+        componentResolutionFailure = { token: component.name ?? `component_${compIdx}`, reason: 'no_real_column_match', candidatesConsidered: 0 };
+      }
+      if (!componentResolutionFailure && compBindings) {
+        const cIntent = component.calculationIntent as Record<string, unknown> | undefined;
+        const isPrime = (component as unknown as { componentType?: string }).componentType === 'prime_dag'
+          || (!!cIntent && typeof cIntent.prime === 'string');
+        if (isPrime) {
+          const refs = extractReferencesFromDAG(cIntent);
+          const unresolved = refs.find(f => {
+            const fb = (compBindings as Record<string, { column?: string } | undefined>)[f];
+            return !fb?.column;
+          });
+          if (unresolved !== undefined) {
+            // candidatesConsidered: 0 — the DAG reference has no column binding at all (structural gap).
+            componentResolutionFailure = { token: unresolved, reason: 'no_real_column_match', candidatesConsidered: 0 };
+          }
+        }
+      }
       let metrics: Record<string, number>;
       let usedConvergenceBindings = false;
       // HF-218 Component 2 — Engine binding verification at calc time.
@@ -2129,6 +2188,10 @@ export async function POST(request: NextRequest) {
         // Per Disposition 3 (restored) + ADR Decision 1 (optimistic concurrency control).
         // C_proposed > C_existing strictly + column_proposed !== column_existing.
         // Atomic compose: rule_sets update + classification_signals write succeed together.
+        // HF-273 Defect A: this branch is entered only when `compBindings` is truthy, which by
+        // construction means `compBindingKey` is non-null (compBindings = key ? lookup : undefined).
+        // Narrow it for the keyed reads/writes below — the correction inherits the corrected key.
+        const cbKey: string = compBindingKey as string;
         const preBinding = { ...(eidBindingRaw as unknown as Record<string, unknown>) };
         const correctionResolved = await (async () => {
           const MAX_RETRIES = 3;
@@ -2141,8 +2204,8 @@ export async function POST(request: NextRequest) {
             if (!rsRow) return false;
             const currentBindings = (rsRow.input_bindings as Record<string, unknown>) ?? {};
             const cb = currentBindings.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
-            if (!cb || !cb[compBindingKey]) return false;
-            const newComp = { ...cb[compBindingKey] };
+            if (!cb || !cb[cbKey]) return false;
+            const newComp = { ...cb[cbKey] };
             // HF-222 Phase 3: correction-write preserves the original learning provenance
             // (the column was corrected, but provenance still references the same batch
             // where the binding was learned).
@@ -2155,7 +2218,7 @@ export async function POST(request: NextRequest) {
             };
             const newBindings = {
               ...currentBindings,
-              convergence_bindings: { ...cb, [compBindingKey]: newComp },
+              convergence_bindings: { ...cb, [cbKey]: newComp },
             };
             const { data: updateData, error: updateErr } = await supabase
               .from('rule_sets')
@@ -2204,7 +2267,7 @@ export async function POST(request: NextRequest) {
             confidence: proposedCorrection.confidence,
           };
           if (convergenceBindings) {
-            (convergenceBindings as Record<string, unknown>)[compBindingKey] = correctedCompBindings;
+            (convergenceBindings as Record<string, unknown>)[cbKey] = correctedCompBindings;
           }
           // Emit engine_correction signal with full pre/post state for SOC preservation.
           writeSignal({
