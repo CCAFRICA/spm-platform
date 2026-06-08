@@ -109,6 +109,19 @@ export interface ComponentBinding {
   scale_factor?: number;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
+  // HF-272: per-component resolution-failure MARKER. Set when a required reference token
+  // (a `reference` leaf the constructed DAG depends on) resolved to NO real data column —
+  // neither AI semantic mapping nor boundary fallback bound it. This is the relocated
+  // hallucination-catch (formerly the HF-270 interpretation-time gate): the comparison is
+  // against the REAL columns convergence evaluated (measureColumns — complete-by-
+  // construction), NEVER an enumerated/declared list (AUD-009). It is a DATA marker, not a
+  // thrown exception: the run continues (Option 1 — no abort), and calc surfaces the
+  // component as a loud `failed` (no silent $0).
+  resolutionFailure?: {
+    token: string;                  // the recognized reference token that matched no real column
+    reason: 'no_real_column_match';
+    candidatesConsidered: number;   // how many real columns convergence weighed (0 = none existed)
+  };
   // HF-222 Phase 3: learning provenance (audit metadata only).
   learning_provenance?: {
     batch_id: string;
@@ -1448,6 +1461,34 @@ export function extractLeafSources(
  * Korean Test compliant — pure structural traversal, no field-name matching.
  * Domain-agnostic — works for any PrimeNode tree regardless of vocabulary.
  */
+/**
+ * HF-272: read the per-component resolution-failure marker from a component's convergence
+ * bindings, if any role's binding carries one (written by generateAllComponentBindings when
+ * a required reference token mapped to no real column). Pure structural read — no enumeration,
+ * no plan knowledge, no declared-field list. Returns the FIRST unresolved token (a component
+ * fails as soon as ANY required reference token maps to nothing real). Consumed by the calc
+ * path (run/route.ts) and evaluateComponent to surface a loud per-component `failed` in place
+ * of the prior silent $0.
+ */
+export function findComponentResolutionFailure(
+  compBindings: Record<string, unknown> | undefined | null,
+): { token: string; reason: string; candidatesConsidered: number } | null {
+  if (!compBindings || typeof compBindings !== 'object') return null;
+  for (const binding of Object.values(compBindings)) {
+    if (binding && typeof binding === 'object') {
+      const rf = (binding as { resolutionFailure?: { token?: unknown; reason?: unknown; candidatesConsidered?: unknown } }).resolutionFailure;
+      if (rf && typeof rf === 'object' && typeof rf.token === 'string') {
+        return {
+          token: rf.token,
+          reason: typeof rf.reason === 'string' ? rf.reason : 'no_real_column_match',
+          candidatesConsidered: typeof rf.candidatesConsidered === 'number' ? rf.candidatesConsidered : 0,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 export function extractReferencesFromDAG(node: unknown): string[] {
   if (!node || typeof node !== 'object') return [];
   const refs = new Set<string>();
@@ -2751,7 +2792,33 @@ async function generateAllComponentBindings(
         boundColumnToField.set(best.name, req.metricField);
         console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
       } else if (candidates.length > 0) {
+        // Ambiguous: real columns exist but none is distinctly THE match. This is
+        // convergence-matching quality (Decision 108 / §6A territory), NOT the
+        // HF-272 hallucination-catch. Preserve the existing gap log; DD-7: today's
+        // silent behavior for the ambiguous case is unchanged (no marker written).
         console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
+      } else {
+        // HF-272: the required reference token resolved to NO real column — there is no
+        // measure column available for it to bind to (AI semantic mapping proposed none,
+        // and the boundary fallback had zero candidates). This is the relocated
+        // hallucination-catch. Record a per-component resolution-failure MARKER on the
+        // binding (no throw — Option 1: per-component failure, no run abort). The component
+        // still receives a binding entry so persistence is NOT skipped; calc surfaces it as
+        // a loud `failed` component, never a silent $0. The comparison is against the real
+        // columns convergence evaluated (measureColumns) — complete-by-construction, never
+        // an enumerated/declared list (AUD-009).
+        bindings[compKey][req.role] = {
+          column: '',
+          field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed',
+          confidence: 0,
+          resolutionFailure: {
+            token: req.metricField,
+            reason: 'no_real_column_match',
+            candidatesConsidered: candidates.length,
+          },
+        };
+        console.log(`[Convergence] HF-272 ${comp.name}:${req.role}: token "${req.metricField}" resolved to NO real column (candidatesConsidered=${candidates.length}) — per-component resolution failure recorded (loud failed, not silent $0).`);
       }
     }
 

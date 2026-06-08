@@ -1254,19 +1254,22 @@ Return JSON per the schema in the system instructions.`;
         const appliesTo = Array.isArray(spec.appliesToEmployeeTypes)
           ? (spec.appliesToEmployeeTypes as unknown[]).map(String)
           : [];
-        // HF-270: AVAILABLE COMPREHENDED FIELDS — the runtime resolution anchor.
-        // Built verbatim from the threaded field set (HC of this import's data sheets,
-        // or the plan's own declared fields when no data sheet accompanies the plan).
-        // Every reference_field the intent emits MUST be one of these <field> tokens.
-        // Korean Test: the list is runtime HC/declared output — the only literals here
-        // are prose/format scaffolding, never a field name or synonym.
+        // HF-272: informational field-context hint ONLY (a hint, not a gate; T1-E902).
+        // Built verbatim from the threaded HC-of-data-sheets set (real runtime comprehension
+        // of the columns physically present in THIS import). The HF-270 enforcement language
+        // ("a deterministic post-construction check enforces membership and will reject an
+        // unresolved reference") was REMOVED with the gate (AUD-009): this block no longer
+        // constrains the LLM's naming. Recognition follows the plan; the platform maps the
+        // named fields to real data columns at calculation time (convergence). When the set
+        // is empty (plan-only import, no data sheet) the block is ABSENT — no fallback, no
+        // enumerated list. Korean Test: the list is runtime HC output, never a synonym table.
         const fieldAnchor = Array.isArray(input.fieldAnchor)
           ? (input.fieldAnchor as Array<{ field?: unknown; meaning?: unknown; role?: unknown }>)
           : [];
         const comprehendedFieldsBlock = fieldAnchor.length > 0
-          ? `\nAVAILABLE COMPREHENDED FIELDS (resolve every reference to one of these):\n${fieldAnchor
+          ? `\nFOR CONTEXT, the imported data contains these columns (informational — does NOT constrain your naming):\n${fieldAnchor
               .map(f => `  ${String(f.field ?? '')} — ${String(f.meaning ?? '')} (${String(f.role ?? '')})`)
-              .join('\n')}\n\nFIELD RESOLUTION RULE: every \`reference_field\` / \`ReferenceSource.field\` you emit MUST be exactly one of the field identifiers listed above, chosen by matching this component's described metric to the field whose meaning fits — match by SEMANTIC MEANING, not string similarity to the prose. Do not invent a field name from the plan text. If this component's metric matches NO listed field, say so explicitly in \`reasoning\` and emit the closest available identifier (a deterministic post-construction check enforces membership and will reject an unresolved reference).\n`
+              .join('\n')}\n\nRecognize the plan's structure and name each field per the PLAN (match by SEMANTIC MEANING, not string similarity). The platform maps your named fields to the actual data columns at calculation time — you do not need to pick from the list above, and naming a field the plan describes that is not listed is fine.\n`
           : '';
         return `Translate the following plan COMPONENT into a Prime-DAG calculationIntent tree. PHASE B: emit this component only.
 

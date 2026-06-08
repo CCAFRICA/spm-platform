@@ -42,6 +42,13 @@ export interface ComponentResult {
   payout: number;
   metricValues: Record<string, number>;
   details: Record<string, unknown>;
+  // HF-272: per-component resolution failure — set when a required reference token mapped
+  // to NO real data column at convergence (the relocated hallucination-catch). When present
+  // the component is a LOUD failure (status 'failed', named token), NOT a silent $0; the run
+  // continues and other components compute (Option 1 — no run abort). Absent on every
+  // component whose tokens resolve to real columns (DD-7: those compute identically).
+  status?: 'failed';
+  resolutionFailure?: { token: string; reason: string };
 }
 
 export interface CalculationRunResult {
@@ -253,9 +260,37 @@ export class LegacyEngineUnknownComponentTypeError extends Error {
   }
 }
 
-export function evaluateComponent(component: PlanComponent, metrics: Record<string, number>): ComponentResult {
+export function evaluateComponent(
+  component: PlanComponent,
+  metrics: Record<string, number>,
+  // HF-272: per-component resolution failure from convergence (a required reference token
+  // that mapped to NO real data column). When supplied, the component is a LOUD failure —
+  // returned as status 'failed' with the named token and NO computed/silent $0. The run
+  // continues; this short-circuit affects ONLY the component carrying the marker (no abort).
+  resolutionFailure?: { token: string; reason: string },
+): ComponentResult {
   let payout = 0;
   let details: Record<string, unknown> = {};
+
+  // HF-272: relocated hallucination-catch. A required reference token resolved to no real
+  // column at convergence → surface a loud per-component failure instead of a silent $0.
+  if (resolutionFailure) {
+    return {
+      componentId: component.id,
+      componentName: component.name,
+      componentType: component.componentType,
+      payout: 0,
+      metricValues: metrics,
+      details: {
+        failed: true,
+        reason: 'resolution_failure',
+        unresolvedToken: resolutionFailure.token,
+        resolutionReason: resolutionFailure.reason,
+      },
+      status: 'failed',
+      resolutionFailure,
+    };
+  }
 
   // OB-119: Treat missing 'enabled' as true (AI-interpreted plans omit this field)
   if (component.enabled === false) {

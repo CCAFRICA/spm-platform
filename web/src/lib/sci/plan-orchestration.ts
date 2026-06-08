@@ -32,13 +32,12 @@ import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
 import {
   ConstructionError,
   MissingCompositionalIntentError,
-  FieldResolutionError,
   StructuralCoherenceError,
   type CompositionalIntent,
 } from '@/lib/plan-intelligence/compositional-intent';
-// HF-270: reuse the canonical DAG reference-leaf walk (pure structural, Korean-Test
-// compliant) to enforce that every constructed reference resolves to a comprehended field.
-import { extractReferencesFromDAG } from '@/lib/intelligence/convergence-service';
+// HF-272: the extractReferencesFromDAG import (HF-270 gate's reference-leaf walk) was
+// removed with the interpretation-time field-resolution gate (Phase 2.1). The canonical
+// walk still lives in convergence-service for the calc-time resolution path.
 // HF-252: prime-assembler imports retired from the plan_component call path
 // per T0-E03 single-pipeline restoration. The assembler module file is
 // preserved per DD-7 (no smuggled expansion); formal file deprecation is
@@ -81,11 +80,11 @@ export interface OrchestrationInput {
    */
   priorComponents?: Map<string, OrchestratedComponent>;
   /**
-   * HF-270: the runtime comprehended-field set (HC of the data sheets in this
-   * import). Primary resolution anchor — every reference a component emits must
-   * resolve to one of these field identities (Phase 3 enforcement). Absent/empty
-   * triggers the plan-declared-fields fallback (skeletonRaw.requiredInputs) so a
-   * plan-only import is still bounded to a runtime-derived set, never free-text.
+   * HF-272: the runtime comprehended-field set (HC of the data sheets in this
+   * import). Used as an INFORMATIONAL prompt hint only (a hint, not a gate; T1-E902);
+   * the HF-270 membership enforcement and the `requiredInputs` fallback were removed
+   * (AUD-009). Absent/empty (plan-only import) → no field hint; the LLM defines fields
+   * from plan prose and convergence resolves them against real columns at calc time.
    */
   fieldComprehension?: Array<{ field: string; meaning: string; role: string }>;
 }
@@ -196,28 +195,23 @@ export async function orchestratePerComponentInterpretation(
     });
   }
 
-  // ── HF-270: resolve the field anchor (primary = HC of the data sheets in this
-  // import; fallback = the plan's own declared fields from plan_skeleton.requiredInputs).
-  // Every reference the per-component call emits must resolve to a member of this
-  // runtime-derived set (Phase 3 enforcement). Korean Test: both sources are
-  // runtime-discovered for THIS upload — no enumerated vocabulary, no synonym table.
-  // The orchestrator is the natural seam because it holds both skeletonRaw and
-  // input.fieldComprehension.
+  // ── HF-272: resolve the field anchor as the HC-of-data-sheets set ONLY (real runtime
+  // comprehension of the columns physically present in THIS import). The HF-270
+  // `requiredInputs` fallback was REMOVED (AUD-009): the plan's declared-input list is
+  // structurally incomplete for ratio sub-fields and must not bias recognition even as a
+  // prompt hint. When no data sheet accompanies the plan, the anchor is EMPTY and the
+  // per-component prompt carries no field hint — the LLM defines fields from plan prose,
+  // and convergence resolves those named tokens against real columns at calc time. The
+  // anchor is now INFORMATIONAL ONLY (a hint, not a gate): the interpretation-time
+  // membership rejection it once fed was removed in Phase 2.1. Korean Test: the set is
+  // runtime HC output for this upload — no enumerated vocabulary, no synonym table.
   const fieldAnchor: Array<{ field: string; meaning: string; role: string }> =
     input.fieldComprehension && input.fieldComprehension.length > 0
       ? input.fieldComprehension
-      : Array.isArray(skeletonRaw.requiredInputs)
-        ? (skeletonRaw.requiredInputs as Array<Record<string, unknown>>)
-            .map(ri => ({
-              field: String(ri.field ?? ''),
-              meaning: String(ri.description ?? ''),
-              role: String(ri.dataType ?? ri.scope ?? 'unknown'),
-            }))
-            .filter(f => f.field.length > 0)
-        : [];
+      : [];
   const fieldAnchorSource =
-    input.fieldComprehension && input.fieldComprehension.length > 0 ? 'HC-data-sheets' : 'plan-declared';
-  console.log(`[plan-orchestrator] HF-270 field anchor = ${fieldAnchorSource} (${fieldAnchor.length} fields)`);
+    fieldAnchor.length > 0 ? 'HC-data-sheets' : 'none';
+  console.log(`[plan-orchestrator] HF-272 field hint = ${fieldAnchorSource} (${fieldAnchor.length} fields)`);
 
   // ── Phase B: per-component (HF-259 Q4: bounded-concurrency parallel) ──────────
   // The N component phases are independent (each receives the full manifest + its own
@@ -262,7 +256,7 @@ export async function orchestratePerComponentInterpretation(
       pdfMediaType: input.pdfMediaType,
       signalContext: input.signalContext,
       componentSpec: { id: compId, name: compName, nameEs: compNameEs, appliesToEmployeeTypes: appliesTo, briefSemantic, rateTableCellCount },
-      fieldAnchor, // HF-270: runtime comprehended/declared field set for reference resolution
+      fieldAnchor, // HF-272: informational HC-of-data-sheets field hint (not a gate)
     });
 
     if (!componentResult.component) {
@@ -379,8 +373,8 @@ interface PerComponentCallArgs {
     briefSemantic: string;
     rateTableCellCount?: number;
   };
-  // HF-270: runtime field anchor (HC of data sheets, or plan-declared fallback).
-  // Forwarded into the adapter prompt (Phase 3.1) and enforced post-construction (3.2).
+  // HF-272: informational field hint (HC of data sheets only; empty on plan-only import).
+  // Forwarded into the adapter prompt as context — NOT a gate (the HF-270 enforcement was removed).
   fieldAnchor: Array<{ field: string; meaning: string; role: string }>;
 }
 
@@ -488,7 +482,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         args.signalContext,
         args.pdfBase64,
         args.pdfMediaType,
-        args.fieldAnchor, // HF-270: comprehended/declared field set for the prompt anchor
+        args.fieldAnchor, // HF-272: informational HC field hint for the prompt (not a gate)
       );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;
@@ -521,30 +515,18 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           const ci = compositionalIntentRaw as unknown as CompositionalIntent;
           const constructedTree = constructTree(ci);
           intent = constructedTree as unknown as Record<string, unknown>;
-          // HF-270: deterministic post-construction resolution check (the enforcement).
-          // Every `reference`/`aggregate` leaf the tree names MUST resolve to a member of
-          // the runtime field anchor (HC of the data sheets, or plan-declared fallback).
-          // Membership is compared under a STRUCTURAL token normalization (lowercase +
-          // non-alphanumeric runs collapsed to a single underscore) so a legitimately-present
-          // field is never rejected on pure casing/separator drift between the HC column
-          // header (`Volumen_Rutas_Hub`) and the emitted reference (`volumen_rutas_hub`).
-          // This is a structural transform, NOT a synonym table (Korean Test): it matches
-          // `Volumen_Rutas_Hub`↔`volumen_rutas_hub` but still rejects a genuinely-absent
-          // field such as an invented `cargas_mes_hub` (≠ `cargas_flota_hub`). A reference
-          // resolving to no comprehended identity is a structured failure (FieldResolutionError
-          // → cognition_violation), routed through the existing retry policy — never a silent
-          // guess. When the anchor is empty (no HC and no declared fields), the check is
-          // skipped (DD-7: pre-HF-270 behavior preserved).
-          if (args.fieldAnchor.length > 0) {
-            const normalizeToken = (s: string): string =>
-              s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-            const anchorSet = new Set(args.fieldAnchor.map(f => normalizeToken(f.field)));
-            const referencedFields = extractReferencesFromDAG(constructedTree);
-            const unresolved = referencedFields.find(f => !anchorSet.has(normalizeToken(f)));
-            if (unresolved !== undefined) {
-              throw new FieldResolutionError(spec.id, unresolved, args.fieldAnchor.map(f => f.field));
-            }
-          }
+          // HF-272: the HF-270 interpretation-time field-resolution gate was REMOVED here
+          // (registry preclusion, AUD-009). It rejected the LLM's recognized `reference`
+          // leaves against an enumerated anchor set that, on a plan-only import, degraded to
+          // the plan's incomplete `requiredInputs` — the DATA_TYPES death one level up,
+          // rejecting legitimately-recognized ratio sub-fields. The unified pathway is
+          // restored (Decision 158): the LLM recognizes/defines/names the field, code
+          // constructs the DAG, and convergence resolves each named token against the REAL
+          // DATA COLUMNS at calc time (a set complete-by-construction). The gate's one
+          // legitimate function — catching a token that maps to NO real column — is relocated
+          // to convergence as a loud per-component failure (HF-272 Phase 3), where "no real
+          // column" is actually knowable. The HF-271 structural-coherence proofread below
+          // (internal incoherence, zero plan knowledge) is retained, untouched.
           // HF-271: structural-coherence proofread (the ribosome's exonuclease). The emitted
           // `ci` IS the structure the LLM recognized; `constructedTree` is what was built.
           // Verify INTERNAL coherence — never against a catalog: every `ratio` the intent
@@ -595,14 +577,6 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             lastErrClass = constructErr.message.includes('output count')
               ? 'cognition_truncation'
               : 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof FieldResolutionError) {
-            // HF-270: a constructed reference resolved to no comprehended/declared
-            // field identity. Structured failure → cognition_violation so the retry
-            // policy re-attempts with the field anchor still in the prompt. On
-            // exhaustion the per-component path below records a `failed` outcome —
-            // a component with an unresolved reference is NEVER persisted.
-            lastErrClass = 'cognition_violation';
             lastErrMessage = constructErr.message;
           } else if (constructErr instanceof StructuralCoherenceError) {
             // HF-271: the composed structure is internally incoherent (a declared ratio
