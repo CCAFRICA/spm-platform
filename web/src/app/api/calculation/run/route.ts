@@ -34,7 +34,7 @@ import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-ty
 import type { PlanComponent } from '@/types/compensation-plan';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
-import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure } from '@/lib/intelligence/convergence-service';
+import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure, findIncompleteBindings, type IncompleteBinding, type ComponentBinding } from '@/lib/intelligence/convergence-service';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
@@ -252,6 +252,11 @@ export async function POST(request: NextRequest) {
     // for any rule_set not yet at HF-234.
     const bindingsAreCurrent = convergenceVersion === 'HF-234';
 
+    // HF-281: binding completeness — populated by whichever branch produces the
+    // bindings calc will use (fresh convergence or reused). When a component
+    // binding is missing any intent-required token, calc must NOT run against it.
+    let incompleteBindings: IncompleteBinding[] = [];
+
     if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
       addLog('HF-165: input_bindings empty — running calc-time convergence');
       try {
@@ -260,7 +265,16 @@ export async function POST(request: NextRequest) {
         const bindingCount = Object.keys(convResult.componentBindings).length;
         const gapCount = convResult.gaps.length;
 
-        if (derivationCount > 0 || bindingCount > 0) {
+        // HF-281: a component binding is complete only if it maps every token its
+        // intent requires (requiredTokens ⊆ mappedTokens). Checked ONLY when the
+        // convergence_bindings path is active (bindingCount > 0) — the legacy
+        // metric_derivations path is untouched. Structure-only predicate; no
+        // literals, no per-cause handling (AUD-009 / Decision 154).
+        if (bindingCount > 0) {
+          incompleteBindings = findIncompleteBindings(ruleSet.components, convResult.componentBindings);
+        }
+
+        if ((derivationCount > 0 || bindingCount > 0) && incompleteBindings.length === 0) {
           // Store convergence results on the rule_set for future calculations
           const updatedBindings: Record<string, unknown> = {};
 
@@ -298,6 +312,11 @@ export async function POST(request: NextRequest) {
           }
 
           addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);
+        } else if (incompleteBindings.length > 0) {
+          // HF-281: do NOT persist an incomplete binding set (atomic — no partial
+          // binding set). The gate below aborts the calc run; the freshly-derived
+          // incomplete bindings are discarded, never written to input_bindings.
+          addLog(`HF-281: Convergence produced an INCOMPLETE binding set (${incompleteBindings.length} component binding(s) missing required tokens) — not persisting; aborting calc.`);
         } else {
           addLog(`HF-165: Convergence produced 0 derivations and 0 bindings (${gapCount} gaps)`);
           for (const gap of convResult.gaps) {
@@ -310,6 +329,33 @@ export async function POST(request: NextRequest) {
       }
     } else {
       addLog('HF-165: input_bindings already populated — skipping convergence');
+      // HF-281: re-validate the REUSED binding set — a partial binding set
+      // persisted by a prior run (pre-HF-281) must not silently calc on reuse.
+      if (hasConvergenceBindings) {
+        incompleteBindings = findIncompleteBindings(
+          ruleSet.components,
+          rawBindings?.convergence_bindings as Record<string, Record<string, ComponentBinding>> | undefined,
+        );
+      }
+    }
+
+    // HF-281 — binding-completeness PHASE GATE. Calc never executes against a
+    // binding set known at bind time to be incomplete (the Meridian senior-c4
+    // shape: Utilización bound without its two tokens → flagged zeros). Structured,
+    // operator-visible failure naming variant group + component + missing tokens
+    // through the run-route's existing failure channel; nothing persisted. The
+    // calc-time T3 RESOLUTION_FAILURE surface remains as backstop for bind-vs-calc
+    // data drift.
+    if (incompleteBindings.length > 0) {
+      const detail = incompleteBindings
+        .map(b => `${b.componentName}${b.variantId ? ` [variant ${b.variantId}]` : ''} (${b.componentKey}): missing ${b.missingTokens.join(', ')}`)
+        .join('; ');
+      const reason = `Binding phase incomplete (HF-281) — ${incompleteBindings.length} component binding(s) do not map every intent-required token; calc aborted, no partial binding set persisted. Re-bind (cold re-import) once the columns resolve. Incomplete: ${detail}`;
+      addLog(`HF-281: ${reason}`);
+      return NextResponse.json(
+        { error: reason, incompleteBindings, log },
+        { status: 422 },
+      );
     }
   }
 
