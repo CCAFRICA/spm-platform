@@ -1285,10 +1285,20 @@ Return JSON per the schema in the system instructions.`;
               .map(f => `  ${String(f.field ?? '')} — ${String(f.meaning ?? '')} (${String(f.role ?? '')})`)
               .join('\n')}\n\nRecognize the plan's structure and name each field per the PLAN (match by SEMANTIC MEANING, not string similarity). The platform maps your named fields to the actual data columns at calculation time — you do not need to pick from the list above, and naming a field the plan describes that is not listed is fine.\n`
           : '';
+        // HF-280: verbatim retry feedback. When a prior attempt at THIS component was
+        // rejected (e.g. by the HF-279 coherence invariant), the orchestrator forwards
+        // the structured error here so the model receives WHAT was violated and can
+        // correct it — without this an identical temperature-0 prompt re-emits the same
+        // violation. Pass-through: the error text carries its own specifics; this frame
+        // is cause-agnostic (no per-cause template — Korean Test).
+        const retryFeedback = typeof input.retryFeedback === 'string' ? input.retryFeedback.trim() : '';
+        const retryFeedbackBlock = retryFeedback
+          ? `\nYOUR PREVIOUS ATTEMPT AT THIS COMPONENT WAS REJECTED by deterministic validation. Read the error, fix exactly what it names, and emit a corrected intent. The structured error was:\n---\n${retryFeedback}\n---\n`
+          : '';
         return `Translate the following plan COMPONENT into a Prime-DAG calculationIntent tree. PHASE B: emit this component only.
 
 ${contentSection}
-${comprehendedFieldsBlock}
+${comprehendedFieldsBlock}${retryFeedbackBlock}
 COMPONENT TO EMIT:
   id: ${compId}
   name: ${compName}${compNameEs ? `\n  nameEs: ${compNameEs}` : ''}

@@ -319,11 +319,18 @@ export class AIService {
     // plan_component prompt as the AVAILABLE COMPREHENDED FIELDS anchor so the LLM
     // resolves each reference_field to a comprehended identity instead of minting
     // one from prose. Absent/empty → no anchor block (pre-HF-270 behavior, DD-7).
-    fieldAnchor?: Array<{ field: string; meaning: string; role: string }>
+    fieldAnchor?: Array<{ field: string; meaning: string; role: string }>,
+    // HF-280: structured error from the PRIOR attempt at this component, forwarded
+    // verbatim to the adapter's plan_component prompt as retry feedback so the model
+    // receives what was violated. Absent on the first attempt (DD-7 — no block).
+    retryFeedback?: string,
   ): Promise<AIResponse> {
     const input: Record<string, unknown> = { content, format, componentSpec };
     if (fieldAnchor && fieldAnchor.length > 0) {
       input.fieldAnchor = fieldAnchor;
+    }
+    if (retryFeedback && retryFeedback.trim().length > 0) {
+      input.retryFeedback = retryFeedback;
     }
     if (pdfBase64) {
       input.pdfBase64 = pdfBase64;
