@@ -261,6 +261,80 @@ export class StructuralCoherenceError extends Error {
 }
 
 // ─────────────────────────────────────────────
+// HF-279: DAG-divide band coherence invariant
+// ─────────────────────────────────────────────
+//
+// A banded_lookup dimension whose reference_source is a `ratio` (a DAG divide of
+// two reference fields) declares its breaks in the QUOTIENT'S OWN SPACE; therefore
+// NO scale may accompany it. Recognition emits coherent intents (HF-279 §2.1) and
+// construction omits meta for DAG divides (buildConstantWithScale); this invariant
+// is the loud deterministic GUARD between them — a non-conforming recognition (a
+// ratio-source band paired with a binding scale) fails loudly at recognition
+// output rather than being silently constructed into a wrong tier (the BCL c1
+// failure class: 1.03 quotient x100 = 103 clears a 1.3 break -> top tier overpay).
+//
+// Korean Test: keys on reference_source.type === 'ratio' + scale presence/binding
+// only — no field literals, no magnitudes, no break-space inference.
+
+// Collect the reference_field of every banded_lookup dimension whose
+// reference_source is a `ratio`. `firstDim` holds the fields of bands whose
+// DIMENSION 0 is the ratio source — the constructor (buildConstantWithScale,
+// applyMeta = dimIdx === 0) only ever attaches scale at dimension 0, so an ambient
+// scale (no reference_field) can bind only to a band's first dimension. `all`
+// holds every ratio band field, for a scale that names a specific field.
+function collectRatioBandFields(node: unknown, out: { all: string[]; firstDim: string[] }): void {
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  if (obj.shape === 'banded_lookup' && Array.isArray(obj.dimensions)) {
+    obj.dimensions.forEach((dim, idx) => {
+      const d = dim as Record<string, unknown> | null;
+      const src = d?.reference_source as Record<string, unknown> | undefined;
+      if (src?.type === 'ratio') {
+        const field = d && typeof d.reference_field === 'string' ? d.reference_field : '';
+        out.all.push(field);
+        if (idx === 0) out.firstDim.push(field);
+      }
+    });
+  }
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) {
+      for (const child of v) collectRatioBandFields(child, out);
+    } else if (v && typeof v === 'object') {
+      collectRatioBandFields(v, out);
+    }
+  }
+}
+
+/**
+ * Throws StructuralCoherenceError (mapped to cognition_violation by the
+ * plan-orchestration caller, routed through the existing retry policy and NEVER
+ * persisted) when a ratio-source band is emitted WITH a scale that would BIND to
+ * it — ambient (no reference_field -> constructor attaches at dimension 0) or named
+ * via scale.reference_field. The binding test mirrors buildConstantWithScale. A
+ * scale that binds to a NON-ratio dimension (e.g. a pre-computed percent column on
+ * another axis; DD-7) does not trigger — only a scale on a quotient-space band does.
+ */
+export function assertRatioBandScaleCoherence(ci: CompositionalIntent, componentId: string): void {
+  if (!ci.scale) return;
+  const ratioBands = { all: [] as string[], firstDim: [] as string[] };
+  collectRatioBandFields(ci.structure as unknown, ratioBands);
+  if (ratioBands.all.length === 0 && ratioBands.firstDim.length === 0) return;
+  const scaleField = ci.scale.reference_field;
+  const offending = scaleField
+    ? ratioBands.all.find(f => f === scaleField)   // named scale binds to this ratio band
+    : ratioBands.firstDim[0];                       // ambient scale binds to a band's dimension 0
+  if (offending === undefined) return;
+  throw new StructuralCoherenceError(
+    componentId,
+    `a ratio-source band (reference_field="${offending}") was emitted WITH a scale ` +
+      `(side="${ci.scale.side}", value=${ci.scale.value}, ` +
+      `${scaleField ? `reference_field="${scaleField}"` : 'ambient (no reference_field)'}). ` +
+      `A DAG-divide band declares its breaks in the quotient's own space; no scale may ` +
+      `accompany it (HF-279 coherence invariant). Emit scale: null for ratio-source bands`,
+  );
+}
+
+// ─────────────────────────────────────────────
 // Re-exports for downstream callers
 // ─────────────────────────────────────────────
 
