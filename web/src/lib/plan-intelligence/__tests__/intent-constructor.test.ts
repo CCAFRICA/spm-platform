@@ -16,9 +16,35 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { constructTree } from '../intent-constructor';
-import { ConstructionError } from '../compositional-intent';
+import {
+  ConstructionError,
+  StructuralCoherenceError,
+  assertRatioBandScaleCoherence,
+} from '../compositional-intent';
 import type { CompositionalIntent, BandedLookupDescription } from '../compositional-intent';
 import type { PrimeNode } from '../../calculation/intent-types';
+
+// HF-279: find every `arithmetic`/`divide` node and report its two reference
+// fields (numerator, denominator) — the constructed shape of a ratio source.
+function findDivides(node: PrimeNode): Array<[string | null, string | null]> {
+  const out: Array<[string | null, string | null]> = [];
+  function fieldOf(n: PrimeNode | undefined): string | null {
+    return n && n.prime === 'reference' && typeof n.field === 'string' ? n.field : null;
+  }
+  function walk(n: PrimeNode): void {
+    if (!n || typeof n !== 'object') return;
+    if (n.prime === 'arithmetic') {
+      if (n.op === 'divide') out.push([fieldOf(n.inputs[0]), fieldOf(n.inputs[1])]);
+      walk(n.inputs[0]); walk(n.inputs[1]); return;
+    }
+    if (n.prime === 'compare') { walk(n.inputs[0]); walk(n.inputs[1]); return; }
+    if (n.prime === 'conditional') { walk(n.condition); walk(n.then); walk(n.else); return; }
+    if (n.prime === 'logical') { n.inputs.forEach(walk); return; }
+    if (n.prime === 'filter' || n.prime === 'scope' || n.prime === 'prior_period') { walk(n.downstream); return; }
+  }
+  walk(node);
+  return out;
+}
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -374,4 +400,181 @@ test('scale metadata placed on compare-position constants when evaluator side', 
     const hasUnscaled = found.some(c => !c.meta);
     assert.ok(hasUnscaled, `output ${v} has at least one meta-less occurrence`);
   }
+});
+
+// ─────────────────────────────────────────────
+// HF-279 — DAG-divide band coherence (construction)
+// ─────────────────────────────────────────────
+
+// A coherent ratio-source band: breaks in the quotient's own space, NO scale.
+// The constructed DAG must contain the divide over the two raw fields, and NO
+// constant (break OR output) may carry meta.scale — the quotient is compared raw
+// against the raw break, so a 0.85..0.98-space band tiers a 0–1 quotient correctly.
+function ratioBandIntent(scale: CompositionalIntent['scale']): CompositionalIntent {
+  return {
+    component_id: 'c-ratio',
+    component_name: 'Ratio Band',
+    structure: {
+      shape: 'banded_lookup',
+      dimensions: [
+        {
+          reference_field: 'on_time_ratio',
+          reference_source: { type: 'ratio', numerator_field: 'on_time_deliveries', denominator_field: 'total_deliveries' },
+          breaks: [0.85, 0.9, 0.95, 0.98],
+        },
+      ],
+      outputs: [0, 100, 200, 300, 420],
+    },
+    scale,
+    output_precision: 0,
+  };
+}
+
+test('HF-279: coherent ratio band (quotient-space breaks, no scale) -> divide built, no meta on any constant', () => {
+  const tree = constructTree(ratioBandIntent(null));
+  const divides = findDivides(tree);
+  assert.ok(
+    divides.some(([n, d]) => n === 'on_time_deliveries' && d === 'total_deliveries'),
+    'a divide over the two raw reference fields is constructed',
+  );
+  const constants = findAllConstants(tree);
+  // every break (0.85..0.98) and every output appears raw — no scale meta anywhere
+  for (const c of constants) {
+    assert.ok(!c.meta, `constant ${c.value} carries NO meta`);
+  }
+  // the quotient-space breaks survive as raw compare constants
+  for (const b of [0.85, 0.9, 0.95, 0.98]) {
+    assert.ok(constants.some(c => c.value === b && !c.meta), `break ${b} present, raw`);
+  }
+});
+
+test('HF-279: construction backstop — ratio band WITH an evaluator scale still omits meta (generalizes HF-277)', () => {
+  // Even if a non-conforming intent slips a scale past recognition, construction
+  // omits meta for the DAG-divide operand — the belt to recognition's suspenders.
+  const tree = constructTree(ratioBandIntent({
+    side: 'evaluator', unit: 'percent', value: 100, confidence: 0.9, reference_field: 'on_time_ratio',
+  }));
+  const constants = findAllConstants(tree);
+  for (const c of constants) {
+    assert.ok(!c.meta, `constant ${c.value} carries NO meta despite evaluator scale (ratio operand)`);
+  }
+});
+
+test('HF-279: construction backstop — ratio band WITH a convergence scale still omits meta (retires HF-274 attach)', () => {
+  const tree = constructTree(ratioBandIntent({
+    side: 'convergence', unit: 'percent', value: 100, confidence: 0.9, reference_field: 'on_time_ratio',
+  }));
+  const constants = findAllConstants(tree);
+  for (const c of constants) {
+    assert.ok(!c.meta, `constant ${c.value} carries NO meta despite convergence scale (ratio operand)`);
+  }
+});
+
+test('HF-279: convergence-side NON-ratio band omits meta (scale_factor lives on the binding) — preserved', () => {
+  const intent: CompositionalIntent = {
+    component_id: 'c-conv',
+    component_name: 'Convergence Metric Band',
+    structure: {
+      shape: 'banded_lookup',
+      dimensions: [
+        { reference_field: 'attainment', reference_source: { type: 'metric', field: 'attainment' }, breaks: [80, 100, 120] },
+      ],
+      outputs: [0, 100, 200, 300],
+    },
+    scale: { side: 'convergence', unit: 'percent', value: 100, confidence: 0.9, reference_field: 'attainment' },
+    output_precision: 0,
+  };
+  const tree = constructTree(intent);
+  const constants = findAllConstants(tree);
+  // breaks 80/120 appear ONLY as thresholds; none may carry meta (binding scales the column)
+  for (const v of [80, 120]) {
+    const found = constants.find(c => c.value === v);
+    assert.ok(found && !found.meta, `convergence-side break ${v} carries NO meta`);
+  }
+});
+
+test('HF-279 / DD-7: evaluator-side NON-ratio (single pre-computed metric) band KEEPS meta (OLD === NEW)', () => {
+  const intent: CompositionalIntent = {
+    component_id: 'c-dd7',
+    component_name: 'Evaluator Metric Band',
+    structure: {
+      shape: 'banded_lookup',
+      dimensions: [
+        { reference_field: 'attainment', reference_source: { type: 'metric', field: 'attainment' }, breaks: [80, 100, 120] },
+      ],
+      outputs: [0, 100, 200, 300],
+    },
+    scale: { side: 'evaluator', unit: 'percent', value: 100, confidence: 0.95, reference_field: 'attainment' },
+    output_precision: 0,
+  };
+  const constants = findAllConstants(constructTree(intent));
+  for (const v of [80, 120]) {
+    const found = constants.find(c => c.value === v);
+    assert.ok(found?.meta, `DD-7 break ${v} KEEPS meta (evaluator, pre-computed column)`);
+    const m = found!.meta as { unit: string; scale: number };
+    assert.equal(m.scale, 100);
+  }
+});
+
+// ─────────────────────────────────────────────
+// HF-279 — recognition-output invariant (loud-failure guard)
+// ─────────────────────────────────────────────
+
+test('HF-279 invariant: incoherent intent (ratio band + ambient scale) raises StructuralCoherenceError', () => {
+  const incoherent = ratioBandIntent({ side: 'evaluator', unit: 'percent', value: 100, confidence: 0.9 }); // ambient (no reference_field)
+  assert.throws(
+    () => assertRatioBandScaleCoherence(incoherent, 'c-ratio'),
+    (err: unknown) => err instanceof StructuralCoherenceError && /quotient's own space/.test((err as Error).message),
+    'ambient scale on a ratio band fails loud',
+  );
+});
+
+test('HF-279 invariant: incoherent intent (ratio band + named scale matching the band field) raises StructuralCoherenceError', () => {
+  const incoherent = ratioBandIntent({ side: 'evaluator', unit: 'percent', value: 100, confidence: 0.9, reference_field: 'on_time_ratio' });
+  assert.throws(
+    () => assertRatioBandScaleCoherence(incoherent, 'c-ratio'),
+    (err: unknown) => err instanceof StructuralCoherenceError,
+    'named scale binding the ratio band fails loud',
+  );
+});
+
+test('HF-279 invariant: coherent intent (ratio band + scale null) does NOT throw', () => {
+  assert.doesNotThrow(() => assertRatioBandScaleCoherence(ratioBandIntent(null), 'c-ratio'));
+});
+
+test('HF-279 invariant: DD-7 (evaluator metric band + scale) does NOT throw — only ratio bands are guarded', () => {
+  const dd7: CompositionalIntent = {
+    component_id: 'c-dd7',
+    component_name: 'Evaluator Metric Band',
+    structure: {
+      shape: 'banded_lookup',
+      dimensions: [
+        { reference_field: 'attainment', reference_source: { type: 'metric', field: 'attainment' }, breaks: [80, 100, 120] },
+      ],
+      outputs: [0, 100, 200, 300],
+    },
+    scale: { side: 'evaluator', unit: 'percent', value: 100, confidence: 0.95, reference_field: 'attainment' },
+    output_precision: 0,
+  };
+  assert.doesNotThrow(() => assertRatioBandScaleCoherence(dd7, 'c-dd7'));
+});
+
+test('HF-279 invariant: a named scale that binds a NON-ratio axis of a mixed matrix does NOT throw (precision)', () => {
+  // 2D matrix: dim0 a pre-computed percent metric (scaled), dim1 a ratio (quotient space).
+  // The scale names dim0's field -> it binds the metric axis, not the ratio axis -> coherent.
+  const mixed: CompositionalIntent = {
+    component_id: 'c-mixed',
+    component_name: 'Mixed Matrix',
+    structure: {
+      shape: 'banded_lookup',
+      dimensions: [
+        { reference_field: 'pct_metric', reference_source: { type: 'metric', field: 'pct_metric' }, breaks: [80, 100] },
+        { reference_field: 'ratio_axis', reference_source: { type: 'ratio', numerator_field: 'a', denominator_field: 'b' }, breaks: [0.9, 1.1] },
+      ],
+      outputs: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    },
+    scale: { side: 'evaluator', unit: 'percent', value: 100, confidence: 0.9, reference_field: 'pct_metric' },
+    output_precision: 0,
+  };
+  assert.doesNotThrow(() => assertRatioBandScaleCoherence(mixed, 'c-mixed'));
 });

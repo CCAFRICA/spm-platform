@@ -33,6 +33,7 @@ import {
   ConstructionError,
   MissingCompositionalIntentError,
   StructuralCoherenceError,
+  assertRatioBandScaleCoherence,
   type CompositionalIntent,
 } from '@/lib/plan-intelligence/compositional-intent';
 // HF-272: the extractReferencesFromDAG import (HF-270 gate's reference-leaf walk) was
@@ -447,6 +448,7 @@ function collectTwoFieldDivides(node: unknown, out: Array<[string, string]>): vo
   }
 }
 
+
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
   const spec = args.componentSpec;
@@ -558,6 +560,11 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               );
             }
           }
+          // HF-279: DAG-divide band coherence invariant — a ratio-source band
+          // paired with a scale that would bind to it is internally incoherent;
+          // raise StructuralCoherenceError -> cognition_violation, never construct
+          // silently. See assertRatioBandScaleCoherence for the full rationale.
+          assertRatioBandScaleCoherence(ci, spec.id);
           console.log(
             `[plan-component] constructed component=${spec.id} from compositional_intent ` +
               `shape=${ci.structure?.shape ?? '(unknown)'}`,
