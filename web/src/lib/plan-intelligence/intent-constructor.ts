@@ -14,15 +14,17 @@
  *      ordered nesting.
  *   3. Terminal completeness — every conditional chain terminates in an
  *      explicit `constant(0)` (no-match fallback).
- *   4. Scale mutual exclusion (HF-244) + ratio-key exception (HF-274) — when
- *      `scale.side === 'evaluator'`, the constructor attaches ConstantScaleMeta
- *      to the outermost node's compare-position constants; when
- *      `scale.side === 'convergence'`, the meta is normally omitted (the
- *      convergence binding's scale_factor normalizes the single bound column).
- *      HF-274 EXCEPTION: when the compared value is a ratio (a `divide` over two
- *      reference fields computed in-DAG), no single binding can carry the
- *      scale_factor, so the meta IS attached on the convergence side too — else
- *      a 0–1 quotient floors against a scaled breakpoint space.
+ *   4. Scale mutual exclusion (HF-244) + DAG-divide band coherence (HF-279) —
+ *      meta.scale attaches at exactly ONE site: a single PRE-COMPUTED `reference`
+ *      operand scaled on the EVALUATOR side (an already-percent column read as a
+ *      `metric` reference; DD-7). It is OMITTED for every DAG-divide (ratio)
+ *      operand on EITHER side — the quotient defines its own 0–N space and its
+ *      breaks are declared in that space — and for every convergence-side operand
+ *      (the binding's scale_factor normalizes the bound column there). HF-279
+ *      generalizes HF-277 (evaluator-only omit) and RETIRES HF-274's
+ *      convergence-ratio attach: recognition now emits coherent quotient-space
+ *      breaks (HF-279 §2.1), so there is no scaled break space for a quotient to
+ *      be scaled up to meet.
  *   5. Grammar compliance — constructor only emits PrimeNode discriminators
  *      declared in intent-types.ts. No private grammar.
  *
@@ -578,40 +580,39 @@ function buildConstantWithScale(
   scale: ScaleSpec | null,
   fieldOnOtherSide: string,
   applyMeta: boolean,
-  // HF-274: true when the value on the OTHER side of this compare is a ratio
-  // (a `divide` computed in-DAG over two reference fields). See the scale-side
-  // logic below — a ratio key has no single binding to carry a convergence
-  // scale_factor, so the scale meta must be attached here even for the
-  // convergence side.
-  otherSideIsRatio: boolean = false,
+  // HF-279: true when the value on the OTHER side of this compare is a DAG-divide
+  // ratio (an `arithmetic`/`divide` computed in-DAG over two reference fields, i.e.
+  // reference_source.type === 'ratio'). A DAG-divide band declares its breaks in
+  // the quotient's OWN space; no scale may accompany it, on EITHER side. The
+  // HF-271 structural-coherence proofread guarantees a declared ratio surfaces as a
+  // two-distinct-field divide, so this declared-structure flag is equivalent to
+  // "the constructed compare operand is arithmetic/divide".
+  otherSideIsDagDivide: boolean = false,
 ): PrimeNode {
   if (!applyMeta || !scale) {
     return { prime: 'constant', value };
   }
-  // HF-244 mutual exclusion + HF-274 ratio-key exception + HF-277 evaluator-side
-  // DAG-ratio omission. Scale is applied at exactly one site:
-  //  - scale.side === 'evaluator', NON-ratio operand (a single pre-computed column,
-  //    e.g. an already-percent metric): the plan-side comparison constant carries the
-  //    meta; the evaluator scales the data-native column onto plan units. KEPT.
-  //  - scale.side === 'evaluator', RATIO operand (a `divide` over two raw references
-  //    computed IN the DAG): OMIT the meta (HF-277). A DAG-computed ratio defines its
-  //    own space — both operands are raw data, the quotient is a 0–N ratio, and the
-  //    breakpoints are declared against that ratio. There is nothing to scale; the
-  //    recognizer's scale.value (inconsistently paired — 100 on Meridian's Coordinador
-  //    variant, 1 on its Senior variant) is noise for this configuration. Attaching it
-  //    made the evaluator multiply the ratio ×scale.value (1.1031→110.31) and compare
-  //    against the raw ratio-space break (1.3) → wrong tier. Omitting it compares the
-  //    raw ratio against the raw break. (Pre-multiplying the break — HF-276 — was the
-  //    inverse and proved unsafe: it double-scaled an already-commensurate band;
-  //    reverted PR #464.) For scale.value === 1 this omission is identical to the prior
-  //    ×1 no-op (DD-7).
-  //  - scale.side === 'convergence', RATIO operand: ATTACH (HF-274) — the convergence
-  //    breaks are in the bound column's scaled space and the in-DAG quotient must be
-  //    scaled UP to meet them. UNCHANGED.
-  // Korean Test: structural type checks (scale.side + ratio operand); no field name,
-  // breakpoint, component name, or magnitude constant.
-  const attach = (scale.side === 'evaluator' && !otherSideIsRatio)
-    || (scale.side === 'convergence' && otherSideIsRatio);
+  // HF-279 DAG-divide band coherence (generalizes HF-277; retires HF-274's
+  // convergence-side attach for divides). meta.scale attaches at exactly ONE site —
+  // a single PRE-COMPUTED `reference` operand scaled on the EVALUATOR side (DD-7):
+  //  - scale.side === 'evaluator', NON-ratio operand (an already-percent column read
+  //    as a `metric` reference): ATTACH — the plan-side comparison constant carries
+  //    the meta; the evaluator scales the data-native column onto plan units. KEPT.
+  //  - scale.side === 'evaluator', DAG-DIVIDE operand: OMIT (HF-277). The quotient
+  //    defines its own 0–N space and its breaks are declared in that space; there is
+  //    nothing to scale. (For scale.value === 1 this is identical to the prior ×1
+  //    no-op.)
+  //  - scale.side === 'convergence', NON-ratio operand: OMIT — the convergence
+  //    binding's scale_factor normalizes the single bound column; attaching meta here
+  //    too would DOUBLE-scale (run-calculation.ts:188). KEPT.
+  //  - scale.side === 'convergence', DAG-DIVIDE operand: OMIT (HF-279, NEW). A
+  //    DAG-divide band's breaks are in the quotient's own space; the convergence
+  //    scale is incoherent for it. This RETIRES HF-274's convergence-ratio attach —
+  //    with recognition emitting coherent quotient-space breaks (HF-279 §2.1) there
+  //    is no scaled break space to meet, so nothing to scale up.
+  // Korean Test: structural checks only (scale.side + DAG-divide operand); no field
+  // name, breakpoint, component name, or magnitude constant.
+  const attach = scale.side === 'evaluator' && !otherSideIsDagDivide;
   if (!attach) {
     return { prime: 'constant', value };
   }
