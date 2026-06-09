@@ -612,28 +612,12 @@ function buildConstantWithScale(
   if (scale.reference_field && scale.reference_field !== fieldOnOtherSide) {
     return { prime: 'constant', value };
   }
-  // HF-276: evaluator-side ratio-keyed breakpoints — pre-multiply into the scaled space.
-  // The OB-200 evaluator multiplies the ratio operand by meta.scale before comparing, so the
-  // breakpoint constant must ALSO be in that scaled space for the comparison to be commensurate.
-  // When the recognizer emits the breakpoint in RATIO space (e.g. 0.8) but declares an
-  // evaluator-side percent scale (value 100), the comparison ratio×100 (110.31) vs 0.8 floors
-  // every entity into the top tier. Pre-multiplying the breakpoint by scale.value (0.8 → 80,
-  // 1.3 → 130) makes it commensurate: ratio×100 (110.31) vs 80/100/130 tiers correctly.
-  // Symmetric with HF-274's convergence-side fix (which keeps the percent-space breakpoint and
-  // scales the ratio up). Applied ONLY for evaluator-side ratio keys: convergence-side
-  // breakpoints are already in the comparison space (the ratio is scaled up to meet them) and
-  // must NOT be pre-multiplied. For scale.value === 1 (a ratio-unit evaluator band whose breaks
-  // are already in ratio space) this is a ×1 no-op (DD-7). Korean Test: structural — scale.side
-  // + ratio key + the recognizer's own scale.value; no field name, breakpoint, or component name.
-  const emittedValue = (scale.side === 'evaluator' && otherSideIsRatio)
-    ? value * scale.value
-    : value;
   const meta: ConstantScaleMeta = {
     unit: scale.unit,
     scale: scale.value,
     confidence: scale.confidence,
   };
-  return { prime: 'constant', value: emittedValue, meta };
+  return { prime: 'constant', value, meta };
 }
 
 // ─────────────────────────────────────────────
