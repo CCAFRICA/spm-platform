@@ -1637,6 +1637,88 @@ export function extractScaleMetadataFromDAG(
   return found;
 }
 
+// ──────────────────────────────────────────────
+// HF-281 — Convergence binding completeness
+// ──────────────────────────────────────────────
+//
+// A component binding is complete only if it maps every token the component's
+// intent requires. The binding phase succeeds only if every component binding of
+// every variant group is complete. These pure helpers compute the predicate
+//   requiredTokens(componentIntent) ⊆ mappedTokens(componentBinding)
+// from STRUCTURE only (Decision 154 / AUD-009): requiredTokens are the intent's
+// DAG reference fields (extractInputRequirements — already the binding-time
+// requirement source); mappedTokens are the binding roles that resolved to a real
+// column. No field/component/tenant literals, no token-name patterns; names appear
+// only as display data in the surfaced failure. Every cause of a miss (silent gap,
+// failed-marker, requirements-omitted) is incomplete identically — no registry.
+
+export interface IncompleteBinding {
+  /** Binding key (component_<index>) — the key calc reads. */
+  componentKey: string;
+  /** Display data: the component's name (from the plan). */
+  componentName: string;
+  /** Display data: the variant group (variantId) the component belongs to. */
+  variantId?: string;
+  /** The intent-required tokens with no resolved binding entry. */
+  missingTokens: string[];
+}
+
+/**
+ * The tokens a component's intent requires at bind time — its DAG reference
+ * fields. Wraps extractInputRequirements (the same structural read the binding
+ * assembly uses), deduped. Exported for deterministic unit testing.
+ */
+export function requiredTokensForComponent(component: PlanComponent): string[] {
+  const seen = new Set<string>();
+  for (const req of extractInputRequirements(component)) {
+    if (req.metricField && req.metricField !== 'unknown') seen.add(req.metricField);
+  }
+  return Array.from(seen);
+}
+
+/**
+ * The tokens a component binding actually RESOLVED — roles whose entry carries a
+ * real column and was not rejected (match_pass !== 'failed'). A token that is
+ * absent OR present only as a match_pass:'failed' marker is NOT mapped.
+ */
+export function mappedTokensForBinding(binding: Record<string, ComponentBinding> | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!binding) return out;
+  for (const [role, entry] of Object.entries(binding)) {
+    if (entry && typeof entry.column === 'string' && entry.column.length > 0 && entry.match_pass !== 'failed') {
+      out.add(role);
+    }
+  }
+  return out;
+}
+
+/**
+ * Completeness gate over a full binding set. For every component of every variant
+ * group, assert requiredTokens ⊆ mappedTokens. Returns one IncompleteBinding per
+ * component that is missing any required token (empty array ⇒ the binding phase is
+ * complete and calc may proceed). `componentsJson` is rule_sets.components (the
+ * variant-grouped engine format); `convergenceBindings` is
+ * input_bindings.convergence_bindings (keyed component_<index>).
+ */
+export function findIncompleteBindings(
+  componentsJson: unknown,
+  convergenceBindings: Record<string, Record<string, ComponentBinding>> | undefined | null,
+): IncompleteBinding[] {
+  const bindings = convergenceBindings ?? {};
+  const out: IncompleteBinding[] = [];
+  for (const component of extractComponents(componentsJson)) {
+    const required = requiredTokensForComponent(component);
+    if (required.length === 0) continue; // nothing to map (DD-7: unchanged)
+    const componentKey = `component_${component.index}`;
+    const mapped = mappedTokensForBinding(bindings[componentKey]);
+    const missing = required.filter(t => !mapped.has(t));
+    if (missing.length > 0) {
+      out.push({ componentKey, componentName: component.name, variantId: component.variantId, missingTokens: missing });
+    }
+  }
+  return out;
+}
+
 function extractInputRequirements(component: PlanComponent): ComponentInputRequirement[] {
   const intent = component.calculationIntent;
   if (!intent) return [{ role: 'actual', metricField: component.expectedMetrics[0] || 'unknown', expectedRange: null }];
