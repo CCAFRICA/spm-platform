@@ -556,6 +556,20 @@ Scale specification — name which side scales (HF-244 mutual exclusion):
   scale: { "side": "evaluator|convergence", "unit": "percent|ratio|currency|count", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
   Or scale: null when no scale normalization is needed.
 
+RATIO-SOURCE BANDS — quotient-space breaks, NO scale (HF-279, binding):
+  When a banded_lookup dimension's reference_source.type is "ratio" (a division the
+  plan defines — numerator over denominator), that dimension's "breaks" MUST be
+  stated in the QUOTIENT'S OWN SPACE — the same 0..N space the division produces —
+  NOT in percent and NOT pre-multiplied. A plan saying ">=85% on-time" emits break
+  0.85; ">=130%" or ">=1.3x attainment" emits break 1.3; "at least 0.6" emits 0.6.
+  The division and its breaks already share one space; there is nothing to scale.
+  Therefore emit NO scale for that band: set scale: null (or, if some OTHER non-ratio
+  dimension genuinely needs scaling, do not let any scale bind to the ratio
+  dimension's field). A scale paired with a ratio-source band is internally
+  incoherent and is REJECTED at recognition output — never silently constructed.
+  (A single PRE-COMPUTED column that already holds a percent value is a "metric"
+  reference, not a ratio division — scale still applies to it normally.)
+
 HOW TO DESCRIBE THE STRUCTURE — describe what the plan text actually says, using the primitives below and the one rule that composes them. There is NO catalog of component shapes to match against: a finite set of primitives composes without bound. Read the structure and describe it; do NOT match the plan to a remembered kind of plan.
 
 REFERENCE TYPES — how a single value is read from the data:
@@ -568,7 +582,7 @@ STRUCTURAL SHAPES — how values combine:
   • Values combined by an operation (× ÷ + −) → arithmetic; state the operation and its two operands. An operand may itself be a nested structure.
   • A value that changes at a threshold/condition → conditional; state the condition (reference, operator, threshold), the then-value, and the else-value.
   • A bound on a value — a cap, floor, limit, "no more than", "no less than", "maximum/minimum of" — → a conditional clamp applied to THAT value, in the same space the bound is stated (a cap on a ratio clamps the ratio), applied BEFORE that value combines further.
-  • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values.
+  • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values. When a dimension's reference is a ratio (a division), state that dimension's break points in the quotient's own space (0.85 for 85%, 1.3 for 130%/1.3x) and emit no scale for it (HF-279).
   • Independently-computed parts combined into one result → composed (sum / max / min / first_match).
 
 THE COMPOSITION RULE (the generative core): these primitives nest and combine freely and recursively to match whatever the plan describes — a ratio can be the operand of a clamp, a clamp can be the operand of a multiply, a multiply can be a child of a sum, to whatever depth the plan's text implies. There is no fixed template to select; describe the actual structure you read. If a value is bounded and then multiplied by a base, that is an arithmetic multiply whose operands are the clamped value and the base — composed from primitives, not retrieved as a named shape.
