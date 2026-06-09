@@ -2524,6 +2524,59 @@ export function distinctEnoughToBind(scoredCandidates: Array<{ score: number }>)
   return scoredCandidates[0].score - scoredCandidates[1].score > stddev;
 }
 
+/**
+ * HF-275: per-column null-rate over the CALCULATION POPULATION (committed_data rows with
+ * entity_id IS NOT NULL — the individual payees; HF-263 grouping/hub rows have entity_id
+ * IS NULL and are excluded). Returns columnName → null_rate in [0,1]; a rate of 1 means the
+ * column is null on every payee row and genuinely cannot produce a value. Scoped per column
+ * to its OWN data batch (so a column absent from other batches is not spuriously counted as
+ * null). Bounded paginated read — a sample distinguishes all-null from has-values. Korean
+ * Test: operates on the structural presence of values for the passed column names — no
+ * column/component/tenant literal.
+ */
+export async function computeIndividualNullRates(
+  supabase: SupabaseClient | undefined,
+  columns: Array<{ name: string; batchId: string }>,
+): Promise<Map<string, number>> {
+  const rates = new Map<string, number>();
+  if (!supabase || columns.length === 0) return rates;
+  const byBatch = new Map<string, string[]>();
+  for (const c of columns) {
+    if (!c.batchId) continue;
+    if (!byBatch.has(c.batchId)) byBatch.set(c.batchId, []);
+    if (!byBatch.get(c.batchId)!.includes(c.name)) byBatch.get(c.batchId)!.push(c.name);
+  }
+  const PAGE = 1000;
+  const PAGE_CEILING = 20; // 20k-row sampling ceiling per batch
+  for (const [batchId, cols] of Array.from(byBatch.entries())) {
+    const nonNull = new Map<string, number>();
+    for (const c of cols) nonNull.set(c, 0);
+    let total = 0;
+    for (let page = 0; page <= PAGE_CEILING; page++) {
+      const from = page * PAGE;
+      const { data, error } = await supabase
+        .from('committed_data')
+        .select('row_data')
+        .eq('import_batch_id', batchId)
+        .not('entity_id', 'is', null)
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      for (const r of data) {
+        total++;
+        const rd = (r.row_data as Record<string, unknown> | null) ?? {};
+        for (const c of cols) {
+          const v = rd[c];
+          if (v !== null && v !== undefined && v !== '') nonNull.set(c, (nonNull.get(c) ?? 0) + 1);
+        }
+      }
+      if (data.length < PAGE) break;
+    }
+    if (total === 0) continue; // no payee rows in this batch → cannot assess → no penalty
+    for (const c of cols) rates.set(c, 1 - (nonNull.get(c) ?? 0) / total);
+  }
+  return rates;
+}
+
 async function generateAllComponentBindings(
   components: PlanComponent[],
   matches: BindingMatch[],
@@ -2640,6 +2693,23 @@ async function generateAllComponentBindings(
     }
   }
 
+  // HF-275: compute each measure column's null-rate over the CALCULATION POPULATION
+  // (committed_data rows with entity_id IS NOT NULL — the individual payees HF-263 keeps;
+  // grouping/hub rows are excluded). A column 100% null on this population cannot produce
+  // a value for any payee; the binding loop below penalizes its match by (1 - null_rate)
+  // so a column with values on the population wins over a merely name-similar one. Computed
+  // once, scoped per column to its own data batch. Korean Test: structural property only.
+  const individualNullRates = await computeIndividualNullRates(
+    supabase,
+    measureColumns.map(c => ({ name: c.name, batchId: c.batchId })),
+  );
+  if (individualNullRates.size > 0) {
+    const allNull = Array.from(individualNullRates.entries()).filter(([, r]) => r >= 1).map(([c]) => c);
+    if (allNull.length > 0) {
+      console.log(`[Convergence] HF-275 columns 100% null on the calculation population (penalized out): ${allNull.join(', ')}`);
+    }
+  }
+
   // HF-253: group matches by structural variantId before binding. The engine's
   // variant router (HF-119) evaluates exactly ONE variant per entity, so columns
   // are never contended ACROSS variants at calculation time. Binding each variant
@@ -2729,7 +2799,17 @@ async function generateAllComponentBindings(
         const mc = measureColumns.find(c => c.name === proposedColumnName);
         const priorField = boundColumnToField.get(proposedColumnName);
         const excluded = priorField !== undefined && priorField !== req.metricField;
-        if (mc && !excluded) {
+        // HF-275: population-aware quality signal. A column that is 100% null on the
+        // calculation population (committed_data rows with entity_id IS NOT NULL — the
+        // individual payees; grouping rows are excluded by HF-263) genuinely cannot
+        // produce a value for any payee, regardless of name similarity. Do NOT accept the
+        // AI's name-similar proposal in that case — fall through to boundary scoring (which
+        // is penalized by null-rate below) so a column with values on the population wins.
+        // Below 100% the proposal is accepted with a proportional confidence penalty.
+        const proposedNullRate = individualNullRates.get(proposedColumnName) ?? 0;
+        if (mc && !excluded && proposedNullRate >= 1) {
+          console.log(`[Convergence] HF-275 ${comp.name}:${req.role}: AI proposed "${proposedColumnName}" but it is 100% null on the calculation population — rejecting; falling through to population-penalized boundary scoring.`);
+        } else if (mc && !excluded) {
           // Boundary validation of AI proposal
           const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
           const isValidated = !req.expectedRange || boundaryScore > 0.1;
@@ -2738,7 +2818,8 @@ async function generateAllComponentBindings(
             column: proposedColumnName,
             field_identity: mc.fi,
             match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
-            confidence: isValidated ? 0.9 : 0.6,
+            // HF-275: proportional population penalty — confidence × (1 - individual null rate).
+            confidence: (isValidated ? 0.9 : 0.6) * (1 - proposedNullRate),
             scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
             learning_provenance: {
               batch_id: mc.batchId,
@@ -2751,7 +2832,7 @@ async function generateAllComponentBindings(
             filters: proposedFilters,
           };
           boundColumnToField.set(proposedColumnName, req.metricField);
-          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length})`);
+          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length}, nullRate=${proposedNullRate.toFixed(2)})`);
           continue;
         }
       }
@@ -2772,7 +2853,13 @@ async function generateAllComponentBindings(
         })
         .map(mc => {
           const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
-          return { ...mc, score, scaleFactor };
+          // HF-275: population-aware quality signal — multiply the match score by
+          // (1 - individual null rate). A column 100% null on the calculation population
+          // scores 0 and cannot win over a column with values; a partially-null column is
+          // penalized proportionally. DD-7: a column with values on the population
+          // (null rate 0) is unaffected. Korean Test: structural null-rate, no literals.
+          const nullRate = individualNullRates.get(mc.name) ?? 0;
+          return { ...mc, score: score * (1 - nullRate), scaleFactor };
         })
         .sort((a, b) => b.score - a.score);
 
