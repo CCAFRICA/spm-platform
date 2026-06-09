@@ -14,10 +14,15 @@
  *      ordered nesting.
  *   3. Terminal completeness — every conditional chain terminates in an
  *      explicit `constant(0)` (no-match fallback).
- *   4. Scale mutual exclusion (HF-244) — when `scale.side === 'evaluator'`,
- *      the constructor attaches ConstantScaleMeta to the outermost node's
- *      compare-position constants; when `scale.side === 'convergence'`, the
- *      meta is omitted (convergence binding carries scale_factor instead).
+ *   4. Scale mutual exclusion (HF-244) + ratio-key exception (HF-274) — when
+ *      `scale.side === 'evaluator'`, the constructor attaches ConstantScaleMeta
+ *      to the outermost node's compare-position constants; when
+ *      `scale.side === 'convergence'`, the meta is normally omitted (the
+ *      convergence binding's scale_factor normalizes the single bound column).
+ *      HF-274 EXCEPTION: when the compared value is a ratio (a `divide` over two
+ *      reference fields computed in-DAG), no single binding can carry the
+ *      scale_factor, so the meta IS attached on the convergence side too — else
+ *      a 0–1 quotient floors against a scaled breakpoint space.
  *   5. Grammar compliance — constructor only emits PrimeNode discriminators
  *      declared in intent-types.ts. No private grammar.
  *
@@ -313,7 +318,7 @@ function buildDimRecursive(
         op: 'gte',
         inputs: [
           buildReferenceNode(dim.reference_source, dim.reference_field, `${path}.dim[${dimIdx}].ref`),
-          buildConstantWithScale(breakValue, scale, dim.reference_field, dimIdx === 0),
+          buildConstantWithScale(breakValue, scale, dim.reference_field, dimIdx === 0, dim.reference_source?.type === 'ratio'),
         ],
       },
       then: thenBranch,
@@ -368,7 +373,7 @@ function constructConditional(
       op: desc.condition.operator,
       inputs: [
         buildReferenceNode(desc.condition.reference, refSourceField(desc.condition.reference), `${path}.condition.reference`),
-        buildConstantWithScale(desc.condition.threshold, scale, refSourceField(desc.condition.reference), true),
+        buildConstantWithScale(desc.condition.threshold, scale, refSourceField(desc.condition.reference), true, desc.condition.reference?.type === 'ratio'),
       ],
     },
     then: constructBranchOrOperand(desc.then, scale, `${path}.then`),
@@ -573,13 +578,35 @@ function buildConstantWithScale(
   scale: ScaleSpec | null,
   fieldOnOtherSide: string,
   applyMeta: boolean,
+  // HF-274: true when the value on the OTHER side of this compare is a ratio
+  // (a `divide` computed in-DAG over two reference fields). See the scale-side
+  // logic below — a ratio key has no single binding to carry a convergence
+  // scale_factor, so the scale meta must be attached here even for the
+  // convergence side.
+  otherSideIsRatio: boolean = false,
 ): PrimeNode {
-  // Apply ConstantScaleMeta only when:
-  //  - applyMeta is true (constructor's outermost / boundary positions)
-  //  - scale is non-null and scale.side === 'evaluator'
-  //  - scale is for a specific reference field, the field matches OR scale
-  //    is field-agnostic
-  if (!applyMeta || !scale || scale.side !== 'evaluator') {
+  if (!applyMeta || !scale) {
+    return { prime: 'constant', value };
+  }
+  // HF-244 mutual exclusion + HF-274 ratio-key exception. Scale is applied at
+  // exactly one site:
+  //  - scale.side === 'evaluator': the plan-side comparison constant carries the
+  //    meta; the evaluator scales the data-native side onto plan units.
+  //  - scale.side === 'convergence': normally OMIT the meta — the convergence
+  //    binding's scale_factor normalizes the single bound column before it ever
+  //    reaches the DAG.
+  //    HF-274 EXCEPTION: when the OTHER side is a ratio (a `divide` over two raw
+  //    reference fields computed IN the DAG), there is NO single binding for a
+  //    scale_factor to live on — the quotient is produced inside the tree. The
+  //    convergence-side assumption breaks, and without the meta a 0–1 quotient is
+  //    compared against a scaled breakpoint space (e.g. percent 85–98) and floors
+  //    every entity. So attach the meta here; the evaluator's single compare-site
+  //    scale reconciliation (OB-200) then multiplies the quotient onto the
+  //    breakpoint's units. Korean Test: a structural type check (reference is a
+  //    ratio), no field name or literal.
+  const attach = scale.side === 'evaluator'
+    || (scale.side === 'convergence' && otherSideIsRatio);
+  if (!attach) {
     return { prime: 'constant', value };
   }
   if (scale.reference_field && scale.reference_field !== fieldOnOtherSide) {
