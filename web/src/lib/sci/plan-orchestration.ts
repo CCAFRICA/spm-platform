@@ -447,6 +447,37 @@ function collectTwoFieldDivides(node: unknown, out: Array<[string, string]>): vo
   }
 }
 
+// HF-279: collect the reference_field of every banded_lookup dimension whose
+// reference_source is a `ratio` (a DAG divide). Pure structure traversal — no
+// field literals, no magnitudes, no break-space sniffing. `firstDim` holds the
+// fields of bands whose DIMENSION 0 is the ratio source, because the constructor
+// (buildConstantWithScale, applyMeta = dimIdx === 0) only ever attaches scale at
+// dimension 0 — so an ambient scale (no reference_field) binds only to a band's
+// first dimension. `all` holds every ratio band field, for the case where the
+// scale names a specific field via scale.reference_field.
+function collectRatioBandFields(node: unknown, out: { all: string[]; firstDim: string[] }): void {
+  if (!node || typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  if (obj.shape === 'banded_lookup' && Array.isArray(obj.dimensions)) {
+    obj.dimensions.forEach((dim, idx) => {
+      const d = dim as Record<string, unknown> | null;
+      const src = d?.reference_source as Record<string, unknown> | undefined;
+      if (src?.type === 'ratio') {
+        const field = d && typeof d.reference_field === 'string' ? d.reference_field : '';
+        out.all.push(field);
+        if (idx === 0) out.firstDim.push(field);
+      }
+    });
+  }
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) {
+      for (const child of v) collectRatioBandFields(child, out);
+    } else if (v && typeof v === 'object') {
+      collectRatioBandFields(v, out);
+    }
+  }
+}
+
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
   const spec = args.componentSpec;
@@ -555,6 +586,40 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
               throw new StructuralCoherenceError(
                 spec.id,
                 `${declaredRatios.length} ratio(s) declared but only ${coherentDivides.length} two-distinct-field divide(s) constructed — a declared ratio collapsed to a single field`,
+              );
+            }
+          }
+          // HF-279: DAG-divide band coherence. A banded_lookup dimension whose
+          // reference_source is a ratio declares its breaks in the QUOTIENT'S OWN
+          // SPACE; therefore NO scale may accompany it. If recognition emitted a
+          // ratio-source band AND a scale that would BIND to it (ambient — no
+          // reference_field, so the constructor attaches at dimension 0 — or named
+          // via scale.reference_field), the intent is internally incoherent (the
+          // BCL c1 failure class: a 1.03 quotient x100 = 103 clears a 1.3 break).
+          // Loud structured failure at recognition output (StructuralCoherenceError
+          // -> cognition_violation, the established surface); NEVER silent
+          // construction. The construction-side omit (buildConstantWithScale,
+          // HF-279) is the deterministic backstop; this is the loud guard that
+          // surfaces a non-conforming recognition rather than quietly absorbing it.
+          // Korean Test: keys on reference_source.type === 'ratio' + scale
+          // presence/binding only — no field literals, no magnitudes, no
+          // break-space inference. Mirrors buildConstantWithScale's binding rule
+          // (ambient scale -> dimension 0; named scale -> matching field).
+          const ratioBands = { all: [] as string[], firstDim: [] as string[] };
+          collectRatioBandFields(ci as unknown, ratioBands);
+          if (ci.scale && (ratioBands.all.length > 0 || ratioBands.firstDim.length > 0)) {
+            const scaleField = ci.scale.reference_field;
+            const offending = scaleField
+              ? ratioBands.all.find(f => f === scaleField)   // named scale binds to this ratio band
+              : ratioBands.firstDim[0];                       // ambient scale binds to a band's dimension 0
+            if (offending !== undefined) {
+              throw new StructuralCoherenceError(
+                spec.id,
+                `a ratio-source band (reference_field="${offending}") was emitted WITH a scale ` +
+                  `(side="${ci.scale.side}", value=${ci.scale.value}, ` +
+                  `${scaleField ? `reference_field="${scaleField}"` : 'ambient (no reference_field)'}). ` +
+                  `A DAG-divide band declares its breaks in the quotient's own space; no scale may ` +
+                  `accompany it (HF-279 coherence invariant). Emit scale: null for ratio-source bands`,
               );
             }
           }
