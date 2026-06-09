@@ -2534,7 +2534,7 @@ export function distinctEnoughToBind(scoredCandidates: Array<{ score: number }>)
  * Test: operates on the structural presence of values for the passed column names — no
  * column/component/tenant literal.
  */
-async function computeIndividualNullRates(
+export async function computeIndividualNullRates(
   supabase: SupabaseClient | undefined,
   columns: Array<{ name: string; batchId: string }>,
 ): Promise<Map<string, number>> {
