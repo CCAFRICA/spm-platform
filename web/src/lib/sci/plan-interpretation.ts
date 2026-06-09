@@ -31,6 +31,47 @@ import {
   failRun,
   writeRuleSetLifecycleEvent,
 } from './plan-idempotency';
+import type { ComponentOutcome } from './interpretation-errors';
+
+/**
+ * HF-280 — import atomicity decision (pure, exported for deterministic testing).
+ *
+ * A rule set persists ONLY if every component of every variant completed
+ * recognition. Returns a structured abort reason when the import must fail as a
+ * whole (skeleton failure, zero usable components, OR any non-success component
+ * outcome after the retry policy), or null when persistence may proceed.
+ *
+ * Korean Test / AUD-009: the predicate is outcome.status ONLY — every failure
+ * cause aborts identically; no registry of drop reasons. The component name,
+ * variant (appliesTo), and underlying error in the message are DISPLAY data
+ * carried verbatim from the outcomes, never predicate inputs.
+ */
+export function evaluateImportAtomicity(args: {
+  skeletonError?: string;
+  componentsCount: number;
+  componentOutcomes: ComponentOutcome[];
+}): { reason: string } | null {
+  const { skeletonError, componentsCount } = args;
+  const componentOutcomes = args.componentOutcomes || [];
+  const failedOutcomes = componentOutcomes.filter(o => o.status !== 'success');
+  if (!skeletonError && componentsCount > 0 && failedOutcomes.length === 0) {
+    return null; // every component recognized — persist may proceed
+  }
+  const failureDetails = failedOutcomes
+    .map(f => {
+      const variant = f.appliesTo && f.appliesTo.length > 0 ? ` [variant ${f.appliesTo.join('+')}]` : '';
+      return `${f.name}${variant}: ${f.errClass ?? 'error'}${f.errMessage ? ` — ${f.errMessage}` : ''}${f.violations ? ` (${f.violations})` : ''}`;
+    })
+    .join('; ');
+  const reason = skeletonError
+    ? `Plan skeleton call failed: ${skeletonError}`
+    : componentsCount === 0
+      ? (failureDetails
+          ? `Plan interpretation produced no usable components — ${failedOutcomes.length} component construction failure(s): ${failureDetails}`
+          : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.')
+      : `Plan import aborted (HF-280 atomicity) — ${failedOutcomes.length} of ${componentOutcomes.length} component(s) failed recognition after retries; no partial plan persisted. Re-import once the plan/recognition is corrected. Failures: ${failureDetails}`;
+  return { reason };
+}
 
 export async function executeBatchedPlanInterpretation(
   supabase: SupabaseClient,
@@ -279,24 +320,13 @@ export async function executeBatchedPlanInterpretation(
   // carried verbatim from the outcome, never predicate inputs.
   const orchestratedComponents = orchestration.interpretation.components;
   const componentsCount = orchestratedComponents.length;
-  const failedOutcomes = (orchestration.componentOutcomes || []).filter(o => o.status !== 'success');
-  if (orchestration.skeletonError || componentsCount === 0 || failedOutcomes.length > 0) {
-    // HF-265 (P5): surface the ACTUAL per-component construction failures instead of a generic
-    // message. componentOutcomes carries errClass + errMessage + violations; HF-280 adds appliesTo.
-    const failureDetails = failedOutcomes
-      .map(f => {
-        const variant = f.appliesTo && f.appliesTo.length > 0 ? ` [variant ${f.appliesTo.join('+')}]` : '';
-        return `${f.name}${variant}: ${f.errClass ?? 'error'}${f.errMessage ? ` — ${f.errMessage}` : ''}${f.violations ? ` (${f.violations})` : ''}`;
-      })
-      .join('; ');
-    const totalOutcomes = (orchestration.componentOutcomes || []).length;
-    const reason = orchestration.skeletonError
-      ? `Plan skeleton call failed: ${orchestration.skeletonError}`
-      : componentsCount === 0
-        ? (failureDetails
-            ? `Plan interpretation produced no usable components — ${failedOutcomes.length} component construction failure(s): ${failureDetails}`
-            : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.')
-        : `Plan import aborted (HF-280 atomicity) — ${failedOutcomes.length} of ${totalOutcomes} component(s) failed recognition after retries; no partial plan persisted. Re-import once the plan/recognition is corrected. Failures: ${failureDetails}`;
+  const atomicity = evaluateImportAtomicity({
+    skeletonError: orchestration.skeletonError,
+    componentsCount,
+    componentOutcomes: orchestration.componentOutcomes || [],
+  });
+  if (atomicity) {
+    const reason = atomicity.reason;
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     await failRun(supabase, tenantId, contentHash); // HF-259: release the single-flight claim so a retry can re-claim
     return planUnits.map(u => ({
