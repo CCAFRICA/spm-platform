@@ -588,23 +588,29 @@ function buildConstantWithScale(
   if (!applyMeta || !scale) {
     return { prime: 'constant', value };
   }
-  // HF-244 mutual exclusion + HF-274 ratio-key exception. Scale is applied at
-  // exactly one site:
-  //  - scale.side === 'evaluator': the plan-side comparison constant carries the
-  //    meta; the evaluator scales the data-native side onto plan units.
-  //  - scale.side === 'convergence': normally OMIT the meta — the convergence
-  //    binding's scale_factor normalizes the single bound column before it ever
-  //    reaches the DAG.
-  //    HF-274 EXCEPTION: when the OTHER side is a ratio (a `divide` over two raw
-  //    reference fields computed IN the DAG), there is NO single binding for a
-  //    scale_factor to live on — the quotient is produced inside the tree. The
-  //    convergence-side assumption breaks, and without the meta a 0–1 quotient is
-  //    compared against a scaled breakpoint space (e.g. percent 85–98) and floors
-  //    every entity. So attach the meta here; the evaluator's single compare-site
-  //    scale reconciliation (OB-200) then multiplies the quotient onto the
-  //    breakpoint's units. Korean Test: a structural type check (reference is a
-  //    ratio), no field name or literal.
-  const attach = scale.side === 'evaluator'
+  // HF-244 mutual exclusion + HF-274 ratio-key exception + HF-277 evaluator-side
+  // DAG-ratio omission. Scale is applied at exactly one site:
+  //  - scale.side === 'evaluator', NON-ratio operand (a single pre-computed column,
+  //    e.g. an already-percent metric): the plan-side comparison constant carries the
+  //    meta; the evaluator scales the data-native column onto plan units. KEPT.
+  //  - scale.side === 'evaluator', RATIO operand (a `divide` over two raw references
+  //    computed IN the DAG): OMIT the meta (HF-277). A DAG-computed ratio defines its
+  //    own space — both operands are raw data, the quotient is a 0–N ratio, and the
+  //    breakpoints are declared against that ratio. There is nothing to scale; the
+  //    recognizer's scale.value (inconsistently paired — 100 on Meridian's Coordinador
+  //    variant, 1 on its Senior variant) is noise for this configuration. Attaching it
+  //    made the evaluator multiply the ratio ×scale.value (1.1031→110.31) and compare
+  //    against the raw ratio-space break (1.3) → wrong tier. Omitting it compares the
+  //    raw ratio against the raw break. (Pre-multiplying the break — HF-276 — was the
+  //    inverse and proved unsafe: it double-scaled an already-commensurate band;
+  //    reverted PR #464.) For scale.value === 1 this omission is identical to the prior
+  //    ×1 no-op (DD-7).
+  //  - scale.side === 'convergence', RATIO operand: ATTACH (HF-274) — the convergence
+  //    breaks are in the bound column's scaled space and the in-DAG quotient must be
+  //    scaled UP to meet them. UNCHANGED.
+  // Korean Test: structural type checks (scale.side + ratio operand); no field name,
+  // breakpoint, component name, or magnitude constant.
+  const attach = (scale.side === 'evaluator' && !otherSideIsRatio)
     || (scale.side === 'convergence' && otherSideIsRatio);
   if (!attach) {
     return { prime: 'constant', value };
