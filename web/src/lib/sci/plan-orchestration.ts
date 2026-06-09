@@ -261,7 +261,10 @@ export async function orchestratePerComponentInterpretation(
     });
 
     if (!componentResult.component) {
-      return { component: null, outcome: componentResult.outcome };
+      // HF-280: carry the variant/category onto the failed outcome so the
+      // import-atomicity guard (plan-interpretation.ts) can name which variant
+      // the failed component belongs to. Display data only — not a predicate.
+      return { component: null, outcome: { ...componentResult.outcome, appliesTo } };
     }
     // HF-252: CompositionalIntent.applies_to takes precedence over the skeleton's value.
     const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
@@ -485,6 +488,14 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         args.pdfBase64,
         args.pdfMediaType,
         args.fieldAnchor, // HF-272: informational HC field hint for the prompt (not a gate)
+        // HF-280: on retry after a cognition violation (e.g. the HF-279 coherence
+        // invariant — "emit breaks in the quotient's own space; scale: null for
+        // ratio-source bands"), feed the structured error back to the model VERBATIM
+        // so it receives WHAT was violated. Without this an identical temperature-0
+        // prompt deterministically re-emits the identical violation (proven: BCL
+        // c2-ejecutivo attempts=3, same cognition_violation each time). Pass-through
+        // only — no rewriting, no cause-specific templates (Korean Test).
+        attempt > 1 && lastErrClass === 'cognition_violation' ? lastErrMessage : undefined,
       );
       const result = (resp.result ?? {}) as Record<string, unknown>;
       const latency = Date.now() - callStart;

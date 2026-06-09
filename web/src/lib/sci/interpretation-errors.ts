@@ -35,6 +35,14 @@ export interface ComponentOutcome {
   violations?: string;
   /** HF-248 Phase 3: marker that this component was skipped via reimport-resume (no LLM call this run). */
   skippedFromPrior?: boolean;
+  /**
+   * HF-280: the variant/category id(s) this component applies to (from the
+   * skeleton's appliesToEmployeeTypes). DISPLAY data only — carried so the
+   * import-atomicity failure (plan-interpretation.ts) can name which variant a
+   * failed component belongs to. NOT a predicate (the atomicity predicate is
+   * outcome.status only).
+   */
+  appliesTo?: string[];
   lastAttemptAt: string;
 }
 
