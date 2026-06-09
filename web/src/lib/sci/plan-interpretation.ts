@@ -261,24 +261,42 @@ export async function executeBatchedPlanInterpretation(
 
   const interpretation = orchestration.interpretation as unknown as Record<string, unknown>;
 
-  // HF-247 Phase 3 + HF-248 Phase 1: combined failure guard. Catches skeleton
-  // failure, all-components-failed cases, and the existing fallback/error/parseError
-  // shapes. partialSuccess (some succeeded, some failed) is NOT a hard failure —
-  // it persists what worked and surfaces the rest via componentOutcomes.
+  // HF-280 — IMPORT ATOMICITY (replaces the HF-247/HF-248 partial-success
+  // tolerance). A rule set persists ONLY if every component of every variant
+  // completed recognition. Any non-success outcome after the existing retry policy
+  // fails the import as a whole; no partial variant or plan is ever persisted.
+  //
+  // Why: the post-HF-279 cold re-imports persisted PARTIAL plans that calculated
+  // clean-looking, WRONG totals — BCL ejecutivo missing "Captacion de Depositos"
+  // (c2-ejecutivo: attempts=3, cognition_violation, partialSuccess=true persisted),
+  // Meridian missing one component in both variants. The HF-279 coherence invariant
+  // correctly rejected the incoherent component intents; the defect was that the
+  // import absorbed those failures at the plan seam instead of failing loudly.
+  //
+  // Korean Test / AUD-009: the predicate is outcome.status ONLY — every failure
+  // cause aborts identically; there is no registry of drop reasons. The component
+  // name, variant (appliesTo), and underlying error in the message are DISPLAY data
+  // carried verbatim from the outcome, never predicate inputs.
   const orchestratedComponents = orchestration.interpretation.components;
   const componentsCount = orchestratedComponents.length;
-  if (orchestration.skeletonError || componentsCount === 0) {
+  const failedOutcomes = (orchestration.componentOutcomes || []).filter(o => o.status !== 'success');
+  if (orchestration.skeletonError || componentsCount === 0 || failedOutcomes.length > 0) {
     // HF-265 (P5): surface the ACTUAL per-component construction failures instead of a generic
-    // "produced no components" message. componentOutcomes carries errClass + errMessage + violations.
-    const failed = (orchestration.componentOutcomes || []).filter(o => o.status === 'failed');
-    const failureDetails = failed
-      .map(f => `${f.name}: ${f.errClass ?? 'error'}${f.errMessage ? ` — ${f.errMessage}` : ''}${f.violations ? ` (${f.violations})` : ''}`)
+    // message. componentOutcomes carries errClass + errMessage + violations; HF-280 adds appliesTo.
+    const failureDetails = failedOutcomes
+      .map(f => {
+        const variant = f.appliesTo && f.appliesTo.length > 0 ? ` [variant ${f.appliesTo.join('+')}]` : '';
+        return `${f.name}${variant}: ${f.errClass ?? 'error'}${f.errMessage ? ` — ${f.errMessage}` : ''}${f.violations ? ` (${f.violations})` : ''}`;
+      })
       .join('; ');
+    const totalOutcomes = (orchestration.componentOutcomes || []).length;
     const reason = orchestration.skeletonError
       ? `Plan skeleton call failed: ${orchestration.skeletonError}`
-      : failureDetails
-        ? `Plan interpretation produced no usable components — ${failed.length} component construction failure(s): ${failureDetails}`
-        : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.';
+      : componentsCount === 0
+        ? (failureDetails
+            ? `Plan interpretation produced no usable components — ${failedOutcomes.length} component construction failure(s): ${failureDetails}`
+            : 'Plan interpretation produced no components. The LLM may have received incomplete plan text or could not extract structure. Check upstream sheet classification.')
+        : `Plan import aborted (HF-280 atomicity) — ${failedOutcomes.length} of ${totalOutcomes} component(s) failed recognition after retries; no partial plan persisted. Re-import once the plan/recognition is corrected. Failures: ${failureDetails}`;
     console.error(`[SCI plan-interp] Refusing to persist rule_set — ${reason}`);
     await failRun(supabase, tenantId, contentHash); // HF-259: release the single-flight claim so a retry can re-claim
     return planUnits.map(u => ({

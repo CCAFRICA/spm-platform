@@ -261,7 +261,10 @@ export async function orchestratePerComponentInterpretation(
     });
 
     if (!componentResult.component) {
-      return { component: null, outcome: componentResult.outcome };
+      // HF-280: carry the variant/category onto the failed outcome so the
+      // import-atomicity guard (plan-interpretation.ts) can name which variant
+      // the failed component belongs to. Display data only — not a predicate.
+      return { component: null, outcome: { ...componentResult.outcome, appliesTo } };
     }
     // HF-252: CompositionalIntent.applies_to takes precedence over the skeleton's value.
     const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
