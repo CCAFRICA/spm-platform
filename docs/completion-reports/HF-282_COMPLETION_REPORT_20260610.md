@@ -49,7 +49,7 @@ A `tenantLoading` guard already wraps the gate. **HALT-3 fires:** Phase 2.1's pr
 
 ## HALT dispositions (verbatim)
 
-- **HALT-2 (FIRED):** duplicate census returned a group beyond platform@ — `tdelcarlo@vialuce.ai` (11596f62…) has **two `tenant_admin` rows in different tenants** = genuine multi-tenant membership, semantically unlike platform@'s role-inheritance dup. A `UNIQUE(auth_user_id)` constraint is incompatible with it. **No DELETE authored for that group.** The Phase 4 migration dedups only the platform-inheritance class and its STEP-3 assertion **fails loud** on tdelcarlo, forcing architect disposition: (a) collapse tdelcarlo to one surviving tenant row, or (b) `UNIQUE(auth_user_id, tenant_id)` + multi-tenant identity model (reopens A/B — HALT-4). **The unique constraint MUST NOT be applied until this is chosen.**
+- **HALT-2 (FIRED → DISPOSITIONED 2026-06-10):** duplicate census returned a group beyond platform@ — `tdelcarlo@vialuce.ai` (11596f62…) has **two `tenant_admin` rows in different tenants**. **Architect disposition:** those rows are **sandbox artifacts → delete both**; the Platform-Created-Users model is unestablished, so the **`UNIQUE(auth_user_id)` constraint is deferred to that OB** (removed from this migration — incompatible with the current tenant-create creator-profile insert). The amended migration (`…_hf282_profile_dedup.sql`) STEP 2b deletes both tdelcarlo rows structurally (non-platform duplicate group), STEP 3 now passes (0 dups), STEP 4/5 (constraint) removed. **auth user 11596f62… becomes a zero-profile orphan post-delete → added to the orphan disposition list.**
 - **HALT-3 (FIRED):** tenant-loading guard already present (0.3). Phase 2.1 re-scoped; no speculative fix.
 - **HALT-1 (not fired):** FK refs to all duplicate ids = 0.
 - **Orphan divergence (recorded):** live orphans are 3 Banco Cumbre + admin@vialuce.ai, not the assumed 3 Sabor. Only `admin@bancocumbre.ec` has an authoritative role/tenant (`seed-bcl-tenant.ts`: role `admin`, BCL tenant). The rest are **not provisioned** — guessing roles violates SR-39/AP-25. `provision-user.ts` carries the one known spec; the rest await disposition.
@@ -107,8 +107,8 @@ profiles=13 distinct auth_user_id=11 duplicate-groups=2
 
 ---
 
-## 4. Phase 4 — migration (authored; architect-applied, SR-44)
-`supabase/migrations/20260610120000_hf282_single_profile_canon.sql` — STEP 1 FK guard (re-asserts 0 refs), STEP 2 platform-inheritance dedup (structural; deletes platform@'s `vl_admin` row, keeps the `platform` row `id=auth_user_id`; no email literal in predicates; no privilege escalation — the lower-priv alias row is removed, both normalize to platform), STEP 3 **assert 0 duplicate groups (fails loud on tdelcarlo — HALT-2)**, STEP 4 `CREATE UNIQUE INDEX profiles_auth_user_id_uq` (only reached at 0 dups; non-concurrent inside txn — CONCURRENTLY note included), STEP 5 post-assert. **EPG-4 (architect applies, then CC tsx-reads): constraint present, dup census 0, platform@ 1 row, tdelcarlo dispositioned — OUTSTANDING.**
+## 4. Phase 4 — migration (amended per HALT-2 disposition; architect-applied, SR-44)
+`supabase/migrations/20260610120000_hf282_profile_dedup.sql` (renamed from `…_single_profile_canon.sql`) — STEP 1 FK guard (re-asserts 0 refs for BOTH the platform-inheritance non-keepers and the non-platform duplicate-group rows), STEP 2a platform-inheritance dedup (deletes platform@'s `vl_admin` row, keeps the `platform` row `id=auth_user_id`; no privilege escalation), **STEP 2b sandbox-artifact removal — deletes BOTH tdelcarlo rows** (structural: any duplicate group with no platform-normalized row; ids/email in comments only, AP-25), STEP 3 assert 0 duplicate groups (now passes). **STEP 4/5 (`UNIQUE(auth_user_id)` + post-assert) REMOVED** — constraint deferred to the Platform-Created-Users OB (architect disposition). **EPG-4 (architect applies, then CC tsx-reads): dup census 0, platform@ 1 row, tdelcarlo 0 rows — OUTSTANDING.**
 
 ---
 
@@ -122,7 +122,7 @@ profiles=13 distinct auth_user_id=11 duplicate-groups=2
 ## 6. Phase 6 — SR-39 compliance
 | Axis | Standard | Finding |
 |---|---|---|
-| Unique identification → single authorization record | SOC 2 CC6.1 | Canonical reader live now; **constraint pending Phase 4 apply + HALT-2 disposition** — until applied, uniqueness is reader-enforced, not data-enforced. Recorded as outstanding, not asserted complete. |
+| Unique identification → single authorization record | SOC 2 CC6.1 | **Reader-enforced now** (resolveIdentity); **data-enforced DEFERRED to the Platform-Created-Users OB** by architect HALT-2 disposition (2026-06-10) — the `UNIQUE(auth_user_id)` constraint was removed from the Phase 4 migration because it is incompatible with the current tenant-create creator-profile insert path. The dedup (platform@ + tdelcarlo sandbox rows) still ships and is applied; the constraint is the named OB's surface. |
 | Session-termination/redirect events logged | SOC 2 CC6 / OWASP ASVS V7 | Phase 2.3 closes the 13-branch silent-ejection gap (DIAG-060 §6). |
 | No privilege escalation via duplicate-role rows | NIST 800-63B / DS-014 | Migration removes platform@'s `vl_admin`-alias row (lower-priv alias of the same canonical platform identity) — no escalation; both rows normalized to platform, no access lost. |
 | Cookie attributes unchanged-or-better | OWASP ASVS V3 | This HF does not alter any `HttpOnly`/`Secure`/`SameSite` posture; the tenant cookie's client-write nature is explicitly out of scope (§6) and not weakened. |
@@ -143,7 +143,7 @@ MOD web/src/contexts/tenant-context.tsx   MOD(committed) web/scripts/fix-sabor-u
 ## Outstanding architect steps (SR-44)
 1. **HALT-2 disposition** for tdelcarlo (multi-tenant) before the migration's STEP-3 assertion can pass / the constraint can apply.
 2. **Apply** the migration (Dashboard SQL Editor); then CC tsx-reads EPG-4.
-3. **Disposition orphan roles/tenants** (Banco Cumbre + admin@vialuce.ai), then `provision-user.ts --apply`.
+3. **Disposition orphan roles/tenants** (Banco Cumbre + admin@vialuce.ai + **`tdelcarlo@vialuce.ai`/11596f62… which becomes a zero-profile orphan after the migration's STEP 2b**), then `provision-user.ts --apply`.
 4. **Production browser verification:** platform@ login + tenant entry unchanged; tdadmin login + BCL entry holds across repeated full-page loads; Sabor users (if intended as login users) past the profile screen.
 5. **§6A Site URL** (Dashboard): set to `https://www.vialuce.ai`, add `http://localhost:3000/**` to redirect URLs.
 
