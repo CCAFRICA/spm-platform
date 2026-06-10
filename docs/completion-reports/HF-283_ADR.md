@@ -86,3 +86,25 @@ platform OR vl_admin (the prior set); tenant-isolation/admin/folder clauses
 byte-preserved. SOC 2 CC6 single canonical authorization predicate. The
 UNIQUE(auth_user_id) data constraint remains deferred to the Platform-Created-Users
 OB (out of scope, §6).
+
+ADDENDUM-3 RULING (A3.1) — full policy-identity preservation
+------------------------------------------------------------
+The TO-clause behavioral-equivalence argument (ship default-PUBLIC because the
+predicate denies anon) is REJECTED. Grounds: (1) the Phase-7 harness probes
+AUTHENTICATED identities only — it cannot evidence the anon surface, so harness PASS
+does not prove a PUBLIC widening harmless (verify by structure, not favorable totals);
+(2) alias_registry.tenant_iso_alias has an auth-independent disjunct (tenant_id IS NULL)
+— under an original TO authenticated, a PUBLIC recreate WIDENS anon; (3) a
+RESTRICTIVE->PERMISSIVE recreate is a semantic inversion invisible to tested identities.
+Byte-preservation (DD-7) therefore extends to the FULL policy identity: roles AND
+permissive, not only qual/with_check. EPG-1-PRE-R2 (widened query) is the authoritative
+re-key source. Result: all 72 policies PERMISSIVE (no AS RESTRICTIVE); 68 {public}
+(no TO) + 4 ingestion_raw storage {authenticated} (TO authenticated) preserved exactly.
+
+KNOWN ISSUES (A3.1 root cause)
+------------------------------
+The parent directive's EPG-1 query omitted schemaname/permissive/roles — an architect
+directive defect that, had R2 not been requested, would have shipped default-PUBLIC
+recreates of 4 TO-authenticated policies. Logged as the incomplete-read-surface Meta
+candidate. The lifecycle/transition route's profile read is a divergent .maybeSingle()
+shape (A1.1.4) — observed, not refactored this HF (§6A).

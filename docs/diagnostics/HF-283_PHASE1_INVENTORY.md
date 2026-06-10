@@ -92,3 +92,15 @@ Architect supplied EPG-1-PRE (live `pg_policies` for `vl_admin`/`is_platform` in
 - **G. storage 021-entangled (A1.2): `role=ANY(platform,vl_admin,admin)` → `(public.is_platform() OR EXISTS(role='admin'))`; inner `role=ANY(platform,vl_admin)` → `public.is_platform()`; folder-scoped admin branch byte-preserved.** 2: objects/"ingestion_raw_insert 13cn3lr_0" (INSERT, with_check), "ingestion_raw_select 13cn3lr_0" (SELECT, qual).
 
 Total = 57 (A) + 5 (B) + 3 (C) + 2 (D) + 1 (E) + 2 (F) + 2 (G) = **72 live policies re-keyed**. Global assertion (`pg_policies` 0 `vl_admin`) is the closure proof.
+
+---
+
+# APPENDIX 2 (Addendum-3 / A3.2) — EPG-1-PRE-R2 roles+permissive reconciliation
+
+Architect supplied EPG-1-PRE-R2 (widened: `schemaname, permissive, roles` added; same WHERE/ORDER), 2026-06-10. R2 is the authoritative re-key source. `qual`/`with_check` text reconciles with EPG-1-PRE **row-for-row — no divergence** (no HALT-2 from R2).
+
+- **permissive:** ALL 72 policies are `PERMISSIVE`. **Zero RESTRICTIVE** → no `AS RESTRICTIVE` clauses; recreates default to PERMISSIVE (correct).
+- **roles:** `{public}` for all 68 `public`-schema policies + `storage.objects/"VL Admin full storage access"` → recreated with NO `TO` clause (PUBLIC default, exact). `{authenticated}` for exactly the 4 `storage.objects` `ingestion_raw` policies (`ingestion_raw_delete 13cn3lr_0`/`_1`, `ingestion_raw_insert 13cn3lr_0`, `ingestion_raw_select 13cn3lr_0`) → recreated with `TO authenticated`. **No multi-role lists; no roles other than {public}/{authenticated}.**
+- **schemaname:** `public` (68) + `storage` (5 objects policies). All schema-qualified in DROP/CREATE.
+
+Full policy identity (`roles`+`permissive`+`qual`/`with_check`) is now byte-preserved (DD-7 per A3.1). The behavioral-equivalence/default-PUBLIC path is withdrawn.

@@ -193,16 +193,17 @@ DROP POLICY IF EXISTS "VL Admin full storage access" ON storage.objects;
 CREATE POLICY "VL Admin full storage access" ON storage.objects FOR ALL
   USING ((bucket_id = 'imports') AND public.is_platform())
   WITH CHECK ((bucket_id = 'imports') AND public.is_platform());
--- F: ingestion-raw delete/select (role=ANY(platform,vl_admin))
+-- F: ingestion-raw delete/select (role=ANY(platform,vl_admin)). TO authenticated
+-- preserved from EPG-1-PRE R2 (these 4 ingestion_raw policies are {authenticated}, NOT {public}).
 DROP POLICY IF EXISTS "ingestion_raw_delete 13cn3lr_0" ON storage.objects;
-CREATE POLICY "ingestion_raw_delete 13cn3lr_0" ON storage.objects FOR DELETE
+CREATE POLICY "ingestion_raw_delete 13cn3lr_0" ON storage.objects FOR DELETE TO authenticated
   USING ((bucket_id = 'ingestion-raw') AND public.is_platform());
 DROP POLICY IF EXISTS "ingestion_raw_delete 13cn3lr_1" ON storage.objects;
-CREATE POLICY "ingestion_raw_delete 13cn3lr_1" ON storage.objects FOR SELECT
+CREATE POLICY "ingestion_raw_delete 13cn3lr_1" ON storage.objects FOR SELECT TO authenticated
   USING ((bucket_id = 'ingestion-raw') AND public.is_platform());
--- G: ingestion-raw insert/select (021 entangled; A1.2 disjunction; admin branch byte-preserved)
+-- G: ingestion-raw insert/select (021 entangled; A1.2 disjunction; admin branch byte-preserved). TO authenticated preserved.
 DROP POLICY IF EXISTS "ingestion_raw_insert 13cn3lr_0" ON storage.objects;
-CREATE POLICY "ingestion_raw_insert 13cn3lr_0" ON storage.objects FOR INSERT
+CREATE POLICY "ingestion_raw_insert 13cn3lr_0" ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (
     (bucket_id = 'ingestion-raw')
     AND (public.is_platform() OR EXISTS (SELECT 1 FROM public.profiles WHERE auth_user_id = auth.uid() AND role = 'admin'))
@@ -210,7 +211,7 @@ CREATE POLICY "ingestion_raw_insert 13cn3lr_0" ON storage.objects FOR INSERT
           SELECT tenant_id::text FROM public.profiles WHERE auth_user_id = auth.uid() AND role = 'admin')))
   );
 DROP POLICY IF EXISTS "ingestion_raw_select 13cn3lr_0" ON storage.objects;
-CREATE POLICY "ingestion_raw_select 13cn3lr_0" ON storage.objects FOR SELECT
+CREATE POLICY "ingestion_raw_select 13cn3lr_0" ON storage.objects FOR SELECT TO authenticated
   USING (
     (bucket_id = 'ingestion-raw')
     AND (public.is_platform() OR EXISTS (SELECT 1 FROM public.profiles WHERE auth_user_id = auth.uid() AND role = 'admin'))
