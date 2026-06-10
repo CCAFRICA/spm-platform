@@ -10,8 +10,8 @@
  */
 
 import { createClient } from './client';
-import type { Profile } from './database.types';
 import { logAuthEventClient } from '@/lib/auth/auth-logger';
+import { resolveIdentity } from '@/lib/auth/resolve-identity';
 
 export interface AuthProfile {
   id: string;
@@ -182,47 +182,25 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return null;
 
-    // Query profiles by auth_user_id — NO tenant_id filter.
-    // HF-062: Use array query instead of .maybeSingle().
-    // The profiles table has NO unique constraint on auth_user_id — platform
-    // users can have profiles across multiple tenants. .maybeSingle() errors
-    // when >1 row matches ("JSON object requested, multiple rows returned"),
-    // causing "Account found but profile is missing" on login.
-    const { data: profiles, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('auth_user_id', user.id)
-      .order('created_at', { ascending: true })
-      .limit(10);
-
-    if (error) {
-      console.error('[Auth] Profile query failed:', error.message, error.details);
+    // HF-282: delegate to the canonical reader (resolveIdentity) — THE only
+    // sanctioned profiles-by-auth_user_id resolution. Array-tolerant, deterministic
+    // winner, alias-normalized, anomaly-logging. Public signature + AuthProfile
+    // mapping preserved (DD-7). The HF-062 array logic this replaces lives there now.
+    const identity = await resolveIdentity(supabase, user.id);
+    if (!identity) {
+      // null = query error / zero rows; resolveIdentity already logged the anomaly.
       return null;
     }
-
-    if (!profiles || profiles.length === 0) {
-      console.error('[Auth] No profile rows found for auth_user_id:', user.id);
-      return null;
-    }
-
-    // If multiple profiles, prefer platform-level (platform role or manage_tenants)
-    const profile = (
-      profiles.find(p => p.role === 'platform') ||
-      profiles.find(p => ((p.capabilities as string[]) || []).includes('manage_tenants')) ||
-      profiles[0]
-    ) as Profile;
     return {
-      id: profile.id,
-      authUserId: profile.auth_user_id,
-      // HF-097: VL Admin has tenant_id = NULL in DB. The Profile Row type says string
-      // (pre-existing type lie) but the actual DB column is nullable for platform users.
-      tenantId: (profile as unknown as { tenant_id: string | null }).tenant_id,
-      displayName: profile.display_name,
-      email: profile.email,
-      role: profile.role,
-      capabilities: (profile.capabilities as string[]) || [],
-      locale: profile.locale,
-      avatarUrl: profile.avatar_url,
+      id: identity.id,
+      authUserId: identity.authUserId,
+      tenantId: identity.tenantId,
+      displayName: identity.displayName,
+      email: identity.email,
+      role: identity.role,
+      capabilities: identity.capabilities,
+      locale: identity.locale,
+      avatarUrl: identity.avatarUrl,
     };
   } catch (err) {
     console.error('[Auth] fetchCurrentProfile error:', err);

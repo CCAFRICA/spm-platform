@@ -22,7 +22,25 @@ export type AuthEventType =
   | 'auth.mfa.verify.failure'
   | 'auth.session.expired.idle'
   | 'auth.session.expired.absolute'
-  | 'auth.permission.denied';
+  | 'auth.permission.denied'
+  // HF-282 Phase 1 — canonical identity resolution anomalies (resolveIdentity)
+  | 'identity.resolve.query_error'
+  | 'identity.resolve.zero_rows'
+  | 'identity.resolve.duplicate_rows'
+  // HF-282 Phase 2.3 — redirect observability (the DIAG-060 §6 13-branch inventory).
+  // Every auth/tenant redirect emits a named event before redirecting/clearing.
+  | 'auth.redirect.unauth_root'          // middleware.ts:152
+  | 'auth.redirect.unauth_protected'     // middleware.ts:167
+  | 'auth.redirect.mfa_verify'           // middleware.ts:269
+  | 'auth.redirect.mfa_enroll'           // middleware.ts:287
+  | 'auth.redirect.tenant_cookie_present'// middleware.ts:317
+  | 'auth.redirect.tenant_select'        // middleware.ts:319
+  | 'auth.redirect.default_workspace'    // middleware.ts:333
+  | 'auth.shell.loop_break'              // auth-shell.tsx:116 (clears sb-* + tenant cookie)
+  | 'auth.shell.unauth_redirect'         // auth-shell.tsx:121
+  | 'auth.shell.hydration_timeout'       // auth-shell.tsx:158
+  | 'auth.shell.tenant_gate'             // auth-shell.tsx:130
+  | 'tenant.cleared';                    // tenant-context.tsx:212
 
 /**
  * Log an auth event — server-side (service role client, direct INSERT).

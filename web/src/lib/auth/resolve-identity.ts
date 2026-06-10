@@ -1,0 +1,97 @@
+/**
+ * HF-282 Phase 1 — Canonical post-auth identity resolution.
+ *
+ * THE only sanctioned `profiles`-by-`auth_user_id` read. Architect disposition
+ * (2026-06-10): one auth user maps to exactly one profiles row; role inheritance
+ * is a presentation concern, never duplicate identity rows. SOC 2 CC6 (unique
+ * identification -> single authorization record).
+ *
+ * Contract:
+ *  - array-tolerant during the migration window (no `.single()` / `.maybeSingle()`
+ *    anywhere in this module — those ERROR on >1 row, which is the DIAG-060 defect);
+ *  - deterministic winner: first alias-normalized `platform` row, else first row
+ *    carrying the `manage_tenants` capability (retained for DD-7: existing
+ *    consumers fetchCurrentProfile/server-auth used this tiebreaker), else the
+ *    oldest row (created_at ascending);
+ *  - role compared via `resolveRole` (alias-normalized; NEVER raw literal equality
+ *    against `'vl_admin'`) — Korean Test / AP-25: zero account/email/tenant literals;
+ *  - loud on anomaly: query error / zero rows / duplicate rows each emit a named
+ *    `identity.resolve.*` event through the non-blocking logAuthEvent channel.
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveRole, type Role } from '@/lib/auth/permissions';
+import { logAuthEvent } from '@/lib/auth/auth-logger';
+
+export interface ResolvedIdentity {
+  /** profiles.id of the winning row. */
+  id: string;
+  authUserId: string;
+  /** NULL for platform-scope identities. */
+  tenantId: string | null;
+  displayName: string;
+  email: string;
+  /** Raw persisted role string (may be a retired alias, e.g. 'vl_admin'). */
+  role: string;
+  /** Alias-normalized canonical role (resolveRole(role)); null if unknown. */
+  canonicalRole: Role | null;
+  capabilities: string[];
+  locale: string | null;
+  avatarUrl: string | null;
+}
+
+function mapToResolvedIdentity(row: Record<string, unknown>): ResolvedIdentity {
+  const role = String(row.role ?? '');
+  return {
+    id: String(row.id ?? ''),
+    authUserId: String(row.auth_user_id ?? ''),
+    tenantId: (row.tenant_id as string | null) ?? null,
+    displayName: String(row.display_name ?? ''),
+    email: String(row.email ?? ''),
+    role,
+    canonicalRole: resolveRole(role),
+    capabilities: (row.capabilities as string[]) || [],
+    locale: (row.locale as string | null) ?? null,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+  };
+}
+
+/**
+ * Resolve the canonical identity for an authenticated user. Returns null when no
+ * profile exists or the query errors (callers treat null as unauthenticated /
+ * profile-missing, exactly as the prior reads did — DD-7).
+ */
+export async function resolveIdentity(
+  client: SupabaseClient,
+  authUserId: string,
+): Promise<ResolvedIdentity | null> {
+  const { data: rows, error } = await client
+    .from('profiles')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .order('created_at', { ascending: true })
+    .limit(10);
+
+  if (error) {
+    void logAuthEvent('identity.resolve.query_error', { authUserId, error: error.message }, authUserId);
+    return null;
+  }
+  if (!rows || rows.length === 0) {
+    void logAuthEvent('identity.resolve.zero_rows', { authUserId }, authUserId);
+    return null;
+  }
+  if (rows.length > 1) {
+    void logAuthEvent(
+      'identity.resolve.duplicate_rows',
+      { authUserId, count: rows.length, roles: rows.map(r => r.role), ids: rows.map(r => r.id) },
+      authUserId,
+    );
+  }
+
+  const winner =
+    rows.find(r => resolveRole(r.role) === 'platform') ||
+    rows.find(r => ((r.capabilities as string[]) || []).includes('manage_tenants')) ||
+    rows[0];
+
+  return mapToResolvedIdentity(winner);
+}

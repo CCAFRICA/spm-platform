@@ -11,6 +11,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { useRouter } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { createClient } from '@/lib/supabase/client';
+import { logAuthEventClient } from '@/lib/auth/auth-logger';
 import type { TenantConfig, TenantSummary, TenantTerminology, Currency } from '@/types/tenant';
 import { DEFAULT_TERMINOLOGY, DEFAULT_FEATURES, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
 
@@ -209,6 +210,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       document.cookie = 'vialuce-tenant-id=; path=/; max-age=0';
     }
     if (isAdmin) {
+      logAuthEventClient('tenant.cleared', {});  // HF-282 Phase 2.3
       router.push('/select-tenant');
     }
   }, [isAdmin, router]);
