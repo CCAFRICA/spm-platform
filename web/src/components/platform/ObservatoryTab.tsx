@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { logAuthEventClient } from '@/lib/auth/auth-logger'; // HF-283 Phase 4: tenant-entry observability
 import type {
   FleetOverview,
   TenantFleetCard,
@@ -56,6 +57,8 @@ export function ObservatoryTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectingTenant, setSelectingTenant] = useState<string | null>(null);
   const [showTestTenants, setShowTestTenants] = useState(false);
+  // HF-283 Phase 4.1: tenant-load failure made user-visible (was a silent spinner-reset).
+  const [entryError, setEntryError] = useState<{ tenantName: string; message: string } | null>(null);
 
   // OB-89: Filter test/development tenants from demo view
   const TEST_TENANT_PATTERNS = /test|pipeline|retailco|frmx|retail conglomerate|demo seed/i;
@@ -91,16 +94,26 @@ export function ObservatoryTab() {
 
   const handleSelectTenant = async (tenantId: string, targetRoute?: string) => {
     setSelectingTenant(tenantId);
+    setEntryError(null);
+    const tenantName = tenantCards.find(t => t.id === tenantId)?.name ?? tenantId;
     try {
       await setTenant(tenantId);
+      // HF-283 Phase 4.2: observable entry — exactly one event per selection
+      // (handleSelectTenant runs once per card click), via the HF-282 plumbing.
+      logAuthEventClient('tenant.entered', { tenantId, tenantName });
       // HF-057: Explicit navigation after tenant selection.
       // setTenant calls router.push('/') but middleware may redirect VL Admin
       // back to /select-tenant. Navigate to a concrete route instead.
       const destination = targetRoute || '/operate';
       router.push(destination);
       router.refresh();
-    } catch {
+    } catch (err) {
+      // HF-283 Phase 4.1: surface the failure (was a silent spinner-reset that
+      // made the DIAG-061 class invisible) + 4.3 observability.
+      const message = err instanceof Error ? err.message : String(err);
+      setEntryError({ tenantName, message });
       setSelectingTenant(null);
+      logAuthEventClient('tenant.load_failed', { tenantId, tenantName, message });
     }
   };
 
@@ -119,6 +132,22 @@ export function ObservatoryTab() {
         <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>Command Center</h2>
         <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>Actionable fleet intelligence — every metric drives a decision</p>
       </div>
+
+      {/* HF-283 Phase 4.1: inline, user-visible tenant-load failure (replaces the silent spinner-reset) */}
+      {entryError && (
+        <div role="alert" style={{
+          marginBottom: '24px',
+          background: '#2A1115',
+          border: '1px solid #7F1D1D',
+          borderRadius: '10px',
+          padding: '14px 16px',
+          color: '#FCA5A5',
+          fontSize: '14px',
+        }}>
+          <span style={{ fontWeight: 700, color: '#F87171' }}>Could not enter {entryError.tenantName}.</span>{' '}
+          {entryError.message}
+        </div>
+      )}
 
       {/* ── Section: 6 Actionable Metrics ── */}
       {overview && (

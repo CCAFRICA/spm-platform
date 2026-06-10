@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import type { Database, Json } from '@/lib/supabase/database.types';
+import { PLATFORM_ROLE_VALUES } from '@/lib/auth/resolve-identity'; // HF-283 A1.1: canonical platform alias set
 
 // Allowed transitions matrix
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Verify tenant isolation
-    const isVLAdmin = profile.role === 'platform' || profile.role === 'vl_admin';
+    const isVLAdmin = (PLATFORM_ROLE_VALUES as readonly string[]).includes(profile.role); // HF-283 A1.1.2: derivation-only, truth table unchanged
     if (!isVLAdmin && profile.tenant_id !== batch.tenant_id) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
           .from('profiles')
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenantId)
-          .in('role', ['admin', 'platform', 'vl_admin']);
+          .in('role', ['admin', ...PLATFORM_ROLE_VALUES]); // HF-283 A1.1.3: identical set
 
         if ((adminCount ?? 0) > 1) {
           return NextResponse.json(

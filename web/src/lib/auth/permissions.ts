@@ -11,6 +11,10 @@
  * NEVER add role checks elsewhere. Import hasCapability from here.
  */
 
+// HF-283 A1.1: platform alias set lives in resolve-identity.ts (single declaration).
+// Used only inside resolveRole (call-time) — no module-init cycle.
+import { PLATFORM_ROLE_VALUES } from '@/lib/auth/resolve-identity';
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -65,9 +69,12 @@ export const CANONICAL_ROLES: readonly Role[] = ['platform', 'admin', 'manager',
 // ROLE ALIAS RESOLUTION
 // =============================================================================
 
-const ROLE_ALIASES: Record<string, Role> = {
-  'platform': 'platform',
-  'vl_admin': 'platform',
+// HF-283 A1.1: platform aliases DERIVE from PLATFORM_ROLE_VALUES (the single
+// canonical platform declaration in resolve-identity.ts, paired with the DB
+// predicate public.is_platform()). Non-platform aliases stay here. Both modules
+// reference the other only at call-time (resolveRole below; resolveIdentity in
+// resolve-identity.ts) so there is no module-init cycle.
+const NON_PLATFORM_ALIASES: Record<string, Role> = {
   'admin': 'admin',
   'tenant_admin': 'admin',
   'manager': 'manager',
@@ -79,10 +86,12 @@ const ROLE_ALIASES: Record<string, Role> = {
 
 /**
  * Resolve any role string (including retired aliases) to a canonical Role.
- * Returns null for unknown roles.
+ * Returns null for unknown roles. Platform aliases ('platform','vl_admin')
+ * derive from PLATFORM_ROLE_VALUES.
  */
 export function resolveRole(role: string): Role | null {
-  return ROLE_ALIASES[role] ?? null;
+  if ((PLATFORM_ROLE_VALUES as readonly string[]).includes(role)) return 'platform';
+  return NON_PLATFORM_ALIASES[role] ?? null;
 }
 
 // =============================================================================
