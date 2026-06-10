@@ -77,6 +77,7 @@ Phases 0–9, branch `hf-283-rls-platform-predicate` (off `origin/main` @ `db07b
 - **Stale migration header comment:** the applied migration's top `NOTE` says policies "default to PUBLIC"; the operative DDL (post-Addendum-3) has 4 `TO authenticated` storage policies. Comment left as-is to preserve applied-migration immutability; flagged here (not behavior-affecting).
 - **Out of scope (§6):** static-config import path; duplicate `router.push` in handleSelectTenant+setTenant; data re-roling/orphan provisioning; UNIQUE(auth_user_id) (Platform-Created-Users OB); dedup-migration placement-fix; Site URL; CI node:test gap.
 - **SR-43 production addendum PENDING:** TD logs in on production → clicks Banco Cumbre → /operate renders; platform@ regression; eoadmin entry; tenant.entered row observed. Architect/tester dispositions SR-43 close.
+- **Placement correction (2026-06-10):** created at PROJECT ROOT per directive §5 (stale governing text); relocated to docs/completion-reports/ by architect disposition. Forward: all completion reports at docs/completion-reports/.
 
 ## VERIFICATION SCRIPT OUTPUT
 ```
@@ -164,3 +165,4 @@ tdadmin → Banco Cumbre (17:53:57) is the literal SR-43 acceptance criterion. 0
 
 ### Disposition
 **SR-43 CLOSED.** HF-283 is User-Ready: structural fix (EPG-1 0 vl_admin) + harness flip (0→9 G-A) + production browser + platform_events runtime evidence all align.
+**SR-43 close RATIFIED by architect disposition 2026-06-10.**

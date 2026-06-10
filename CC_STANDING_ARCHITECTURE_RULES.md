@@ -228,7 +228,7 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 2. After EVERY push: kill dev server → `rm -rf .next` → `npm run build` → `npm run dev` → confirm localhost:3000 responds
 3. Final step of every OB/HF/SD: `gh pr create --base main --head dev` with descriptive title and body
 4. Git commit messages: ASCII only
-5. Completion reports and proof gates saved to PROJECT ROOT
+5. Completion reports and proof gates saved to docs/completion-reports/
 
 ### Supabase
 6. **Supabase migrations MUST be executed live** (SQL Editor or `supabase db push`) AND verified with a database query. File existence ≠ applied. Proof gate = live DB query showing changes exist.
