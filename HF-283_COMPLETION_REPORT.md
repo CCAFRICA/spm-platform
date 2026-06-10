@@ -134,3 +134,33 @@ preserves vl_admin->platform; no init cycle — build clean.)
 | Compliance emerges from architecture, verifiable from docs | Decision 123 | **PASS** — the canon is one DB predicate + one app constant, cross-naming; class closure is assertion-enforced (pg_policies sweep) and proven by the EPG-1-PRE/post symmetry + pre-FAIL/post-PASS harness. An auditor verifies from the ADR + EPG-1 pastes without reading app source. |
 
 No non-compliant finding → no STOP (SR-39).
+
+---
+
+## SR-43 ADDENDUM — production verification (CLOSED)
+**Deploy SHA:** `54416d6b` (merge of #473; emission shipped with this build). **Date:** 2026-06-10.
+
+### Browser (architect/tester, production)
+platform@vialuce.com, eoadmin@vialuce.com, and tdadmin@vialuce.com **all entered tenants and worked without error** — the DIAG-061 dead-tenant-entry defect is resolved for every platform account. (Pre-HF: 0 tenants visible / silent spinner-reset.)
+
+### platform_events (service-role paste, since deploy) — HG-6 runtime confirmation
+`tenant.entered`: **13 rows**; `tenant.load_failed`: **0 rows**. The `tenant.entered` rows also confirm the post-merge build is live (the emission shipped with 54416d6b).
+```
+2026-06-10T20:35:55Z  tenant.entered  MX Restaurant              actor=9c179b53 (platform@)
+2026-06-10T19:31:54Z  tenant.entered  Trial 1                    actor=e6e13eee (eoadmin@)
+2026-06-10T19:23:10Z  tenant.entered  MX Restaurant              actor=e6e13eee (eoadmin@)
+2026-06-10T19:13:00Z  tenant.entered  Tomi Test #2               actor=e6e13eee (eoadmin@)
+2026-06-10T19:01:44Z  tenant.entered  Sabor Grupo Gastronomico   actor=e6e13eee (eoadmin@)
+2026-06-10T19:00:55Z  tenant.entered  MX Restaurant              actor=e6e13eee (eoadmin@)
+2026-06-10T17:54:16Z  tenant.entered  Tomi Test #1               actor=ee18f0e5 (tdadmin@)
+2026-06-10T17:53:57Z  tenant.entered  Banco Cumbre del Litoral   actor=ee18f0e5 (tdadmin@)   ← SR-43 target
+2026-06-10T17:26:10Z  tenant.entered  Meridian Logistics Group   actor=e6e13eee (eoadmin@)
+2026-06-10T17:13:22Z  tenant.entered  Sabor Grupo Gastronomico   actor=e6e13eee (eoadmin@)
+2026-06-10T15:37:24Z  tenant.entered  Cascade Revenue Partners   actor=9c179b53 (platform@)
+2026-06-10T15:37:15Z  tenant.entered  Meridian Logistics Group   actor=9c179b53 (platform@)
+2026-06-10T15:37:04Z  tenant.entered  Banco Cumbre del Litoral   actor=9c179b53 (platform@)
+```
+tdadmin → Banco Cumbre (17:53:57) is the literal SR-43 acceptance criterion. 0 `tenant.load_failed` = no silent or surfaced entry failures. HG-6 runtime row emission CONFIRMED; HG-5 rendered-state confirmed (no error surfaced because all entries succeeded).
+
+### Disposition
+**SR-43 CLOSED.** HF-283 is User-Ready: structural fix (EPG-1 0 vl_admin) + harness flip (0→9 G-A) + production browser + platform_events runtime evidence all align.
