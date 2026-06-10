@@ -11,7 +11,7 @@
 
 import { createClient } from './client';
 import { logAuthEventClient } from '@/lib/auth/auth-logger';
-import { resolveIdentity } from '@/lib/auth/resolve-identity';
+import { resolveIdentity, type ResolvedIdentity } from '@/lib/auth/resolve-identity';
 
 export interface AuthProfile {
   id: string;
@@ -159,9 +159,44 @@ export async function getAuthUser() {
 }
 
 /**
+ * HF-284 — typed sentinel for "the authenticated session is absent at profile-fetch
+ * time" (getUser() returned no user). This is DISTINCT from a present session whose
+ * profiles row is missing (that stays `null`). The login surface maps the two to
+ * different user-facing messages so a session that was killed mid-login (stale
+ * bookkeeping cookie — see middleware HF-284 clamp) is not mislabeled "profile missing."
+ */
+export const SESSION_ABSENT = Symbol('SESSION_ABSENT');
+export type FetchProfileResult = AuthProfile | null | typeof SESSION_ABSENT;
+
+/**
+ * Pure classification of a profile fetch (HF-284) — testable without a live client.
+ *   no user            -> SESSION_ABSENT  (session absent, not profile-missing)
+ *   user, no identity  -> null            (zero-rows / query-error; resolveIdentity logged it)
+ *   user + identity    -> mapped AuthProfile
+ */
+export function classifyProfileFetch(
+  user: { id: string } | null | undefined,
+  identity: ResolvedIdentity | null,
+): FetchProfileResult {
+  if (!user) return SESSION_ABSENT;
+  if (!identity) return null;
+  return {
+    id: identity.id,
+    authUserId: identity.authUserId,
+    tenantId: identity.tenantId,
+    displayName: identity.displayName,
+    email: identity.email,
+    role: identity.role,
+    capabilities: identity.capabilities,
+    locale: identity.locale,
+    avatarUrl: identity.avatarUrl,
+  };
+}
+
+/**
  * Fetch the profile for the current auth user from the profiles table.
- * Returns null on ANY error — never throws. Callers should treat null
- * as "not authenticated" and let AuthShellProtected handle the redirect.
+ * Never throws. Returns SESSION_ABSENT when the session is absent, null when the
+ * session is present but no profile resolves, or the AuthProfile on success.
  *
  * VL ADMIN GUARD — HF-097
  * VL Admin has tenant_id = NULL and role = 'platform'.
@@ -170,7 +205,7 @@ export async function getAuthUser() {
  * DO NOT reference scope_level — the column is 'role'.
  * See: CC FP-49 (SQL Schema Fabrication), HF-097
  */
-export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
+export async function fetchCurrentProfile(): Promise<FetchProfileResult> {
   try {
     const supabase = createClient();
 
@@ -180,28 +215,19 @@ export async function fetchCurrentProfile(): Promise<AuthProfile | null> {
     // is missing" for VL Admin login. getUser() validates with the server
     // and works reliably in all cases.
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) return null;
+    if (userError || !user) {
+      // HF-284: session absent at fetch time — distinct from a missing profile row.
+      // Emit on the client-capable path (logAuthEvent no-ops client-side) and return
+      // the typed sentinel so the login surface can say "session" not "profile."
+      void logAuthEventClient('identity.resolve.session_absent', { reason: userError?.message ?? 'no_user' });
+      return SESSION_ABSENT;
+    }
 
     // HF-282: delegate to the canonical reader (resolveIdentity) — THE only
     // sanctioned profiles-by-auth_user_id resolution. Array-tolerant, deterministic
-    // winner, alias-normalized, anomaly-logging. Public signature + AuthProfile
-    // mapping preserved (DD-7). The HF-062 array logic this replaces lives there now.
+    // winner, alias-normalized, anomaly-logging. Public signature preserved (DD-7).
     const identity = await resolveIdentity(supabase, user.id);
-    if (!identity) {
-      // null = query error / zero rows; resolveIdentity already logged the anomaly.
-      return null;
-    }
-    return {
-      id: identity.id,
-      authUserId: identity.authUserId,
-      tenantId: identity.tenantId,
-      displayName: identity.displayName,
-      email: identity.email,
-      role: identity.role,
-      capabilities: identity.capabilities,
-      locale: identity.locale,
-      avatarUrl: identity.avatarUrl,
-    };
+    return classifyProfileFetch(user, identity);
   } catch (err) {
     console.error('[Auth] fetchCurrentProfile error:', err);
     return null;

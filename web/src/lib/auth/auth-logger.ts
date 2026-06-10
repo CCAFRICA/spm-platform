@@ -27,6 +27,10 @@ export type AuthEventType =
   | 'identity.resolve.query_error'
   | 'identity.resolve.zero_rows'
   | 'identity.resolve.duplicate_rows'
+  // HF-284 — login-path session lifecycle: session absent at profile-fetch time
+  // (distinct from zero-rows), and session-ownership reinit of residue bookkeeping.
+  | 'identity.resolve.session_absent'
+  | 'auth.session.bookkeeping_reset'
   // HF-282 Phase 2.3 — redirect observability (the DIAG-060 §6 13-branch inventory).
   // Every auth/tenant redirect emits a named event before redirecting/clearing.
   | 'auth.redirect.unauth_root'          // middleware.ts:152

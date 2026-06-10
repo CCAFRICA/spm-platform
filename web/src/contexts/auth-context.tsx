@@ -25,6 +25,7 @@ import {
   getAuthUser,
   onAuthStateChange,
   clearSupabaseLocalStorage,
+  SESSION_ABSENT,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
 
@@ -197,19 +198,19 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
 
         // 3. Both session AND user confirmed — NOW fetch profile.
         const profile = await fetchCurrentProfile();
-        if (profile) {
+        if (profile && profile !== SESSION_ABSENT) {
           setUser(mapProfileToUser(profile));
           setCapabilities(profile.capabilities || []);
           setProfileLocale(profile.locale);
         }
-        // If profile is null (500, missing row, etc.), user stays null.
+        // If profile is null (missing row) or SESSION_ABSENT, user stays null.
         // AuthShellProtected will handle the redirect. Do NOT redirect here.
 
         // 4. Set up auth listener for future sign-in/sign-out events
         unsubscribe = onAuthStateChange(async (event) => {
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const p = await fetchCurrentProfile();
-            if (p) {
+            if (p && p !== SESSION_ABSENT) {
               setUser(mapProfileToUser(p));
               setCapabilities(p.capabilities || []);
               setProfileLocale(p.locale);
@@ -252,6 +253,11 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
 
     try {
       const profile = await fetchCurrentProfile();
+      if (profile === SESSION_ABSENT) {
+        // HF-284: the session was absent at fetch time (e.g. killed mid-login by a
+        // stale bookkeeping cookie). Distinct from a missing profile row.
+        return { success: false, error: 'Your session could not be established — please sign in again.' };
+      }
       if (!profile) {
         return { success: false, error: 'Account found but profile is missing. Contact your administrator.' };
       }
