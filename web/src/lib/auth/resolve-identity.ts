@@ -88,8 +88,18 @@ export async function resolveIdentity(
     );
   }
 
+  // Winner rule. Among alias-normalized-platform rows, prefer the canonical row the
+  // running system + the Phase 4 keep-predicate designate: raw role 'platform' with
+  // id === auth_user_id. This both preserves DD-7 (the prior reads used raw
+  // role==='platform' for the platform@ two-row case → the 03-07 row, not the older
+  // vl_admin row) AND makes the reader pick exactly the row the dedup migration keeps.
+  // A user with ONLY a vl_admin row still resolves as platform (alias-normalized).
+  const platformNorm = rows.filter(r => resolveRole(r.role) === 'platform');
   const winner =
-    rows.find(r => resolveRole(r.role) === 'platform') ||
+    platformNorm.find(r => r.role === 'platform' && r.id === r.auth_user_id) ||
+    platformNorm.find(r => r.role === 'platform') ||
+    platformNorm.find(r => r.id === r.auth_user_id) ||
+    platformNorm[0] ||
     rows.find(r => ((r.capabilities as string[]) || []).includes('manage_tenants')) ||
     rows[0];
 
