@@ -25,6 +25,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
+import { resolveIdentity } from '@/lib/auth/resolve-identity';
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -149,6 +150,7 @@ export async function middleware(request: NextRequest) {
     if (pathname === '/') {
       // OB-196 Phase 1.6: landing-page pathway deleted (abandoned UI per architect direction).
       // Anonymous-on-/ redirects directly to /login.
+      logAuthEvent('auth.redirect.unauth_root', { pathname });
       const redirectResponse = NextResponse.redirect(new URL('/login', request.url));
       clearAuthCookies(request, redirectResponse);
       return noCacheResponse(redirectResponse);
@@ -162,6 +164,7 @@ export async function middleware(request: NextRequest) {
         ));
       }
 
+      logAuthEvent('auth.redirect.unauth_protected', { pathname });
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       const redirectResponse = NextResponse.redirect(loginUrl);
@@ -266,24 +269,17 @@ export async function middleware(request: NextRequest) {
         const { currentLevel, nextLevel } = aalData;
         // User has MFA enrolled but hasn't verified this session
         if (currentLevel === 'aal1' && nextLevel === 'aal2') {
+          logAuthEvent('auth.redirect.mfa_verify', { pathname }, user.id);
           return noCacheResponse(NextResponse.redirect(new URL('/auth/mfa/verify', request.url)));
         }
         // Check if user's role requires MFA enrollment
         if (currentLevel === 'aal1' && nextLevel === 'aal1') {
-          // HF-147: Use array query — platform users can have multiple profiles
-          // (HF-062: no unique constraint on auth_user_id). .maybeSingle() throws
-          // for multi-profile users, silently skipping MFA enforcement.
-          const { data: mfaProfiles } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('auth_user_id', user.id)
-            .order('created_at', { ascending: true })
-            .limit(5);
-          const mfaRole = (
-            mfaProfiles?.find(p => p.role === 'platform') ||
-            mfaProfiles?.[0]
-          )?.role;
+          // HF-282: canonical reader (replaces the HF-147 array read). Alias-normalized
+          // role compared against MFA_REQUIRED_ROLES so retired aliases (vl_admin) resolve.
+          const mfaIdentity = await resolveIdentity(supabase, user.id);
+          const mfaRole = mfaIdentity?.canonicalRole;
           if (mfaRole && MFA_REQUIRED_ROLES.includes(mfaRole)) {
+            logAuthEvent('auth.redirect.mfa_enroll', { pathname, role: mfaRole }, user.id);
             return noCacheResponse(NextResponse.redirect(new URL('/auth/mfa/enroll', request.url)));
           }
         }
@@ -301,21 +297,21 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, capabilities')
-      .eq('auth_user_id', user.id)
-      .maybeSingle();
-
-    const capabilities = (profile?.capabilities as string[]) || [];
-    const resolvedLoginRole = resolveRole(profile?.role || '');
-    const isPlatformAdmin = resolvedLoginRole === 'platform' || capabilities.includes('manage_tenants');
+    // HF-282: canonical reader. The prior `.maybeSingle()` ERRORED on >1 row
+    // (PGRST116) — the DIAG-060 row-count fork that made multi-profile platform
+    // admins fall through this branch. resolveIdentity is array-tolerant +
+    // deterministic + alias-normalized (vl_admin -> platform).
+    const identity = await resolveIdentity(supabase, user.id);
+    const capabilities = identity?.capabilities ?? [];
+    const isPlatformAdmin = identity?.canonicalRole === 'platform' || capabilities.includes('manage_tenants');
 
     if (isPlatformAdmin) {
       const tenantCookie = request.cookies.get('vialuce-tenant-id')?.value;
       if (tenantCookie) {
+        logAuthEvent('auth.redirect.tenant_cookie_present', { pathname }, user.id);
         return noCacheResponse(NextResponse.redirect(new URL('/operate', request.url)));
       }
+      logAuthEvent('auth.redirect.tenant_select', { pathname }, user.id);
       return noCacheResponse(NextResponse.redirect(new URL('/select-tenant', request.url)));
     }
 
@@ -329,7 +325,8 @@ export async function middleware(request: NextRequest) {
       support: '/stream',
     };
 
-    const defaultPath = roleDefaults[profile?.role || ''] || '/stream';
+    const defaultPath = roleDefaults[identity?.role || ''] || '/stream';
+    logAuthEvent('auth.redirect.default_workspace', { pathname, role: identity?.role ?? null, target: defaultPath }, user.id);
     return noCacheResponse(NextResponse.redirect(new URL(defaultPath, request.url)));
   }
 
@@ -339,16 +336,11 @@ export async function middleware(request: NextRequest) {
       || user.app_metadata?.role as string | undefined;
 
     if (!role) {
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-        role = profile?.role || undefined;
-      } catch {
-        // If profile query fails, allow through (client-side RequireCapability will catch)
-      }
+      // HF-282: canonical reader (replaces the profile-count-sensitive .maybeSingle()
+      // — DIAG-060 Addendum A). On null, role stays undefined → allow through
+      // (client-side RequireCapability catches), preserving prior behavior (DD-7).
+      const identity = await resolveIdentity(supabase, user.id);
+      role = identity?.role || undefined;
     }
 
     if (role) {

@@ -13,6 +13,8 @@ import { Navbar } from '@/components/navigation/Navbar';
 import { PersonaSwitcher } from '@/components/persona/PersonaSwitcher';
 import { cn } from '@/lib/utils';
 import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
+import { logAuthEventClient } from '@/lib/auth/auth-logger';
+import { shouldGateToSelectTenant } from '@/lib/auth/tenant-gate';
 
 // Routes that don't require a tenant to be selected
 // HF-148: MFA routes are tenant-exempt — MFA ceremony must complete before tenant selection
@@ -103,6 +105,9 @@ function AuthShellProtected({ children }: AuthShellProps) {
         // Redirected within last 3 seconds — this is a loop.
         // Clear all auth state client-side to break the cycle.
         console.error('[AuthShell] Redirect loop detected — clearing auth state');
+        // HF-282 Phase 2.3: emit BEFORE clearing/redirecting (best-effort, non-blocking).
+        // This is the silent-ejection branch DIAG-060 flagged — it must name itself.
+        logAuthEventClient('auth.shell.loop_break', { pathname, cleared: ['sb-*', 'vialuce-tenant-id'] });
         sessionStorage.removeItem(LOOP_KEY);
         if (typeof document !== 'undefined') {
           document.cookie.split(';').forEach(c => {
@@ -118,6 +123,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
       }
 
       sessionStorage.setItem(LOOP_KEY, String(now));
+      logAuthEventClient('auth.shell.unauth_redirect', { pathname });  // HF-282 Phase 2.3
       window.location.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
@@ -125,8 +131,13 @@ function AuthShellProtected({ children }: AuthShellProps) {
     // Successfully authenticated — clear any loop detection flag
     sessionStorage.removeItem('vl_auth_redirect_ts');
 
-    // Platform admin without a tenant selected must pick one first
-    if (isVLAdmin && !currentTenant && !isTenantExempt) {
+    // Platform admin without a tenant selected must pick one first.
+    // HF-282 HALT-3: shouldGateToSelectTenant encodes the hydration guard (the
+    // `isLoading || tenantLoading` early-return above already enforces it; the
+    // predicate makes the property testable). Fires only when hydration has
+    // COMPLETED and currentTenant is genuinely null (DD-7: real no-selection case).
+    if (shouldGateToSelectTenant({ isLoading, tenantLoading, onMfaRoute, isAuthenticated, isVLAdmin, hasTenant: !!currentTenant, isTenantExempt })) {
+      logAuthEventClient('auth.shell.tenant_gate', { pathname });  // HF-282 Phase 2.3
       router.push('/select-tenant');
     }
   }, [isAuthenticated, isLoading, tenantLoading, isVLAdmin, currentTenant, isTenantExempt, pathname, router]);
@@ -146,6 +157,7 @@ function AuthShellProtected({ children }: AuthShellProps) {
       // Still loading after 3s — likely no valid session or Supabase unreachable
       console.warn('[AuthShell] Auth timeout after 3s — redirecting to login');
       timeoutFired.current = true;
+      logAuthEventClient('auth.shell.hydration_timeout', { pathname });  // HF-282 Phase 2.3
       // Clear cookies to prevent stale-cookie loops
       if (typeof document !== 'undefined') {
         document.cookie.split(';').forEach(c => {

@@ -8,6 +8,7 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveIdentity } from '@/lib/auth/resolve-identity';
 
 export interface ServerAuthState {
   user: { id: string; email: string } | null;
@@ -33,15 +34,11 @@ export async function getServerAuthState(): Promise<ServerAuthState> {
       return { user: null, profile: null, isAuthenticated: false };
     }
 
-    // Resolve profile from our database
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, auth_user_id, tenant_id, display_name, email, role, capabilities, locale, avatar_url')
-      .eq('auth_user_id', user.id)
-      .order('created_at', { ascending: true })
-      .limit(10);
+    // HF-282: canonical reader (resolveIdentity) — replaces the local array+find.
+    // Array-tolerant, deterministic winner, alias-normalized, anomaly-logging.
+    const identity = await resolveIdentity(supabase, user.id);
 
-    if (!profiles || profiles.length === 0) {
+    if (!identity) {
       return {
         user: { id: user.id, email: user.email || '' },
         profile: null,
@@ -49,23 +46,17 @@ export async function getServerAuthState(): Promise<ServerAuthState> {
       };
     }
 
-    // Prefer platform-level profile
-    const profile =
-      profiles.find(p => p.role === 'platform') ||
-      profiles.find(p => ((p.capabilities as string[]) || []).includes('manage_tenants')) ||
-      profiles[0];
-
     return {
       user: { id: user.id, email: user.email || '' },
       profile: {
-        id: profile.id,
-        role: profile.role,
-        tenantId: profile.tenant_id,
-        displayName: profile.display_name,
-        email: profile.email,
-        capabilities: (profile.capabilities as string[]) || [],
-        locale: profile.locale,
-        avatarUrl: profile.avatar_url,
+        id: identity.id,
+        role: identity.role,
+        tenantId: identity.tenantId,
+        displayName: identity.displayName,
+        email: identity.email,
+        capabilities: identity.capabilities,
+        locale: identity.locale,
+        avatarUrl: identity.avatarUrl,
       },
       isAuthenticated: true,
     };
