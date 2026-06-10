@@ -89,3 +89,62 @@ CONSEQUENCES
 - One JWT decode per authenticated request (already-trusted token; negligible).
 
 *HF-284 ADR · a session is never idle before it exists*
+
+====================================================================
+ADDENDUM 1 — HALT-2 DISPOSITION (2026-06-10, new commit per SR-41)
+====================================================================
+Supersedes the OPTIONS verdict above. The timestamp-clamp (Option A) is WITHDRAWN
+for BOTH paths. Source: HF-284_DIRECTIVE_20260610_ADDENDUM-1.md.
+
+WHY OPTION A IS REJECTED (two holes — age is a broken residue proxy under refresh)
+---------------------------------------------------------------------------------
+Hole 1 (CC HALT-2): `vialuce-session-start` is written once at session birth and
+  NEVER refreshed (middleware writes: init-if-absent :210, clear-on-expiry :256/:266,
+  logout :301 — no refresh). Supabase access tokens refresh (~hourly TTL), each with a
+  new recent `iat`. So for any session older than the token TTL, `session-start < iat`
+  is the NORMAL healthy state, and `effective = max(session-start, iat) = iat` makes
+  `now - effective < TTL < 8h` — the 8h absolute cap can never fire. OWASP A07 / CC6
+  regression (auth weakening).
+Hole 2 (architect): clamping `last-activity` to `iat` blesses a genuinely idle session
+  whenever the resumption request triggers a token refresh — idle gap > token TTL ⇒
+  fresh `iat` ⇒ `max(stale-activity, iat) = iat` ⇒ the 30-min idle check passes a
+  session that violated it. Idle weakening.
+Conclusion: `cookie < iat` means "residue" for `last-activity` but "normal" for
+  `session-start`; `iat` cannot distinguish this session's birth from a prior session's
+  residue. AGE IS THE WRONG SIGNAL.
+
+OPTION (a) idle-only clamp — REJECTED: inherits Hole 2 (refresh-resumption) and leaves
+  the absolute-path residue exposure open.
+
+OPTION B' — SESSION-OWNERSHIP TAGGING — CHOSEN
+----------------------------------------------
+The residue signal is SESSION IDENTITY, not age. New cookie `vialuce-session-sid` =
+the access token's `session_id` claim (decoded post-getUser). Every authenticated
+request, before any expiry kill:
+  - sid cookie ABSENT or ≠ token session_id ⇒ bookkeeping is another session's residue
+    (or legacy-untagged) ⇒ REINITIALIZE last-activity=now, session-start=now, sid=
+    session_id; emit `auth.session.bookkeeping_reset {had_prior, prior_*_age_ms}`;
+    DO NOT kill; continue.
+  - sid MATCH ⇒ run the idle (:241) and absolute (:234) checks EXACTLY as current code,
+    RAW values — within-session semantics byte-preserved.
+  - Scale 10x: O(1), one JWT decode of an already-trusted token. Transport: none
+    (getSession reads cookies already present). Atomicity: per-request; reinit writes
+    ride the pass-through response.
+HALT-1 redefined: token `session_id` unobtainable in the middleware context → stop.
+  `iat` no longer used.
+
+CONSEQUENCES (B')
+-----------------
++ Login-path kill eliminated: a new sign-in mints a new session_id ⇒ reinit, never kill.
++ 8h absolute cap fully intact: session-start resets ONLY on a new auth session.
++ 30-min idle fully intact: refresh-resumption is sid-matched ⇒ raw idle check kills.
+- One-time post-deploy: in-flight sessions are untagged ⇒ first request reinitializes
+  their clocks (bounded, disclosed; strict thereafter). Recorded under SR-39.
+Event rename: `auth.session.bookkeeping_healed` → `auth.session.bookkeeping_reset`.
+Arms 1.2 (error split) + 1.3 (branch observability) unchanged from the working tree.
+
+Meta candidate #6 (directive-defect): the clamp invariant conflated two bookkeeping
+cookies with OPPOSITE refresh semantics — invariants must be derived per-signal
+lifecycle, not per-threshold.
+
+*HF-284 ADR A1 · the clock belongs to the session that wound it*
