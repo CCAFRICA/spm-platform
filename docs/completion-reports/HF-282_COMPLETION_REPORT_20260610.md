@@ -108,7 +108,7 @@ profiles=13 distinct auth_user_id=11 duplicate-groups=2
 ---
 
 ## 4. Phase 4 — migration (amended per HALT-2 disposition; architect-applied, SR-44)
-`supabase/migrations/20260610120000_hf282_profile_dedup.sql` (renamed from `…_single_profile_canon.sql`) — STEP 1 FK guard (re-asserts 0 refs for BOTH the platform-inheritance non-keepers and the non-platform duplicate-group rows), STEP 2a platform-inheritance dedup (deletes platform@'s `vl_admin` row, keeps the `platform` row `id=auth_user_id`; no privilege escalation), **STEP 2b sandbox-artifact removal — deletes BOTH tdelcarlo rows** (structural: any duplicate group with no platform-normalized row; ids/email in comments only, AP-25), STEP 3 assert 0 duplicate groups (now passes). **STEP 4/5 (`UNIQUE(auth_user_id)` + post-assert) REMOVED** — constraint deferred to the Platform-Created-Users OB (architect disposition). **EPG-4 (architect applies, then CC tsx-reads): dup census 0, platform@ 1 row, tdelcarlo 0 rows — OUTSTANDING.**
+`web/supabase/migrations/20260610120000_hf282_profile_dedup.sql` (canonical post-HF-259 location; renamed from `…_single_profile_canon.sql` and relocated from the deprecated repo-root `supabase/migrations/`) — STEP 1 FK guard (re-asserts 0 refs for BOTH the platform-inheritance non-keepers and the non-platform duplicate-group rows), STEP 2a platform-inheritance dedup (deletes platform@'s `vl_admin` row, keeps the `platform` row `id=auth_user_id`; no privilege escalation), **STEP 2b sandbox-artifact removal — deletes BOTH tdelcarlo rows** (structural: any duplicate group with no platform-normalized row; ids/email in comments only, AP-25), STEP 3 assert 0 duplicate groups (now passes). **STEP 4/5 (`UNIQUE(auth_user_id)` + post-assert) REMOVED** — constraint deferred to the Platform-Created-Users OB (architect disposition). **EPG-4 (architect applies, then CC tsx-reads): dup census 0, platform@ 1 row, tdelcarlo 0 rows — OUTSTANDING.**
 
 ---
 
@@ -133,7 +133,7 @@ No non-compliant finding that warrants STOP — the one incomplete axis (constra
 NEW web/src/lib/auth/resolve-identity.ts (+97)   NEW web/src/lib/auth/tenant-gate.ts (+32)
 NEW web/src/lib/auth/__tests__/resolve-identity.test.ts (+103)
 NEW web/scripts/provision-user.ts (+130)         NEW web/scripts/hf282-phase0-evidence.ts (+64)
-NEW supabase/migrations/20260610120000_hf282_single_profile_canon.sql (+126)
+NEW web/supabase/migrations/20260610120000_hf282_profile_dedup.sql (canonical post-HF-259 location)
 MOD web/src/middleware.ts (4 reads → resolveIdentity, +7 redirect events)
 MOD web/src/lib/supabase/auth-service.ts  MOD web/src/lib/auth/server-auth.ts
 MOD web/src/lib/auth/auth-logger.ts (+15 event types)  MOD web/src/components/layout/auth-shell.tsx
