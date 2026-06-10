@@ -23,6 +23,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveRole, type Role } from '@/lib/auth/permissions';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
 
+/**
+ * HF-283 A1.1 — the single app-side canonical declaration of the platform-role
+ * alias set. `'vl_admin'` is the legacy alias of canonical `'platform'`.
+ * `resolveRole` (permissions.ts) derives its platform mapping from this constant,
+ * and `public.is_platform()` (the DB predicate, HF-283 migration) is its paired
+ * DB-side declaration. Remove `'vl_admin'` from BOTH surfaces together when the
+ * legacy literal is purged data-side (Platform-Created-Users OB). Consumers
+ * reference this only at call-time (avoids the resolve-identity <-> permissions
+ * module-init cycle).
+ */
+export const PLATFORM_ROLE_VALUES = ['platform', 'vl_admin'] as const;
+
 export interface ResolvedIdentity {
   /** profiles.id of the winning row. */
   id: string;

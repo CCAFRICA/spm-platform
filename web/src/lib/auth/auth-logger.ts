@@ -40,7 +40,10 @@ export type AuthEventType =
   | 'auth.shell.unauth_redirect'         // auth-shell.tsx:121
   | 'auth.shell.hydration_timeout'       // auth-shell.tsx:158
   | 'auth.shell.tenant_gate'             // auth-shell.tsx:130
-  | 'tenant.cleared';                    // tenant-context.tsx:212
+  | 'tenant.cleared'                     // tenant-context.tsx:212
+  // HF-283 Phase 4 — tenant-entry observability (once per selection, client surface)
+  | 'tenant.entered'                     // ObservatoryTab.handleSelectTenant success
+  | 'tenant.load_failed';                // ObservatoryTab.handleSelectTenant failure
 
 /**
  * Log an auth event — server-side (service role client, direct INSERT).
