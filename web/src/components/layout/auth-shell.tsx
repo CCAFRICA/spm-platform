@@ -14,6 +14,7 @@ import { PersonaSwitcher } from '@/components/persona/PersonaSwitcher';
 import { cn } from '@/lib/utils';
 import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
 import { logAuthEventClient } from '@/lib/auth/auth-logger';
+import { shouldGateToSelectTenant } from '@/lib/auth/tenant-gate';
 
 // Routes that don't require a tenant to be selected
 // HF-148: MFA routes are tenant-exempt — MFA ceremony must complete before tenant selection
@@ -131,11 +132,11 @@ function AuthShellProtected({ children }: AuthShellProps) {
     sessionStorage.removeItem('vl_auth_redirect_ts');
 
     // Platform admin without a tenant selected must pick one first.
-    // HF-282 HALT-3: the `if (isLoading || tenantLoading) return` guard at the top
-    // of this effect already prevents this gate from firing during tenant hydration
-    // (the race Phase 2.1 assumed). This fires only when hydration has COMPLETED and
-    // currentTenant is genuinely null (DD-7: the real no-selection case).
-    if (isVLAdmin && !currentTenant && !isTenantExempt) {
+    // HF-282 HALT-3: shouldGateToSelectTenant encodes the hydration guard (the
+    // `isLoading || tenantLoading` early-return above already enforces it; the
+    // predicate makes the property testable). Fires only when hydration has
+    // COMPLETED and currentTenant is genuinely null (DD-7: real no-selection case).
+    if (shouldGateToSelectTenant({ isLoading, tenantLoading, onMfaRoute, isAuthenticated, isVLAdmin, hasTenant: !!currentTenant, isTenantExempt })) {
       logAuthEventClient('auth.shell.tenant_gate', { pathname });  // HF-282 Phase 2.3
       router.push('/select-tenant');
     }
