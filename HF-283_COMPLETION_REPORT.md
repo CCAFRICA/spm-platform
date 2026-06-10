@@ -108,3 +108,29 @@ POST-APPLY:
 [x] Single code path (no duplicate pipelines)? — one predicate, one reader declaration
 [x] Atomic operations (clean state on failure)? — migration transaction + DO-block assertion rollback
 ```
+
+---
+
+## PHASE 9 APPENDIX — build, test, SR-39
+
+### HG-7 evidence
+```
+node --test (resolve-identity + intent-constructor + import-atomicity + binding-completeness):
+  tests 41  pass 41  fail 0
+korean-test-gate: PASS
+npm run build:  ✓ Compiled successfully   (exit 0)
+npm run dev -> http://localhost:3000 -> HTTP 307 (auth middleware redirect; server up)
+```
+(Note: resolve-identity.test 10/10 confirms the resolveRole PLATFORM_ROLE_VALUES derivation
+preserves vl_admin->platform; no init cycle — build clean.)
+
+### SR-39 COMPLIANCE GATE (Phase 9.2)
+| Axis | Standard | Verdict |
+|---|---|---|
+| Single canonical authorization predicate; no privilege widening | SOC 2 CC6 | **PASS** — one `public.is_platform()` (= platform OR vl_admin, the prior set). EPG-1 post-apply: tenant-isolation/admin/folder clauses byte-preserved (roles+permissive too); no policy widened or narrowed beyond role canonicalization. Data-enforced role uniqueness (UNIQUE(auth_user_id)) intentionally deferred to the Platform-Created-Users OB. |
+| Per-policy access decision unchanged except role canonicalization | OWASP A01 | **PASS** — each of the 72 re-keyed policies reviewed in EPG-1 post-apply: the ONLY change is `EXISTS(role='vl_admin')`/`role=ANY(platform,vl_admin[,admin])`/scalar `='vl_admin'` → `is_platform()` (or `… OR is_platform()`), with 'admin' and tenant/folder branches preserved. `roles`/`permissive` preserved row-for-row (Addendum-3). |
+| Authentication strength | NIST SP 800-63B | **N/A (stated)** — this HF does not touch authentication strength, MFA, or session handling; it canonicalizes RLS role vocabulary only. |
+| Capability-based workspace authorization conformance | DS-014 | **PASS** — DS-014 is the app-layer permission SOT (permissions.ts); this HF keeps role vocabulary derived from one declaration (PLATFORM_ROLE_VALUES) consistent with resolveRole. No new role checks added outside that file's derivation. |
+| Compliance emerges from architecture, verifiable from docs | Decision 123 | **PASS** — the canon is one DB predicate + one app constant, cross-naming; class closure is assertion-enforced (pg_policies sweep) and proven by the EPG-1-PRE/post symmetry + pre-FAIL/post-PASS harness. An auditor verifies from the ADR + EPG-1 pastes without reading app source. |
+
+No non-compliant finding → no STOP (SR-39).
