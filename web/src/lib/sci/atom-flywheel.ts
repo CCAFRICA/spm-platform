@@ -30,7 +30,11 @@ export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: stri
     scope: 'tenant',
     atom_features: atom.features as unknown as Record<string, unknown>,
     column_roles: { role },
-    classification_result: null,
+    // structural_fingerprints.classification_result is NOT NULL; an atom row has no sheet
+    // classification, so an empty object is the benign placeholder (EPG-2.4 RUN-1 fix). For
+    // tenant scope the DI-10 CHECK is satisfied by scope='tenant'. Foundational/vertical atoms
+    // (future) need the column nullable — tracked as a residual (drop-NOT-NULL migration).
+    classification_result: {},
     source_file_sample: null,
     match_count: 1,
     confidence: 0.5,

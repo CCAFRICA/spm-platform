@@ -18,7 +18,7 @@ test('buildAtomRow is tenant-scoped, atom-granularity, versioned, DI-10-safe', (
   assert.equal(row.fingerprint_hash, atom.hash);
   assert.deepEqual(row.column_roles, { role: 'name' });
   assert.equal(row.source_file_sample, null);   // atom rows hold no file identifier
-  assert.equal(row.classification_result, null);
+  assert.deepEqual(row.classification_result, {}); // NOT-NULL column; benign empty placeholder (EPG-2.4 fix)
   // DI-10: the persisted row carries NO raw value (the names never appear)
   const blob = JSON.stringify(row);
   for (const raw of ['Carlos', 'Mendoza', 'Ana', 'Diego', 'emp_name']) {
