@@ -295,6 +295,10 @@ export interface NegotiationLogEntry {
 
 export interface SCIProposal {
   proposalId: string;
+  // OB-203 Phase 3: comprehension-session identity (aliases proposalId). The import surface
+  // polls GET /api/import/sci/session-state?importSessionId=… for live unit states. Distinct
+  // from execute-side import_batch_id (HF-213).
+  importSessionId?: string;
   tenantId: string;
   sourceFiles: string[];
   contentUnits: ContentUnitProposal[];

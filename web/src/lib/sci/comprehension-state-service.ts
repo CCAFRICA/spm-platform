@@ -91,6 +91,11 @@ export interface UnitStateSignalParams {
   confidence?: number | null;
   failureClass?: string | null;       // when state='failed_interpretation'
   humanCorrectionFrom?: string | null; // when state='resolved' by a human
+  // Emission sequence within ONE request. A batch insert stamps all rows with the
+  // same created_at; `seq` is the intra-request tiebreak so the reducer orders
+  // persisted(0) < profiled(1) < … deterministically. Across requests (e.g. a
+  // later retry) created_at dominates, so per-request seq restarting at 0 is safe.
+  seq?: number;
 }
 
 /** Pure builder — returns the CanonicalSignalInput for one unit-state transition. */
@@ -106,6 +111,7 @@ export function buildUnitStateSignalInput(p: UnitStateSignalParams): CanonicalSi
       knownCount: p.knownCount ?? null,
       novelCount: p.novelCount ?? null,
       failureClass: p.failureClass ?? null,
+      seq: p.seq ?? 0,
     },
     context: { importSessionId: p.importSessionId, phase: '3', sciVersion: '2.0' },
     confidence: p.confidence ?? null,
@@ -137,6 +143,26 @@ export async function writeUnitStateSignalBatch(
 ): Promise<void> {
   if (params.length === 0) return;
   await writeSignalBatch(params.map(buildUnitStateSignalInput), supabaseUrl, supabaseServiceKey);
+}
+
+/**
+ * Non-blocking emission for the import pipeline: state signals are durable
+ * comprehension MEMORY, but a write failure must not fail the import (the data
+ * still ingests). Failures are surfaced loudly (not silently swallowed — the
+ * `[OB-203][state]` tag is greppable in logs), matching the non-blocking
+ * fingerprint-lookup pattern in the analyze route.
+ */
+export async function emitUnitStates(
+  params: UnitStateSignalParams[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  if (params.length === 0) return;
+  try {
+    await writeUnitStateSignalBatch(params, supabaseUrl, supabaseServiceKey);
+  } catch (e) {
+    console.error(`[OB-203][state] emission failed (non-blocking) for ${params.length} unit-state(s): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ── Read shape (THE PHASE 5 DATA CONTRACT) ────────────────────
@@ -201,7 +227,12 @@ export function reduceSessionState(
 
   const units: UnitStateView[] = [];
   for (const [unitId, unitRows] of Array.from(byUnit.entries())) {
-    const ordered = unitRows.slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const ordered = unitRows.slice().sort((a, b) => {
+      const t = a.created_at.localeCompare(b.created_at);
+      if (t !== 0) return t;
+      // same-batch (identical created_at) tiebreak: explicit emission seq
+      return ((a.signal_value?.seq as number) ?? 0) - ((b.signal_value?.seq as number) ?? 0);
+    });
     const history = ordered.map(r => ({
       state: (r.signal_value?.state as UnitComprehensionState),
       at: r.created_at,

@@ -19,9 +19,9 @@ let clock = 0;
 const row = (
   unitId: string,
   state: UnitComprehensionState,
-  extra: Partial<RawStateSignalRow> & { sheetName?: string; source?: string; tier?: number; classification?: string } = {},
+  extra: Partial<RawStateSignalRow> & { sheetName?: string; source?: string; tier?: number; classification?: string; seq?: number; at?: string } = {},
 ): RawStateSignalRow => ({
-  signal_value: { unitId, state, tier: extra.tier ?? null },
+  signal_value: { unitId, state, tier: extra.tier ?? null, seq: extra.seq ?? 0 },
   context: { importSessionId: 'sess-1', phase: '3' },
   sheet_name: extra.sheetName ?? unitId,
   source_file_name: 'f.xlsx',
@@ -29,8 +29,8 @@ const row = (
   decision_source: null,
   confidence: null,
   source: extra.source ?? 'sci_agent',
-  // monotonic, lexicographically-sortable timestamps
-  created_at: `2026-06-11T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+  // monotonic, lexicographically-sortable timestamps (override with `at` for same-batch tests)
+  created_at: extra.at ?? `2026-06-11T00:00:${String(clock++).padStart(2, '0')}.000Z`,
 });
 
 // ── monotonicity (emission invariant) ──
@@ -116,6 +116,39 @@ test('reduceSessionState: retry success supersedes prior failed_interpretation',
   const A = reduceSessionState('t1', 'sess-1', rows).units[0];
   assert.equal(A.state, 'bound');
   assert.equal(A.retryable, false);
+});
+
+// ── same-batch ordering: identical created_at, seq breaks the tie ──
+test('reduceSessionState: same-timestamp batch ordered by emission seq', () => {
+  const T = '2026-06-11T00:00:00.000Z';
+  const rows = [
+    // emitted out of array order but with monotone seq, all sharing one created_at
+    row('A', 'profiled', { at: T, seq: 1 }),
+    row('A', 'persisted', { at: T, seq: 0 }),
+    row('A', 'recognized', { at: T, seq: 2, tier: 3 }),
+  ];
+  const A = reduceSessionState('t1', 'sess-1', rows).units[0];
+  assert.equal(A.state, 'recognized');                    // seq 2 wins despite array order
+  assert.deepEqual(A.history.map(h => h.state), ['persisted', 'profiled', 'recognized']);
+});
+
+// ── DI-1 / EPG-3.2: persisted survives a profiling failure on the same unit ──
+test('reduceSessionState: profiling failure still carries persisted (state-zero independent)', () => {
+  const T = '2026-06-11T00:00:00.000Z';
+  // sheet A: persisted emitted at enumeration, THEN profiling throws -> failed (same batch window)
+  // sheet B: persisted -> profiled cleanly
+  const rows = [
+    row('A', 'persisted', { at: T, seq: 0 }),
+    row('B', 'persisted', { at: T, seq: 0 }),
+    row('A', 'failed_interpretation', { at: T, seq: 1, ...{} }),
+    row('B', 'profiled', { at: T, seq: 1 }),
+  ];
+  const view = reduceSessionState('t1', 'sess-1', rows);
+  const A = view.units.find(u => u.unitId === 'A')!;
+  assert.ok(A.history.some(h => h.state === 'persisted'));  // persisted EXISTS despite profiling failure
+  assert.equal(A.state, 'failed_interpretation');
+  assert.equal(A.retryable, true);
+  assert.equal(view.units.find(u => u.unitId === 'B')!.state, 'profiled');  // sibling unaffected
 });
 
 // ── resolution: terminal & human-provenanced ──

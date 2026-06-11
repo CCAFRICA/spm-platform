@@ -31,6 +31,8 @@ import { executePostCommitConstruction } from '@/lib/sci/post-commit-constructio
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
 import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+// OB-203 Phase 3 (R2): terminal `bound` state on the canonical surface.
+import { emitUnitStates } from '@/lib/sci/comprehension-state-service';
 // HF-239 Phase 0.1: plan interpretation extracted into a shared module.
 // HF-257 (AP-17): plan interpretation runs in ONE function —
 // executeBatchedPlanInterpretation. The per-unit duplicate (executePlanPipeline)
@@ -446,6 +448,24 @@ export async function POST(req: NextRequest) {
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
     console.log(`[SCI Bulk] Complete: ${totalProcessed} rows in ${totalMs}ms (${(totalMs / 1000).toFixed(1)}s)`);
+
+    // OB-203 Phase 3: `bound` — committed rows are durable; the unit reaches the terminal spine
+    // state. importSessionId aliases proposalId (SAME comprehension session as analyze), kept
+    // distinct from the per-unit import_batch_id minted at commit (HF-213 supersession lineage).
+    const cuById = new Map(contentUnits.map(u => [u.contentUnitId, u]));
+    await emitUnitStates(
+      results.filter(r => r.success).map(r => {
+        const cu = cuById.get(r.contentUnitId);
+        return {
+          tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
+          sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
+          sourceFileName: cu?.sourceFile ?? null,
+          state: 'bound' as const, seq: 5, classification: cu?.confirmedClassification ?? null,
+        };
+      }),
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
 
     const response: SCIExecutionResult = {
       proposalId,
