@@ -267,3 +267,35 @@ Tests (executable evidence): `shouldReinforceUnit` state-keyed (failed→block, 
 **ordering witness** — runs the real mark→gate sequence and asserts the gate sees the populated flag, with
 a control proving the ordering is load-bearing (unmarked unit would reinforce). Full suite 117 pass / 0 fail;
 build exit 0.
+
+---
+
+## PHASE 2 — (5b) FULL DECOMPOSED-DISPATCH SWAP (architect-approved 2026-06-11)
+
+The single all-sheets `enhanceWithHeaderComprehension` call in BOTH SCI routes (`analyze`,
+`process-job`) is replaced by `runDecomposedComprehension`: atom read-before-derive → known atoms
+claim roles (no LLM) → only novel residue comprehended (bounded, one repair retry) → per-unit
+`failed_interpretation` (sibling units proceed) → `writeAtoms` gated by success (hold a). `profile.
+headerComprehension` reconstructed to the EXACT current shape.
+
+**Deviation 1 (approved):** known-atom interpretations use the Tier-1 precedent shape
+`{ columnRole: role, semanticMeaning: role, dataExpectation: '', confidence }` — structural labels
+for structural recognition (DI-10). Regression test (`deviation1-currency-suppression.test.ts`) pins
+the analysis: `isNonMonetaryMeasureMeaning` (the gate inside `suppressFalseCurrencyColumns`) returns
+false for every structural role label and true for rich LLM `semanticMeaning` — so currency
+suppression fires on novel/LLM columns and never on atom-recognized columns. Executable, not narrative.
+
+**Deviation 2 (approved):** atom features derive from FULL-column data, not the 5-row HC sample —
+load-bearing for DI-2 (cardinality/residue accuracy) and DI-8 (stable cross-period identity). The
+routes pass full `s.rows` to `runDecomposedComprehension`; the LLM residue input remains
+sample-bounded (≤5 rows, novel columns only), so per-call LLM cost is unchanged while atom identity
+is computed on the whole column.
+
+**No proposal-contract change:** `ContentUnitProposal.failedInterpretation` stays per-unit
+`{ failureClass, durationMs }`; the only change is that classes may now differ per sheet (per-unit
+failure from the decomposed dispatch — strictly more correct). The 7 enumerated consumers are
+unaffected. `markFailedInterpretationUnits` retired from the routes (per-sheet marking inline);
+`enhanceWithHeaderComprehension` retains a dormant export (no callers).
+
+Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0. Live validation is EPG-2.4
+(the two-run Meridian protocol) — the gate.

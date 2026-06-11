@@ -44,7 +44,7 @@ test('decomposed dispatch: recognized / comprehended / failed_interpretation per
   const comprehend: ResidueComprehender = async (req) => {
     calledFor.push(req.sheetName);
     if (req.sheetName === 'C') return { ok: false, failureClass: 'parse_failure' };
-    return { ok: true, roles: { nm: { columnRole: 'name', confidence: 0.8 } } };
+    return { ok: true, interpretations: { nm: { semanticMeaning: 'a name', dataExpectation: 'text', columnRole: 'name', confidence: 0.8 } } };
   };
 
   const results = await decomposeComprehension([A, B, C], known, comprehend);
@@ -60,7 +60,9 @@ test('decomposed dispatch: recognized / comprehended / failed_interpretation per
 
   // B: comprehended (sibling of the failure proceeds — hold b); known id + new nm:name; atoms written
   assert.equal(byName.B.status, 'comprehended');
-  assert.deepEqual(byName.B.comprehendedColumns, [{ columnName: 'nm', role: 'name', confidence: 0.8 }]);
+  assert.equal(byName.B.comprehendedColumns?.length, 1);
+  assert.equal(byName.B.comprehendedColumns?.[0].columnName, 'nm');
+  assert.equal(byName.B.comprehendedColumns?.[0].interpretation.columnRole, 'name');
   assert.equal(byName.B.atomsToWrite.length, 2); // id (known) + nm (comprehended)
 
   // C: failed_interpretation for THIS unit only; HOLD (a) -> writes NO atoms
@@ -77,7 +79,7 @@ test('fully-recognized workbook -> zero LLM calls', async () => {
     known.set(h, { hash: h, role: 'attribute', confidence: 0.9, matchCount: 6 });
   }
   let calls = 0;
-  const comprehend: ResidueComprehender = async () => { calls++; return { ok: true, roles: {} }; };
+  const comprehend: ResidueComprehender = async () => { calls++; return { ok: true, interpretations: {} }; };
   const results = await decomposeComprehension([A], known, comprehend);
   assert.equal(calls, 0);                       // Progressive Performance: known -> no LLM
   assert.equal(results[0].status, 'recognized');

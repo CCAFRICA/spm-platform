@@ -32,21 +32,30 @@ export interface ResidueRequest {
   rowCount: number;
 }
 
+/** Full per-column interpretation as the LLM returns it (for headerComprehension reconstruction). */
+export interface ComprehendedInterpretation {
+  semanticMeaning: string;
+  dataExpectation: string;
+  columnRole: string;
+  identifiesWhat?: string;
+  confidence: number;
+}
+
 /** Injected residue comprehender — already includes the one repair retry. */
 export type ResidueComprehender = (
   req: ResidueRequest,
 ) => Promise<
-  | { ok: true; roles: Record<string, { columnRole: string; confidence: number }> }
+  | { ok: true; interpretations: Record<string, ComprehendedInterpretation> }
   | { ok: false; failureClass: ComprehensionFailureClass }
 >;
 
 export interface UnitComprehensionResult {
   sheetName: string;
   status: 'recognized' | 'comprehended' | 'failed_interpretation';
-  /** Columns claimed from prior atom signal (no LLM). */
+  /** Columns claimed from prior atom signal (no LLM) — structural role labels (DI-10). */
   knownColumns: Array<{ columnName: string; role: string; confidence: number }>;
-  /** Novel columns that were comprehended (present on 'comprehended'). */
-  comprehendedColumns?: Array<{ columnName: string; role: string; confidence: number }>;
+  /** Novel columns comprehended by the LLM (present on 'comprehended') — full interpretation. */
+  comprehendedColumns?: Array<{ columnName: string; interpretation: ComprehendedInterpretation }>;
   failure?: { failureClass: ComprehensionFailureClass };
   recognizedFraction: number;
   /** Atoms to accumulate — EMPTY for failed units (hold a). Caller writes these (gated). */
@@ -99,15 +108,15 @@ export async function decomposeComprehension(
     }
 
     // comprehended: add the newly-resolved novel atoms to the write set
-    const comprehendedColumns: Array<{ columnName: string; role: string; confidence: number }> = [];
+    const comprehendedColumns: Array<{ columnName: string; interpretation: ComprehendedInterpretation }> = [];
     for (const col of plan.novelColumns) {
-      const r = res.roles[col];
-      const role = r?.columnRole ?? 'unknown';
-      const confidence = typeof r?.confidence === 'number' ? r.confidence : 0.5;
-      comprehendedColumns.push({ columnName: col, role, confidence });
-      if (role && role !== 'unknown') {
+      const interp: ComprehendedInterpretation = res.interpretations[col] ?? {
+        semanticMeaning: 'unknown', dataExpectation: 'unknown', columnRole: 'unknown', confidence: 0.5,
+      };
+      comprehendedColumns.push({ columnName: col, interpretation: interp });
+      if (interp.columnRole && interp.columnRole !== 'unknown') {
         const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-        atomsToWrite.push({ columnName: col, hash: fp.hash, role });
+        atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole });
       }
     }
 

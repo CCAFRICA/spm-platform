@@ -10,14 +10,14 @@ export const maxDuration = 300; // Vercel Pro max
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateContentProfileStats, generateContentProfilePatterns } from '@/lib/sci/content-profile';
-import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
+import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal, emitComprehensionFailureSignals, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
 // (canonical writer accepts CanonicalSignalInput directly). Type import removed.
@@ -143,43 +143,47 @@ export async function POST(req: NextRequest) {
         return r?.tier === 1 && r.match;
       };
 
-      // Phase B: Enhance with header comprehension — only for sheets where Tier 1 did not hit.
+      // Phase B: OB-203 Phase 2 (5b) — DECOMPOSED comprehension for sheets where sheet-Tier-1
+      // did not hit. Atom-level read-before-derive: known atoms claim roles (no LLM), only novel
+      // residue is comprehended (bounded), failures are per-unit, atoms accumulate (gated).
       const sheetsNeedingHC = file.sheets.filter(s => !sheetSkipHC(s.sheetName));
-      const hcMetrics = sheetsNeedingHC.length === 0
-        ? {
-            llmCalled: false,
-            llmCallDuration: 0,
-            averageConfidence: (() => {
-              const confs = Array.from(sheetFlywheelResults.values()).map(r => r.confidence);
-              return confs.length > 0 ? confs.reduce((s, c) => s + c, 0) / confs.length : 0;
-            })(),
-            columnsInterpreted: 0,
-            crossSheetInsightCount: 0,
-          }
-        : await enhanceWithHeaderComprehension(
-            profileMap,
-            sheetsNeedingHC.map(s => ({
-              sheetName: s.sheetName,
-              columns: s.columns,
-              sampleRows: s.rows.slice(0, 5),
-              rowCount: s.totalRowCount,
-            })),
-            tenantId,
+      let hcMetrics: import('@/lib/sci/sci-types').HeaderComprehensionMetrics | { llmCalled: boolean; llmCallDuration: number; averageConfidence: number; columnsInterpreted: number; crossSheetInsightCount: number };
+      const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
+      if (sheetsNeedingHC.length === 0) {
+        hcMetrics = {
+          llmCalled: false,
+          llmCallDuration: 0,
+          averageConfidence: (() => {
+            const confs = Array.from(sheetFlywheelResults.values()).map(r => r.confidence);
+            return confs.length > 0 ? confs.reduce((s, c) => s + c, 0) / confs.length : 0;
+          })(),
+          columnsInterpreted: 0,
+          crossSheetInsightCount: 0,
+        };
+      } else {
+        const dc = await runDecomposedComprehension(
+          profileMap,
+          sheetsNeedingHC.map(s => ({ sheetName: s.sheetName, columns: s.columns, rows: s.rows, rowCount: s.totalRowCount })), // FULL rows (Deviation 2)
+          tenantId,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+        hcMetrics = dc.metrics;
+        // OB-203 Phase 1 (DI-4): per-unit failure — one durable failed_interpretation signal per
+        // failed sheet, with ITS structural class (decomposed dispatch isolates failures per unit).
+        for (const [sheetName, failureClass] of Array.from(dc.perSheetFailure.entries())) {
+          perSheetFailure.set(sheetName, failureClass);
+          await emitComprehensionFailureSignals(
+            { failureClass, durationMs: 0 },
+            [{ sheetName }],
+            (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
+            (name) => sheetFlywheelResults.get(name)?.tier ?? null,
+            { tenantId, sourceFileName: file.fileName },
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
           );
-
-      // OB-203 Phase 1 (DI-4): if comprehension failed, write one durable
-      // `failed_interpretation` signal per affected sheet (canonical surface) and mark
-      // those units below. Fire-and-forget; never breaks the import (DI-1).
-      const hcFailure = 'failure' in hcMetrics ? hcMetrics.failure : null;
-      const failedSheets = await emitComprehensionFailureSignals(
-        hcFailure,
-        sheetsNeedingHC.map(s => ({ sheetName: s.sheetName })),
-        (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
-        (name) => sheetFlywheelResults.get(name)?.tier ?? null,
-        { tenantId, sourceFileName: file.fileName },
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      );
+        }
+      }
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
@@ -551,8 +555,12 @@ export async function POST(req: NextRequest) {
           }
           return true;
         });
-      // OB-203 Phase 1 (DI-4): mark comprehension-failed units as `failed_interpretation`.
-      markFailedInterpretationUnits(fileContentUnits, failedSheets, hcFailure);
+      // OB-203 Phase 2 (DI-4): mark comprehension-failed units as `failed_interpretation`, each
+      // with ITS sheet's structural class (per-unit failure from the decomposed dispatch).
+      for (const cu of fileContentUnits) {
+        const failureClass = perSheetFailure.get(cu.tabName);
+        if (failureClass) cu.failedInterpretation = { failureClass, durationMs: 0 };
+      }
       console.log(`[SCI-PROPOSAL] ${fileContentUnits.length} content units for ${file.sheets.length} sheets`);
       contentUnits.push(...fileContentUnits);
     }

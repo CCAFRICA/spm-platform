@@ -15,6 +15,9 @@ import type {
   ComprehensionFailureClass,
 } from './sci-types';
 import { getAIService } from '@/lib/ai/ai-service';
+import { lookupAtoms, writeAtoms } from './atom-flywheel';
+import { computeAtomFingerprint } from './atom-fingerprint';
+import { decomposeComprehension, type ResidueComprehender, type ComprehendedInterpretation } from './decomposed-comprehension';
 
 // OB-203 Phase 1: classify a thrown comprehension error structurally (no domain words).
 export function classifyThrownFailure(error: unknown): ComprehensionFailureClass {
@@ -258,6 +261,141 @@ export async function comprehendHeaders(
 }
 
 // ============================================================
+// OB-203 Phase 2 (5b) — DECOMPOSED COMPREHENSION DISPATCH
+//
+// Replaces the single all-sheets LLM call. Per sheet: atoms (FULL rows — Deviation 2, load-bearing
+// for DI-2/DI-8 accuracy) → known atoms claim roles (no LLM) → only the novel residue is
+// comprehended (bounded, one repair retry) → a residue failure marks THAT sheet failed_interpretation,
+// siblings proceed (DI-4). `profile.headerComprehension` is reconstructed to the EXACT current shape:
+// known columns get the Tier-1-precedent structural label (Deviation 1, DI-10), novel columns get the
+// full LLM interpretation (so suppressFalseCurrency fires on novel/LLM columns, not on recognized ones).
+// Atoms accumulate via writeAtoms only for succeeded units (hold a — failed runs don't seed the store).
+// ============================================================
+
+export async function runDecomposedComprehension(
+  profiles: Map<string, ContentProfile>,
+  sheets: Array<{ sheetName: string; columns: string[]; rows: Record<string, unknown>[]; rowCount: number }>,
+  tenantId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<{
+  metrics: HeaderComprehensionMetrics;
+  perSheetFailure: Map<string, ComprehensionFailureClass>;
+  provenance: Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>;
+}> {
+  // 1. atom fingerprints per column on FULL rows (Deviation 2), collect hashes for the lookup.
+  const hashes: string[] = [];
+  for (const s of sheets) for (const c of s.columns) hashes.push(computeAtomFingerprint(c, s.rows.map(r => r[c])).hash);
+
+  // 2. read-before-derive: known atoms for this tenant.
+  const known = await lookupAtoms(tenantId, hashes, supabaseUrl, supabaseServiceKey);
+
+  // 3. residue comprehender: callLLMForHeaders on the bounded (novel-only, sample-bounded) input,
+  //    one repair retry, then failed_interpretation.
+  let llmDispatches = 0;
+  const residue: ResidueComprehender = async (req) => {
+    let lastFailure: ComprehensionFailureClass = 'unclassified_failure';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      llmDispatches++;
+      const outcome = await callLLMForHeaders({ sheets: [{ sheetName: req.sheetName, columns: req.columns, sampleRows: req.sampleRows, rowCount: req.rowCount }] });
+      if (outcome.ok) {
+        const sheetData = outcome.result.sheets[req.sheetName];
+        if (sheetData?.columns) {
+          const interpretations: Record<string, ComprehendedInterpretation> = {};
+          for (const [col, interp] of Object.entries(sheetData.columns)) {
+            interpretations[col] = {
+              semanticMeaning: interp.semanticMeaning || 'unknown',
+              dataExpectation: interp.dataExpectation || 'unknown',
+              columnRole: toColumnRole(interp.columnRole),
+              ...(interp.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+              confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
+            };
+          }
+          return { ok: true, interpretations };
+        }
+        lastFailure = 'schema_mismatch';
+      } else {
+        lastFailure = outcome.failureClass;
+      }
+    }
+    return { ok: false, failureClass: lastFailure };
+  };
+
+  // 4. per-unit decomposed dispatch (atoms computed on full rows inside the planner).
+  const results = await decomposeComprehension(sheets, known, residue);
+
+  // 5. reconstruct headerComprehension + enhance; collect failures, provenance, atoms-to-write.
+  const perSheetFailure = new Map<string, ComprehensionFailureClass>();
+  const provenance = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
+  const atomsToWrite: Array<{ atom: ReturnType<typeof computeAtomFingerprint>; role: string }> = [];
+  let columnsInterpreted = 0, confTotal = 0, confCount = 0;
+
+  for (const r of results) {
+    provenance.set(r.sheetName, { recognizedFraction: r.recognizedFraction, novelCount: r.comprehendedColumns?.length ?? 0, llmCalled: r.status !== 'recognized' });
+    if (r.status === 'failed_interpretation') {
+      perSheetFailure.set(r.sheetName, r.failure!.failureClass);
+      continue; // no headerComprehension set — Phase 1 surface (failed_interpretation) handles it
+    }
+    const profile = profiles.get(r.sheetName);
+    if (!profile) continue;
+
+    const interpretations = new Map<string, HeaderInterpretation>();
+    // Deviation 1: known atoms -> structural role label (Tier-1 precedent shape).
+    for (const k of r.knownColumns) {
+      interpretations.set(k.columnName, { columnName: k.columnName, semanticMeaning: k.role, dataExpectation: '', columnRole: toColumnRole(k.role), confidence: k.confidence });
+    }
+    // novel atoms -> full LLM interpretation (semantic text present -> currency suppression can fire here).
+    for (const c of (r.comprehendedColumns ?? [])) {
+      const i = c.interpretation;
+      interpretations.set(c.columnName, { columnName: c.columnName, semanticMeaning: i.semanticMeaning, dataExpectation: i.dataExpectation, columnRole: toColumnRole(i.columnRole), identifiesWhat: i.identifiesWhat || undefined, confidence: i.confidence });
+    }
+
+    profile.headerComprehension = {
+      interpretations,
+      crossSheetInsights: [],
+      llmCallDuration: 0,
+      llmModel: r.status === 'comprehended' ? 'claude-sonnet-4-20250514' : 'flywheel-atom',
+      fromVocabularyBinding: false,
+    };
+    for (const [colName, interp] of Array.from(interpretations.entries())) {
+      profile.observations.push({
+        columnName: colName,
+        observationType: 'header_comprehension',
+        observedValue: interp.semanticMeaning,
+        confidence: interp.confidence,
+        alternativeInterpretations: {},
+        structuralEvidence: `Comprehended "${colName}" as ${interp.semanticMeaning} (${interp.columnRole})`,
+      });
+      confTotal += interp.confidence; confCount++;
+    }
+    enhanceProfileWithComprehension(profile);
+    columnsInterpreted += interpretations.size;
+
+    // hold (a): succeeded units only — recompute the full atom (with features) on full rows for the write.
+    const sheet = sheets.find(s => s.sheetName === r.sheetName)!;
+    for (const a of r.atomsToWrite) {
+      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role });
+    }
+  }
+
+  // 6. accumulate atoms (gated by success — failed units contributed none).
+  await writeAtoms(tenantId, atomsToWrite, supabaseUrl, supabaseServiceKey);
+
+  const metrics: HeaderComprehensionMetrics = {
+    llmCalled: llmDispatches > 0,
+    llmCallDuration: 0,
+    llmModel: llmDispatches > 0 ? 'claude-sonnet-4-20250514' : null,
+    columnsInterpreted,
+    columnsFromBindings: 0,
+    columnsFromLLM: columnsInterpreted,
+    averageConfidence: confCount > 0 ? confTotal / confCount : 0,
+    crossSheetInsightCount: 0,
+    timestamp: new Date().toISOString(),
+  };
+  return { metrics, perSheetFailure, provenance };
+}
+
+// ============================================================
 // OB-162: FIELD IDENTITY EXTRACTION (Decision 111)
 // ============================================================
 
@@ -373,6 +511,15 @@ export async function enhanceWithHeaderComprehension(
 
 // HC confidence threshold for override authority (Decision 108)
 const HC_OVERRIDE_THRESHOLD = 0.80;
+
+// OB-203 Phase 2 (Deviation 1) — the gate that distinguishes a currency suppression. It matches
+// RICH semantic meaning (novel/LLM columns), never a bare structural role label. This is why
+// suppressFalseCurrencyColumns fires on novel/LLM columns and NOT on atom-recognized columns:
+// the latter carry `semanticMeaning = role` ('measure', 'identifier', …), which never matches.
+const NON_MONETARY_MEASURE_PATTERNS = /capacity|count|volume|utilization|rate|quantity|units|loads|deliveries|incidents/i;
+export function isNonMonetaryMeasureMeaning(semanticMeaning: string): boolean {
+  return NON_MONETARY_MEASURE_PATTERNS.test(semanticMeaning);
+}
 
 function enhanceProfileWithComprehension(profile: ContentProfile): void {
   if (!profile.headerComprehension) return;
@@ -565,8 +712,7 @@ function suppressFalseCurrencyColumns(
     if (!isCurrencyTyped) continue;
 
     // HC says this is a measure with non-monetary meaning (capacity, count, utilization, etc.)
-    const nonMonetaryPatterns = /capacity|count|volume|utilization|rate|quantity|units|loads|deliveries|incidents/i;
-    if (interp.columnRole === 'measure' && nonMonetaryPatterns.test(interp.semanticMeaning)) {
+    if (interp.columnRole === 'measure' && isNonMonetaryMeasureMeaning(interp.semanticMeaning)) {
       currencyCountAdjustment++;
       profile.observations.push({
         columnName: colName,
