@@ -101,7 +101,7 @@ function factSheet(rng: () => number, vocab: Vocabulary, n: number, rosterIdCol:
     [txnCol]: `${token(rng, vocab, 1)}${100000 + i}`,            // unique per row (high cardinality)
     [rosterIdCol]: pick(rng, ids),                               // FK reference -> roster (many:1)
     [dateCol]: `2026-${String(intIn(rng, 1, 12)).padStart(2, '0')}-${String(intIn(rng, 1, 28)).padStart(2, '0')}`,
-    [m1]: intIn(rng, 1, 9999),
+    [m1]: intIn(rng, 1, 200),                                   // bounded measure (repeats — clearly not an id)
     [m2]: Number((rng() * 1000).toFixed(2)),
   }));
   return { sheetName: Cap(token(rng, vocab, 3)), kind: 'fact', columns: [txnCol, rosterIdCol, dateCol, m1, m2], rows, totalRowCount: rows.length };
