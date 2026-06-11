@@ -247,4 +247,11 @@ HTTP 200
 - **Decision 123:** UNCHANGED.
 
 ## PR
-Phase 3 commit + PR recorded below (this section updated on PR creation).
+**#476** — https://github.com/CCAFRICA/spm-platform/pull/476
+`HF-284: session-lifecycle invariant — stale bookkeeping cannot kill fresh sessions`
+base `main` ← head `hf-284-session-lifecycle-invariant`. **Held for architect merge instruction.**
+
+## SR-43 ADDENDUM (post-merge, architect-side) — PENDING
+In the SAME browser that failed: log in as `mesero@saborgrupo.mx` and `gerente@saborgrupo.mx`
+→ tenant workspace renders; confirm `auth.session.bookkeeping_reset` and/or clean
+`auth.login.success` rows; `platform@` regression unaffected.
