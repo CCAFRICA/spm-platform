@@ -74,6 +74,56 @@ export async function writeComprehensionFailureSignal(
 }
 
 /**
+ * OB-203 Phase 2 (DI-7) — a blocked reinforcement write emits a remediation signal on the same
+ * canonical surface, naming the blocked surface (`crr_outcome` | `fingerprint_update`). The
+ * flywheel can stall on a unit; it can never silently dead-end. Fire-and-forget (loud log, never
+ * throws). The gate predicate is the unit's comprehension STATE (`failed_interpretation`), never
+ * a confidence proxy.
+ */
+export type ReinforcementSurface = 'crr_outcome' | 'fingerprint_update';
+
+/**
+ * The reinforcement gate predicate (testable). Keys on the unit's comprehension STATE — the Phase 1
+ * `failed_interpretation` vocabulary — NOT on confidence or any heuristic proxy. A comprehended unit
+ * reinforces; a Tier-1/atom-resolved unit (no failure flag) IS a comprehension success and reinforces
+ * (the gate must never freeze legitimate flywheel growth); a failed_interpretation unit does not.
+ */
+export function shouldReinforceUnit(unit: { failedInterpretation?: unknown }): boolean {
+  return !unit.failedInterpretation;
+}
+export async function emitReinforcementBlockedSignal(
+  tenantId: string,
+  sheetName: string,
+  blockedSurface: ReinforcementSurface,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  try {
+    await writeSignal(
+      {
+        tenantId,
+        signalType: 'comprehension:reinforcement_blocked',
+        sheetName,
+        classification: null,
+        confidence: 0,
+        decisionSource: 'failed_interpretation',
+        scope: 'tenant',
+        source: 'sci_agent',
+        signalValue: { blocked_surface: blockedSurface, reason: 'failed_interpretation' },
+        context: { sciVersion: '2.0', phase: '2', ob: 'OB-203', di: 'DI-7' },
+      },
+      supabaseUrl,
+      supabaseServiceKey,
+    );
+  } catch (e) {
+    console.error(
+      `[OB-203][DI-7] reinforcement-blocked signal write failed (non-blocking) surface=${blockedSurface} sheet=${sheetName}:`,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+/**
  * Pure marker (testable): stamp `failedInterpretation` on EXACTLY the units whose sheet is
  * in `failedSheets`; all other units are returned untouched (success-path preservation —
  * the proposal payload for comprehended units is byte-identical to pre-OB). Mutates in place

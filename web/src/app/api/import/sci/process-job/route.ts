@@ -16,12 +16,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateContentProfileStats, generateContentProfilePatterns } from '@/lib/sci/content-profile';
-import { enhanceWithHeaderComprehension } from '@/lib/sci/header-comprehension';
+import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
@@ -177,31 +177,31 @@ export async function POST(req: NextRequest) {
 
     // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
     const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
-    let hcFailure: { failureClass: import('@/lib/sci/sci-types').ComprehensionFailureClass; durationMs: number } | null = null;
-    let failedSheets = new Set<string>();
+    // OB-203 Phase 2 (5b): decomposed comprehension — atom read-before-derive, per-unit failures.
+    const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
+    let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
     if (sheetsNeedingHC.length > 0) {
-      const hcMetrics = await enhanceWithHeaderComprehension(
+      const dc = await runDecomposedComprehension(
         profileMap,
-        sheetsNeedingHC.map(s => ({
-          sheetName: s.sheetName,
-          columns: s.columns,
-          sampleRows: s.rows.slice(0, 5),
-          rowCount: s.totalRowCount,
-        })),
+        sheetsNeedingHC.map(s => ({ sheetName: s.sheetName, columns: s.columns, rows: s.rows, rowCount: s.totalRowCount })), // FULL rows (Deviation 2)
         tenantId,
-      );
-      // OB-203 Phase 1 (DI-4): on failure, one durable `failed_interpretation` signal per
-      // affected sheet (canonical surface), fire-and-forget; never breaks the import (DI-1).
-      hcFailure = hcMetrics.failure ?? null;
-      failedSheets = await emitComprehensionFailureSignals(
-        hcFailure,
-        sheetsNeedingHC.map(s => ({ sheetName: s.sheetName })),
-        (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
-        (name) => sheetFlywheelResults.get(name)?.tier ?? null,
-        { tenantId, sourceFileName: fileName },
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
+      provenanceMap = dc.provenance;
+      // OB-203 Phase 1 (DI-4): per-unit failed_interpretation signal, each with ITS class.
+      for (const [sheetName, failureClass] of Array.from(dc.perSheetFailure.entries())) {
+        perSheetFailure.set(sheetName, failureClass);
+        await emitComprehensionFailureSignals(
+          { failureClass, durationMs: 0 },
+          [{ sheetName }],
+          (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
+          (name) => sheetFlywheelResults.get(name)?.tier ?? null,
+          { tenantId, sourceFileName: fileName },
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+      }
     }
     const skipHC = sheetsNeedingHC.length === 0;
 
@@ -297,8 +297,13 @@ export async function POST(req: NextRequest) {
     const contentUnits = buildProposalFromState(state, fileSheets)
       .filter(cu => !cu.contentUnitId.includes('::split'));
 
-    // OB-203 Phase 1 (DI-4): mark comprehension-failed units as `failed_interpretation`.
-    markFailedInterpretationUnits(contentUnits, failedSheets, hcFailure);
+    // OB-203 Phase 2 (DI-4): mark comprehension-failed units as `failed_interpretation`, per-unit class.
+    for (const cu of contentUnits) {
+      const failureClass = perSheetFailure.get(cu.tabName);
+      if (failureClass) cu.failedInterpretation = { failureClass, durationMs: 0 };
+      const prov = provenanceMap.get(cu.tabName);
+      if (prov) cu.recognitionProvenance = prov;
+    }
 
     // OB-176 / HF-197B: Per-sheet recognitionTier and confidence override.
     // Each unit is tagged with ITS OWN sheet's tier (was: file-level tier for all units).
@@ -341,6 +346,11 @@ export async function POST(req: NextRequest) {
     // Each unit writes its OWN sheet's hash (was: reused fingerprintHash from sheets[0]),
     // so each (tenant_id, fingerprint_hash) row reflects exactly one sheet's classification.
     for (const unit of contentUnits) {
+      // OB-203 Phase 2 (DI-7): failed_interpretation units do NOT reinforce the fingerprint flywheel.
+      if (!shouldReinforceUnit(unit)) {
+        void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'fingerprint_update', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        continue;
+      }
       if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
       const sheetForUnit = sheets.find(s => s.sheetName === unit.tabName);
       if (!sheetForUnit) {
@@ -375,6 +385,11 @@ export async function POST(req: NextRequest) {
 
     // Classification signal write (fire-and-forget)
     for (const unit of contentUnits) {
+      // OB-203 Phase 2 (DI-7): failed_interpretation units do NOT reinforce the CRR prior.
+      if (!shouldReinforceUnit(unit)) {
+        void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'crr_outcome', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        continue;
+      }
       const fp = computeStructuralFingerprint(
         Array.from(profileMap.values()).find(p => p.tabName === unit.tabName) || Array.from(profileMap.values())[0]
       );

@@ -149,3 +149,452 @@ Full suite: tests 96, pass 96, fail 0.
 
 ### PR
 `OB-203-phase-1` — recorded on creation below.
+
+---
+
+## PHASE 1 → PHASE 2 TRANSITION (architect disposition 2026-06-11)
+
+### Phase 1 production verification — PENDING (blind-holdout, SR-43)
+PR #480 merged: **`750d3c41`**. Production verification is architect-executed: after deploy,
+the architect imports the witness file against a sandbox tenant in production; CC queries
+`classification_signals` for the run's `comprehension:failed_interpretation` rows (one per
+affected sheet, dedicated columns correct, class/duration in `signal_value`) and pastes the
+output here with the deploy SHA. UI render is secondary and may be unreachable for this file
+class (known client timeout) — a reported `FETCH FAILED` is expected and does NOT fail
+verification. Phase 1 completes on the signal evidence. _Awaiting the architect production run._
+
+### Phase 2 ENTRY VERIFICATION — failed units DO reinforce priors (YES)
+**Determination: a `failed_interpretation` unit still emits a reinforcing `classification:outcome`
+signal.** Code evidence — the classification-signal write loop has NO comprehension-success /
+`failedInterpretation` gate at either site:
+```
+analyze/route.ts:686-713      for (const unit of proposal.contentUnits) { ... writeClassificationSignal({ classification: unit.classification, confidence: unit.confidence, ... }) }
+                              // only `if (!fp) continue` (plan units); NO failedInterpretation check
+process-job/route.ts:377-382  for (const unit of contentUnits) { ... writeClassificationSignal({ ... }) }
+                              // same — no failure gate
+```
+This explains the architect's evidence (global CRL 37→39 across failed baseline runs; the
+`Empleados → transaction @0.7555` prior learned from failures). The Phase 1 `failedInterpretation`
+flag IS present on these units at the write site (forward-compatible) but is not yet consulted.
+
+**Absorbed into Phase 2 scope:** gate outcome-signal reinforcement on comprehension success — a
+unit in `failed_interpretation` state must not write a reinforcing `classification:outcome`; a
+blocked reinforcement emits a **DI-7 remediation signal** (never a silent skip).
+
+### Absorbed scope — Phase 6 (architect disposition 2026-06-11)
+**Contaminated CRR priors:** read-only assessment of `classification:outcome` prior contamination
+from historical failed runs (e.g. the `Empleados` transaction prior), alongside the four poisoned
+fingerprints (§0.4). The architect dispositions any purge/retrain. Read scripts only; no mutation
+without architect-applied SQL (SR-44).
+
+### Phase 2 atom-store design constraints (carried from Phase 0.5)
+`structural_fingerprints` is TENANT-SCOPED (verified: hash `afb789d55ae5be4e` = separate per-tenant
+rows). Atoms accumulate tenant-scoped on this existing surface; foundational/vertical-scope rows are
+DI-10-constrained (bucketed structural features only, by construction — never raw values). HALT-7
+bounds the migration to the atom extension. The seeded structural-analog generator is built in this
+phase; no real tenant vocabulary appears anywhere in tests.
+
+---
+
+## PHASE 1 — CLOSED (production witness, blind-holdout) — deploy SHA `750d3c41`
+Architect-executed run (architect-reported environment: production, sandbox tenant
+`3d354bfa-b298-48dd-88a0-9f8c5a00be4e`; two runs 05:05:37 + 05:06:37 retry after `FETCH FAILED`
+— expected client timeout, does not fail verification). Architect witness line:
+`[OB-203] failed_interpretation: emitted 12 signal(s) class=parse_failure duration=67336ms`.
+
+CC durable signal evidence — `classification_signals` query (signal_type
+`comprehension:failed_interpretation`, since 05:00Z): **24 rows, 12 per run** (05:06:46 ×12 dur=67336ms;
+05:07:47 ×12 dur=68191ms). Invariants verified across all 24: `decision_source='failed_interpretation'`,
+`confidence=0`, `failureClass='parse_failure'`, `attemptedTier=3`, dedicated columns populated
+(`sheet_name`, `source_file_name`, `structural_fingerprint.fingerprintHash`), `signal_value`
+carries `{failureClass, durationMs, attemptedTier}`. One signal per affected sheet (12 of 16; the
+other 4 were Tier-1 skips). Sheets: Sucursales, Productos_SKU, Resumen_{Sucursal,Mensual,Turno,
+DiaSemana,Categoria,Producto,Menu,Empleado,Diario}, Ventas_Transaccional.
+**Phase 1 verified in production and CLOSED.** Merge gate for the OB now reduces to EPG-2.4 (Phase 7 anchors aside).
+
+## PHASE 2 — second reinforcement path located (architect disposition 2026-06-11 item 2)
+Beyond the CRR outcome-signal sites (`analyze:686-713`, `process-job:377-382`), a SECOND
+reinforcement path updates fingerprint match_count/confidence ungated on comprehension success:
+```
+fingerprint-flywheel.ts:154   writeFingerprint(...)
+                  :190-191     const newMatchCount = existing.match_count + 1;
+                               const newConfidence = 1 - (1 / (newMatchCount + 1));   // 0.6667→0.75→0.80→0.8333
+                  :193-203     .update({ match_count: newMatchCount, confidence, classification_result, column_roles, ... })
+                  :208         console.log('[SCI-FINGERPRINT] Updated: ... matchCount=N confidence=X')
+```
+Only the HF-247 unknown-role QUALITY gate (:167) guards it — NOT a comprehension-success gate. A
+Tier-1-matched sheet reinforces on every import even when the import's comprehension failed.
+**Phase 2 scope:** gate this update on comprehension success (same invariant as the CRR sites);
+a blocked increment emits a DI-7 remediation signal, never a silent skip.
+
+## PHASE 6 — poisoned/contaminated-fingerprint BEFORE-STATE (architect disposition item 3)
+Captured 2026-06-11 (run tenant `3d354bfa`) as the retirement before-state — confidence climbed
+across the FAILED production runs via the ungated second path:
+```
+hash=ffb69592f7b7  mc=5  conf=0.8333  unknownRoles=false  updated=2026-06-11T05:07:49Z   <-- reinforced across failed runs
+hash=b42ee218cb37  mc=5  conf=0.8333  unknownRoles=false  updated=2026-06-11T05:07:49Z   <-- reinforced
+hash=7707e8553823  mc=4  conf=0.80    unknownRoles=false  updated=2026-06-11T05:06:49Z   <-- reinforced
+hash=afb789d55ae5  mc=2  conf=0.6667  unknownRoles=false  updated=2026-06-10T20:41Z      (not matched this run)
+hash=53c893b312f5  mc=1  conf=0.50    unknownRoles=false  updated=2026-05-15
+hash=53a25f072c9a  mc=1  conf=0.50    unknownRoles=false  updated=2026-05-15
+afb789d55ae5* cross-tenant: 3d354bfa(mc=2,0.6667) · dbe3b308(mc=1,0.5)  [tenant-scoped, confirmed]
+```
+Phase 6 reconciliation (read-only assessment; architect dispositions purge/retrain): the CRR
+`classification:outcome` prior contamination from historical failed runs, AND these reinforced
+fingerprints, are evaluated against this before-state.
+
+---
+
+## PHASE 2 — (7) REINFORCEMENT-GATING (architect-reviewed + approved 2026-06-11)
+
+**Contamination paths CLOSED as of this commit.** A failed run can no longer raise fingerprint
+confidence or reinforce a CRR prior; every block is recorded on the canonical surface (DI-7),
+never silent. **This commit stops the bleeding; it does not clean the wound** — Phase 6
+reconciliation still owns the already-accumulated contamination (fingerprints at ~0.83, the
+`Empleados → transaction` prior).
+
+Both live reinforcement paths gated on comprehension STATE (`failed_interpretation`), not confidence:
+- fingerprint flywheel: `analyze/route.ts:608`, `process-job/route.ts:345` (skip `writeFingerprint`)
+- CRR outcome prior: `analyze/route.ts:700`, `process-job/route.ts:384` (skip `writeClassificationSignal`)
+
+Gate predicate `shouldReinforceUnit(unit) = !unit.failedInterpretation` — Tier-1/atom-resolved units
+(no flag) ARE comprehension successes and reinforce (flywheel growth not frozen). Blocked writes emit
+`comprehension:reinforcement_blocked` with `signal_value.blocked_surface ∈ {crr_outcome, fingerprint_update}`
+(DI-7). State is available at all four sites (`markFailedInterpretationUnits` runs during proposal
+assembly, before the loops) → no HALT.
+
+Tests (executable evidence): `shouldReinforceUnit` state-keyed (failed→block, comprehended/Tier-1→reinforce);
+**ordering witness** — runs the real mark→gate sequence and asserts the gate sees the populated flag, with
+a control proving the ordering is load-bearing (unmarked unit would reinforce). Full suite 117 pass / 0 fail;
+build exit 0.
+
+---
+
+## PHASE 2 — (5b) FULL DECOMPOSED-DISPATCH SWAP (architect-approved 2026-06-11)
+
+The single all-sheets `enhanceWithHeaderComprehension` call in BOTH SCI routes (`analyze`,
+`process-job`) is replaced by `runDecomposedComprehension`: atom read-before-derive → known atoms
+claim roles (no LLM) → only novel residue comprehended (bounded, one repair retry) → per-unit
+`failed_interpretation` (sibling units proceed) → `writeAtoms` gated by success (hold a). `profile.
+headerComprehension` reconstructed to the EXACT current shape.
+
+**Deviation 1 (approved):** known-atom interpretations use the Tier-1 precedent shape
+`{ columnRole: role, semanticMeaning: role, dataExpectation: '', confidence }` — structural labels
+for structural recognition (DI-10). Regression test (`deviation1-currency-suppression.test.ts`) pins
+the analysis: `isNonMonetaryMeasureMeaning` (the gate inside `suppressFalseCurrencyColumns`) returns
+false for every structural role label and true for rich LLM `semanticMeaning` — so currency
+suppression fires on novel/LLM columns and never on atom-recognized columns. Executable, not narrative.
+
+**Deviation 2 (approved):** atom features derive from FULL-column data, not the 5-row HC sample —
+load-bearing for DI-2 (cardinality/residue accuracy) and DI-8 (stable cross-period identity). The
+routes pass full `s.rows` to `runDecomposedComprehension`; the LLM residue input remains
+sample-bounded (≤5 rows, novel columns only), so per-call LLM cost is unchanged while atom identity
+is computed on the whole column.
+
+**No proposal-contract change:** `ContentUnitProposal.failedInterpretation` stays per-unit
+`{ failureClass, durationMs }`; the only change is that classes may now differ per sheet (per-unit
+failure from the decomposed dispatch — strictly more correct). The 7 enumerated consumers are
+unaffected. `markFailedInterpretationUnits` retired from the routes (per-sheet marking inline);
+`enhanceWithHeaderComprehension` retains a dormant export (no callers).
+
+Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0. Live validation is EPG-2.4
+(the two-run Meridian protocol) — the gate.
+
+---
+
+## PHASE 2 — (8) EXPERIENCE: recognition provenance + EPG-2.3 (architect-approved 2026-06-11)
+
+Additive optional field `recognitionProvenance?: { recognizedFraction, novelCount, llmCalled }` on
+`ContentUnitProposal` (Phase 1 `failedInterpretation` pattern). Routes set it from
+`runDecomposedComprehension`'s provenance map; `SCIProposal` renders a compact
+"{pct}% atoms · {n} new · no LLM" chip on each card.
+
+**Condition (a) — seven consumers compile unchanged (evidence, not precedent):**
+- `tsc --noEmit` exit 0 — all consumers compile with the additive field.
+- The untouched consumers ignore it: `page.tsx`, `analyze-document/route.ts`, `SCIExecution.tsx`
+  contain ZERO references to `recognitionProvenance` (grep). The touched ones (`analyze`,
+  `process-job` set it; `SCIProposal` renders it; `sci-types` declares it) compile.
+
+**Condition (b) — renders only when present:** the chip is inside `{unit.recognitionProvenance && (…)}`
+— legacy-shaped units render nothing (no placeholder).
+
+**EPG-2.3 (DIAG-050):** the (8) diff adds NO `committed_data`/staging comprehension condition; the
+persistence path remains free of comprehension state (DI-1). Verified by diff grep.
+
+Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0.
+
+---
+
+## EPG-2.4 v2 — verification (2026-06-11)
+
+**Item 1 — clear SUCCEEDED (not a failure).** Every sandbox `structural_fingerprints` row was
+created at **16:31:01Z**, 3.5h AFTER the CC clear (~12:58Z). The clear deleted all prior state; the
+architect's "warm Run 1" is because an earlier COLD import already ran at 16:31 (creating the mc=1
+fingerprints) before the pasted Run 1 — an extra/unlogged import on the architect side, not surviving
+state. The tenant was genuinely cold at clear time.
+
+**Item 2 — atom WRITE WITNESS SATISFIED (Run 3).** Run 3 (modified) put `Datos_Rendimiento` at
+sheet-Tier-3 → decomposed dispatch ran (20 cols @0.94, 19.7s) → **12 atom rows written**
+(`granularity='atom'`, created 16:34:31-36Z): role histogram `{measure:7, name:1, attribute:3,
+temporal:1}` — the 20 columns collapse to 12 distinct atom shapes (12 measures share a few
+integer/decimal/mixed atoms). `atom_features` present (buckets only), DI-10-clean. **Zero
+`comprehension:atom_write_failed` signals** — the write fix holds.
+
+**Item 3 — atom READ not witnessed.** At Run 3 the atom store was empty (atoms written DURING Run 3),
+so all 20 columns were novel residue, not partial recognition. Needs RUN 4: a 2nd modified file
+(different new column) on the CURRENT state (the 12 atoms must remain — no re-clear) so
+`Datos_Rendimiento` goes sheet-novel again with the 12 known atoms + 1 novel.
+
+**Item 4 — new findings (recorded, not silent):**
+- (a) `[HF-263 CPI] entity_relationships upsert 'ON CONFLICT DO UPDATE cannot affect row a second
+  time'` — fired all 3 runs. **PRE-EXISTING** (HF-263 PostCommitConstruction; Phase 2 did not touch
+  execute-bulk/relationship construction). Registry item, not a Phase 2 regression.
+- (b) `Hub` role flap (name→reference_key→attribute) + transaction `entity_id_field` flip
+  (none→Hub→none): classification instability on a genuinely ambiguous column → **Phase 6/D3 scope**
+  (workbook-graph relational resolution). Recorded.
+- (c) fingerprint match_count increments **twice per import** (analyze writeFingerprint + post-execute
+  writeFingerprint) — confidence inflation, **PRE-EXISTING** (both paths predate Phase 2). Flag for
+  assessment. (Also observed: atom match_count increments once per same-shape column within one
+  import — a same-import multiplicity to assess.)
+
+**Item 5 — positives:** workbook-level partial recognition live (Run 3: Plantilla + Datos_Flota_Hub
+stayed sheet-Tier-1 while only the modified `Datos_Rendimiento` was comprehended); `llmCallDuration`
+metric fix verified (19747ms real, was 0). Classifications stable & correct: entity / transaction /
+reference across all runs.
+
+---
+
+## ABSORBED SCOPE — Phase 5: client-tier silent failure (architect disposition 2026-06-11)
+
+**New failure class (from the RUN-4 stall):** a client/session-side upload/parse/analyze-fetch hang
+produced an **infinite spinner with zero user feedback** — DI-4 violated at the CLIENT boundary
+(the server-side comprehension-failure surface, Phase 1, does not cover failures that never reach
+the server).
+
+**Absorbed into Phase 5** (observer import experience rebuild). **Scope assessment: FITS Phase 5,
+does not exceed it** — Phase 5 already rebuilds the import dialogs as state observers with DI-4
+failure surfaces; this extends the SAME surface to the client tier. No new tables, no engine change,
+no new infrastructure — a UI error-state addition on the upload→analyzing→proposal lifecycle.
+
+**Phase 5 requirement (DI-4 at the client boundary):** upload / parse / analyze-fetch failures and
+timeouts MUST render a user-perceptible error state stating *what was encountered* and a *suggested
+action* (retry / check file / restart) — never an indefinite spinner. Concretely: a timeout + catch
+on the analyze fetch in the import UI (`operate/import/page.tsx` + `SCIUpload`), surfacing the
+error state with the failure reason. (No HALT — within Phase 5 as scoped.)
+
+---
+
+## RUN-4 FIX — atom role-claim soundness (A+B+C, architect-ratified 2026-06-11)
+
+Root cause (RUN-4 structural read): exact-hash claim over coarse features → structurally-similar
+columns collapse to one atom; numeric IDs typed `integer` collide with integer measures; free-text
+collides with names; `writeAtoms` last-write-wins corrupted the role (`No_Empleado:identifier`
+overwritten to `measure`). D1 over-claim → D2 profile regression (`idRepeatRatio 4.02→0.00`) → D3
+posterior collapse (`transaction 85%→39%`).
+
+- **(A) discriminative features** (`atom-fingerprint.ts`, **ATOM_ALGORITHM_VERSION 1→2**): added value
+  `lengthBucket` (mean) + `lengthVarBucket` (coefficient of variation). Separates ID-shape (uniform
+  length) from measure-shape (varied), and name (medium/low-var) from free-text (xlong/high-var).
+- **(B) role-stability gating** (`atom-flywheel.ts`): `resolveAtomRole` — a conflicting role makes the
+  atom `ambiguous`; `knownAtomHashes` excludes ambiguous → the column is **comprehended, never
+  asserted** (hints-not-gates at the atom layer; DI-3 preserved). Kills the `No_Empleado:measure`
+  degradation at the source.
+- **(C) observability** (`comprehension-planner.ts`): per-atom `[OB-203][atom-claim] … CLAIMED/NOVEL`
+  + per-sheet `[OB-203][atom-residue]` — claims never silent again (DI-4 spirit).
+
+**Tests (analogs), 6 new:** conflicting-role→ambiguous + once-ambiguous-always + agreeing-preserved;
+ambiguous never claimed; stability round-trip; free-text vs name separated by length; ID-shape vs
+measure-shape differ; **DI-9 bridge** (v1 hash ≠ v2 hash, v1 not matched at v2). Full suite **127
+pass**, build exit 0.
+
+**DI-9 bridge — FIRST LIVE EXERCISE (evidence):** before reset, the 12 prior-version atoms were
+`algorithm_version=1`, **readable** by direct query; `lookupAtoms(v2)` over their hashes returned
+**0 matched** — version-isolated, not stranded, re-derive cleanly. Then full reset → VERIFIED COLD
+(structural_fingerprints 0, committed_data 0, classification_signals 0).
+
+### Recorded (architect disposition)
+- **(i) DI-3 refinement:** *structure determines identity; role requires stability evidence.* ICA
+  capture candidate at arc close. The **Phase 6 workbook-graph** is the designed home of contextual
+  role resolution — the `Hub` role-flap AND this ID/measure ambiguity both route there (relational
+  context settles what structure cannot).
+- **(ii) Phase 6 reconciliation metric — ambiguity-rate:** if the ambiguous-atom set grows large, the
+  recognition moat erodes and relational resolution becomes urgent. Track the `ambiguous` fraction of
+  the atom store as a Phase 6 health signal.
+
+---
+
+## D5 FIX — recognition-confidence vs role-confidence decoupling (2026-06-11)
+
+RUN-4 re-run PASSED the atom witness (role-stability live, no over-claim, READ witness 14/20 & 15/21)
+but surfaced **D5**: `Datos_Rendimiento` classified `target@85` in Run 3 vs `transaction@85` in Run 4
+on identical claimed roles. Root: the planner claimed a known atom at `k.confidence` — the **maturing
+recognition** confidence (`1−1/(matchCount+1)`: 0.75→0.83…). Fed into the role-confidence-thresholded
+pattern gate (`HC_OVERRIDE_THRESHOLD=0.80`), `Mes/Año` temporal confidence crossed 0.80 between runs →
+temporal detection flipped → `entity_targets` (target) vs `event_transactions_temporal` (transaction).
+Nondeterminism by maturation state. (`hasTx` follows; the `0441c426eab1` collision spanning
+No_Empleado/Ingreso_Meta/Ingreso_Real correctly went ambiguous → comprehend — (B) working; **ambiguity
+rate ~30%** recorded as the first Phase-6 datapoint.)
+
+**Fix:** decouple. `KnownAtom.roleConfidence` (stored in `column_roles`, from the original
+comprehension) is claimed — STABLE — instead of the recognition count. `knownAtomHashes` still gates on
+*recognition* confidence (whether to claim); the claimed *role* confidence is the stable comprehension
+value. Legacy atoms (no stored roleConfidence) fall back to `RECOGNIZED_ROLE_CONFIDENCE=0.9` — also
+stable. `writeAtoms` keeps `max` role-confidence on agreement; ambiguity unaffected. **1 new test
+(D5)** pins it: claim tracks role-confidence (0.98 / 0.6), never recognition (0.5 / 0.95). Full suite
+**128 pass**, build exit 0.
+
+**HF-247 'unknown' (secondary, located):** the skip on sheet fingerprint `d464fd4d4413` at execute is
+the EXISTING execute-bulk sheet-`columnRoles` write (HF-254 enrichment / HF-247 gate) — **pre-existing,
+Phase-2-untouched**; the gate correctly REFUSED a fingerprint with an unknown sheet-binding role (no
+poison). The decomposed path's `profile.headerComprehension` roles were all valid; the 'unknown' is at
+the independent sheet-binding layer. Flagged for a precise pin if wanted; non-harmful.
+
+---
+
+## CLASS FIX — pattern conditions key on role PRESENCE, confidence gated once (AUD-009, architect-ratified 2026-06-11)
+
+**Why D5's per-arm patch was insufficient.** RUNS 3+4 still diverged after D5: Run 3 (mod1) committed
+`data_type=target`; Run 4 (mod2) `transaction`. Architect ruling: D5 (atom-claim maturation) and the
+sheet-flywheel injection are **the same structural defect class** — `classifyByHCPattern` re-thresholds
+heterogeneous-scale confidence. Per AUD-009, **one invariant at the consuming layer**; a second
+per-surface patch (the flywheel arm) was declined.
+
+**The defect, located** (`hc-pattern-classifier.ts`): every role primitive (`hasTemporal`,
+`hasMeasure`, `identifierCount`, `hasReferenceKey`, `hasName`) derived from `confidentRoles` =
+`interpretations.filter(c => c.confidence >= HC_ROLE_THRESHOLD(0.80))`. Memory layers supply confidence
+on **different scales**: LLM ~0.95, atom recognition/roleConf, sheet-flywheel binding **0.30–0.90**. A
+temporal role injected at 0.30 fell below 0.80 → excluded → `hasTemporal=false` → "NO temporal" →
+`entity_targets` → target.
+
+**The `0.30` named (store read, not narrative).** It is **NOT** a maturation formula overwriting
+`column_roles`. d464 (class=target) stored `Mes/Año` `fieldBinding.confidence=0.30, semanticRole='unknown'`;
+6cc99dae (class=transaction) stored the same atoms at `0.90, semanticRole='transaction_date'`. The 0.30
+is the **resolver/CRR-assigned `fieldBinding.confidence` in `classification_result.fieldBindings`, written
+UNDER the target classification**, then **re-injected by HF-254** (`analyze`, `confidence: fb.confidence`)
+as the HC interpretation confidence. The circle: target class → low temporal binding strength stored →
+re-injected at 0.30 → pattern re-thresholds to "no temporal" → target → reinforces. Self-reinforcing
+contamination. (`semanticRole='unknown'` vs `'transaction_date'` confirms classification-derived binding
+strength, not role certainty.)
+
+**The fix (one site, consuming layer).** The coverage gate (`confidentRoles.length/total >=
+MIN_COVERAGE_RATIO`) is retained as the **single confidence-normalization point** — it decides whether HC
+is reliable enough to drive the tree at all (else Level-2 CRR owns it). Past that gate, the primitives key
+on **resolved role PRESENCE**: `roles = interpretations.filter(r => r.columnRole && r.columnRole !==
+'unknown')`; `hasTemporal = roles.some(r => r.columnRole === 'temporal')`, etc. A column's assigned role is
+trusted regardless of which layer supplied it or at what confidence. Breaks the circle: `Mes/Año` present →
+`hasTemporal=true` → `idRepeatRatio 4.02 > 1.5` → `event_transactions_temporal` → **transaction**, in Run 3
+and Run 4 identically. Fixes BOTH arms (atom-claim + flywheel) at one site. Branches unchanged.
+
+**Tests (4 new, `hc-pattern-classifier.test.ts`)** pin: (a) `Mes/Año@0.30 → hasTemporal=true →
+transaction`; (b) coverage gate still returns null on thin HC; (c) flywheel(0.30)/atom(0.75)/LLM(0.98)
+arms classify **identically** given identical role assignments; (d) regression — genuine no-temporal
+snapshot (idRepeatRatio≤1.5) still → target. **SCI suite 57 pass; full typecheck exit 0.**
+
+**Item 2 — D5 PATCH: KEPT (architect ruling).** `KnownAtom.roleConfidence` is **write-layer source
+correctness** (atoms store the comprehension's role confidence, not a maturing recognition count) — not a
+second consuming-layer threshold, no registry accumulation. It stabilizes the coverage-gate input; it is
+no longer load-bearing for the pattern (which now keys on presence). Retained.
+
+**Item 3 — Phase 6 reconciliation scope (contamination shape).** Named shape: **`fieldBindings` stored
+under a WRONG classification** (`semanticRole='unknown'`, `confidence=0.30`) **self-reinforce on
+re-injection**. The consumption side is now fixed (presence-keyed); already-stored instances of this shape
+(d464 + any sibling rows) remain **reconciliation scope** — purge/retrain dispositioned by the architect in
+Phase 6. **HF-247 closure:** d464's stored `'unknown'` sheet-binding role IS the cause of the HF-247 skip
+on `d464fd4d4413` — same contamination shape, same root. The earlier open observation (secondary,
+"non-harmful") is **closed against this cause**: the skip was the HF-247 gate correctly refusing a
+contaminated 'unknown' binding; reconciliation retires the row, the gate stops firing.
+
+**Run 4 `NO_MATCH` despite temporal@0.90 (architect-noted inconsistency).** Pre-fix, Run 4's Level-1
+returned null and CRR Level-2 produced transaction — the coverage/branch interaction under the old
+`confidentRoles` derivation. Post-fix the pattern keys on presence and both runs resolve at Level-1; the
+targeted-reset re-runs are the authoritative live witness (Run 3 AND Run 4 → transaction at Level-1).
+
+---
+
+## EPG-2.4 — GATE SATISFIED (architect, 2026-06-11) — FINAL EVIDENCE PACKET
+
+Build under test `OB-203-phase-2` @ `38bb5e3a` (class fix live). Sandbox `24103940-…`, pre-run verified
+state pasted (atoms 19 preserved; d464 + 6cc99dae + target batch cleared; `committed_data target=0`).
+Two live imports of the architect-held Meridian file, two distinct modifications.
+
+### Gate criterion — MET
+**Run 3** (`…_mod.xlsx`, +`Activo`): `Datos_Rendimiento` → **`transaction@85` (`event_transactions_temporal`)**
+→ `commitContentUnit transaction: 201 rows, data_type=transaction, source_dates=201/201`. **Run 4**
+(`…_mod2.xlsx`, +`Activo`+`Comentarios`): same → `transaction@85` → `data_type=transaction, 201 rows`.
+The pre-fix divergence (Run 3 target / Run 4 transaction on identical roles) is **gone** — both commit
+transaction.
+
+### Class fix — confirmed live
+Both runs: `[SCI-HC-PATTERN] Datos_Rendimiento classification=transaction@85% pattern=event_transactions_temporal
+conditions=[HAS measure, HAS temporal — per-period event data, idRepeatRatio=4.02, 1 identifier, 12 measures]`.
+`Mes`/`Año` claimed `temporal@0.90` (presence) → `hasTemporal=true` regardless of supplying layer. The
+0.30 re-threshold-to-target path is dead. (CRR posteriors independently agreed: transaction 80–81%.)
+
+### Read-before-derive / partial recognition — witnessed
+`Datos_Rendimiento` went sheet-Tier-3 both runs (composite novel after reset → re-derived), but the
+**atom layer claimed the bulk without LLM**:
+- Run 3: `[atom-residue] known=15/20 novel=5` → bounded comprehension 6.5s.
+- Run 4: `[atom-residue] known=16/21 novel=5` → bounded comprehension 9.9s.
+- Residue both runs = `[No_Empleado, Hub, Ingreso_Meta, Ingreso_Real, Incidentes_Seguridad]` — the
+  **ambiguous-atom set** (role-stability gating routing collisions to comprehension, not over-claiming).
+- `Comentarios` (Run 4, new col) → CLAIMED `attribute@0.90` (recog=0.50): **architect-ruled CORRECT** —
+  flywheel replay of a prior comprehension, not over-claim.
+
+### Tier distribution (Progressive Performance)
+Both runs: `Plantilla` Tier-1 (`c6f13c61`, mc 12→16, LLM skipped) → entity; `Datos_Flota_Hub` Tier-1
+(`8d3d20ae`, mc 6→8, LLM skipped) → reference; `Datos_Rendimiento` Tier-3 → atom-claimed → bounded
+comprehension. Sheet-level recognition (2 of 3 sheets, zero LLM) **and** atom-level recognition
+(15–16/21 columns, zero LLM) compose — the OB's central R1 mechanism, live.
+
+### Atom write/read lineage
+WRITE (EPG-2.4 v2): 12→19 atoms accumulated, zero `comprehension:atom_write_failed`. READ (these runs):
+15–16/21 claimed from store. Ambiguity datapoint: 5/20–5/21 = **~24–25%** of columns ambiguous → routed
+to comprehension (consistent with the ~30% first datapoint; the `0441c426eab1` collision spanning
+`No_Empleado`/`Ingreso_Meta`/`Ingreso_Real` correctly stored `ambiguous` and was never claimed).
+
+### Binding completeness
+HF-254 flywheel injection: `Plantilla` 6 bindings, `Datos_Flota_Hub` 7 bindings (native columnRole). No
+`'unknown'` role survived on a bound field in the committed sheets. Entity resolution: 67 rows linked,
+0 spurious creates, both runs.
+
+### Defect lineage closed at this gate
+**D1** (over-claim) → RUN-4 fix A+B+C (discriminative features + role-stability gating + observability).
+**D5** (maturation flip) → write-layer `roleConfidence` decoupling (KEPT, source correctness).
+**CLASS** (heterogeneous-confidence re-threshold, D5∪flywheel arms) → presence-keyed primitives, one
+gate (`38bb5e3a`). Contamination shape (`fieldBindings` under wrong classification, self-reinforcing) →
+**Phase 6 reconciliation scope**; HF-247 skip closed against the same cause.
+
+---
+
+## SR-43 — PHASE 2 PRODUCTION VERIFICATION PLAN (post-merge, staged)
+
+Blind-holdout preserved: architect executes the import; CC verifies via service-role reads only.
+
+**Stage 0 — deploy gate (CC).** Confirm the Phase 2 PR merged to `main` and the production deploy SHA
+contains `38bb5e3a` (class fix). Record the deploy SHA. Confirm the atom-fingerprint migration
+(`20260611120000_ob203_phase2_atom_fingerprint_extension.sql`) is applied in production
+(`structural_fingerprints` has `granularity`/`algorithm_version`/`scope`/`atom_features`).
+
+**Stage 1 — architect import (ONE run).** Architect imports the `…_mod2.xlsx` Meridian file (the Run-4
+modification: +`Activo`+`Comentarios`) into a **production sandbox tenant** (clean-slate or a tenant with
+the Meridian atoms already accumulated — architect's choice; state it). Through `/operate/import` → SCI
+proposal → confirm.
+
+**Stage 2 — CC service-role verification (read-only, pasted):**
+1. **Transaction commit (the gate):** `committed_data` for the run's tenant — `Datos_Rendimiento`'s
+   content unit committed `data_type='transaction'` (exact head-count of transaction rows; `target=0` on
+   that sheet). Mirrors EPG-2.4.
+2. **Class fix live in prod:** `classification_signals` for the run — `Datos_Rendimiento`
+   `classification='transaction'`, `decision_source` = `hc_pattern` (Level-1, presence-keyed). No
+   `target` signal for that sheet.
+3. **Atom claims:** `structural_fingerprints` `granularity='atom'` rows present for the tenant;
+   `column_roles.roleConfidence` populated (D5 source correctness); the ambiguous `0441c426eab1`-class
+   atoms stored `role='ambiguous'` (not mis-claimed).
+4. **Observability clean:** zero `comprehension:atom_write_failed` and zero `failed_interpretation`
+   signals for the run (or any present surfaced).
+
+**Stage 3 — disposition.** All four green → SR-43 CLOSED, Phase 2 production-verified. Any divergence →
+structural read on `main`, fix, re-verify (gate does not soften). Verification script staged at
+`web/scripts/ob203-epg24-exact-counts.ts` (retarget `TENANT` to the prod sandbox).
+
+**Awaiting:** PR merge, then architect Stage-1 import.

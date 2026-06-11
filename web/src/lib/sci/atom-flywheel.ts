@@ -1,0 +1,191 @@
+// OB-203 Phase 2 — Atom flywheel (DS-027 R1 / DI-8). Atom-granularity read/write on the
+// existing `structural_fingerprints` surface (granularity='atom'), tenant-scoped. Atoms
+// accumulate recognition across imports and across PERIODS without re-derivation (DI-8):
+// an atom recognized in period N resolves immediately in N+1 because identity is the
+// structural hash, not the period. The store row holds ONLY structural data (atom_features
+// buckets + a structural role label) — DI-10-safe by construction.
+
+import { createClient } from '@supabase/supabase-js';
+import { ATOM_ALGORITHM_VERSION, type AtomFingerprint } from './atom-fingerprint';
+import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
+
+export interface KnownAtom {
+  hash: string;
+  role: string;             // accumulated structural role label
+  confidence: number;       // RECOGNITION confidence (match-count Bayesian) — gates whether to claim
+  roleConfidence: number;   // ROLE confidence (from comprehension) — STABLE; fed to downstream gates (D5 fix)
+  matchCount: number;
+}
+
+// D5 fix: a recognized atom whose stored row predates roleConfidence claims at this stable floor
+// (legacy atoms) — never the maturing recognition number, so pattern thresholds don't flip by maturation.
+export const RECOGNIZED_ROLE_CONFIDENCE = 0.9;
+
+/**
+ * Pure: the upsert payload for one tenant-scoped atom row. DI-10-safe — `atom_features` carries
+ * buckets/flags only; `column_roles` carries a structural role label; no file identifier, no raw
+ * value, no header text in the identity (the hash already excludes the name).
+ */
+export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: string, roleConfidence: number): Record<string, unknown> {
+  return {
+    tenant_id: tenantId,
+    fingerprint_hash: atom.hash,
+    fingerprint: atom.hash,
+    granularity: 'atom',
+    algorithm_version: ATOM_ALGORITHM_VERSION,
+    scope: 'tenant',
+    atom_features: atom.features as unknown as Record<string, unknown>,
+    column_roles: { role, roleConfidence },
+    // structural_fingerprints.classification_result is NOT NULL; an atom row has no sheet
+    // classification, so an empty object is the benign placeholder (EPG-2.4 RUN-1 fix). For
+    // tenant scope the DI-10 CHECK is satisfied by scope='tenant'. Foundational/vertical atoms
+    // (future) need the column nullable — tracked as a residual (drop-NOT-NULL migration).
+    classification_result: {},
+    source_file_sample: null,
+    match_count: 1,
+    confidence: 0.5,
+  };
+}
+
+/**
+ * The set of atom hashes KNOWN at sufficient confidence — the read-before-derive gate's input.
+ * An atom with a real role at or above the confidence floor is claimed without an LLM dispatch.
+ */
+// OB-203 RUN-4 fix B (role-stability gating): an atom claims a role ONLY if its role is STABLE.
+// `'ambiguous'` is the sentinel for an atom seen with conflicting roles across columns (e.g. an
+// integer ID and an integer measure sharing structure) — it never asserts; the column routes to
+// comprehension instead (hints-not-gates at the atom layer; DI-3 preserved — structure is still the
+// identity, the CLAIM adds a stability requirement).
+export const AMBIGUOUS_ROLE = 'ambiguous';
+
+/** Pure role-stability resolution (testable): a conflicting role makes the atom ambiguous; once
+ *  ambiguous, always ambiguous; an agreeing role is preserved. */
+export function resolveAtomRole(existingRole: string | undefined | null, newRole: string): string {
+  if (existingRole === AMBIGUOUS_ROLE) return AMBIGUOUS_ROLE;
+  if (existingRole && existingRole !== newRole) return AMBIGUOUS_ROLE;
+  return newRole;
+}
+
+export function knownAtomHashes(known: Map<string, KnownAtom>, minConfidence = 0.5): Set<string> {
+  const s = new Set<string>();
+  for (const [h, a] of Array.from(known.entries())) {
+    if (a.confidence >= minConfidence && a.role && a.role !== 'unknown' && a.role !== AMBIGUOUS_ROLE) s.add(h);
+  }
+  return s;
+}
+
+/** Read Path — known atoms for this tenant at the current algorithm version. */
+export async function lookupAtoms(
+  tenantId: string,
+  atomHashes: string[],
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<Map<string, KnownAtom>> {
+  const out = new Map<string, KnownAtom>();
+  if (atomHashes.length === 0) return out;
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const { data, error } = await supabase
+    .from('structural_fingerprints')
+    .select('fingerprint_hash, column_roles, confidence, match_count')
+    .eq('tenant_id', tenantId)
+    .eq('granularity', 'atom')
+    .eq('algorithm_version', ATOM_ALGORITHM_VERSION)
+    .in('fingerprint_hash', Array.from(new Set(atomHashes)));
+  if (error) {
+    console.warn(`[OB-203][atom-flywheel] lookup failed (non-blocking): ${error.message}`);
+    return out;
+  }
+  for (const r of (data || [])) {
+    const cr = (r.column_roles as Record<string, unknown>) ?? {};
+    const role = (cr.role as string) ?? 'unknown';
+    const roleConfidence = typeof cr.roleConfidence === 'number' ? cr.roleConfidence : RECOGNIZED_ROLE_CONFIDENCE; // legacy fallback (D5)
+    out.set(r.fingerprint_hash as string, {
+      hash: r.fingerprint_hash as string,
+      role,
+      confidence: Number(r.confidence),
+      roleConfidence,
+      matchCount: r.match_count as number,
+    });
+  }
+  return out;
+}
+
+/**
+ * Write Path — accumulate atom recognition. Per atom: insert (match_count=1, conf=0.5) or
+ * increment (Bayesian conf = 1 - 1/(n+1)) on the (tenant, atom-hash, granularity) key, mirroring
+ * the sheet flywheel. Fire-and-forget per atom (loud log, never throws). The comprehension-success
+ * gate (Phase 2 step 7) decides WHETHER to call this; the write itself is unconditional once called.
+ */
+export async function writeAtoms(
+  tenantId: string,
+  atomsWithRoles: Array<{ atom: AtomFingerprint; role: string; roleConfidence: number }>,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  if (atomsWithRoles.length === 0) return;
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  for (const { atom, role, roleConfidence } of atomsWithRoles) {
+    try {
+      const { data: existing } = await supabase
+        .from('structural_fingerprints')
+        .select('id, match_count, column_roles')
+        .eq('tenant_id', tenantId)
+        .eq('granularity', 'atom')
+        .eq('fingerprint_hash', atom.hash)
+        .eq('algorithm_version', ATOM_ALGORITHM_VERSION)
+        .maybeSingle();
+
+      if (existing) {
+        const newMatchCount = existing.match_count + 1;
+        const newConfidence = 1 - 1 / (newMatchCount + 1);
+        // B (role-stability): once ambiguous, stays ambiguous; a conflicting role makes it ambiguous.
+        const cr = (existing.column_roles as Record<string, unknown>) ?? {};
+        const existingRole = cr.role as string | undefined;
+        const existingRoleConf = typeof cr.roleConfidence === 'number' ? cr.roleConfidence : 0;
+        const resolvedRole = resolveAtomRole(existingRole, role);
+        // role confidence is STABLE: on agreement keep the strongest evidence; ambiguity is irrelevant (excluded).
+        const resolvedRoleConf = resolvedRole === AMBIGUOUS_ROLE ? existingRoleConf : Math.max(existingRoleConf, roleConfidence);
+        if (resolvedRole === AMBIGUOUS_ROLE && existingRole !== AMBIGUOUS_ROLE) {
+          console.warn(`[OB-203][atom-flywheel] role AMBIGUOUS hash=${atom.hash.slice(0, 12)} (was '${existingRole}', now '${role}') — will route to comprehension`);
+        }
+        await supabase
+          .from('structural_fingerprints')
+          .update({
+            match_count: newMatchCount,
+            confidence: Number(newConfidence.toFixed(4)),
+            column_roles: { role: resolvedRole, roleConfidence: resolvedRoleConf },
+            atom_features: atom.features as unknown as Record<string, unknown>,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id)
+          .eq('match_count', existing.match_count); // optimistic lock (mirrors sheet path)
+      } else {
+        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence));
+      }
+    } catch (err) {
+      // Finding-A follow-through: a blocked atom-learning write must NOT be silent (DI-4/DI-7 spirit).
+      // Log loudly AND emit a remediation signal on the canonical surface so the flywheel cannot
+      // silently dead-end (this is exactly how the EPG-2.4 RUN-1 23502 went unseen).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[OB-203][atom-flywheel] write FAILED (non-blocking) hash=${atom.hash.slice(0, 12)} role=${role}: ${msg}`);
+      try {
+        await writeSignal(
+          {
+            tenantId,
+            signalType: 'comprehension:atom_write_failed',
+            structuralFingerprint: { fingerprintHash: atom.hash },
+            classification: null,
+            confidence: 0,
+            decisionSource: 'atom_write_failed',
+            scope: 'tenant',
+            source: 'sci_agent',
+            signalValue: { error: msg, role },
+            context: { sciVersion: '2.0', phase: '2', ob: 'OB-203', di: 'DI-7' },
+          },
+          supabaseUrl,
+          supabaseServiceKey,
+        );
+      } catch { /* remediation emission must never itself break the import */ }
+    }
+  }
+}

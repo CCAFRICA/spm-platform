@@ -352,6 +352,11 @@ export interface ContentUnitProposal {
   // the proposal, excluded from the comprehended presentation, and excluded from
   // confirm-all. Resolution actions (retry/manual/exclude) arrive in Phase 5.
   failedInterpretation?: { failureClass: ComprehensionFailureClass; durationMs: number | null };
+  // OB-203 Phase 2 (8): per-sheet atom recognition provenance — fraction of atoms recognized from
+  // prior signal, count of novel atoms comprehended, and whether the LLM was dispatched at all
+  // (comprehension cost). Additive/optional (Phase 1 failedInterpretation pattern); rendered only
+  // when present (legacy-shaped units show nothing).
+  recognitionProvenance?: { recognizedFraction: number; novelCount: number; llmCalled: boolean };
 }
 
 // ============================================================
