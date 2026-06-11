@@ -30,6 +30,19 @@ async function unitStateTimeline() {
   }
 }
 
+// ── BL-001 query shape #1b: session lifecycle (open → settled) ──────────────
+// source: signal_type='comprehension:session_lifecycle', signal_value.phase
+async function sessionLifecycle() {
+  let q = sb.from('classification_signals')
+    .select('signal_value, created_at').eq('tenant_id', TENANT)
+    .eq('signal_type', 'comprehension:session_lifecycle').order('created_at', { ascending: true });
+  if (SESSION) q = q.eq('context->>importSessionId', SESSION);
+  const { data } = await q;
+  console.log('\n=== [#1b] session lifecycle ===');
+  if ((data ?? []).length === 0) console.log('  (none)');
+  for (const r of data ?? []) console.log(`  ${r.created_at}  phase=${sv(r).phase}  unitCount=${sv(r).unitCount}`);
+}
+
 // ── BL-001 query shape #2: failure classes ──────────────────────────────────
 // source: signal_type='comprehension:failed_interpretation', signal_value.failureClass
 async function failureClasses() {
@@ -107,6 +120,7 @@ async function interactions() {
 (async () => {
   console.log(`OB-203 TRACE — tenant ${TENANT}${SESSION ? `  session ${SESSION}` : ' (all sessions)'}`);
   await unitStateTimeline();
+  await sessionLifecycle();
   await failureClasses();
   await comprehensionCost();
   await tierDistribution();

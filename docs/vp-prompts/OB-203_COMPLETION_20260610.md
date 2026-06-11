@@ -749,9 +749,12 @@ Phase-3 session timelines).
 - **Authentication (CC6.1 / NIST AC-3 / OWASP A01):** rejects unauthenticated with **401** (`auth.getUser()` on the
   cookie session). No anonymous behavioral writes.
 - **Tenant authorization (CC6.6 least-privilege / NIST AC-4 information-flow / OWASP A01 broken-access-control /
-  A04 insecure-design):** the body `tenantId` is a routing hint, **never trusted** — the route authorizes it against
-  the session user's `profiles(auth_user_id, tenant_id)` membership and returns **403** otherwise. A caller cannot
-  write interaction signals to a tenant it is not a member of (no IDOR / cross-tenant write).
+  A04 insecure-design):** the body `tenantId` is a routing hint, **never trusted** — authorized via the CANONICAL
+  identity reader `resolveIdentity()` (D6 / HF-282: a bespoke per-tenant `profiles` lookup wrongly 403s platform-scope
+  identities that hold no per-tenant row — the divergent-read defect HF-282 closed). Rule: a **platform-scope**
+  identity (`canonicalRole='platform'` or `manage_tenants`) is authorized cross-tenant; a **tenant-scope** identity is
+  authorized only for its own `tenantId`; otherwise **403**. No tenant-scoped caller can write to a tenant it does not
+  own (no IDOR / cross-tenant write).
 - **Scope (DS-014 / Decision 123):** every interaction write carries `scope:'tenant'` + the **validated** `tenant_id`.
 - **DI-10:** this path introduces **no cross-scope aggregation** — interaction signals are single-tenant-scoped.
   The only cross-tenant read in the system (`lookupFoundationalPriors`) is untouched and remains anonymized by

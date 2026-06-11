@@ -15,6 +15,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveIdentity } from '@/lib/auth/resolve-identity';
 import { fireSignalBatch, buildInteractionSignal, type InteractionAction } from '@/lib/sci/comprehension-signal-vocabulary';
 
 const VALID_ACTIONS = new Set<InteractionAction>(['view', 'expand', 'action_click', 'correction', 'dwell']);
@@ -32,11 +33,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'tenantId and non-empty events required' }, { status: 400 });
   }
 
-  // SR-39 (2): authorize the tenant against the session user's membership (DS-014/Decision 123).
+  // SR-39 (2): authorize the tenant via the CANONICAL identity reader (D6 / HF-282). A bespoke
+  // per-tenant profiles lookup wrongly 403s platform-scope identities (tenant_id=null, no per-tenant
+  // row) — the exact divergent-read defect HF-282 closed. resolveIdentity is the one identity path:
+  //   - platform-scope identity (canonicalRole='platform' or manage_tenants) → authorized cross-tenant;
+  //   - tenant-scope identity → authorized only for its own tenantId (no cross-tenant write).
   const svc = await createServiceRoleClient();
-  const { data: membership } = await svc
-    .from('profiles').select('id').eq('auth_user_id', user.id).eq('tenant_id', body.tenantId).maybeSingle();
-  if (!membership) return NextResponse.json({ error: 'Forbidden: not a member of tenant' }, { status: 403 });
+  const identity = await resolveIdentity(svc, user.id);
+  if (!identity) return NextResponse.json({ error: 'Forbidden: no identity' }, { status: 403 });
+  const isPlatform = identity.canonicalRole === 'platform' || identity.capabilities.includes('manage_tenants');
+  if (!isPlatform && identity.tenantId !== body.tenantId) {
+    return NextResponse.json({ error: 'Forbidden: not authorized for tenant' }, { status: 403 });
+  }
 
   // SR-39 (3): build with the VALIDATED tenant_id, scope:'tenant'. Drop unknown action verbs.
   const signals = body.events
