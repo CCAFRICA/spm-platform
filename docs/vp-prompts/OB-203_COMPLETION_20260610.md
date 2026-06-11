@@ -598,3 +598,40 @@ structural read on `main`, fix, re-verify (gate does not soften). Verification s
 `web/scripts/ob203-epg24-exact-counts.ts` (retarget `TENANT` to the prod sandbox).
 
 **Awaiting:** PR merge, then architect Stage-1 import.
+
+### SR-43 — STAGE 0 + STAGE 2 RESULTS (2026-06-11) — PASS
+
+**Stage 0 (deploy gate, CC):** prod deploy SHA `90e75c0e` (env=Production, 22:01:27Z; contains class fix
+`38bb5e3a`). Migration `20260611120000` applied in prod (`granularity`/`algorithm_version`/`scope`/
+`atom_features` present). Prod sandbox tenant `24103940-…` ("OB-203 EPG-2.4 Sandbox", MXN/es-MX)
+confirmed; mod3 baseline 19 atoms + 6 warm sheets (incl. the re-created `d464`/`6cc99dae` now stored
+**transaction**, not target).
+
+**Stage 1 (architect):** prod `mod3` import (mod2 + novel `Codigo_Turno`) @ 22:05Z. `Datos_Rendimiento`
+sheet-novel (`3d5282383107`, Tier-3) → decomposed dispatch; the other two sheets Tier-1 (zero LLM).
+
+**Stage 2 (CC service-role reads) — all five witnesses PASS:**
+1. **Transaction commit (gate):** `committed_data` `data_type=transaction` (mod3 unit: 201 rows,
+   `source_dates=201/201`); **`target=0`** tenant-wide — no contamination, no regression.
+2. **Class fix live in prod:** `classification_signals` `Datos_Rendimiento class=transaction src=hc_pattern
+   conf=0.85` — Level-1 presence-keyed, not target. (This run matched `event_transactions` via
+   `HAS reference_key` — `Codigo_Turno@reference_key` — vs the temporal branch in Runs 3/4; still
+   `transaction@85`, correct.)
+3. **Atom claims (read-before-derive in prod):** `[atom-residue] known=16/22 novel=6`. New atom
+   `96c54b34b2ae` (`Codigo_Turno`) written `role=reference_key, roleConfidence=0.85, match=1,
+   algorithm_version=2` — novel atom comprehended + stored with D5 `roleConfidence` (source correctness
+   live). Ambiguous `0441c426eab1` preserved `role=ambiguous` (never claimed). 20 atoms total (19→20).
+4. **Spurious-entity mechanism (Phase 6 scope):** `Codigo_Turno` comprehended `reference_key@0.85` →
+   commit selected `entity_id_field="Codigo_Turno"` → DS-009 created **8 entities** (`entity_type=location`,
+   `external_id` = shift codes VES-A1, MIX-A2, MAT-B2, MAT-A1, MIX-C1, NOC-B2, NOC-D4, VES-C3). Same
+   **contextual-role (Hub-flap) class** as D3: a column whose role depends on workbook-graph context the
+   per-sheet comprehension can't see. **Recorded under Phase 6 contextual-role scope.** Disposition:
+   sandbox-isolated, `entity_type=location`, no real tenant and no calc dependency → **stand harmless**;
+   targeted cleanup is trivial if the sandbox is reused for entity-resolution witnesses (offered, not
+   executed without direction).
+5. **Observability clean:** zero `comprehension:atom_write_failed`, zero `failed_interpretation`.
+
+**SR-43 PASS → PHASE 2 CLOSED.** Class fix production-verified; read-before-derive, atom write+read,
+D5 `roleConfidence`, and tier composition all live in prod. Open downstream: Phase 6 reconciliation
+(contaminated-`fieldBindings` shape; accumulated ambiguous atoms) + contextual-role resolution
+(Hub-flap / `Codigo_Turno` spurious-entity class, D3).
