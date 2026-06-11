@@ -322,3 +322,42 @@ Additive optional field `recognitionProvenance?: { recognizedFraction, novelCoun
 persistence path remains free of comprehension state (DI-1). Verified by diff grep.
 
 Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0.
+
+---
+
+## EPG-2.4 v2 — verification (2026-06-11)
+
+**Item 1 — clear SUCCEEDED (not a failure).** Every sandbox `structural_fingerprints` row was
+created at **16:31:01Z**, 3.5h AFTER the CC clear (~12:58Z). The clear deleted all prior state; the
+architect's "warm Run 1" is because an earlier COLD import already ran at 16:31 (creating the mc=1
+fingerprints) before the pasted Run 1 — an extra/unlogged import on the architect side, not surviving
+state. The tenant was genuinely cold at clear time.
+
+**Item 2 — atom WRITE WITNESS SATISFIED (Run 3).** Run 3 (modified) put `Datos_Rendimiento` at
+sheet-Tier-3 → decomposed dispatch ran (20 cols @0.94, 19.7s) → **12 atom rows written**
+(`granularity='atom'`, created 16:34:31-36Z): role histogram `{measure:7, name:1, attribute:3,
+temporal:1}` — the 20 columns collapse to 12 distinct atom shapes (12 measures share a few
+integer/decimal/mixed atoms). `atom_features` present (buckets only), DI-10-clean. **Zero
+`comprehension:atom_write_failed` signals** — the write fix holds.
+
+**Item 3 — atom READ not witnessed.** At Run 3 the atom store was empty (atoms written DURING Run 3),
+so all 20 columns were novel residue, not partial recognition. Needs RUN 4: a 2nd modified file
+(different new column) on the CURRENT state (the 12 atoms must remain — no re-clear) so
+`Datos_Rendimiento` goes sheet-novel again with the 12 known atoms + 1 novel.
+
+**Item 4 — new findings (recorded, not silent):**
+- (a) `[HF-263 CPI] entity_relationships upsert 'ON CONFLICT DO UPDATE cannot affect row a second
+  time'` — fired all 3 runs. **PRE-EXISTING** (HF-263 PostCommitConstruction; Phase 2 did not touch
+  execute-bulk/relationship construction). Registry item, not a Phase 2 regression.
+- (b) `Hub` role flap (name→reference_key→attribute) + transaction `entity_id_field` flip
+  (none→Hub→none): classification instability on a genuinely ambiguous column → **Phase 6/D3 scope**
+  (workbook-graph relational resolution). Recorded.
+- (c) fingerprint match_count increments **twice per import** (analyze writeFingerprint + post-execute
+  writeFingerprint) — confidence inflation, **PRE-EXISTING** (both paths predate Phase 2). Flag for
+  assessment. (Also observed: atom match_count increments once per same-shape column within one
+  import — a same-import multiplicity to assess.)
+
+**Item 5 — positives:** workbook-level partial recognition live (Run 3: Plantilla + Datos_Flota_Hub
+stayed sheet-Tier-1 while only the modified `Datos_Rendimiento` was comprehended); `llmCallDuration`
+metric fix verified (19747ms real, was 0). Classifications stable & correct: entity / transaction /
+reference across all runs.
