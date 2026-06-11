@@ -14,6 +14,8 @@ import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
+// OB-203 Phase 3 (R2/DI-1): durable unit-state emission on the canonical surface.
+import { emitUnitStates, type UnitStateSignalParams, type UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
@@ -75,6 +77,10 @@ export async function POST(req: NextRequest) {
     const tenantDomainId = (tenantSettings.industry as string) || '';
 
     const proposalId = crypto.randomUUID();
+    // OB-203 Phase 3: importSessionId IS the comprehension-session identity — an alias of
+    // proposalId (P2). Distinct from execute-side import_batch_id (HF-213). Stamped on every
+    // unit-state signal so the import surface and Phase 5 poll one durable session.
+    const importSessionId = proposalId;
     const contentUnits: ContentUnitProposal[] = [];
     const densityMap = new Map<string, ClassificationDensity>(); // OB-160K
     const fingerprintMap = new Map<string, StructuralFingerprint>(); // HF-094
@@ -93,20 +99,47 @@ export async function POST(req: NextRequest) {
       const sheetRowsBySheet = new Map<string, Record<string, unknown>[]>();
       const fileSheets: Array<{ sourceFile: string; sheetName: string }> = [];
 
+      // OB-203 Phase 3: unit identity per sheet (= profile.contentUnitId, fileName::sheet::tabIndex).
+      const unitIdBySheet = new Map<string, string>();
+      const stateBase = (sheetName: string, state: UnitComprehensionState, seq: number, extra: Partial<UnitStateSignalParams> = {}): UnitStateSignalParams => ({
+        tenantId, importSessionId, unitId: unitIdBySheet.get(sheetName)!, sheetName, sourceFileName: file.fileName, state, seq, ...extra,
+      });
+
+      // DI-1 (EPG-3.2): emit `persisted` at sheet ENUMERATION — state-zero, BEFORE any profiling.
+      // If profiling later throws for a sheet, its persisted signal already exists durably.
       for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
         const sheet = file.sheets[tabIndex];
-        const profile = generateContentProfileStats(
-          sheet.sheetName,
-          tabIndex,
-          file.fileName,
-          sheet.columns,
-          sheet.rows,
-          sheet.totalRowCount,
-        );
-        profileMap.set(sheet.sheetName, profile);
-        sheetRowsBySheet.set(sheet.sheetName, sheet.rows);
-        fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
+        unitIdBySheet.set(sheet.sheetName, `${file.fileName}::${sheet.sheetName}::${tabIndex}`);
       }
+      await emitUnitStates(
+        file.sheets.map(s => stateBase(s.sheetName, 'persisted', 0)),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+
+      // Profiling — `profiled` on success, `failed_interpretation` (profiling_error) on throw.
+      const profileStateParams: UnitStateSignalParams[] = [];
+      for (let tabIndex = 0; tabIndex < file.sheets.length; tabIndex++) {
+        const sheet = file.sheets[tabIndex];
+        try {
+          const profile = generateContentProfileStats(
+            sheet.sheetName,
+            tabIndex,
+            file.fileName,
+            sheet.columns,
+            sheet.rows,
+            sheet.totalRowCount,
+          );
+          profileMap.set(sheet.sheetName, profile);
+          sheetRowsBySheet.set(sheet.sheetName, sheet.rows);
+          fileSheets.push({ sourceFile: file.fileName, sheetName: sheet.sheetName });
+          profileStateParams.push(stateBase(sheet.sheetName, 'profiled', 1));
+        } catch (profErr) {
+          console.error(`[OB-203][state] profiling failed for sheet=${sheet.sheetName}: ${profErr instanceof Error ? profErr.message : String(profErr)}`);
+          profileStateParams.push(stateBase(sheet.sheetName, 'failed_interpretation', 1, { failureClass: 'profiling_error' }));
+        }
+      }
+      await emitUnitStates(profileStateParams, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
       // OB-174 Phase 3 / HF-197B: DS-017 Tier Routing — PER-SHEET fingerprint lookup BEFORE LLM call.
       // Pre-HF-197B: a single H(sheets[0]) was used for the entire file, causing cross-sheet
@@ -127,6 +160,15 @@ export async function POST(req: NextRequest) {
           console.warn(`[SCI-FINGERPRINT] Lookup failed for sheet=${sheet.sheetName} (non-blocking): ${fpErr instanceof Error ? fpErr.message : 'unknown'}`);
         }
       }
+
+      // OB-203 Phase 3: `recognized(tier)` — fingerprint lookup done; each profiled sheet
+      // carries its recognition tier (Tier-1 sheet-flywheel hit, else Tier-3 novel → atoms).
+      await emitUnitStates(
+        Array.from(profileMap.keys()).map(sheetName =>
+          stateBase(sheetName, 'recognized', 2, { tier: sheetFlywheelResults.get(sheetName)?.tier ?? null })),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
 
       // HF-254 Fix 2b: the HF-236 divert gate (NATIVE_COLUMN_ROLES set +
       // insufficientFlywheelCache) is DELETED. HF-236 was a compensation (SR-34) for an
@@ -232,6 +274,21 @@ export async function POST(req: NextRequest) {
         };
         console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-254)`);
       }
+
+      // OB-203 Phase 3: `comprehended` (both decomposed-dispatch and Tier-1-injected sheets now
+      // carry headerComprehension) or `failed_interpretation` for sheets the dispatch isolated.
+      // The existing emitComprehensionFailureSignals (DI-4 failure surface) stands alongside;
+      // this adds the unit's STATE on the same canonical surface.
+      await emitUnitStates(
+        Array.from(profileMap.keys()).map(sheetName => {
+          const failure = perSheetFailure.get(sheetName);
+          if (failure) return stateBase(sheetName, 'failed_interpretation', 3, { failureClass: failure });
+          const prov = provenanceMap.get(sheetName);
+          return stateBase(sheetName, 'comprehended', 3, { novelCount: prov?.novelCount ?? null });
+        }),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
       // HC has run (or been injected from Tier 1 flywheel); now compute patterns +
@@ -566,6 +623,16 @@ export async function POST(req: NextRequest) {
         const prov = provenanceMap.get(cu.tabName);
         if (prov) cu.recognitionProvenance = prov;
       }
+      // OB-203 Phase 3: `classified` — resolution complete. Failed units keep
+      // `failed_interpretation` (NOT classified) so the durable state reflects the failure.
+      await emitUnitStates(
+        fileContentUnits
+          .filter(cu => !perSheetFailure.has(cu.tabName) && unitIdBySheet.has(cu.tabName))
+          .map(cu => stateBase(cu.tabName, 'classified', 4, { classification: cu.classification, confidence: cu.confidence })),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+
       console.log(`[SCI-PROPOSAL] ${fileContentUnits.length} content units for ${file.sheets.length} sheets`);
       contentUnits.push(...fileContentUnits);
     }
@@ -600,6 +667,7 @@ export async function POST(req: NextRequest) {
 
     const proposal: SCIProposal = {
       proposalId,
+      importSessionId,
       tenantId,
       sourceFiles: files.map(f => f.fileName),
       contentUnits,
