@@ -55,6 +55,23 @@ test('EPG-2.2 payload-bound: comprehension input covers ONLY novel columns, samp
   }
 });
 
+test('EPG-2.2 (most-known witness): wide sheet, MOST atoms known + FEW novel -> O(novel) input', () => {
+  // The O(novel) case the architect requires on the record (item 3): not cold-start — most atoms
+  // are already known; comprehension cost tracks ONLY the few novel atoms, not the sheet width.
+  const fact = generateStructuralAnalog({ seed: 40, factRows: 700 }).sheets.find(s => s.kind === 'fact')!;
+  const known = seedKnown(fact.columns, fact.rows); // learn ALL fact atoms (most-known)
+  const novelA = 'zz_flag', novelB = 'zz_sparse';
+  const cols = [...fact.columns, novelA, novelB];   // augment with 2 novel-shape columns
+  const rows = fact.rows.map((r, i) => ({ ...r, [novelA]: i % 2 === 0, [novelB]: i % 9 === 0 ? 'x' : null }));
+  const plan = planSheetComprehension(fact.sheetName, cols, rows, known);
+  assert.equal(plan.knownColumns.length, fact.columns.length);          // most known (5 of 7)
+  assert.deepEqual(plan.novelColumns.sort(), [novelA, novelB].sort());  // few novel (2)
+  const input = buildBoundedComprehensionInput(plan, rows)!;
+  assert.deepEqual(input.columns.sort(), [novelA, novelB].sort());      // O(novel)=2, NOT O(width)=7
+  assert.ok(input.sampleRows.length <= 5);                              // NOT O(rows)=700
+  assert.ok(plan.recognizedFraction > 0.7);                            // most-known witness
+});
+
 test('fully-recognized sheet -> NO comprehension dispatch (null input)', () => {
   const fact = generateStructuralAnalog({ seed: 35 }).sheets.find(s => s.kind === 'fact')!;
   const known = seedKnown(fact.columns, fact.rows);
