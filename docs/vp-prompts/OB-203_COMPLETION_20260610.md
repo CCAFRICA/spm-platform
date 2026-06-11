@@ -508,3 +508,93 @@ contaminated 'unknown' binding; reconciliation retires the row, the gate stops f
 returned null and CRR Level-2 produced transaction — the coverage/branch interaction under the old
 `confidentRoles` derivation. Post-fix the pattern keys on presence and both runs resolve at Level-1; the
 targeted-reset re-runs are the authoritative live witness (Run 3 AND Run 4 → transaction at Level-1).
+
+---
+
+## EPG-2.4 — GATE SATISFIED (architect, 2026-06-11) — FINAL EVIDENCE PACKET
+
+Build under test `OB-203-phase-2` @ `38bb5e3a` (class fix live). Sandbox `24103940-…`, pre-run verified
+state pasted (atoms 19 preserved; d464 + 6cc99dae + target batch cleared; `committed_data target=0`).
+Two live imports of the architect-held Meridian file, two distinct modifications.
+
+### Gate criterion — MET
+**Run 3** (`…_mod.xlsx`, +`Activo`): `Datos_Rendimiento` → **`transaction@85` (`event_transactions_temporal`)**
+→ `commitContentUnit transaction: 201 rows, data_type=transaction, source_dates=201/201`. **Run 4**
+(`…_mod2.xlsx`, +`Activo`+`Comentarios`): same → `transaction@85` → `data_type=transaction, 201 rows`.
+The pre-fix divergence (Run 3 target / Run 4 transaction on identical roles) is **gone** — both commit
+transaction.
+
+### Class fix — confirmed live
+Both runs: `[SCI-HC-PATTERN] Datos_Rendimiento classification=transaction@85% pattern=event_transactions_temporal
+conditions=[HAS measure, HAS temporal — per-period event data, idRepeatRatio=4.02, 1 identifier, 12 measures]`.
+`Mes`/`Año` claimed `temporal@0.90` (presence) → `hasTemporal=true` regardless of supplying layer. The
+0.30 re-threshold-to-target path is dead. (CRR posteriors independently agreed: transaction 80–81%.)
+
+### Read-before-derive / partial recognition — witnessed
+`Datos_Rendimiento` went sheet-Tier-3 both runs (composite novel after reset → re-derived), but the
+**atom layer claimed the bulk without LLM**:
+- Run 3: `[atom-residue] known=15/20 novel=5` → bounded comprehension 6.5s.
+- Run 4: `[atom-residue] known=16/21 novel=5` → bounded comprehension 9.9s.
+- Residue both runs = `[No_Empleado, Hub, Ingreso_Meta, Ingreso_Real, Incidentes_Seguridad]` — the
+  **ambiguous-atom set** (role-stability gating routing collisions to comprehension, not over-claiming).
+- `Comentarios` (Run 4, new col) → CLAIMED `attribute@0.90` (recog=0.50): **architect-ruled CORRECT** —
+  flywheel replay of a prior comprehension, not over-claim.
+
+### Tier distribution (Progressive Performance)
+Both runs: `Plantilla` Tier-1 (`c6f13c61`, mc 12→16, LLM skipped) → entity; `Datos_Flota_Hub` Tier-1
+(`8d3d20ae`, mc 6→8, LLM skipped) → reference; `Datos_Rendimiento` Tier-3 → atom-claimed → bounded
+comprehension. Sheet-level recognition (2 of 3 sheets, zero LLM) **and** atom-level recognition
+(15–16/21 columns, zero LLM) compose — the OB's central R1 mechanism, live.
+
+### Atom write/read lineage
+WRITE (EPG-2.4 v2): 12→19 atoms accumulated, zero `comprehension:atom_write_failed`. READ (these runs):
+15–16/21 claimed from store. Ambiguity datapoint: 5/20–5/21 = **~24–25%** of columns ambiguous → routed
+to comprehension (consistent with the ~30% first datapoint; the `0441c426eab1` collision spanning
+`No_Empleado`/`Ingreso_Meta`/`Ingreso_Real` correctly stored `ambiguous` and was never claimed).
+
+### Binding completeness
+HF-254 flywheel injection: `Plantilla` 6 bindings, `Datos_Flota_Hub` 7 bindings (native columnRole). No
+`'unknown'` role survived on a bound field in the committed sheets. Entity resolution: 67 rows linked,
+0 spurious creates, both runs.
+
+### Defect lineage closed at this gate
+**D1** (over-claim) → RUN-4 fix A+B+C (discriminative features + role-stability gating + observability).
+**D5** (maturation flip) → write-layer `roleConfidence` decoupling (KEPT, source correctness).
+**CLASS** (heterogeneous-confidence re-threshold, D5∪flywheel arms) → presence-keyed primitives, one
+gate (`38bb5e3a`). Contamination shape (`fieldBindings` under wrong classification, self-reinforcing) →
+**Phase 6 reconciliation scope**; HF-247 skip closed against the same cause.
+
+---
+
+## SR-43 — PHASE 2 PRODUCTION VERIFICATION PLAN (post-merge, staged)
+
+Blind-holdout preserved: architect executes the import; CC verifies via service-role reads only.
+
+**Stage 0 — deploy gate (CC).** Confirm the Phase 2 PR merged to `main` and the production deploy SHA
+contains `38bb5e3a` (class fix). Record the deploy SHA. Confirm the atom-fingerprint migration
+(`20260611120000_ob203_phase2_atom_fingerprint_extension.sql`) is applied in production
+(`structural_fingerprints` has `granularity`/`algorithm_version`/`scope`/`atom_features`).
+
+**Stage 1 — architect import (ONE run).** Architect imports the `…_mod2.xlsx` Meridian file (the Run-4
+modification: +`Activo`+`Comentarios`) into a **production sandbox tenant** (clean-slate or a tenant with
+the Meridian atoms already accumulated — architect's choice; state it). Through `/operate/import` → SCI
+proposal → confirm.
+
+**Stage 2 — CC service-role verification (read-only, pasted):**
+1. **Transaction commit (the gate):** `committed_data` for the run's tenant — `Datos_Rendimiento`'s
+   content unit committed `data_type='transaction'` (exact head-count of transaction rows; `target=0` on
+   that sheet). Mirrors EPG-2.4.
+2. **Class fix live in prod:** `classification_signals` for the run — `Datos_Rendimiento`
+   `classification='transaction'`, `decision_source` = `hc_pattern` (Level-1, presence-keyed). No
+   `target` signal for that sheet.
+3. **Atom claims:** `structural_fingerprints` `granularity='atom'` rows present for the tenant;
+   `column_roles.roleConfidence` populated (D5 source correctness); the ambiguous `0441c426eab1`-class
+   atoms stored `role='ambiguous'` (not mis-claimed).
+4. **Observability clean:** zero `comprehension:atom_write_failed` and zero `failed_interpretation`
+   signals for the run (or any present surfaced).
+
+**Stage 3 — disposition.** All four green → SR-43 CLOSED, Phase 2 production-verified. Any divergence →
+structural read on `main`, fix, re-verify (gate does not soften). Verification script staged at
+`web/scripts/ob203-epg24-exact-counts.ts` (retarget `TENANT` to the prod sandbox).
+
+**Awaiting:** PR merge, then architect Stage-1 import.
