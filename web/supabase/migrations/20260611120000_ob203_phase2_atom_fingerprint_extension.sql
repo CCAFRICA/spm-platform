@@ -11,16 +11,21 @@
 --   classification_result jsonb, column_roles jsonb, match_count int, confidence numeric,
 --   source_file_sample text, created_at timestamptz, updated_at timestamptz, import_batch_id null
 -- Confirmed ABSENT pre-migration: granularity, scope, algorithm_version, atom_features.
--- (information_schema is not PostgREST-exposed in VP; the service-role column read is the gate.)
+-- Existing UNIQUE (architect pg_catalog pre-check 2026-06-11):
+--   structural_fingerprints_tenant_id_fingerprint_hash_key  UNIQUE (tenant_id, fingerprint_hash)
+-- (information_schema is not PostgREST-exposed in VP; the service-role read is the gate.)
 --
 -- ── (b) SCOPE: atom extension + algorithm_version, with bridge ONLY ──
 --   granularity      — 'sheet' (existing composite rows) | 'atom' (per-column rows)
 --   algorithm_version— DI-9 construction-algorithm version; the DEFAULT 1 + granularity
 --                      default 'sheet' BRIDGE the 22 existing rows (sheet-level, algo v1) so
---                      accumulated recognition stays reachable — never stranded by future algo change.
+--                      accumulated recognition stays reachable. A future algorithm change
+--                      produces a DIFFERENT hash, so prior- and new-version rows coexist
+--                      naturally (no unique conflict); algorithm_version tags them for the
+--                      bridge query — never stranded.
 --   atom_features    — bucketed structural features of ONE column (the atom): type, cardinality
 --                      bucket, repeat-ratio bucket, pattern flags. DI-10-safe by construction
---                      (buckets/booleans only; never raw values). This is the atom row's data home.
+--                      (buckets/booleans only; never raw values). The atom row's data home.
 --   scope            — required to express the DI-10 guard (d): 'tenant' | 'foundational' | 'vertical'.
 
 ALTER TABLE public.structural_fingerprints
@@ -33,6 +38,19 @@ ALTER TABLE public.structural_fingerprints
 ALTER TABLE public.structural_fingerprints
   ADD CONSTRAINT structural_fingerprints_granularity_chk CHECK (granularity IN ('sheet','atom')),
   ADD CONSTRAINT structural_fingerprints_scope_chk       CHECK (scope IN ('tenant','foundational','vertical'));
+
+-- ── (c) TENANT SCOPING + UNIQUE WIDENING (architect pre-check disposition) ──
+-- The existing UNIQUE (tenant_id, fingerprint_hash) would block an atom row whose hash
+-- coincides with a sheet row's hash for the same tenant. Widen it to include granularity
+-- so sheet and atom rows coexist; atom rows remain tenant-scoped (tenant_id NOT NULL).
+-- Done as drop+recreate within this migration, preserving the *_key name convention.
+ALTER TABLE public.structural_fingerprints
+  DROP CONSTRAINT structural_fingerprints_tenant_id_fingerprint_hash_key,
+  ADD CONSTRAINT  structural_fingerprints_tenant_id_fingerprint_hash_granularity_key
+    UNIQUE (tenant_id, fingerprint_hash, granularity);
+-- The widened UNIQUE creates the covering index (tenant_id, fingerprint_hash, granularity)
+-- that serves the per-tenant atom lookup; no separate index is needed (algorithm_version is
+-- pinned by the hash, so it is a cheap residual filter at read).
 
 -- ── (d) DI-10 STRUCTURAL GUARD ──
 -- Foundational/vertical (cross-tenant) rows may NOT hold any raw or tenant-identifying value.
@@ -47,21 +65,17 @@ ALTER TABLE public.structural_fingerprints
     OR (source_file_sample IS NULL AND classification_result IS NULL AND column_roles IS NULL)
   );
 
--- ── (c) TENANT SCOPING / atom lookup support ──
--- Atom rows are tenant-scoped (tenant_id NOT NULL, unchanged). Atom reads/writes filter
--- granularity + algorithm_version; this composite index serves the per-(tenant, atom-hash,
--- version) lookup. Sheet rows are read with granularity='sheet' in code (no collision: atom
--- hashes are single-column, sheet hashes composite).
-CREATE INDEX IF NOT EXISTS structural_fingerprints_atom_idx
-  ON public.structural_fingerprints (tenant_id, fingerprint_hash, granularity, algorithm_version);
-
--- ── (e) ROLLBACK ──
+-- ── (e) ROLLBACK (assumes no atom-granularity rows written yet — the pre-Phase-2-write window;
+--        restoring the narrower UNIQUE requires (tenant_id, fingerprint_hash) be unique again) ──
 -- BEGIN;
---   DROP INDEX IF EXISTS public.structural_fingerprints_atom_idx;
 --   ALTER TABLE public.structural_fingerprints
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_di10_chk,
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_scope_chk,
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_granularity_chk,
+--     DROP CONSTRAINT IF EXISTS structural_fingerprints_tenant_id_fingerprint_hash_granularity_key,
+--     ADD CONSTRAINT  structural_fingerprints_tenant_id_fingerprint_hash_key
+--       UNIQUE (tenant_id, fingerprint_hash);
+--   ALTER TABLE public.structural_fingerprints
 --     DROP COLUMN IF EXISTS atom_features,
 --     DROP COLUMN IF EXISTS scope,
 --     DROP COLUMN IF EXISTS algorithm_version,
