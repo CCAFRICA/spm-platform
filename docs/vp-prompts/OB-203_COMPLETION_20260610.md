@@ -361,3 +361,23 @@ so all 20 columns were novel residue, not partial recognition. Needs RUN 4: a 2n
 stayed sheet-Tier-1 while only the modified `Datos_Rendimiento` was comprehended); `llmCallDuration`
 metric fix verified (19747ms real, was 0). Classifications stable & correct: entity / transaction /
 reference across all runs.
+
+---
+
+## ABSORBED SCOPE — Phase 5: client-tier silent failure (architect disposition 2026-06-11)
+
+**New failure class (from the RUN-4 stall):** a client/session-side upload/parse/analyze-fetch hang
+produced an **infinite spinner with zero user feedback** — DI-4 violated at the CLIENT boundary
+(the server-side comprehension-failure surface, Phase 1, does not cover failures that never reach
+the server).
+
+**Absorbed into Phase 5** (observer import experience rebuild). **Scope assessment: FITS Phase 5,
+does not exceed it** — Phase 5 already rebuilds the import dialogs as state observers with DI-4
+failure surfaces; this extends the SAME surface to the client tier. No new tables, no engine change,
+no new infrastructure — a UI error-state addition on the upload→analyzing→proposal lifecycle.
+
+**Phase 5 requirement (DI-4 at the client boundary):** upload / parse / analyze-fetch failures and
+timeouts MUST render a user-perceptible error state stating *what was encountered* and a *suggested
+action* (retry / check file / restart) — never an indefinite spinner. Concretely: a timeout + catch
+on the analyze fetch in the import UI (`operate/import/page.tsx` + `SCIUpload`), surfacing the
+error state with the failure reason. (No HALT — within Phase 5 as scoped.)
