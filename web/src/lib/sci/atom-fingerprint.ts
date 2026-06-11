@@ -15,7 +15,12 @@
 
 import { createHash } from 'crypto';
 
-export const ATOM_ALGORITHM_VERSION = 1;
+// v2 (OB-203 RUN-4 fix A): added value-length distribution (lengthBucket + lengthVarBucket) to
+// discriminate structurally-similar-but-distinct columns — ID-shaped vs measure-shaped integers
+// (uniform vs varied length) and name vs free-text (short/low-var vs long/high-var). The version is
+// in the hash, so v1 atoms (different hash) are not matched at v2 — DI-9 bridge: prior-version rows
+// remain readable and version-isolated, never stranded into the new algorithm.
+export const ATOM_ALGORITHM_VERSION = 2;
 
 export type AtomDataType = 'integer' | 'decimal' | 'date' | 'boolean' | 'text' | 'empty' | 'mixed';
 
@@ -25,6 +30,8 @@ export interface AtomFeatures {
   cardinalityBucket: string; // distinct/total ratio bucket
   repeatBucket: string;      // total/distinct bucket
   nullBucket: string;        // null ratio bucket
+  lengthBucket: string;      // v2: mean value-length bucket (short/medium/long/xlong)
+  lengthVarBucket: string;   // v2: value-length coefficient-of-variation (uniform/low/high)
   flags: {
     temporal: boolean;
     identifierLike: boolean;
@@ -72,6 +79,18 @@ function nullBucket(r: number): string {
   if (r < 0.5) return 'some';
   return 'many';
 }
+function lengthBucket(mean: number): string {
+  if (mean <= 4) return 'short';
+  if (mean <= 12) return 'medium';
+  if (mean <= 30) return 'long';
+  return 'xlong';
+}
+// coefficient of variation of value-length: uniform = consistent (IDs, codes), high = varied (free text)
+function lengthVarBucket(cv: number): string {
+  if (cv < 0.15) return 'uniform';
+  if (cv < 0.4) return 'low';
+  return 'high';
+}
 
 export function computeAtomFeatures(values: unknown[]): AtomFeatures {
   const total = values.length || 1;
@@ -93,6 +112,13 @@ export function computeAtomFeatures(values: unknown[]): AtomFeatures {
     dataType = domCount / nonNull.length >= 0.9 ? (domType as AtomDataType) : 'mixed';
   }
 
+  // v2: value-length distribution — discriminates ID-shape (uniform length) from measure-shape
+  // (varied) and name (short/low-var) from free-text (long/high-var).
+  const lengths = nonNull.map(v => String(v).length);
+  const meanLen = lengths.length ? lengths.reduce((a, b) => a + b, 0) / lengths.length : 0;
+  const variance = lengths.length ? lengths.reduce((a, b) => a + (b - meanLen) ** 2, 0) / lengths.length : 0;
+  const cv = meanLen > 0 ? Math.sqrt(variance) / meanLen : 0;
+
   const numeric = dataType === 'integer' || dataType === 'decimal';
   // Near-unique: a true identifier is ~1:1. A high-cardinality measure (a wide-range numeric
   // that still repeats) stays below this — its semantic id-vs-measure ambiguity is comprehension's
@@ -113,6 +139,8 @@ export function computeAtomFeatures(values: unknown[]): AtomFeatures {
     cardinalityBucket: ratioBucket(cardinality),
     repeatBucket: repeatBucket(repeat),
     nullBucket: nullBucket(nullRatio),
+    lengthBucket: lengthBucket(meanLen),
+    lengthVarBucket: lengthVarBucket(cv),
     flags,
   };
 }
@@ -121,6 +149,7 @@ export function computeAtomFeatures(values: unknown[]): AtomFeatures {
 function canonical(f: AtomFeatures): string {
   return JSON.stringify([
     f.algorithmVersion, f.dataType, f.cardinalityBucket, f.repeatBucket, f.nullBucket,
+    f.lengthBucket, f.lengthVarBucket,
     f.flags.temporal, f.flags.identifierLike, f.flags.measureLike, f.flags.nameLike,
   ]);
 }

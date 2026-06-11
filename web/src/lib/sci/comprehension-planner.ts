@@ -47,11 +47,17 @@ export function planSheetComprehension(
       const k = known.get(fp.hash)!;
       atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.confidence });
       knownColumns.push({ columnName, role: k.role, confidence: k.confidence });
+      // OB-203 RUN-4 fix C: claims are never silent again (DI-4 spirit).
+      console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> CLAIMED role=${k.role}@${k.confidence.toFixed(2)} (stable-known)`);
     } else {
       atoms.push({ columnName, hash: fp.hash, known: false });
       novelColumns.push(columnName);
+      const seen = known.get(fp.hash);
+      const why = seen ? `ambiguous/low-conf (stored role=${seen.role}@${seen.confidence.toFixed(2)})` : 'no prior atom';
+      console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> NOVEL (${why}) — will comprehend`);
     }
   }
+  console.log(`[OB-203][atom-residue] sheet=${sheetName} known=${knownColumns.length}/${columns.length} novel=${novelColumns.length} [${novelColumns.join(', ')}]`);
 
   return {
     sheetName,

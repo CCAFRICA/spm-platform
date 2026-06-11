@@ -381,3 +381,42 @@ timeouts MUST render a user-perceptible error state stating *what was encountere
 action* (retry / check file / restart) — never an indefinite spinner. Concretely: a timeout + catch
 on the analyze fetch in the import UI (`operate/import/page.tsx` + `SCIUpload`), surfacing the
 error state with the failure reason. (No HALT — within Phase 5 as scoped.)
+
+---
+
+## RUN-4 FIX — atom role-claim soundness (A+B+C, architect-ratified 2026-06-11)
+
+Root cause (RUN-4 structural read): exact-hash claim over coarse features → structurally-similar
+columns collapse to one atom; numeric IDs typed `integer` collide with integer measures; free-text
+collides with names; `writeAtoms` last-write-wins corrupted the role (`No_Empleado:identifier`
+overwritten to `measure`). D1 over-claim → D2 profile regression (`idRepeatRatio 4.02→0.00`) → D3
+posterior collapse (`transaction 85%→39%`).
+
+- **(A) discriminative features** (`atom-fingerprint.ts`, **ATOM_ALGORITHM_VERSION 1→2**): added value
+  `lengthBucket` (mean) + `lengthVarBucket` (coefficient of variation). Separates ID-shape (uniform
+  length) from measure-shape (varied), and name (medium/low-var) from free-text (xlong/high-var).
+- **(B) role-stability gating** (`atom-flywheel.ts`): `resolveAtomRole` — a conflicting role makes the
+  atom `ambiguous`; `knownAtomHashes` excludes ambiguous → the column is **comprehended, never
+  asserted** (hints-not-gates at the atom layer; DI-3 preserved). Kills the `No_Empleado:measure`
+  degradation at the source.
+- **(C) observability** (`comprehension-planner.ts`): per-atom `[OB-203][atom-claim] … CLAIMED/NOVEL`
+  + per-sheet `[OB-203][atom-residue]` — claims never silent again (DI-4 spirit).
+
+**Tests (analogs), 6 new:** conflicting-role→ambiguous + once-ambiguous-always + agreeing-preserved;
+ambiguous never claimed; stability round-trip; free-text vs name separated by length; ID-shape vs
+measure-shape differ; **DI-9 bridge** (v1 hash ≠ v2 hash, v1 not matched at v2). Full suite **127
+pass**, build exit 0.
+
+**DI-9 bridge — FIRST LIVE EXERCISE (evidence):** before reset, the 12 prior-version atoms were
+`algorithm_version=1`, **readable** by direct query; `lookupAtoms(v2)` over their hashes returned
+**0 matched** — version-isolated, not stranded, re-derive cleanly. Then full reset → VERIFIED COLD
+(structural_fingerprints 0, committed_data 0, classification_signals 0).
+
+### Recorded (architect disposition)
+- **(i) DI-3 refinement:** *structure determines identity; role requires stability evidence.* ICA
+  capture candidate at arc close. The **Phase 6 workbook-graph** is the designed home of contextual
+  role resolution — the `Hub` role-flap AND this ID/measure ambiguity both route there (relational
+  context settles what structure cannot).
+- **(ii) Phase 6 reconciliation metric — ambiguity-rate:** if the ambiguous-atom set grows large, the
+  recognition moat erodes and relational resolution becomes urgent. Track the `ambiguous` fraction of
+  the atom store as a Phase 6 health signal.

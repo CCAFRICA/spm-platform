@@ -46,10 +46,25 @@ export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: stri
  * The set of atom hashes KNOWN at sufficient confidence — the read-before-derive gate's input.
  * An atom with a real role at or above the confidence floor is claimed without an LLM dispatch.
  */
+// OB-203 RUN-4 fix B (role-stability gating): an atom claims a role ONLY if its role is STABLE.
+// `'ambiguous'` is the sentinel for an atom seen with conflicting roles across columns (e.g. an
+// integer ID and an integer measure sharing structure) — it never asserts; the column routes to
+// comprehension instead (hints-not-gates at the atom layer; DI-3 preserved — structure is still the
+// identity, the CLAIM adds a stability requirement).
+export const AMBIGUOUS_ROLE = 'ambiguous';
+
+/** Pure role-stability resolution (testable): a conflicting role makes the atom ambiguous; once
+ *  ambiguous, always ambiguous; an agreeing role is preserved. */
+export function resolveAtomRole(existingRole: string | undefined | null, newRole: string): string {
+  if (existingRole === AMBIGUOUS_ROLE) return AMBIGUOUS_ROLE;
+  if (existingRole && existingRole !== newRole) return AMBIGUOUS_ROLE;
+  return newRole;
+}
+
 export function knownAtomHashes(known: Map<string, KnownAtom>, minConfidence = 0.5): Set<string> {
   const s = new Set<string>();
   for (const [h, a] of Array.from(known.entries())) {
-    if (a.confidence >= minConfidence && a.role && a.role !== 'unknown') s.add(h);
+    if (a.confidence >= minConfidence && a.role && a.role !== 'unknown' && a.role !== AMBIGUOUS_ROLE) s.add(h);
   }
   return s;
 }
@@ -105,7 +120,7 @@ export async function writeAtoms(
     try {
       const { data: existing } = await supabase
         .from('structural_fingerprints')
-        .select('id, match_count')
+        .select('id, match_count, column_roles')
         .eq('tenant_id', tenantId)
         .eq('granularity', 'atom')
         .eq('fingerprint_hash', atom.hash)
@@ -115,12 +130,18 @@ export async function writeAtoms(
       if (existing) {
         const newMatchCount = existing.match_count + 1;
         const newConfidence = 1 - 1 / (newMatchCount + 1);
+        // B (role-stability): once ambiguous, stays ambiguous; a conflicting role makes it ambiguous.
+        const existingRole = (existing.column_roles as Record<string, unknown>)?.role as string | undefined;
+        const resolvedRole = resolveAtomRole(existingRole, role);
+        if (resolvedRole === AMBIGUOUS_ROLE && existingRole !== AMBIGUOUS_ROLE) {
+          console.warn(`[OB-203][atom-flywheel] role AMBIGUOUS hash=${atom.hash.slice(0, 12)} (was '${existingRole}', now '${role}') — will route to comprehension`);
+        }
         await supabase
           .from('structural_fingerprints')
           .update({
             match_count: newMatchCount,
             confidence: Number(newConfidence.toFixed(4)),
-            column_roles: { role },
+            column_roles: { role: resolvedRole },
             atom_features: atom.features as unknown as Record<string, unknown>,
             updated_at: new Date().toISOString(),
           })
