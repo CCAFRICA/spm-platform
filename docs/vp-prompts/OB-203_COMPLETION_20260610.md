@@ -71,7 +71,22 @@ const hasUnknownRole = Object.values(columnRoles).some(
 Diagnostic surface renders `<col>:<role>@<conf>` — e.g. `[SCI-HC-DIAG] sheet=Plan General roles=[…:unknown@0.85, …]` (`fingerprint-flywheel.ts:62-63`, `analyze/route.ts:231-233`).
 **Phase 6 note:** the predicate's `role == null` already catches `undefined`; the four pre-HF-247 poisoned Tier-1 fingerprints "carrying undefined roles" must be reconciled against how they are *stored* (string `'unknown'` vs missing key) — verified live in Phase 6 before retire/re-derive.
 
-### 0.5 Baseline witness — **PENDING ARCHITECT FIXTURE**
-`datos-cadena-restaurantes-mx.xlsx` (Brasa y Maíz, 16 sheets / 162,956 rows) is **not present in the repo** (searched fixtures, scripts, test-fixtures — only `BCL_Resultados_Esperados.xlsx` and `CLT14B_Reconciliation_Detail.xlsx` exist). Per §3.5 the architect supplies it. On receipt: dev import → capture the failure logs (`[SCI] Header comprehension JSON parse failed`, `llmCalled=false avgConf=0.00`, the 16-unit mis-proposal, HF-247 write blocks) → commit to `OB-203_BASELINE_20260610.md`. The design-recorded signature (DS-027 §1) stands as the documented expectation until the live capture.
+### 0.5 Baseline witness — **BLIND-HOLDOUT, architect-executed** (awaiting run)
+Per the 2026-06-10 disposition correction and directive §2 L38 / §3.5 L50 / HALT-10, the real
+file is **never supplied to CC or committed**. The architect runs the import in dev against a
+sandbox tenant; CC captures the console stream + a service-role tsx read of the sandbox tenant's
+post-run `structural_fingerprints` / `classification_signals` state, and records the file
+**sha256 as architect-reported**. Protocol + capture record in `OB-203_BASELINE_20260610.md`.
+The DS-027 §1 signature stands as the documented expectation until the live capture.
+**Capture tooling staged:** build is green (exit 0) and dev serves `localhost:3000` (verified
+prior session); the post-run DB read is a parameterized service-role tsx script run once the
+architect provides the sandbox tenant_id. Awaiting the architect run.
 
-**Phase 0 status:** complete except 0.5 (blocked on the Brasa y Maíz fixture). No HALT (2,3,4,7) triggered. Ready for Phase 1 once the baseline is captured (or on architect direction to proceed in parallel).
+### Phase 2-6 testing note (blind-holdout)
+All Phase 2-6 tests run against a **seeded structural-analog generator** (built in Phase 2,
+committed as code) — same structural class, randomized-token/non-Latin vocabulary, never real
+tenant vocabulary; cross-vocabulary generality test included; EPG-2.2 pointed at a generated
+analog; induced-failure exit witness uses a corrupted analog (§3.2 L68-70, §3.6 L101/L104).
+
+**Phase 0 status:** complete except 0.5 (architect-executed baseline run pending — blind-holdout).
+No HALT (2,3,4,7,10) triggered. Ordering stands: baseline before any Phase 1 code.
