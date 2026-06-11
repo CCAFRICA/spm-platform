@@ -59,7 +59,7 @@ export interface UnitComprehensionResult {
   failure?: { failureClass: ComprehensionFailureClass };
   recognizedFraction: number;
   /** Atoms to accumulate — EMPTY for failed units (hold a). Caller writes these (gated). */
-  atomsToWrite: Array<{ columnName: string; hash: string; role: string }>;
+  atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }>;
 }
 
 export async function decomposeComprehension(
@@ -74,9 +74,10 @@ export async function decomposeComprehension(
     const plan = planSheetComprehension(sheet.sheetName, sheet.columns, sheet.rows, known, minConfidence);
 
     // claimed-from-prior atoms (always safe to re-accumulate — they comprehended before)
-    const atomsToWrite: Array<{ columnName: string; hash: string; role: string }> = [];
+    const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }> = [];
     for (const a of plan.atoms) {
-      if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role });
+      // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
+      if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9 });
     }
 
     if (plan.novelColumns.length === 0) {
@@ -116,7 +117,7 @@ export async function decomposeComprehension(
       comprehendedColumns.push({ columnName: col, interpretation: interp });
       if (interp.columnRole && interp.columnRole !== 'unknown') {
         const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-        atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole });
+        atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole, roleConfidence: interp.confidence });
       }
     }
 

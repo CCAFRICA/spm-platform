@@ -329,7 +329,7 @@ export async function runDecomposedComprehension(
   // 5. reconstruct headerComprehension + enhance; collect failures, provenance, atoms-to-write.
   const perSheetFailure = new Map<string, ComprehensionFailureClass>();
   const provenance = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
-  const atomsToWrite: Array<{ atom: ReturnType<typeof computeAtomFingerprint>; role: string }> = [];
+  const atomsToWrite: Array<{ atom: ReturnType<typeof computeAtomFingerprint>; role: string; roleConfidence: number }> = [];
   let columnsInterpreted = 0, confTotal = 0, confCount = 0;
 
   for (const r of results) {
@@ -376,7 +376,7 @@ export async function runDecomposedComprehension(
     // hold (a): succeeded units only — recompute the full atom (with features) on full rows for the write.
     const sheet = sheets.find(s => s.sheetName === r.sheetName)!;
     for (const a of r.atomsToWrite) {
-      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role });
+      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence });
     }
   }
 

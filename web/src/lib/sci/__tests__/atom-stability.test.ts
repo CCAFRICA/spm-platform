@@ -18,8 +18,8 @@ test('B: conflicting roles -> ambiguous; once ambiguous always; agreeing role pr
 
 test('B: an ambiguous atom is NEVER claimed (routes to comprehension)', () => {
   const known = new Map<string, KnownAtom>([
-    ['h_stable', { hash: 'h_stable', role: 'identifier', confidence: 0.9, matchCount: 5 }],
-    ['h_ambig', { hash: 'h_ambig', role: AMBIGUOUS_ROLE, confidence: 0.9, matchCount: 8 }],
+    ['h_stable', { hash: 'h_stable', role: 'identifier', confidence: 0.9, roleConfidence: 0.9, matchCount: 5 }],
+    ['h_ambig', { hash: 'h_ambig', role: AMBIGUOUS_ROLE, confidence: 0.9, roleConfidence: 0.9, matchCount: 8 }],
   ]);
   const set = knownAtomHashes(known);
   assert.ok(set.has('h_stable'));     // stable role -> claimed
@@ -31,7 +31,7 @@ test('B: stability round-trip — claim, conflicting write -> ambiguous -> exclu
   let storedRole: string = 'identifier';           // column 1 (an ID) writes identifier
   storedRole = resolveAtomRole(storedRole, 'measure'); // column 2 (a measure) shares the hash -> conflict
   assert.equal(storedRole, AMBIGUOUS_ROLE);
-  const known = new Map<string, KnownAtom>([['h', { hash: 'h', role: storedRole, confidence: 0.8, matchCount: 6 }]]);
+  const known = new Map<string, KnownAtom>([['h', { hash: 'h', role: storedRole, confidence: 0.8, roleConfidence: 0.9, matchCount: 6 }]]);
   assert.ok(!knownAtomHashes(known).has('h')); // next import: comprehended, not mis-claimed
 });
 
@@ -71,6 +71,6 @@ test('DI-9 bridge: a v1 atom hash is NOT matched at v2 (version-isolated, re-der
   assert.notEqual(v1Hash, v2Hash); // version is in the identity -> different hash
   // a known map keyed by the v1 hash does NOT match the v2 atom -> the column is re-derived, not
   // claimed from a stale-version atom (the v1 row remains queryable; lookupAtoms filters by version).
-  const knownV1 = new Map<string, KnownAtom>([[v1Hash, { hash: v1Hash, role: 'identifier', confidence: 0.9, matchCount: 4 }]]);
+  const knownV1 = new Map<string, KnownAtom>([[v1Hash, { hash: v1Hash, role: 'identifier', confidence: 0.9, roleConfidence: 0.9, matchCount: 4 }]]);
   assert.ok(!knownAtomHashes(knownV1).has(v2Hash));
 });

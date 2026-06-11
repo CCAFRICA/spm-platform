@@ -26,7 +26,7 @@ const seedKnown = (cols: string[], rows: Record<string, unknown>[], role = 'attr
   const m = new Map<string, KnownAtom>();
   for (const c of cols) {
     const fp = computeAtomFingerprint(c, rows.map(r => r[c]));
-    m.set(fp.hash, { hash: fp.hash, role, confidence: 0.85, matchCount: 5 });
+    m.set(fp.hash, { hash: fp.hash, role, confidence: 0.85, roleConfidence: 0.9, matchCount: 5 });
   }
   return m;
 };
@@ -81,6 +81,20 @@ test('fully-recognized sheet -> NO comprehension dispatch (null input)', () => {
   assert.equal(buildBoundedComprehensionInput(plan, fact.rows), null); // zero LLM
 });
 
+test('D5: claim uses STABLE role-confidence, not the maturing recognition confidence', () => {
+  const fact = generateStructuralAnalog({ seed: 50 }).sheets.find(s => s.kind === 'fact')!;
+  const c = fact.columns[2]; // temporal-ish column
+  const fp = computeAtomFingerprint(c, fact.rows.map(r => r[c]));
+  // LOW recognition (early maturation) but HIGH role-confidence (LLM said 0.98) -> claim at 0.98
+  const known = new Map<string, KnownAtom>([[fp.hash, { hash: fp.hash, role: 'temporal', confidence: 0.5, roleConfidence: 0.98, matchCount: 1 }]]);
+  const plan = planSheetComprehension(fact.sheetName, [c], fact.rows, known);
+  assert.equal(plan.knownColumns[0].confidence, 0.98); // NOT the recognition 0.5
+  // inverse: HIGH recognition (matured) but lower role-confidence -> claim still tracks role-conf, not maturation
+  const known2 = new Map<string, KnownAtom>([[fp.hash, { hash: fp.hash, role: 'temporal', confidence: 0.95, roleConfidence: 0.6, matchCount: 20 }]]);
+  const plan2 = planSheetComprehension(fact.sheetName, [c], fact.rows, known2);
+  assert.equal(plan2.knownColumns[0].confidence, 0.6); // stable across maturation -> no threshold flip (D5)
+});
+
 test('partial recognition on a generated analog: known atoms claim roles amid novel neighbors', () => {
   const wb = generateStructuralAnalog({ seed: 21 });
   const fact = wb.sheets.find(s => s.kind === 'fact')!;
@@ -88,7 +102,7 @@ test('partial recognition on a generated analog: known atoms claim roles amid no
   const known = new Map<string, KnownAtom>();
   for (const c of [fact.columns[0], fact.columns[2]]) {
     const fp = computeAtomFingerprint(c, fact.rows.map(r => r[c]));
-    known.set(fp.hash, { hash: fp.hash, role: c === fact.columns[2] ? 'temporal' : 'identifier', confidence: 0.85, matchCount: 5 });
+    known.set(fp.hash, { hash: fp.hash, role: c === fact.columns[2] ? 'temporal' : 'identifier', confidence: 0.85, roleConfidence: 0.9, matchCount: 5 });
   }
   const plan = planSheetComprehension(fact.sheetName, fact.columns, fact.rows, known);
   // the two pre-known atoms are claimed regardless of the novel measure neighbors

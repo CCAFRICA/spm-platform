@@ -420,3 +420,31 @@ pass**, build exit 0.
 - **(ii) Phase 6 reconciliation metric — ambiguity-rate:** if the ambiguous-atom set grows large, the
   recognition moat erodes and relational resolution becomes urgent. Track the `ambiguous` fraction of
   the atom store as a Phase 6 health signal.
+
+---
+
+## D5 FIX — recognition-confidence vs role-confidence decoupling (2026-06-11)
+
+RUN-4 re-run PASSED the atom witness (role-stability live, no over-claim, READ witness 14/20 & 15/21)
+but surfaced **D5**: `Datos_Rendimiento` classified `target@85` in Run 3 vs `transaction@85` in Run 4
+on identical claimed roles. Root: the planner claimed a known atom at `k.confidence` — the **maturing
+recognition** confidence (`1−1/(matchCount+1)`: 0.75→0.83…). Fed into the role-confidence-thresholded
+pattern gate (`HC_OVERRIDE_THRESHOLD=0.80`), `Mes/Año` temporal confidence crossed 0.80 between runs →
+temporal detection flipped → `entity_targets` (target) vs `event_transactions_temporal` (transaction).
+Nondeterminism by maturation state. (`hasTx` follows; the `0441c426eab1` collision spanning
+No_Empleado/Ingreso_Meta/Ingreso_Real correctly went ambiguous → comprehend — (B) working; **ambiguity
+rate ~30%** recorded as the first Phase-6 datapoint.)
+
+**Fix:** decouple. `KnownAtom.roleConfidence` (stored in `column_roles`, from the original
+comprehension) is claimed — STABLE — instead of the recognition count. `knownAtomHashes` still gates on
+*recognition* confidence (whether to claim); the claimed *role* confidence is the stable comprehension
+value. Legacy atoms (no stored roleConfidence) fall back to `RECOGNIZED_ROLE_CONFIDENCE=0.9` — also
+stable. `writeAtoms` keeps `max` role-confidence on agreement; ambiguity unaffected. **1 new test
+(D5)** pins it: claim tracks role-confidence (0.98 / 0.6), never recognition (0.5 / 0.95). Full suite
+**128 pass**, build exit 0.
+
+**HF-247 'unknown' (secondary, located):** the skip on sheet fingerprint `d464fd4d4413` at execute is
+the EXISTING execute-bulk sheet-`columnRoles` write (HF-254 enrichment / HF-247 gate) — **pre-existing,
+Phase-2-untouched**; the gate correctly REFUSED a fingerprint with an unknown sheet-binding role (no
+poison). The decomposed path's `profile.headerComprehension` roles were all valid; the 'unknown' is at
+the independent sheet-binding layer. Flagged for a precise pin if wanted; non-harmful.

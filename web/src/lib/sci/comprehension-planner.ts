@@ -45,10 +45,11 @@ export function planSheetComprehension(
     const fp = computeAtomFingerprint(columnName, rows.map(r => r[columnName]));
     if (knownSet.has(fp.hash)) {
       const k = known.get(fp.hash)!;
-      atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.confidence });
-      knownColumns.push({ columnName, role: k.role, confidence: k.confidence });
-      // OB-203 RUN-4 fix C: claims are never silent again (DI-4 spirit).
-      console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> CLAIMED role=${k.role}@${k.confidence.toFixed(2)} (stable-known)`);
+      // D5 fix: claim at the STABLE role confidence (from comprehension), NOT the maturing recognition
+      // confidence — so downstream pattern thresholds (e.g. temporal ≥0.80) don't flip by maturation.
+      atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.roleConfidence });
+      knownColumns.push({ columnName, role: k.role, confidence: k.roleConfidence });
+      console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> CLAIMED role=${k.role}@${k.roleConfidence.toFixed(2)} (stable role-conf; recog=${k.confidence.toFixed(2)})`);
     } else {
       atoms.push({ columnName, hash: fp.hash, known: false });
       novelColumns.push(columnName);

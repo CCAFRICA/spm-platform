@@ -36,8 +36,8 @@ test('decomposed dispatch: recognized / comprehended / failed_interpretation per
   const known = new Map<string, KnownAtom>();
   const idHash = computeAtomFingerprint('id', idVals).hash;
   const amtHash = computeAtomFingerprint('amt', amtVals).hash;
-  known.set(idHash, { hash: idHash, role: 'identifier', confidence: 0.85, matchCount: 5 });
-  known.set(amtHash, { hash: amtHash, role: 'measure', confidence: 0.85, matchCount: 5 });
+  known.set(idHash, { hash: idHash, role: 'identifier', confidence: 0.85, roleConfidence: 0.9, matchCount: 5 });
+  known.set(amtHash, { hash: amtHash, role: 'measure', confidence: 0.85, roleConfidence: 0.9, matchCount: 5 });
 
   // injected comprehender: records which sheets it was called for; fails sheet C's residue.
   const calledFor: string[] = [];
@@ -76,7 +76,7 @@ test('fully-recognized workbook -> zero LLM calls', async () => {
   const known = new Map<string, KnownAtom>();
   for (const [name, vals] of [['id', idVals], ['amt', amtVals]] as const) {
     const h = computeAtomFingerprint(name, vals).hash;
-    known.set(h, { hash: h, role: 'attribute', confidence: 0.9, matchCount: 6 });
+    known.set(h, { hash: h, role: 'attribute', confidence: 0.9, roleConfidence: 0.9, matchCount: 6 });
   }
   let calls = 0;
   const comprehend: ResidueComprehender = async () => { calls++; return { ok: true, interpretations: {} }; };

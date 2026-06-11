@@ -11,17 +11,22 @@ import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
 export interface KnownAtom {
   hash: string;
-  role: string;        // accumulated structural role label
-  confidence: number;
+  role: string;             // accumulated structural role label
+  confidence: number;       // RECOGNITION confidence (match-count Bayesian) — gates whether to claim
+  roleConfidence: number;   // ROLE confidence (from comprehension) — STABLE; fed to downstream gates (D5 fix)
   matchCount: number;
 }
+
+// D5 fix: a recognized atom whose stored row predates roleConfidence claims at this stable floor
+// (legacy atoms) — never the maturing recognition number, so pattern thresholds don't flip by maturation.
+export const RECOGNIZED_ROLE_CONFIDENCE = 0.9;
 
 /**
  * Pure: the upsert payload for one tenant-scoped atom row. DI-10-safe — `atom_features` carries
  * buckets/flags only; `column_roles` carries a structural role label; no file identifier, no raw
  * value, no header text in the identity (the hash already excludes the name).
  */
-export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: string): Record<string, unknown> {
+export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: string, roleConfidence: number): Record<string, unknown> {
   return {
     tenant_id: tenantId,
     fingerprint_hash: atom.hash,
@@ -30,7 +35,7 @@ export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: stri
     algorithm_version: ATOM_ALGORITHM_VERSION,
     scope: 'tenant',
     atom_features: atom.features as unknown as Record<string, unknown>,
-    column_roles: { role },
+    column_roles: { role, roleConfidence },
     // structural_fingerprints.classification_result is NOT NULL; an atom row has no sheet
     // classification, so an empty object is the benign placeholder (EPG-2.4 RUN-1 fix). For
     // tenant scope the DI-10 CHECK is satisfied by scope='tenant'. Foundational/vertical atoms
@@ -91,11 +96,14 @@ export async function lookupAtoms(
     return out;
   }
   for (const r of (data || [])) {
-    const role = ((r.column_roles as Record<string, unknown>)?.role as string) ?? 'unknown';
+    const cr = (r.column_roles as Record<string, unknown>) ?? {};
+    const role = (cr.role as string) ?? 'unknown';
+    const roleConfidence = typeof cr.roleConfidence === 'number' ? cr.roleConfidence : RECOGNIZED_ROLE_CONFIDENCE; // legacy fallback (D5)
     out.set(r.fingerprint_hash as string, {
       hash: r.fingerprint_hash as string,
       role,
       confidence: Number(r.confidence),
+      roleConfidence,
       matchCount: r.match_count as number,
     });
   }
@@ -110,13 +118,13 @@ export async function lookupAtoms(
  */
 export async function writeAtoms(
   tenantId: string,
-  atomsWithRoles: Array<{ atom: AtomFingerprint; role: string }>,
+  atomsWithRoles: Array<{ atom: AtomFingerprint; role: string; roleConfidence: number }>,
   supabaseUrl: string,
   supabaseServiceKey: string,
 ): Promise<void> {
   if (atomsWithRoles.length === 0) return;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  for (const { atom, role } of atomsWithRoles) {
+  for (const { atom, role, roleConfidence } of atomsWithRoles) {
     try {
       const { data: existing } = await supabase
         .from('structural_fingerprints')
@@ -131,8 +139,12 @@ export async function writeAtoms(
         const newMatchCount = existing.match_count + 1;
         const newConfidence = 1 - 1 / (newMatchCount + 1);
         // B (role-stability): once ambiguous, stays ambiguous; a conflicting role makes it ambiguous.
-        const existingRole = (existing.column_roles as Record<string, unknown>)?.role as string | undefined;
+        const cr = (existing.column_roles as Record<string, unknown>) ?? {};
+        const existingRole = cr.role as string | undefined;
+        const existingRoleConf = typeof cr.roleConfidence === 'number' ? cr.roleConfidence : 0;
         const resolvedRole = resolveAtomRole(existingRole, role);
+        // role confidence is STABLE: on agreement keep the strongest evidence; ambiguity is irrelevant (excluded).
+        const resolvedRoleConf = resolvedRole === AMBIGUOUS_ROLE ? existingRoleConf : Math.max(existingRoleConf, roleConfidence);
         if (resolvedRole === AMBIGUOUS_ROLE && existingRole !== AMBIGUOUS_ROLE) {
           console.warn(`[OB-203][atom-flywheel] role AMBIGUOUS hash=${atom.hash.slice(0, 12)} (was '${existingRole}', now '${role}') — will route to comprehension`);
         }
@@ -141,14 +153,14 @@ export async function writeAtoms(
           .update({
             match_count: newMatchCount,
             confidence: Number(newConfidence.toFixed(4)),
-            column_roles: { role: resolvedRole },
+            column_roles: { role: resolvedRole, roleConfidence: resolvedRoleConf },
             atom_features: atom.features as unknown as Record<string, unknown>,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existing.id)
           .eq('match_count', existing.match_count); // optimistic lock (mirrors sheet path)
       } else {
-        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role));
+        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence));
       }
     } catch (err) {
       // Finding-A follow-through: a blocked atom-learning write must NOT be silent (DI-4/DI-7 spirit).
