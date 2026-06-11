@@ -635,3 +635,67 @@ sheet-novel (`3d5282383107`, Tier-3) → decomposed dispatch; the other two shee
 D5 `roleConfidence`, and tier composition all live in prod. Open downstream: Phase 6 reconciliation
 (contaminated-`fieldBindings` shape; accumulated ambiguous atoms) + contextual-role resolution
 (Hub-flap / `Codigo_Turno` spurious-entity class, D3).
+
+---
+
+## PHASE 3 — Durable Comprehension State (R2/DI-1) — CODE-COMPLETE (2026-06-11)
+
+Branch `OB-203-phase-3` off `main` @ `e3efb505`. Full SCI suite **67 pass** (+10: 8 state, 2 retry);
+typecheck exit 0; **production build green** (both new routes registered).
+
+### Engine — `comprehension-state-service.ts`
+- `comprehension:unit_state` on the ONE canonical surface/writer (G7-ratified: new `signal_type`, not a
+  new channel; precedent `failed_interpretation` / `atom_write_failed`). Overloading
+  `classification:outcome` was declined — would contaminate outcome semantics (the Phase-2 defect shape).
+- State vocabulary `persisted→profiled→recognized→comprehended→classified→bound` + `failed_interpretation`
+  / `resolved`; monotonic-spine guard `isForwardTransition`; pure `reduceSessionState` (DB-free) + DB
+  `rebuildSessionState` (resumable from signals alone — survives process restart, R2).
+- Same-batch ordering: explicit emission `seq` tiebreaks identical `created_at` (batch inserts share a
+  timestamp); across requests (retry) `created_at` dominates.
+
+### Read contract (binding expectation b) — `GET /api/import/sci/session-state?tenantId=&importSessionId=`
+Returns `SessionStateView` (per-unit state + history + `retryable` + `isOpen`). **This is the Phase 5
+dialog's data contract** — Phase 5 consumes it without rework.
+
+### Emission wiring (analyze + execute-bulk)
+| State | site | DI note |
+|---|---|---|
+| `persisted` | sheet ENUMERATION, **before** profiling | **DI-1/EPG-3.2**: state-zero independent of any downstream step (architect redirect: split from `profiled`) |
+| `profiled` / `failed(profiling_error)` | after `generateContentProfileStats` (per-sheet try/catch) | |
+| `recognized(tier)` | after fingerprint lookup | tier 1/2/3 |
+| `comprehended` / `failed_interpretation` | after decomposed dispatch + Tier-1 inject | alongside existing `emitComprehensionFailureSignals` |
+| `classified` | after proposal build (failed units excluded) | |
+| `bound` | **execute-bulk** after commit, per committed unit | |
+`importSessionId` (= `proposalId` alias) returned on the proposal and stamped in `context.importSessionId`.
+Non-blocking `emitUnitStates` (failures surfaced via `[OB-203][state]`, never swallowed).
+
+### Identity boundary (architect item 2, recorded)
+`importSessionId` = **comprehension-session** identity (groups unit states; aliases `proposalId`).
+**Distinct** from execute-side `import_batch_id` (HF-213 supersession; groups committed rows). Never
+conflated: the `bound` emission reads `proposalId` from the execute body, NOT the batch id.
+
+### Retry-without-reimport (binding expectation a) — `POST /api/import/sci/retry-unit`
+`retry-unit-comprehension.ts` re-runs the **SAME** decomposed dispatch (`runDecomposedComprehension`,
+injected) from the already-persisted storage artifact — atoms claim, residue comprehends — so a retried
+unit benefits from everything the flywheel learned since the failure. Emits `comprehended`/`failed` with a
+fresh timestamp that supersedes the prior failure in the reducer (no mutation of past signals). Test proves
+same-dispatch via injection (`retry-unit-comprehension.test.ts`).
+
+### Experience — `SessionStateLive.tsx`
+Mounted in the import proposal phase. Polls `session-state` (stops when `!isOpen`), renders each unit's
+state live; a `failed_interpretation` unit shows a **Retry** button → `retry-unit` → re-poll.
+
+### EPG mapping for the live run
+- **EPG-3.1 (G7 — zero new tables/channels):** the writer diff is `signal_type` value + JSONB only; ZERO
+  DDL. Migration count for Phase 3 = 0. Evidence: `git diff` shows no `supabase/migrations` addition; all
+  writes go through `canonical-signal-writer`.
+- **EPG-3.2 (DI-1 — persistence free of comprehension conditions):** `persisted` is emitted at sheet
+  enumeration BEFORE `generateContentProfileStats`; the profiling-failure test pins that a sheet still
+  carries `persisted` when profiling throws. Live: query `comprehension:unit_state` where
+  `signal_value->>state='persisted'` — present for every sheet regardless of downstream outcome.
+- **EPG-3.3 (read-before-derive consumes durable signal):** `rebuildSessionState` reconstructs the live
+  view from `classification_signals` alone (query evidence: filtered on `signal_type` +
+  `context->>importSessionId`). Session resume after restart is the witness.
+
+**Awaiting architect EPG-3.1/3.2/3.3 live run** (blind-holdout; import into a sandbox tenant, then CC
+verifies the state trail + retry via service-role reads).
