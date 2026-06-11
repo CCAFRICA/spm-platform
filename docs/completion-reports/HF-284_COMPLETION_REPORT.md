@@ -251,7 +251,49 @@ HTTP 200
 `HF-284: session-lifecycle invariant — stale bookkeeping cannot kill fresh sessions`
 base `main` ← head `hf-284-session-lifecycle-invariant`. **Held for architect merge instruction.**
 
-## SR-43 ADDENDUM (post-merge, architect-side) — PENDING
-In the SAME browser that failed: log in as `mesero@saborgrupo.mx` and `gerente@saborgrupo.mx`
-→ tenant workspace renders; confirm `auth.session.bookkeeping_reset` and/or clean
-`auth.login.success` rows; `platform@` regression unaffected.
+## SR-43 ADDENDUM — production verification — **CLOSE RATIFIED**
+**SR-43 close RATIFIED by architect disposition 2026-06-11.**
+Merged build: **`3a09afa8`** (PR #476, Production deployment confirmed at this SHA).
+
+### Browser results (architect, production)
+All three Sabor personas — `admin@saborgrupo.mx`, `mesero@saborgrupo.mx`,
+`gerente@saborgrupo.mx` — **logged in and entered the tenant workspace** on production
+`3a09afa8`. The pre-HF-284 PROFILE-MISSING failure does not recur; `platform@` regression
+unaffected. The session-ownership invariant fires as designed: each login (incl. the same
+browser that previously failed, carrying prior-session residue) emits a
+`auth.session.bookkeeping_reset` (reinit, NOT a kill) immediately followed by
+`auth.login.success`.
+
+### platform_events — service-role paste (3 Sabor actor_ids, since 2026-06-11T00:10Z)
+```
+2026-06-11T00:19:41.370776+00:00  admin@saborgrupo.mx    auth.session.bookkeeping_reset
+2026-06-11T00:19:41.492850+00:00  admin@saborgrupo.mx    auth.login.success
+2026-06-11T00:27:44.883572+00:00  mesero@saborgrupo.mx   auth.session.bookkeeping_reset
+2026-06-11T00:27:44.969270+00:00  mesero@saborgrupo.mx   auth.login.success
+2026-06-11T00:28:20.174159+00:00  gerente@saborgrupo.mx  auth.session.bookkeeping_reset
+2026-06-11T00:28:20.323791+00:00  gerente@saborgrupo.mx  auth.login.success
+2026-06-11T00:29:02.488460+00:00  gerente@saborgrupo.mx  auth.shell.unauth_redirect   (benign post-session nav; not a failure branch)
+2026-06-11T01:31:43.391648+00:00  admin@saborgrupo.mx    auth.session.bookkeeping_reset
+2026-06-11T01:31:43.548361+00:00  admin@saborgrupo.mx    auth.login.success
+2026-06-11T01:37:10.266023+00:00  admin@saborgrupo.mx    auth.session.bookkeeping_reset
+2026-06-11T01:37:10.388193+00:00  admin@saborgrupo.mx    auth.login.success
+
+histogram: { "auth.session.bookkeeping_reset": 5, "auth.login.success": 5, "auth.shell.unauth_redirect": 1 }
+failure-branch events (login.failure / zero_rows / query_error / session_absent): 0 (NONE)
+```
+Every `bookkeeping_reset` is paired with a `login.success` — the reinit replaces the kill.
+**Zero failure-branch events** across all three actors. This is the empirical confirmation
+of HG-1..HG-5 in production (the reverse of DIAG-062 E6, which saw the failure with zero
+observability).
+
+### 01:31 stale-bundle anomaly (recorded, resolved)
+At ~01:31 an incognito session briefly served a **shared-cache stale bundle** (pre-deploy
+JS chunks from before `3a09afa8`) — a CDN/browser-cache artifact, NOT a code defect: the
+client ran old chunks against the new deploy. **Resolved on a fresh session** (the
+01:31:43 and 01:37:10 `reset`+`success` pairs above are the same actor recovering cleanly).
+No data or auth impact; the invariant behaved correctly once the fresh bundle loaded.
+
+### Disposition
+SR-43 CLOSED. HF-284 is fully verified end-to-end (build → tests → merge → production →
+empirical event confirmation). No residual code work. Next: Platform-Created-Users OB
+(architect-scoped) — now unblocked.
