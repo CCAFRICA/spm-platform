@@ -88,5 +88,11 @@ committed as code) — same structural class, randomized-token/non-Latin vocabul
 tenant vocabulary; cross-vocabulary generality test included; EPG-2.2 pointed at a generated
 analog; induced-failure exit witness uses a corrupted analog (§3.2 L68-70, §3.6 L101/L104).
 
-**Phase 0 status:** complete except 0.5 (architect-executed baseline run pending — blind-holdout).
-No HALT (2,3,4,7,10) triggered. Ordering stands: baseline before any Phase 1 code.
+**0.5 baseline — CAPTURED & CLOSED 2026-06-11** (architect-executed run; CC DB read). Findings in
+`OB-203_BASELINE_20260610.md`: (A) client-timeout / R2 evidence — Run A proposal landed server-side
+04:14:18 after the ~04:14 browser FETCH FAILED; (B) `Empleados → transaction @0.7555` reproduced,
+now a learned prior; (C) fingerprint store is **TENANT-SCOPED** (hash `afb789d55ae5be4e` = separate
+per-tenant rows, mc 2 vs 1); run tenant `3d354bfa-…` was warm (prior_signal, not cold-start);
+(D) HF-247 13 skips architect-reported, baseline-consistent. sha256 pending per disposition.
+
+**Phase 0 status: COMPLETE.** No HALT (2,3,4,7,10) triggered. Proceeding to Phase 1.
