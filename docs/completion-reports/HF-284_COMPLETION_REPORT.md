@@ -188,3 +188,63 @@ HALT-1 probe (session_id obtainable):
 claim keys: aal, amr, app_metadata, aud, email, exp, iat, is_anonymous, iss, phone, role, session_id, sub, user_metadata
 session_id present: true | value: 273b9bb2-0e18-4768-bb86-2f155a92b329
 ```
+
+## PHASE 3 — BUILD + FULL SUITE + DEV SMOKE (HG-6)
+Build sequence: `pkill -f "next dev"` → `rm -rf web/.next` → `npm run build` → `npm run dev` → curl.
+
+Build — exit 0:
+```
+ƒ Middleware                                  76.9 kB
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+(Full route table compiled; no type/lint/compile errors. `npx tsc --noEmit` also clean.)
+
+Full `npm test` (node --test --import tsx 'src/**/__tests__/**/*.test.ts') — exit 0:
+```
+ℹ tests 91
+ℹ suites 0
+ℹ pass 91
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 579.287
+```
+
+Dev smoke — `http://localhost:3000/login`:
+```
+ ✓ Ready in 1038ms
+HTTP 200
+```
+**HG-6: PASS.**
+
+## SR-39 VERDICTS (Phase 3)
+- **SOC 2 CC6 (logical access):** NEUTRAL. Within an owned session the idle (30m) and
+  absolute (8h) checks run on RAW values exactly as before (HG-3 proves both still
+  fire) — no auth strengthening or weakening. The only change is removing cross-session
+  bookkeeping residue from adjudicating a session it never belonged to. Single
+  authorization record per identity (resolveIdentity) unchanged.
+- **OWASP A07 (identification & authentication failures / session management):** IMPROVED.
+  The withdrawn iat-clamp would have defeated the 8h absolute cap (Hole 1) and blessed
+  idle sessions on refresh-resumption (Hole 2); the ownership design keeps both caps
+  intact (tests b, c) while eliminating the residue-kill of a freshly authenticated
+  session. Session fixation is not introduced — the tag is read from the server-validated
+  token's own `session_id`, never client-supplied.
+- **NIST SP 800-63B (session management):** COMPLIANT. No session lifetime extension:
+  `vialuce-session-start` resets ONLY when a NEW auth `session_id` is observed (a genuine
+  new login), never on token refresh; an expired Supabase session never reaches this code
+  (getUser() nulls upstream). Idle and absolute reauthentication thresholds are unchanged
+  (cookie-config.ts untouched).
+- **One-time post-deploy effect (disclosed):** sessions in flight at deploy are untagged
+  (`vialuce-session-sid` absent) → their first authenticated request reinitializes the
+  bookkeeping clocks and tags them (one `auth.session.bookkeeping_reset` with
+  `had_prior:true`). Bounded to one request per in-flight session; strict ownership
+  thereafter. No security downgrade — a reinitialized clock cannot exceed the live
+  Supabase session, which getUser() already validated.
+- **DS-014 (capability-based workspace authorization):** UNCHANGED — the MFA/workspace
+  block downstream of the ownership gate is untouched.
+- **Decision 123:** UNCHANGED.
+
+## PR
+Phase 3 commit + PR recorded below (this section updated on PR creation).
