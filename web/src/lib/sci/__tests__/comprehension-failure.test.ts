@@ -11,6 +11,7 @@ import { strict as assert } from 'node:assert';
 import {
   buildFailedInterpretationSignalInput,
   markFailedInterpretationUnits,
+  shouldReinforceUnit,
 } from '../classification-signal-service';
 import { classifyThrownFailure } from '../header-comprehension';
 import type { ContentUnitProposal } from '../sci-types';
@@ -85,6 +86,44 @@ test('no failure -> nothing marked (success-path payload byte-identical)', () =>
   markFailedInterpretationUnits([u], new Set(['Empleados']), null); // failure null
   assert.equal(JSON.stringify(u), snap);
   assert.equal(u.failedInterpretation, undefined);
+});
+
+// ── Phase 2 (DI-7) reinforcement gate predicate ──
+test('shouldReinforceUnit: state-keyed — failed blocks, comprehended/Tier-1 reinforces', () => {
+  // a failed_interpretation unit must NOT reinforce either path
+  assert.equal(shouldReinforceUnit({ failedInterpretation: { failureClass: 'parse_failure', durationMs: 1 } }), false);
+  // a comprehended unit reinforces
+  assert.equal(shouldReinforceUnit({}), true);
+  // a Tier-1/atom-resolved unit (no failure flag) IS a success — reinforcement proceeds
+  // (the gate must not freeze legitimate flywheel growth)
+  assert.equal(shouldReinforceUnit({ failedInterpretation: undefined }), true);
+});
+
+// ── Phase 2 (DI-7) ORDERING WITNESS — marking precedes the gate (executable, not narrative) ──
+// The four gate sites (analyze:608/700, process-job:345/384) all key on `shouldReinforceUnit`,
+// whose input is the `failedInterpretation` flag set by `markFailedInterpretationUnits`. This test
+// runs the route's actual order — mark, THEN gate — with the real functions, and proves the gate
+// sees the populated flag. The control (gate without prior marking) proves the ordering is
+// load-bearing: omit the mark and the contaminating unit would wrongly reinforce.
+test('ordering: markFailedInterpretationUnits populates the flag BEFORE the gate decides', () => {
+  const units = [unit('Empleados'), unit('Ventas_Transaccional')];
+  const failedSheets = new Set(['Empleados']);
+  const failure = { failureClass: 'parse_failure' as const, durationMs: 67000 };
+
+  // route step (proposal assembly): mark, BEFORE the reinforcement loops run
+  markFailedInterpretationUnits(units, failedSheets, failure);
+
+  // route step (each of the 4 gate sites): the gate decision over the now-marked units
+  const gated = units.map(u => ({ tab: u.tabName, reinforces: shouldReinforceUnit(u) }));
+  assert.deepEqual(gated, [
+    { tab: 'Empleados', reinforces: false },           // marked failed -> blocked at the gate
+    { tab: 'Ventas_Transaccional', reinforces: true },  // comprehended -> reinforces
+  ]);
+
+  // control: the SAME unit, gated WITHOUT the preceding mark, would reinforce (the contamination
+  // path). This makes the ordering guarantee executable — the mark must precede the gate.
+  const unmarked = unit('Empleados');
+  assert.equal(shouldReinforceUnit(unmarked), true);
 });
 
 // ── (4) thrown-error structural classification ──

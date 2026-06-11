@@ -21,7 +21,7 @@ import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
@@ -341,6 +341,11 @@ export async function POST(req: NextRequest) {
     // Each unit writes its OWN sheet's hash (was: reused fingerprintHash from sheets[0]),
     // so each (tenant_id, fingerprint_hash) row reflects exactly one sheet's classification.
     for (const unit of contentUnits) {
+      // OB-203 Phase 2 (DI-7): failed_interpretation units do NOT reinforce the fingerprint flywheel.
+      if (!shouldReinforceUnit(unit)) {
+        void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'fingerprint_update', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        continue;
+      }
       if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
       const sheetForUnit = sheets.find(s => s.sheetName === unit.tabName);
       if (!sheetForUnit) {
@@ -375,6 +380,11 @@ export async function POST(req: NextRequest) {
 
     // Classification signal write (fire-and-forget)
     for (const unit of contentUnits) {
+      // OB-203 Phase 2 (DI-7): failed_interpretation units do NOT reinforce the CRR prior.
+      if (!shouldReinforceUnit(unit)) {
+        void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'crr_outcome', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        continue;
+      }
       const fp = computeStructuralFingerprint(
         Array.from(profileMap.values()).find(p => p.tabName === unit.tabName) || Array.from(profileMap.values())[0]
       );

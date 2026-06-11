@@ -17,7 +17,7 @@ import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
 // (canonical writer accepts CanonicalSignalInput directly). Type import removed.
@@ -602,6 +602,13 @@ export async function POST(req: NextRequest) {
     // so each (tenant_id, fingerprint_hash) row reflects exactly one sheet's classification.
     try {
       for (const unit of proposal.contentUnits) {
+        // OB-203 Phase 2 (DI-7): a failed_interpretation unit must NOT reinforce the fingerprint
+        // flywheel (this is the path that raised poisoned confidence across failed runs). Gate on
+        // the comprehension STATE, not confidence; Tier-1/comprehended units (no flag) proceed.
+        if (!shouldReinforceUnit(unit)) {
+          void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'fingerprint_update', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          continue;
+        }
         if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
         // HF-254 Fix 2a: enrich fieldBindings with NATIVE columnRole, server-side, so the
         // cold-import cache the warm import reads carries real roles independent of the
@@ -686,6 +693,14 @@ export async function POST(req: NextRequest) {
       for (const unit of proposal.contentUnits) {
         const fp = fingerprintMap.get(unit.contentUnitId);
         if (!fp) continue; // Document-based units (plan) have no fingerprint
+
+        // OB-203 Phase 2 (DI-7): a failed_interpretation unit must NOT reinforce the CRR
+        // classification:outcome prior (this is the path that learned Empleados->transaction@0.7555
+        // from failures). Gate on comprehension state; emit a remediation signal, never silent.
+        if (!shouldReinforceUnit(unit)) {
+          void emitReinforcementBlockedSignal(tenantId, unit.tabName, 'crr_outcome', process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          continue;
+        }
 
         const unitTrace = unit.classificationTrace as unknown as ClassificationTrace | undefined;
         const unitDecisionSource = unitTrace?.decisionSource || 'crr_bayesian';

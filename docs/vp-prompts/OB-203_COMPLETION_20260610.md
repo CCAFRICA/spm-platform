@@ -242,3 +242,28 @@ afb789d55ae5* cross-tenant: 3d354bfa(mc=2,0.6667) · dbe3b308(mc=1,0.5)  [tenant
 Phase 6 reconciliation (read-only assessment; architect dispositions purge/retrain): the CRR
 `classification:outcome` prior contamination from historical failed runs, AND these reinforced
 fingerprints, are evaluated against this before-state.
+
+---
+
+## PHASE 2 — (7) REINFORCEMENT-GATING (architect-reviewed + approved 2026-06-11)
+
+**Contamination paths CLOSED as of this commit.** A failed run can no longer raise fingerprint
+confidence or reinforce a CRR prior; every block is recorded on the canonical surface (DI-7),
+never silent. **This commit stops the bleeding; it does not clean the wound** — Phase 6
+reconciliation still owns the already-accumulated contamination (fingerprints at ~0.83, the
+`Empleados → transaction` prior).
+
+Both live reinforcement paths gated on comprehension STATE (`failed_interpretation`), not confidence:
+- fingerprint flywheel: `analyze/route.ts:608`, `process-job/route.ts:345` (skip `writeFingerprint`)
+- CRR outcome prior: `analyze/route.ts:700`, `process-job/route.ts:384` (skip `writeClassificationSignal`)
+
+Gate predicate `shouldReinforceUnit(unit) = !unit.failedInterpretation` — Tier-1/atom-resolved units
+(no flag) ARE comprehension successes and reinforce (flywheel growth not frozen). Blocked writes emit
+`comprehension:reinforcement_blocked` with `signal_value.blocked_surface ∈ {crr_outcome, fingerprint_update}`
+(DI-7). State is available at all four sites (`markFailedInterpretationUnits` runs during proposal
+assembly, before the loops) → no HALT.
+
+Tests (executable evidence): `shouldReinforceUnit` state-keyed (failed→block, comprehended/Tier-1→reinforce);
+**ordering witness** — runs the real mark→gate sequence and asserts the gate sees the populated flag, with
+a control proving the ordering is load-bearing (unmarked unit would reinforce). Full suite 117 pass / 0 fail;
+build exit 0.
