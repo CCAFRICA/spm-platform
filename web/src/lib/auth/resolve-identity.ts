@@ -21,7 +21,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveRole, type Role } from '@/lib/auth/permissions';
-import { logAuthEvent } from '@/lib/auth/auth-logger';
+import { logAuthEvent, logAuthEventClient } from '@/lib/auth/auth-logger';
 
 /**
  * HF-283 A1.1 — the single app-side canonical declaration of the platform-role
@@ -85,11 +85,14 @@ export async function resolveIdentity(
     .limit(10);
 
   if (error) {
-    void logAuthEvent('identity.resolve.query_error', { authUserId, error: error.message }, authUserId);
+    // HF-284: emit via the client-capable path. resolveIdentity runs client-side on
+    // the login profile-fetch, where logAuthEvent no-ops (no service key) — which is
+    // why these two branches were silent on the browser path (DIAG-062 E6).
+    void logAuthEventClient('identity.resolve.query_error', { authUserId, error: error.message });
     return null;
   }
   if (!rows || rows.length === 0) {
-    void logAuthEvent('identity.resolve.zero_rows', { authUserId }, authUserId);
+    void logAuthEventClient('identity.resolve.zero_rows', { authUserId });
     return null;
   }
   if (rows.length > 1) {

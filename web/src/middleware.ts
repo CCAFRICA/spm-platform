@@ -26,6 +26,7 @@ import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/a
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { resolveIdentity } from '@/lib/auth/resolve-identity';
+import { resolveSessionOwnership, decodeJwtSessionId } from '@/lib/auth/session-lifecycle';
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -200,61 +201,72 @@ export async function middleware(request: NextRequest) {
   //    and we never reach this code. Reaching here means Supabase says valid.)
 
   const now = Date.now();
+  const COOKIE_OPTS = { sameSite: 'lax' as const, secure: true, path: '/' };
   const existingSessionStart = request.cookies.get('vialuce-session-start')?.value;
   const existingLastActivity = request.cookies.get('vialuce-last-activity')?.value;
+  const existingSid = request.cookies.get('vialuce-session-sid')?.value;
 
-  // STEP 1: Initialize session cookies if absent (new session after login)
-  // HF-167: Session-scoped cookies — no maxAge. Die on browser close.
-  if (!existingSessionStart) {
-    supabaseResponse.cookies.set('vialuce-session-start', String(now), {
-      sameSite: 'lax',
-      secure: true,
-      path: '/',
-    });
+  // HF-284 A1 — SESSION-OWNERSHIP GATE. The residue signal is session IDENTITY, not
+  // age: the bookkeeping cookies (session-start/last-activity) are session-scoped and
+  // outlive the auth session, so a PRIOR session's cookies (or legacy-untagged ones)
+  // must not adjudicate THIS session — that is exactly how the awaited
+  // /api/auth/log-event POST on login traversed here, read a dead session's clock, and
+  // clearAuthCookies killed the just-created sb-* session. Tag = the access token's
+  // session_id claim (token already validated by getUser() above). Age was withdrawn
+  // (A1.1): token refresh advances iat while session-start is fixed at birth.
+  let tokenSessionId: string | null = null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    tokenSessionId = decodeJwtSessionId(session?.access_token);
+  } catch {
+    tokenSessionId = null; // unobtainable → ownership cannot be established this request
   }
-  if (!existingLastActivity) {
-    supabaseResponse.cookies.set('vialuce-last-activity', String(now), {
-      sameSite: 'lax',
-      secure: true,
-      path: '/',
-    });
-  }
 
-  // STEP 2: Resolve effective values for timeout checks
-  // If cookie existed, use its value. If just initialized, use now.
-  const sessionStartMs = existingSessionStart ? Number(existingSessionStart) : now;
-  const lastActivityMs = existingLastActivity ? Number(existingLastActivity) : now;
+  const ownership = resolveSessionOwnership({
+    now,
+    sessionStartCookie: existingSessionStart,
+    lastActivityCookie: existingLastActivity,
+    sidCookie: existingSid,
+    tokenSessionId,
+    limits: SESSION_LIMITS,
+  });
 
-  // STEP 3: Check absolute timeout (8 hours)
-  // HF-167: Fires on genuinely expired sessions, not new ones.
-  // A just-initialized session: (now - now) = 0 < 8 hours → passes.
-  if ((now - sessionStartMs) > SESSION_LIMITS.ABSOLUTE_TIMEOUT_MS) {
-    logAuthEvent('auth.session.expired.absolute', { elapsed_ms: now - sessionStartMs }, user.id);
+  // sid ABSENT or mismatched → another session's residue (or legacy-untagged):
+  // REINITIALIZE this session's clocks + tag, emit the reset event, and DO NOT kill.
+  if (ownership.reinit) {
+    supabaseResponse.cookies.set('vialuce-session-start', String(now), COOKIE_OPTS);
+    supabaseResponse.cookies.set('vialuce-last-activity', String(now), COOKIE_OPTS);
+    if (tokenSessionId) {
+      supabaseResponse.cookies.set('vialuce-session-sid', tokenSessionId, COOKIE_OPTS);
+    }
+    logAuthEvent('auth.session.bookkeeping_reset', {
+      had_prior: ownership.hadPrior,
+      prior_last_activity_age_ms: ownership.priorLastActivityAgeMs,
+      prior_session_start_age_ms: ownership.priorSessionStartAgeMs,
+    }, user.id);
+    // fall through to MFA/workspace checks on the SAME pass-through response.
+  } else if (ownership.action === 'expired_absolute') {
+    // sid MATCH → raw absolute check (8h), byte-preserved. HF-167.
+    logAuthEvent('auth.session.expired.absolute', { elapsed_ms: now - Number(existingSessionStart) }, user.id);
     const expiredResponse = NextResponse.redirect(new URL('/login?reason=session_expired', request.url));
     clearAuthCookies(request, expiredResponse);
     expiredResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
     expiredResponse.cookies.set('vialuce-last-activity', '', { maxAge: 0, path: '/' });
+    expiredResponse.cookies.set('vialuce-session-sid', '', { maxAge: 0, path: '/' });
     return noCacheResponse(expiredResponse);
-  }
-
-  // STEP 4: Check idle timeout (30 minutes)
-  if ((now - lastActivityMs) > SESSION_LIMITS.IDLE_TIMEOUT_MS) {
-    logAuthEvent('auth.session.expired.idle', { idle_ms: now - lastActivityMs }, user.id);
+  } else if (ownership.action === 'expired_idle') {
+    // sid MATCH → raw idle check (30m), byte-preserved.
+    logAuthEvent('auth.session.expired.idle', { idle_ms: now - Number(existingLastActivity) }, user.id);
     const idleResponse = NextResponse.redirect(new URL('/login?reason=idle_timeout', request.url));
     clearAuthCookies(request, idleResponse);
     idleResponse.cookies.set('vialuce-session-start', '', { maxAge: 0, path: '/' });
     idleResponse.cookies.set('vialuce-last-activity', '', { maxAge: 0, path: '/' });
+    idleResponse.cookies.set('vialuce-session-sid', '', { maxAge: 0, path: '/' });
     return noCacheResponse(idleResponse);
-  }
-
-  // STEP 5: Refresh last activity timestamp on every authenticated request
-  // (Only if session existed before — new sessions were just set in Step 1)
-  if (existingLastActivity) {
-    supabaseResponse.cookies.set('vialuce-last-activity', String(now), {
-      sameSite: 'lax',
-      secure: true,
-      path: '/',
-    });
+  } else {
+    // sid MATCH + alive → refresh the idle clock on every authenticated request
+    // (the absolute clock, session-start, is never refreshed — it marks birth).
+    supabaseResponse.cookies.set('vialuce-last-activity', String(now), COOKIE_OPTS);
   }
 
   // OB-178: MFA enforcement — check AAL level for required roles
