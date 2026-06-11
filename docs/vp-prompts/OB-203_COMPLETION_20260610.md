@@ -149,3 +149,47 @@ Full suite: tests 96, pass 96, fail 0.
 
 ### PR
 `OB-203-phase-1` — recorded on creation below.
+
+---
+
+## PHASE 1 → PHASE 2 TRANSITION (architect disposition 2026-06-11)
+
+### Phase 1 production verification — PENDING (blind-holdout, SR-43)
+PR #480 merged: **`750d3c41`**. Production verification is architect-executed: after deploy,
+the architect imports the witness file against a sandbox tenant in production; CC queries
+`classification_signals` for the run's `comprehension:failed_interpretation` rows (one per
+affected sheet, dedicated columns correct, class/duration in `signal_value`) and pastes the
+output here with the deploy SHA. UI render is secondary and may be unreachable for this file
+class (known client timeout) — a reported `FETCH FAILED` is expected and does NOT fail
+verification. Phase 1 completes on the signal evidence. _Awaiting the architect production run._
+
+### Phase 2 ENTRY VERIFICATION — failed units DO reinforce priors (YES)
+**Determination: a `failed_interpretation` unit still emits a reinforcing `classification:outcome`
+signal.** Code evidence — the classification-signal write loop has NO comprehension-success /
+`failedInterpretation` gate at either site:
+```
+analyze/route.ts:686-713      for (const unit of proposal.contentUnits) { ... writeClassificationSignal({ classification: unit.classification, confidence: unit.confidence, ... }) }
+                              // only `if (!fp) continue` (plan units); NO failedInterpretation check
+process-job/route.ts:377-382  for (const unit of contentUnits) { ... writeClassificationSignal({ ... }) }
+                              // same — no failure gate
+```
+This explains the architect's evidence (global CRL 37→39 across failed baseline runs; the
+`Empleados → transaction @0.7555` prior learned from failures). The Phase 1 `failedInterpretation`
+flag IS present on these units at the write site (forward-compatible) but is not yet consulted.
+
+**Absorbed into Phase 2 scope:** gate outcome-signal reinforcement on comprehension success — a
+unit in `failed_interpretation` state must not write a reinforcing `classification:outcome`; a
+blocked reinforcement emits a **DI-7 remediation signal** (never a silent skip).
+
+### Absorbed scope — Phase 6 (architect disposition 2026-06-11)
+**Contaminated CRR priors:** read-only assessment of `classification:outcome` prior contamination
+from historical failed runs (e.g. the `Empleados` transaction prior), alongside the four poisoned
+fingerprints (§0.4). The architect dispositions any purge/retrain. Read scripts only; no mutation
+without architect-applied SQL (SR-44).
+
+### Phase 2 atom-store design constraints (carried from Phase 0.5)
+`structural_fingerprints` is TENANT-SCOPED (verified: hash `afb789d55ae5be4e` = separate per-tenant
+rows). Atoms accumulate tenant-scoped on this existing surface; foundational/vertical-scope rows are
+DI-10-constrained (bucketed structural features only, by construction — never raw values). HALT-7
+bounds the migration to the atom extension. The seeded structural-analog generator is built in this
+phase; no real tenant vocabulary appears anywhere in tests.
