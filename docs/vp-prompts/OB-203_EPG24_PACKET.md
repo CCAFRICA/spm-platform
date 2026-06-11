@@ -66,3 +66,48 @@ the merge gate.
 - Phase 2 PR merges only after this packet's evidence is pasted and verified.
 
 **Awaiting architect execution of RUN 1 + RUN 2.**
+
+---
+
+## EPG-2.4 v2 — CLEAN 3-RUN PROTOCOL (architect-approved 2026-06-11, on 3d8c818e+)
+
+**Why v2:** the v1 identical-file two-run protocol structurally could not exercise the atom
+READ-before-derive (Run 2's identical file hits sheet-level Tier-1, bypassing the atom path) — an
+architect-side packet gap, caught at the gate. RUN 1 also revealed the atom-WRITE defect
+(classification_result NOT NULL, fixed `7218f034`; silent-catch hardened `3d8c818e`). v2 adds RUN 3
+(modified file) as the live witness of partial recognition.
+
+**Sandbox CLEARED 2026-06-11** (CC, service-role): structural_fingerprints 0, committed_data 0,
+classification_signals 0, entities 0, import_batches 0. Genuinely cold. Tenant
+`24103940-ab33-4a21-b6fd-bd1042f4762c`. Build under test: `OB-203-phase-2` @ `3d8c818e`+.
+
+### RUN 1 — COLD (atom WRITE witness)
+Import the unmodified Meridian file. All sheets sheet-Tier-3 → decomposed dispatch comprehends all
+columns (novel) → **atoms now accumulate** (write fix live). Verify after: `structural_fingerprints`
+has `granularity='atom'` rows; classifications entity/transaction/reference.
+
+### RUN 2 — WARM IDENTICAL (sheet flywheel witness)
+Re-import the identical file. All sheets sheet-Tier-1, LLM skipped, fast. (Atom path bypassed by
+sheet-Tier-1 — expected; this run witnesses the existing sheet flywheel, not the atom path.)
+
+### RUN 3 — MODIFIED (atom READ / partial-recognition witness) — the new gate evidence
+**Modify the Meridian file (architect-held): add ONE new column to the `Datos_Rendimiento` sheet —**
+**a boolean column named `Activo` with true/false values** (boolean is a dataType absent from the
+sheet, so it is a guaranteed-novel atom; every other column is unchanged → its atom is known).
+Re-import the modified file.
+- Expected: `Datos_Rendimiento` becomes **sheet-Tier-3** (composite fingerprint changed by the new
+  column) → enters the decomposed dispatch → `lookupAtoms` finds the 19 existing atoms (known) →
+  plan: 19 known claimed WITHOUT LLM, only `Activo` is novel residue → **one bounded comprehension
+  call covering exactly `Activo`** → `recognitionProvenance` ≈ "95% atoms · 1 new". The other two
+  sheets stay sheet-Tier-1 (unchanged).
+- This is the live witness of the OB's central R1 mechanism (partial recognition / read-before-derive).
+
+### CC verification after the three runs (read-only, pasted)
+1. RUN 1: atom rows written (`granularity='atom'` count + match_count); classifications correct.
+2. RUN 2: sheet-Tier-1 (the existing flywheel); no regression.
+3. RUN 3: `Datos_Rendimiento` sheet-Tier-3, atom recognized-fraction high, bounded comprehension of
+   ONLY the novel column, provenance line — partial recognition, live.
+4. Atom-write-failure observability: zero `comprehension:atom_write_failed` signals (the write fix
+   holds); any present is surfaced.
+
+Gate passes only if all three witnesses verify. RUN 1/3 divergence → structural read, fix, re-run.
