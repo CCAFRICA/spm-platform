@@ -21,7 +21,7 @@ import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic
 import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
@@ -177,8 +177,10 @@ export async function POST(req: NextRequest) {
 
     // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
     const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
+    let hcFailure: { failureClass: import('@/lib/sci/sci-types').ComprehensionFailureClass; durationMs: number } | null = null;
+    let failedSheets = new Set<string>();
     if (sheetsNeedingHC.length > 0) {
-      await enhanceWithHeaderComprehension(
+      const hcMetrics = await enhanceWithHeaderComprehension(
         profileMap,
         sheetsNeedingHC.map(s => ({
           sheetName: s.sheetName,
@@ -187,6 +189,18 @@ export async function POST(req: NextRequest) {
           rowCount: s.totalRowCount,
         })),
         tenantId,
+      );
+      // OB-203 Phase 1 (DI-4): on failure, one durable `failed_interpretation` signal per
+      // affected sheet (canonical surface), fire-and-forget; never breaks the import (DI-1).
+      hcFailure = hcMetrics.failure ?? null;
+      failedSheets = await emitComprehensionFailureSignals(
+        hcFailure,
+        sheetsNeedingHC.map(s => ({ sheetName: s.sheetName })),
+        (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
+        (name) => sheetFlywheelResults.get(name)?.tier ?? null,
+        { tenantId, sourceFileName: fileName },
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
     }
     const skipHC = sheetsNeedingHC.length === 0;
@@ -282,6 +296,9 @@ export async function POST(req: NextRequest) {
     // Build proposal units
     const contentUnits = buildProposalFromState(state, fileSheets)
       .filter(cu => !cu.contentUnitId.includes('::split'));
+
+    // OB-203 Phase 1 (DI-4): mark comprehension-failed units as `failed_interpretation`.
+    markFailedInterpretationUnits(contentUnits, failedSheets, hcFailure);
 
     // OB-176 / HF-197B: Per-sheet recognitionTier and confidence override.
     // Each unit is tagged with ITS OWN sheet's tier (was: file-level tier for all units).

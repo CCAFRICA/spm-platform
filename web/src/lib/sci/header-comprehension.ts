@@ -12,8 +12,18 @@ import type {
   HeaderComprehensionMetrics,
   ColumnRole,
   FieldIdentity,
+  ComprehensionFailureClass,
 } from './sci-types';
 import { getAIService } from '@/lib/ai/ai-service';
+
+// OB-203 Phase 1: classify a thrown comprehension error structurally (no domain words).
+export function classifyThrownFailure(error: unknown): ComprehensionFailureClass {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted') || msg.includes('etimedout')) {
+    return 'timeout';
+  }
+  return 'unclassified_failure';
+}
 
 // ============================================================
 // INPUT TYPES
@@ -61,12 +71,16 @@ interface LLMHeaderResponse {
   crossSheetInsights: string[];
 }
 
-async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<{
-  result: LLMHeaderResponse;
-  duration: number;
-} | null> {
+// OB-203 Phase 1 (DI-4): the call's outcome is a discriminated union — success carries
+// the result; failure carries a NAMED structural class + duration. `null` (silent
+// fallback) is retired here.
+type LLMHeaderOutcome =
+  | { ok: true; result: LLMHeaderResponse; duration: number }
+  | { ok: false; failureClass: ComprehensionFailureClass; duration: number };
+
+async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<LLMHeaderOutcome> {
+  const startTime = Date.now();
   try {
-    const startTime = Date.now();
     const sheetsDescription = buildSheetsDescription(input);
 
     const aiService = getAIService();
@@ -81,20 +95,22 @@ async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<{
     // AIService returns { parseError: true } on JSON parse failure
     if (response.result.parseError) {
       console.log(`[SCI] Header comprehension JSON parse failed (AIService fallback). duration=${duration}ms`);
-      return null;
+      return { ok: false, failureClass: 'parse_failure', duration };
     }
 
     const parsed = response.result as unknown as LLMHeaderResponse;
     if (!parsed.sheets) {
       console.log(`[SCI] Header comprehension response missing 'sheets' key. duration=${duration}ms`);
-      return null;
+      return { ok: false, failureClass: 'schema_mismatch', duration };
     }
 
     console.log(`[SCI] Header comprehension completed in ${duration}ms via AIService`);
-    return { result: parsed, duration };
+    return { ok: true, result: parsed, duration };
   } catch (error) {
-    console.log('[SCI] Header comprehension error (falling back to heuristics):', error instanceof Error ? error.message : String(error));
-    return null;
+    const duration = Date.now() - startTime;
+    const failureClass = classifyThrownFailure(error);
+    console.log(`[SCI] Header comprehension error (${failureClass}, falling back to heuristics):`, error instanceof Error ? error.message : String(error));
+    return { ok: false, failureClass, duration };
   }
 }
 
@@ -199,10 +215,14 @@ export async function comprehendHeaders(
   // Call LLM via AIService for all headers
   const llmResponse = await callLLMForHeaders(input);
 
-  if (!llmResponse) {
+  if (!llmResponse.ok) {
+    // OB-203 Phase 1 (DI-4): comprehension failed — carry the NAMED structural class +
+    // duration up so the route writes one `failed_interpretation` signal per affected
+    // unit. This replaces the silent `null` fallback (the unit is no longer presented as
+    // if comprehended).
     const metrics: HeaderComprehensionMetrics = {
       llmCalled: false,
-      llmCallDuration: null,
+      llmCallDuration: llmResponse.duration,
       llmModel: null,
       columnsInterpreted: 0,
       columnsFromBindings: 0,
@@ -210,6 +230,7 @@ export async function comprehendHeaders(
       averageConfidence: 0,
       crossSheetInsightCount: 0,
       timestamp: new Date().toISOString(),
+      failure: { failureClass: llmResponse.failureClass, durationMs: llmResponse.duration },
     };
     return { comprehensions: null, metrics };
   }

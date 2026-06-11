@@ -88,5 +88,64 @@ committed as code) — same structural class, randomized-token/non-Latin vocabul
 tenant vocabulary; cross-vocabulary generality test included; EPG-2.2 pointed at a generated
 analog; induced-failure exit witness uses a corrupted analog (§3.2 L68-70, §3.6 L101/L104).
 
-**Phase 0 status:** complete except 0.5 (architect-executed baseline run pending — blind-holdout).
-No HALT (2,3,4,7,10) triggered. Ordering stands: baseline before any Phase 1 code.
+**0.5 baseline — CAPTURED & CLOSED 2026-06-11** (architect-executed run; CC DB read). Findings in
+`OB-203_BASELINE_20260610.md`: (A) client-timeout / R2 evidence — Run A proposal landed server-side
+04:14:18 after the ~04:14 browser FETCH FAILED; (B) `Empleados → transaction @0.7555` reproduced,
+now a learned prior; (C) fingerprint store is **TENANT-SCOPED** (hash `afb789d55ae5be4e` = separate
+per-tenant rows, mc 2 vs 1); run tenant `3d354bfa-…` was warm (prior_signal, not cold-start);
+(D) HF-247 13 skips architect-reported, baseline-consistent. sha256 pending per disposition.
+
+**Phase 0 status: COMPLETE.** No HALT (2,3,4,7,10) triggered. Proceeding to Phase 1.
+
+---
+
+## PHASE 1 — Structured Failure Surface (DI-4 minimal, forward-compatible)
+
+### Engine
+At the comprehension-failure site (`header-comprehension.ts`), the silent `null` fallback is
+retired: `callLLMForHeaders` now returns a discriminated outcome carrying a NAMED structural
+failure class — `parse_failure` (unparseable response, :98), `schema_mismatch` (missing `sheets`
+key, :104), `timeout`/`unclassified_failure` (thrown error, classified by `classifyThrownFailure`).
+`comprehendHeaders` surfaces it as `metrics.failure = { failureClass, durationMs }`.
+
+Both SCI routes (`analyze`, `process-job`) call `emitComprehensionFailureSignals(...)` after the HC
+enhancement: one durable signal per affected sheet on the canonical surface — `signal_type:
+'comprehension:failed_interpretation'`, `decision_source: 'failed_interpretation'`, `confidence: 0`,
+file/sheet/structural-fingerprint via dedicated columns, failure class + duration + attempted tier
+in `signal_value`. Fire-and-forget, per-sheet try/caught with loud error logging — a signal-write
+failure never breaks the import (DI-1). The unit uses the Phase 3 state vocabulary
+(`failed_interpretation`) from day one.
+
+### Experience
+`SCIProposal.tsx` splits `comprehendedUnits` / `failedUnits`. Failed units render in a distinct
+section (sheet named, state plain "could not interpret", failure class + duration shown), are
+EXCLUDED from the comprehended cards, from `confirmAll`, from `allConfirmed`, and from the
+`onConfirmAll` payload that proceeds to execute. Summary line: "N of M sheets could not be
+interpreted." No retry/resolution actions (Phase 5). Structural copy only.
+
+### Tests (node --test) — 5 pass
+```
+✔ failed_interpretation signal lands on the canonical surface as a named state
+✔ failed_interpretation signal tolerates a null fingerprint
+✔ marks EXACTLY the fallback-signature units; comprehended units untouched
+✔ no failure -> nothing marked (success-path payload byte-identical)
+✔ classifyThrownFailure maps timeout signatures, else unclassified
+```
+Full suite: tests 96, pass 96, fail 0.
+
+### EPGs
+- **EPG-1.1 canonical surface, zero new tables:** the failure write routes through `writeSignal`
+  (the single `.from('classification_signals').insert` entry point — G7/DI-6). Grep confirms NO new
+  `.from('<table>')` introduced in the Phase 1 engine (`foundational_patterns`/`domain_patterns`
+  hits are pre-existing `lookupPriorSignals`).
+- **EPG-1.2 silent-path retirement:** `callLLMForHeaders` returns `{ ok:false, failureClass, duration }`
+  (no `null`); `comprehensions:null` carries `metrics.failure`; the UI filters `comprehendedUnits =
+  effectiveUnits.filter(u => !u.failedInterpretation)` — a failed unit can never render as comprehended.
+- **EPG-1.3 DIAG-050 / DI-1:** the working-tree diff adds NO `committed_data`/staging condition; the
+  persistence path is untouched (the exclusion is at the proposal/confirm layer, not the commit path).
+
+### Build
+`rm -rf .next && npm run build` → exit 0 (Middleware 76.9 kB). Dev `localhost:3000/login` → HTTP 200.
+
+### PR
+`OB-203-phase-1` — recorded on creation below.

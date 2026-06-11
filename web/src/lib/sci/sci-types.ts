@@ -107,6 +107,16 @@ export interface HeaderComprehension {
 }
 
 // Metrics for every header comprehension call (LLM or binding)
+// OB-203 Phase 1 (DI-4) — structural class of a comprehension-boundary failure.
+// These are the call's actual structural outcomes, NOT a shape registry (Korean Test):
+// parse_failure (unparseable response), timeout (the call exceeded its budget),
+// schema_mismatch (response shape did not validate), unclassified_failure (anything else).
+export type ComprehensionFailureClass =
+  | 'parse_failure'
+  | 'timeout'
+  | 'schema_mismatch'
+  | 'unclassified_failure';
+
 export interface HeaderComprehensionMetrics {
   llmCalled: boolean;               // was LLM called, or were vocabulary bindings used?
   llmCallDuration: number | null;   // milliseconds (null if not called)
@@ -117,6 +127,9 @@ export interface HeaderComprehensionMetrics {
   averageConfidence: number;        // mean confidence across all interpretations
   crossSheetInsightCount: number;   // how many cross-sheet insights were generated
   timestamp: string;                // ISO timestamp
+  // OB-203 Phase 1 (DI-4): present iff the comprehension call failed (vs. simply
+  // not called). The silent heuristic fallback is now a NAMED, durable outcome.
+  failure?: { failureClass: ComprehensionFailureClass; durationMs: number } | null;
 }
 
 // Vocabulary binding — stored header interpretation for flywheel recall
@@ -334,6 +347,11 @@ export interface ContentUnitProposal {
   vocabularyBindings?: Record<string, VocabularyBindingValue>;  // HF-254: role-bearing or legacy string
   // OB-176: Recognition tier from DS-017 fingerprint flywheel
   recognitionTier?: 1 | 2 | 3;
+  // OB-203 Phase 1 (DI-4): present iff this unit's comprehension failed. The unit
+  // occupies the Phase 3 `failed_interpretation` state from day one — it is named in
+  // the proposal, excluded from the comprehended presentation, and excluded from
+  // confirm-all. Resolution actions (retry/manual/exclude) arrive in Phase 5.
+  failedInterpretation?: { failureClass: ComprehensionFailureClass; durationMs: number | null };
 }
 
 // ============================================================

@@ -5,9 +5,140 @@
 // Zero domain vocabulary. AP-31: presence-based only.
 
 import { createClient } from '@supabase/supabase-js';
-import type { ContentProfile, VocabularyBindingValue, ColumnRole } from './sci-types';
+import type { ContentProfile, VocabularyBindingValue, ColumnRole, ComprehensionFailureClass, ContentUnitProposal } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
-import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
+import { writeSignal, type CanonicalSignalInput } from '@/lib/intelligence/canonical-signal-writer';
+
+// ============================================================
+// OB-203 Phase 1 (DI-4) — STRUCTURED COMPREHENSION-FAILURE SURFACE
+//
+// At a comprehension boundary that fails, write ONE durable signal per affected unit
+// on the SAME canonical surface (classification_signals, via writeSignal — G7/DI-6).
+// The silent heuristic fallback (header-comprehension.ts) is thereby retired: a failed
+// unit now occupies a named, queryable state (`failed_interpretation`) instead of being
+// presented as if comprehended (DS-027 §1 / T1-E910). Fire-and-forget with loud error
+// logging — a signal-write failure NEVER breaks the import (DI-1).
+//
+// Payload via existing dedicated columns: source_file_name, sheet_name,
+// structural_fingerprint, confidence (0), decision_source ('failed_interpretation');
+// failure class / duration / attempted tier ride signal_value + context.
+// ============================================================
+
+export interface ComprehensionFailureParams {
+  tenantId: string;
+  sourceFileName: string;
+  sheetName: string;
+  fingerprintHash: string | null;
+  failureClass: ComprehensionFailureClass;
+  durationMs: number | null;
+  attemptedTier: number | null;
+}
+
+/**
+ * Pure builder for the `failed_interpretation` canonical-signal input (testable without
+ * a DB). Existing dedicated columns carry file/sheet/fingerprint/confidence/decision_source;
+ * the failure class / duration / attempted tier ride signal_value.
+ */
+export function buildFailedInterpretationSignalInput(params: ComprehensionFailureParams): CanonicalSignalInput {
+  return {
+    tenantId: params.tenantId,
+    signalType: 'comprehension:failed_interpretation',
+    sourceFileName: params.sourceFileName,
+    sheetName: params.sheetName,
+    structuralFingerprint: params.fingerprintHash ? { fingerprintHash: params.fingerprintHash } : null,
+    classification: null,
+    confidence: 0,
+    decisionSource: 'failed_interpretation',
+    classificationTrace: null,
+    vocabularyBindings: null,
+    agentScores: {},
+    humanCorrectionFrom: null,
+    scope: 'tenant',
+    source: 'sci_agent',
+    signalValue: {
+      failureClass: params.failureClass,
+      durationMs: params.durationMs,
+      attemptedTier: params.attemptedTier,
+    },
+    context: { sciVersion: '2.0', phase: '1', ob: 'OB-203', boundary: 'header_comprehension' },
+    calculationRunId: null,
+  };
+}
+
+export async function writeComprehensionFailureSignal(
+  params: ComprehensionFailureParams,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<void> {
+  await writeSignal(buildFailedInterpretationSignalInput(params), supabaseUrl, supabaseServiceKey);
+}
+
+/**
+ * Pure marker (testable): stamp `failedInterpretation` on EXACTLY the units whose sheet is
+ * in `failedSheets`; all other units are returned untouched (success-path preservation —
+ * the proposal payload for comprehended units is byte-identical to pre-OB). Mutates in place
+ * and returns the array for convenience. Called from both SCI routes (DRY, DI-4).
+ */
+export function markFailedInterpretationUnits(
+  units: ContentUnitProposal[],
+  failedSheets: Set<string>,
+  failure: { failureClass: ComprehensionFailureClass; durationMs: number } | null | undefined,
+): ContentUnitProposal[] {
+  if (!failure || failedSheets.size === 0) return units;
+  for (const u of units) {
+    if (failedSheets.has(u.tabName)) {
+      u.failedInterpretation = { failureClass: failure.failureClass, durationMs: failure.durationMs };
+    }
+  }
+  return units;
+}
+
+/**
+ * OB-203 Phase 1 — emit one `failed_interpretation` signal per affected unit when a
+ * comprehension boundary fails. Returns the set of failed sheet names so the route can
+ * mark the proposal units. Each write is independently try/caught (loud log, never throws)
+ * so a signal failure cannot break the import (DI-1). Called from BOTH SCI routes (analyze
+ * + process-job) so no silent fallback path survives (DI-4).
+ */
+export async function emitComprehensionFailureSignals(
+  failure: { failureClass: ComprehensionFailureClass; durationMs: number } | null | undefined,
+  affectedSheets: Array<{ sheetName: string }>,
+  fingerprintHashOf: (sheetName: string) => string | null,
+  tierOf: (sheetName: string) => number | null,
+  ctx: { tenantId: string; sourceFileName: string },
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<Set<string>> {
+  const failed = new Set<string>();
+  if (!failure) return failed;
+  for (const s of affectedSheets) {
+    failed.add(s.sheetName);
+    try {
+      await writeComprehensionFailureSignal(
+        {
+          tenantId: ctx.tenantId,
+          sourceFileName: ctx.sourceFileName,
+          sheetName: s.sheetName,
+          fingerprintHash: fingerprintHashOf(s.sheetName),
+          failureClass: failure.failureClass,
+          durationMs: failure.durationMs,
+          attemptedTier: tierOf(s.sheetName),
+        },
+        supabaseUrl,
+        supabaseServiceKey,
+      );
+    } catch (e) {
+      console.error(
+        `[OB-203][failed_interpretation] signal write FAILED (non-blocking) sheet=${s.sheetName}:`,
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+  console.log(
+    `[OB-203] failed_interpretation: emitted ${failed.size} signal(s) class=${failure.failureClass} duration=${failure.durationMs}ms file=${ctx.sourceFileName}`,
+  );
+  return failed;
+}
 
 // ============================================================
 // STRUCTURAL FINGERPRINT — Bucketed values for fuzzy matching
