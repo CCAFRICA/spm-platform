@@ -18,6 +18,8 @@ import { getAIService } from '@/lib/ai/ai-service';
 import { lookupAtoms, writeAtoms } from './atom-flywheel';
 import { computeAtomFingerprint } from './atom-fingerprint';
 import { decomposeComprehension, type ResidueComprehender, type ComprehendedInterpretation } from './decomposed-comprehension';
+// OB-203 Phase 4 (R3): atom recognition-confidence signals (fire-and-forget).
+import { fireSignalBatch, buildAtomRecognitionSignal } from './comprehension-signal-vocabulary';
 
 // OB-203 Phase 1: classify a thrown comprehension error structurally (no domain words).
 export function classifyThrownFailure(error: unknown): ComprehensionFailureClass {
@@ -382,6 +384,15 @@ export async function runDecomposedComprehension(
 
   // 6. accumulate atoms (gated by success — failed units contributed none).
   await writeAtoms(tenantId, atomsToWrite, supabaseUrl, supabaseServiceKey);
+
+  // OB-203 Phase 4 (R3): atom recognition-confidence signals (fire-and-forget batch; DI-5 write-side).
+  // recognitionConfidence tracks the resolved role confidence for the accumulated atoms.
+  fireSignalBatch(
+    atomsToWrite.map(a => buildAtomRecognitionSignal({
+      tenantId, atomHash: a.atom.hash, role: a.role, recognitionConfidence: a.roleConfidence, roleConfidence: a.roleConfidence,
+    })),
+    supabaseUrl, supabaseServiceKey,
+  );
 
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: llmDispatches > 0,

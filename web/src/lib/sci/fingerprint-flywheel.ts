@@ -13,6 +13,10 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+// OB-203 Phase 4 (DI-7): the HF-247 outcome-quality gate emits a remediation signal on every
+// blocked learning write. Fire-and-forget (architect redirect) — remediation must never add
+// latency or failure coupling to the import path.
+import { fireSignal, buildLearningWriteBlockedSignal } from './comprehension-signal-vocabulary';
 import { computeFingerprintHashSync } from './structural-fingerprint';
 
 export interface FlywheelLookupResult {
@@ -81,6 +85,11 @@ export async function lookupFingerprint(
     }
     if (hasUnknownRole) {
       console.log(`[SCI-FINGERPRINT] tier=1 DEMOTED (poisoned cache): hash=${fingerprintHash.substring(0, 12)} confidence=${conf} — cached column_roles contains 'unknown' (HF-247 outcome quality gate)`);
+      // DI-7: the gate blocked a Tier-1 learning READ — emit remediation (fire-and-forget).
+      fireSignal(
+        buildLearningWriteBlockedSignal({ tenantId, surface: 'tier1_read', reason: 'unknown_role', fingerprintHash }),
+        supabaseUrl, supabaseServiceKey,
+      );
     }
     // DIAG-010 / OB-178: Demoted Tier 1 returns as Tier 2 match with existing data.
     // Caller runs targeted re-classification (HC + CRR) instead of full Tier 3 LLM.
@@ -172,6 +181,11 @@ export async function writeFingerprint(
     const hasUnknownRole = Object.values(columnRoles).some(role => role === 'unknown' || role === '' || role == null);
     if (hasUnknownRole) {
       console.log(`[SCI-FINGERPRINT] Skipped write (failed-outcome quality gate, HF-247): hash=${fingerprintHash.substring(0, 12)} file=${sourceFileName} — columnRoles contains 'unknown'`);
+      // DI-7: the gate blocked a fingerprint learning WRITE — emit remediation (fire-and-forget).
+      fireSignal(
+        buildLearningWriteBlockedSignal({ tenantId, surface: 'fingerprint_write', reason: 'unknown_role', fingerprintHash, sourceFileName }),
+        supabaseUrl, supabaseServiceKey,
+      );
       return;
     }
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

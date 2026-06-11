@@ -17,6 +17,8 @@ import {
   productionRetryDeps,
   type DecomposedDispatch,
 } from '@/lib/sci/retry-unit-comprehension';
+// OB-203 Phase 4 (R3): emit a resolution signal when a retry resolves a failed unit.
+import { fireSignal, buildResolutionSignal } from '@/lib/sci/comprehension-signal-vocabulary';
 
 export async function POST(req: NextRequest) {
   try {
@@ -69,6 +71,14 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
+
+    // R3: a successful retry RESOLVES the prior failure (resolution-by-retry; source=sci_agent).
+    if (result.state === 'comprehended') {
+      fireSignal(
+        buildResolutionSignal({ tenantId, unitId, sheetName, from: 'failed_interpretation', to: 'comprehended', source: 'sci_agent', importSessionId }),
+        process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
+    }
 
     return NextResponse.json(result);
   } catch (err) {
