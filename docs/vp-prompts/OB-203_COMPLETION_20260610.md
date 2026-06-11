@@ -711,3 +711,61 @@ All witnesses verified (service-role reads + architect browser):
 - Retry-click witness deferred to Phase 5 induced-failure CLT (architect ruling); retry stands test-proven.
 
 **Phase 3 PASS.** All EPGs green; live witnesses verified. Ready for merge.
+
+---
+
+## PHASE 4 — Signal Spine: Vocabulary, Trace, Observability (R3/DI-5/DI-7) — CODE-COMPLETE (2026-06-11)
+
+Branch `OB-203-phase-4` off `main` @ `cd5f0326`. Full SCI suite **72 pass** (+5 vocabulary); typecheck 0.
+
+### Vocabulary (Decision-30 extension; EPG-4.3 structural, zero domain literals)
+All on the ONE canonical surface via the ONE writer (`comprehension-signal-vocabulary.ts`):
+`comprehension:atom_recognition`, `comprehension:composition`, `comprehension:tier_resolution`,
+`comprehension:session_lifecycle`, `comprehension:resolution`, `comprehension:learning_write_blocked`,
+`interaction:import`. EPG-4.3 test asserts each matches `family:structural_term` and contains no domain word.
+
+### Emission points (all fire-and-forget — DI-7 redirect)
+- analyze: `session_lifecycle` (open/settled), `tier_resolution` + `composition` per comprehended unit.
+- decomposed dispatch (`header-comprehension.ts`): `atom_recognition` batch at atom write.
+- retry route: `resolution` on retry success.
+- **DI-7 — HF-247 gate now emits `learning_write_blocked` on BOTH** the fingerprint-write skip
+  (`fingerprint-flywheel.ts:182`) and the tier1-read demote (`:82`) — previously log-only. "Every blocked
+  write emits remediation" is now true.
+
+### EPG evidence
+- **EPG-4.1 (single surface):** `grep` for `.from('classification_signals').insert` in Phase 4 code → **NONE**; every write goes through `writeSignal`/`writeSignalBatch`.
+- **EPG-4.2 (zero write-gating / DI-5):** `grep density|executionMode` across `atom-flywheel`, `fingerprint-flywheel`, `comprehension-planner`, `decomposed-comprehension`, `comprehension-signal-vocabulary` → only a single hit, an explanatory **comment**, no gating code. Consumption-side `computeClassificationDensity` (`classification-signal-service.ts:520-575`) READS signals → computes `executionMode` → RETURNS it; it writes nothing and gates only which LLM tier is invoked at READ.
+- **EPG-4.3 (structural vocabulary):** test pins `family:structural_term` + no-domain-word.
+
+### Trace — `scripts/ob203-trace.ts` (BL-001 data contract; named query shapes)
+1. unit-state timeline (per session) · 2. failure classes · 3. comprehension cost (resolver mix + known/novel) ·
+4. tier distribution · **5. DI-7 remediation FAMILY — one rollup unifying `reinforcement_blocked` +
+`learning_write_blocked` + `atom_write_failed`** (architect condition: "every blocked write" answerable with
+one query, not a per-type checklist) · 6. interaction:import. Smoke-tested against live DB (query #1 returns the
+Phase-3 session timelines).
+
+### SR-39 GATE — interaction signals are behavioral data (documented BEFORE PR)
+`POST /api/import/sci/interaction`:
+- **Authentication (CC6.1 / NIST AC-3 / OWASP A01):** rejects unauthenticated with **401** (`auth.getUser()` on the
+  cookie session). No anonymous behavioral writes.
+- **Tenant authorization (CC6.6 least-privilege / NIST AC-4 information-flow / OWASP A01 broken-access-control /
+  A04 insecure-design):** the body `tenantId` is a routing hint, **never trusted** — the route authorizes it against
+  the session user's `profiles(auth_user_id, tenant_id)` membership and returns **403** otherwise. A caller cannot
+  write interaction signals to a tenant it is not a member of (no IDOR / cross-tenant write).
+- **Scope (DS-014 / Decision 123):** every interaction write carries `scope:'tenant'` + the **validated** `tenant_id`.
+- **DI-10:** this path introduces **no cross-scope aggregation** — interaction signals are single-tenant-scoped.
+  The only cross-tenant read in the system (`lookupFoundationalPriors`) is untouched and remains anonymized by
+  structural-fingerprint construction (`tenant_id IS NULL`, zero tenant-identifiable info).
+- **CC6/OWASP/NIST mapping:** CC6.1 (logical access), CC6.6 (least privilege); OWASP A01 (Broken Access Control),
+  A04 (Insecure Design); NIST 800-53 AC-3 (Access Enforcement), AC-4 (Information Flow Enforcement), AC-6 (Least
+  Privilege). Tests assert every builder carries `scope:'tenant'` + `tenant_id`.
+
+### Tests (+5)
+vocabulary round-trip; EPG-4.3 structural; SR-39 tenant-isolation on every builder; DI-7 fire-and-forget
+(forced write failure → caller unaffected + loud log); learning_write_blocked DI-7 shape.
+
+### HALT-3 — NO halt
+No new table/channel (new `signal_type` values on the one surface/writer); no write-time density gating (DI-5
+preserved); no persistence conditioned on comprehension. The interaction POST writes to the same surface.
+
+**Awaiting architect EPG-4.1/4.2/4.3 review + SR-39 sign-off, then PR.**
