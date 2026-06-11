@@ -448,3 +448,63 @@ the EXISTING execute-bulk sheet-`columnRoles` write (HF-254 enrichment / HF-247 
 Phase-2-untouched**; the gate correctly REFUSED a fingerprint with an unknown sheet-binding role (no
 poison). The decomposed path's `profile.headerComprehension` roles were all valid; the 'unknown' is at
 the independent sheet-binding layer. Flagged for a precise pin if wanted; non-harmful.
+
+---
+
+## CLASS FIX — pattern conditions key on role PRESENCE, confidence gated once (AUD-009, architect-ratified 2026-06-11)
+
+**Why D5's per-arm patch was insufficient.** RUNS 3+4 still diverged after D5: Run 3 (mod1) committed
+`data_type=target`; Run 4 (mod2) `transaction`. Architect ruling: D5 (atom-claim maturation) and the
+sheet-flywheel injection are **the same structural defect class** — `classifyByHCPattern` re-thresholds
+heterogeneous-scale confidence. Per AUD-009, **one invariant at the consuming layer**; a second
+per-surface patch (the flywheel arm) was declined.
+
+**The defect, located** (`hc-pattern-classifier.ts`): every role primitive (`hasTemporal`,
+`hasMeasure`, `identifierCount`, `hasReferenceKey`, `hasName`) derived from `confidentRoles` =
+`interpretations.filter(c => c.confidence >= HC_ROLE_THRESHOLD(0.80))`. Memory layers supply confidence
+on **different scales**: LLM ~0.95, atom recognition/roleConf, sheet-flywheel binding **0.30–0.90**. A
+temporal role injected at 0.30 fell below 0.80 → excluded → `hasTemporal=false` → "NO temporal" →
+`entity_targets` → target.
+
+**The `0.30` named (store read, not narrative).** It is **NOT** a maturation formula overwriting
+`column_roles`. d464 (class=target) stored `Mes/Año` `fieldBinding.confidence=0.30, semanticRole='unknown'`;
+6cc99dae (class=transaction) stored the same atoms at `0.90, semanticRole='transaction_date'`. The 0.30
+is the **resolver/CRR-assigned `fieldBinding.confidence` in `classification_result.fieldBindings`, written
+UNDER the target classification**, then **re-injected by HF-254** (`analyze`, `confidence: fb.confidence`)
+as the HC interpretation confidence. The circle: target class → low temporal binding strength stored →
+re-injected at 0.30 → pattern re-thresholds to "no temporal" → target → reinforces. Self-reinforcing
+contamination. (`semanticRole='unknown'` vs `'transaction_date'` confirms classification-derived binding
+strength, not role certainty.)
+
+**The fix (one site, consuming layer).** The coverage gate (`confidentRoles.length/total >=
+MIN_COVERAGE_RATIO`) is retained as the **single confidence-normalization point** — it decides whether HC
+is reliable enough to drive the tree at all (else Level-2 CRR owns it). Past that gate, the primitives key
+on **resolved role PRESENCE**: `roles = interpretations.filter(r => r.columnRole && r.columnRole !==
+'unknown')`; `hasTemporal = roles.some(r => r.columnRole === 'temporal')`, etc. A column's assigned role is
+trusted regardless of which layer supplied it or at what confidence. Breaks the circle: `Mes/Año` present →
+`hasTemporal=true` → `idRepeatRatio 4.02 > 1.5` → `event_transactions_temporal` → **transaction**, in Run 3
+and Run 4 identically. Fixes BOTH arms (atom-claim + flywheel) at one site. Branches unchanged.
+
+**Tests (4 new, `hc-pattern-classifier.test.ts`)** pin: (a) `Mes/Año@0.30 → hasTemporal=true →
+transaction`; (b) coverage gate still returns null on thin HC; (c) flywheel(0.30)/atom(0.75)/LLM(0.98)
+arms classify **identically** given identical role assignments; (d) regression — genuine no-temporal
+snapshot (idRepeatRatio≤1.5) still → target. **SCI suite 57 pass; full typecheck exit 0.**
+
+**Item 2 — D5 PATCH: KEPT (architect ruling).** `KnownAtom.roleConfidence` is **write-layer source
+correctness** (atoms store the comprehension's role confidence, not a maturing recognition count) — not a
+second consuming-layer threshold, no registry accumulation. It stabilizes the coverage-gate input; it is
+no longer load-bearing for the pattern (which now keys on presence). Retained.
+
+**Item 3 — Phase 6 reconciliation scope (contamination shape).** Named shape: **`fieldBindings` stored
+under a WRONG classification** (`semanticRole='unknown'`, `confidence=0.30`) **self-reinforce on
+re-injection**. The consumption side is now fixed (presence-keyed); already-stored instances of this shape
+(d464 + any sibling rows) remain **reconciliation scope** — purge/retrain dispositioned by the architect in
+Phase 6. **HF-247 closure:** d464's stored `'unknown'` sheet-binding role IS the cause of the HF-247 skip
+on `d464fd4d4413` — same contamination shape, same root. The earlier open observation (secondary,
+"non-harmful") is **closed against this cause**: the skip was the HF-247 gate correctly refusing a
+contaminated 'unknown' binding; reconciliation retires the row, the gate stops firing.
+
+**Run 4 `NO_MATCH` despite temporal@0.90 (architect-noted inconsistency).** Pre-fix, Run 4's Level-1
+returned null and CRR Level-2 produced transaction — the coverage/branch interaction under the old
+`confidentRoles` derivation. Post-fix the pattern keys on presence and both runs resolve at Level-1; the
+targeted-reset re-runs are the authoritative live witness (Run 3 AND Run 4 → transaction at Level-1).

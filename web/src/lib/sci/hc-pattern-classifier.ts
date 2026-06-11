@@ -65,18 +65,24 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   }
 
   // ── HC role primitives ──────────────────────────────────
-  // Counts / booleans derived from the LLM's per-column role assignments.
-  // Everything below is a function of these primitives.
-  const identifierCount = confidentRoles.filter(r => r.columnRole === 'identifier').length;
-  const measureCount = confidentRoles.filter(r => r.columnRole === 'measure').length;
+  // OB-203 (class fix, AUD-009): conditions key on resolved role PRESENCE, NOT a re-threshold of the
+  // per-column confidence. Memory layers supply confidence on heterogeneous scales (LLM ~0.95, atom
+  // recognition/roleConf, sheet-flywheel binding 0.30-0.90 — the last classification-derived and
+  // self-reinforcing). The confidence gate is applied ONCE above (the coverage gate); past it, a
+  // column's assigned role is trusted. This fixes BOTH the atom-claim (D5) and flywheel-injection
+  // arms at one site — given identical role assignments, the classification is identical regardless
+  // of which layer supplied them or at what confidence.
+  const roles = Array.from(hc.interpretations.values()).filter(r => r.columnRole && r.columnRole !== 'unknown');
+  const identifierCount = roles.filter(r => r.columnRole === 'identifier').length;
+  const measureCount = roles.filter(r => r.columnRole === 'measure').length;
   const hasMeasure = measureCount > 0;
-  const hasReferenceKey = confidentRoles.some(r => r.columnRole === 'reference_key');
-  const hasName = confidentRoles.some(r => r.columnRole === 'name');
+  const hasReferenceKey = roles.some(r => r.columnRole === 'reference_key');
+  const hasName = roles.some(r => r.columnRole === 'name');
   // AUD-013: temporal role primitive — distinguishes per-period transactional
   // data (actuals over time) from one-time entity snapshots (targets).
   // A sheet with identifier + measure + temporal is event data over time;
   // a sheet with identifier + measure + no temporal is an entity snapshot.
-  const hasTemporal = confidentRoles.some(r => r.columnRole === 'temporal');
+  const hasTemporal = roles.some(r => r.columnRole === 'temporal');
   // HF-230 directive contemplated a separate `currency` ColumnRole that would
   // imply a monetary measure. The sci-types ColumnRole union does NOT carry
   // `currency` (the seven values are identifier / name / temporal / measure /
