@@ -53,9 +53,9 @@ test('buildUnitStateSignalInput: dedicated signal_type, session in context, sour
     sheetName: 'Sheet1', sourceFileName: 'f.xlsx', state: 'comprehended', tier: 3, novelCount: 2,
   });
   assert.equal(sci.signalType, UNIT_STATE_SIGNAL_TYPE);
-  assert.equal((sci.context as any).importSessionId, 'sess-1');        // session identity in context, not a new column
-  assert.equal((sci.signalValue as any).unitId, 'f.xlsx::Sheet1::0');
-  assert.equal((sci.signalValue as any).state, 'comprehended');
+  assert.equal(sci.context!.importSessionId, 'sess-1');                // session identity in context, not a new column
+  assert.equal(sci.signalValue!.unitId, 'f.xlsx::Sheet1::0');
+  assert.equal(sci.signalValue!.state, 'comprehended');
   assert.equal(sci.source, 'sci_agent');
   assert.equal(sci.scope, 'tenant');
 
