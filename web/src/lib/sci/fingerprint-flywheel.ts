@@ -127,7 +127,8 @@ export async function lookupFingerprint(
   const { count: tenantFpCount } = await supabase
     .from('structural_fingerprints')
     .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId)
+    .eq('granularity', 'sheet'); // OB-203: cold-start = no prior SHEET fingerprints (atom rows excluded)
   if ((tenantFpCount ?? 0) === 0) {
     console.log(`[SCI-FINGERPRINT] cold-start (no prior fingerprints for tenant) — skipping to Tier 3 (HF-247 Phase 5)`);
   }
@@ -215,6 +216,7 @@ export async function writeFingerprint(
           tenant_id: tenantId,
           fingerprint_hash: fingerprintHash,
           fingerprint: fingerprintHash,
+          granularity: 'sheet', // OB-203: explicit (sheet path; atom rows go via atom-flywheel)
           classification_result: classificationResult,
           column_roles: columnRoles,
           match_count: 1,
