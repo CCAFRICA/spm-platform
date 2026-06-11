@@ -426,7 +426,19 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
     });
   }, [proposal.contentUnits, classificationOverrides, unitIds]);
 
-  const allConfirmed = confirmedIds.size >= effectiveUnits.length && effectiveUnits.length > 0;
+  // OB-203 Phase 1 (DI-4): units whose comprehension failed occupy the
+  // `failed_interpretation` state — named, but excluded from the comprehended
+  // presentation and from confirm-all. Only comprehended units are confirmable.
+  const comprehendedUnits = useMemo(
+    () => effectiveUnits.filter(u => !u.failedInterpretation),
+    [effectiveUnits],
+  );
+  const failedUnits = useMemo(
+    () => effectiveUnits.filter(u => u.failedInterpretation),
+    [effectiveUnits],
+  );
+
+  const allConfirmed = confirmedIds.size >= comprehendedUnits.length && comprehendedUnits.length > 0;
 
   const toggleConfirm = (id: string) => {
     setConfirmedIds(prev => {
@@ -445,8 +457,9 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   };
 
   const confirmAll = () => {
-    // HF-139: Use guaranteed-unique IDs for all units
-    const allIds = effectiveUnits.map((u: { _uniqueId?: string; contentUnitId: string }) => u._uniqueId || u.contentUnitId);
+    // HF-139: guaranteed-unique IDs. OB-203 Phase 1: confirm only comprehended units —
+    // failed_interpretation units are excluded from confirm-all.
+    const allIds = comprehendedUnits.map((u: { _uniqueId?: string; contentUnitId: string }) => u._uniqueId || u.contentUnitId);
     setConfirmedIds(new Set(allIds));
   };
 
@@ -469,7 +482,9 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
   // route, not a user override banner. See HF-240 completion report.
 
   const handleImport = () => {
-    onConfirmAll(effectiveUnits);
+    // OB-203 Phase 1 (DI-4): failed_interpretation units are excluded from the proposal
+    // that proceeds to execute (they are not comprehended; resolution actions are Phase 5).
+    onConfirmAll(comprehendedUnits);
   };
 
   return (
@@ -479,23 +494,55 @@ export function SCIProposalView({ proposal, fileName, rawData, onConfirmAll, onC
         <h2 className="text-base font-semibold text-zinc-100">{fileName}</h2>
         <p className="text-xs text-zinc-500 mt-1">
           {effectiveUnits.length} content unit{effectiveUnits.length !== 1 ? 's' : ''} detected
+          {failedUnits.length > 0 && (
+            <span className="text-rose-400">
+              {' '}· {failedUnits.length} of {effectiveUnits.length} sheet{effectiveUnits.length !== 1 ? 's' : ''} could not be interpreted
+            </span>
+          )}
         </p>
       </div>
+
+      {/* OB-203 Phase 1 (DI-4): failed_interpretation units — named, state plain,
+          failure class + duration shown; excluded from the comprehended cards and
+          from confirm-all. No resolution actions yet (Phase 5). */}
+      {failedUnits.length > 0 && (
+        <div className="rounded-lg border border-rose-900/50 bg-rose-950/20 px-4 py-3">
+          <p className="text-xs font-medium text-rose-300 mb-2">
+            Could not interpret {failedUnits.length} sheet{failedUnits.length !== 1 ? 's' : ''}
+          </p>
+          <ul className="space-y-1">
+            {failedUnits.map((unit) => {
+              const fi = unit.failedInterpretation!;
+              const uid = (unit as { _uniqueId?: string })._uniqueId || unit.contentUnitId;
+              return (
+                <li key={uid} className="flex items-center justify-between text-xs text-zinc-400">
+                  <span className="text-zinc-200">{unit.tabName}</span>
+                  <span className="text-rose-400/80">
+                    {fi.failureClass.replace(/_/g, ' ')}
+                    {typeof fi.durationMs === 'number' ? ` · ${(fi.durationMs / 1000).toFixed(1)}s` : ''}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* HF-240: DIAG-053 banner removed. Plan-workbook detection now
           happens server-side in the analyze route via the structural
           plan-workbook signature reclassification. */}
 
-      {/* Summary bar */}
+      {/* Summary bar — comprehended units only (failed units shown separately above) */}
       <SummaryBar
-        units={effectiveUnits}
+        units={comprehendedUnits}
         confirmedCount={confirmedIds.size}
         totalRows={totalRows}
       />
 
-      {/* Content unit cards — HF-139: use guaranteed-unique IDs */}
+      {/* Content unit cards — HF-139: use guaranteed-unique IDs. OB-203 Phase 1:
+          comprehended units only; failed_interpretation units render in their own section. */}
       <div className="space-y-2">
-        {effectiveUnits.map((unit) => {
+        {comprehendedUnits.map((unit) => {
           const uid = (unit as { _uniqueId?: string })._uniqueId || unit.contentUnitId;
           const original = proposal.contentUnits.find(u => u.contentUnitId === unit.contentUnitId);
           return (

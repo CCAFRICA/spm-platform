@@ -17,7 +17,7 @@ import { resolveClassification } from '@/lib/sci/resolver';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
-import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal } from '@/lib/sci/classification-signal-service';
+import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, computeClassificationDensity, writeClassificationSignal, emitComprehensionFailureSignals, markFailedInterpretationUnits } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // OB-199 Phase 4: ClassificationSignalPayload no longer constructed at call site
 // (canonical writer accepts CanonicalSignalInput directly). Type import removed.
@@ -166,6 +166,20 @@ export async function POST(req: NextRequest) {
             })),
             tenantId,
           );
+
+      // OB-203 Phase 1 (DI-4): if comprehension failed, write one durable
+      // `failed_interpretation` signal per affected sheet (canonical surface) and mark
+      // those units below. Fire-and-forget; never breaks the import (DI-1).
+      const hcFailure = 'failure' in hcMetrics ? hcMetrics.failure : null;
+      const failedSheets = await emitComprehensionFailureSignals(
+        hcFailure,
+        sheetsNeedingHC.map(s => ({ sheetName: s.sheetName })),
+        (name) => sheetFlywheelResults.get(name)?.fingerprintHash ?? null,
+        (name) => sheetFlywheelResults.get(name)?.tier ?? null,
+        { tenantId, sourceFileName: file.fileName },
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
@@ -537,6 +551,8 @@ export async function POST(req: NextRequest) {
           }
           return true;
         });
+      // OB-203 Phase 1 (DI-4): mark comprehension-failed units as `failed_interpretation`.
+      markFailedInterpretationUnits(fileContentUnits, failedSheets, hcFailure);
       console.log(`[SCI-PROPOSAL] ${fileContentUnits.length} content units for ${file.sheets.length} sheets`);
       contentUnits.push(...fileContentUnits);
     }
