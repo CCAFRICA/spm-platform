@@ -7,6 +7,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { ATOM_ALGORITHM_VERSION, type AtomFingerprint } from './atom-fingerprint';
+import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
 export interface KnownAtom {
   hash: string;
@@ -129,7 +130,29 @@ export async function writeAtoms(
         await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role));
       }
     } catch (err) {
-      console.error(`[OB-203][atom-flywheel] write failed (non-blocking) hash=${atom.hash.slice(0, 12)}:`, err instanceof Error ? err.message : String(err));
+      // Finding-A follow-through: a blocked atom-learning write must NOT be silent (DI-4/DI-7 spirit).
+      // Log loudly AND emit a remediation signal on the canonical surface so the flywheel cannot
+      // silently dead-end (this is exactly how the EPG-2.4 RUN-1 23502 went unseen).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[OB-203][atom-flywheel] write FAILED (non-blocking) hash=${atom.hash.slice(0, 12)} role=${role}: ${msg}`);
+      try {
+        await writeSignal(
+          {
+            tenantId,
+            signalType: 'comprehension:atom_write_failed',
+            structuralFingerprint: { fingerprintHash: atom.hash },
+            classification: null,
+            confidence: 0,
+            decisionSource: 'atom_write_failed',
+            scope: 'tenant',
+            source: 'sci_agent',
+            signalValue: { error: msg, role },
+            context: { sciVersion: '2.0', phase: '2', ob: 'OB-203', di: 'DI-7' },
+          },
+          supabaseUrl,
+          supabaseServiceKey,
+        );
+      } catch { /* remediation emission must never itself break the import */ }
     }
   }
 }

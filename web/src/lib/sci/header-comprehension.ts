@@ -293,11 +293,13 @@ export async function runDecomposedComprehension(
   // 3. residue comprehender: callLLMForHeaders on the bounded (novel-only, sample-bounded) input,
   //    one repair retry, then failed_interpretation.
   let llmDispatches = 0;
+  let totalLlmDuration = 0;
   const residue: ResidueComprehender = async (req) => {
     let lastFailure: ComprehensionFailureClass = 'unclassified_failure';
     for (let attempt = 0; attempt < 2; attempt++) {
       llmDispatches++;
       const outcome = await callLLMForHeaders({ sheets: [{ sheetName: req.sheetName, columns: req.columns, sampleRows: req.sampleRows, rowCount: req.rowCount }] });
+      totalLlmDuration += outcome.duration;
       if (outcome.ok) {
         const sheetData = outcome.result.sheets[req.sheetName];
         if (sheetData?.columns) {
@@ -383,7 +385,7 @@ export async function runDecomposedComprehension(
 
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: llmDispatches > 0,
-    llmCallDuration: 0,
+    llmCallDuration: totalLlmDuration, // sum of per-sheet residue dispatch durations (metric fix)
     llmModel: llmDispatches > 0 ? 'claude-sonnet-4-20250514' : null,
     columnsInterpreted,
     columnsFromBindings: 0,
