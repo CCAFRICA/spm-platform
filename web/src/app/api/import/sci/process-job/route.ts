@@ -179,6 +179,7 @@ export async function POST(req: NextRequest) {
     const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
     // OB-203 Phase 2 (5b): decomposed comprehension — atom read-before-derive, per-unit failures.
     const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
+    let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
     if (sheetsNeedingHC.length > 0) {
       const dc = await runDecomposedComprehension(
         profileMap,
@@ -187,6 +188,7 @@ export async function POST(req: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
+      provenanceMap = dc.provenance;
       // OB-203 Phase 1 (DI-4): per-unit failed_interpretation signal, each with ITS class.
       for (const [sheetName, failureClass] of Array.from(dc.perSheetFailure.entries())) {
         perSheetFailure.set(sheetName, failureClass);
@@ -299,6 +301,8 @@ export async function POST(req: NextRequest) {
     for (const cu of contentUnits) {
       const failureClass = perSheetFailure.get(cu.tabName);
       if (failureClass) cu.failedInterpretation = { failureClass, durationMs: 0 };
+      const prov = provenanceMap.get(cu.tabName);
+      if (prov) cu.recognitionProvenance = prov;
     }
 
     // OB-176 / HF-197B: Per-sheet recognitionTier and confidence override.

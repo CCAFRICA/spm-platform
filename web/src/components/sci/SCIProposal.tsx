@@ -143,6 +143,20 @@ function ContentUnitCard({
           </span>
         )}
 
+        {/* OB-203 Phase 2 (8): atom recognition provenance — rendered ONLY when present
+            (legacy-shaped units show nothing). Fraction of atoms recognized from prior signal,
+            count of novel atoms comprehended, and whether the LLM was dispatched (cost). */}
+        {unit.recognitionProvenance && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"
+            title="Atom recognition provenance"
+          >
+            {Math.round(unit.recognitionProvenance.recognizedFraction * 100)}% atoms
+            {unit.recognitionProvenance.novelCount > 0 ? ` · ${unit.recognitionProvenance.novelCount} new` : ''}
+            {!unit.recognitionProvenance.llmCalled ? ' · no LLM' : ''}
+          </span>
+        )}
+
         {/* Verdict text */}
         <span className="text-xs text-zinc-500 flex-1 truncate">
           {unit.verdictSummary || unit.reasoning}

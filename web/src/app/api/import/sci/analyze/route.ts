@@ -149,6 +149,7 @@ export async function POST(req: NextRequest) {
       const sheetsNeedingHC = file.sheets.filter(s => !sheetSkipHC(s.sheetName));
       let hcMetrics: import('@/lib/sci/sci-types').HeaderComprehensionMetrics | { llmCalled: boolean; llmCallDuration: number; averageConfidence: number; columnsInterpreted: number; crossSheetInsightCount: number };
       const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
+      let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
       if (sheetsNeedingHC.length === 0) {
         hcMetrics = {
           llmCalled: false,
@@ -169,6 +170,7 @@ export async function POST(req: NextRequest) {
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
         hcMetrics = dc.metrics;
+        provenanceMap = dc.provenance;
         // OB-203 Phase 1 (DI-4): per-unit failure — one durable failed_interpretation signal per
         // failed sheet, with ITS structural class (decomposed dispatch isolates failures per unit).
         for (const [sheetName, failureClass] of Array.from(dc.perSheetFailure.entries())) {
@@ -560,6 +562,9 @@ export async function POST(req: NextRequest) {
       for (const cu of fileContentUnits) {
         const failureClass = perSheetFailure.get(cu.tabName);
         if (failureClass) cu.failedInterpretation = { failureClass, durationMs: 0 };
+        // OB-203 Phase 2 (8): attach per-sheet atom recognition provenance (when computed).
+        const prov = provenanceMap.get(cu.tabName);
+        if (prov) cu.recognitionProvenance = prov;
       }
       console.log(`[SCI-PROPOSAL] ${fileContentUnits.length} content units for ${file.sheets.length} sheets`);
       contentUnits.push(...fileContentUnits);

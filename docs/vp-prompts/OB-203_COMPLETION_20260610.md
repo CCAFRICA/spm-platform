@@ -299,3 +299,26 @@ unaffected. `markFailedInterpretationUnits` retired from the routes (per-sheet m
 
 Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0. Live validation is EPG-2.4
 (the two-run Meridian protocol) — the gate.
+
+---
+
+## PHASE 2 — (8) EXPERIENCE: recognition provenance + EPG-2.3 (architect-approved 2026-06-11)
+
+Additive optional field `recognitionProvenance?: { recognizedFraction, novelCount, llmCalled }` on
+`ContentUnitProposal` (Phase 1 `failedInterpretation` pattern). Routes set it from
+`runDecomposedComprehension`'s provenance map; `SCIProposal` renders a compact
+"{pct}% atoms · {n} new · no LLM" chip on each card.
+
+**Condition (a) — seven consumers compile unchanged (evidence, not precedent):**
+- `tsc --noEmit` exit 0 — all consumers compile with the additive field.
+- The untouched consumers ignore it: `page.tsx`, `analyze-document/route.ts`, `SCIExecution.tsx`
+  contain ZERO references to `recognitionProvenance` (grep). The touched ones (`analyze`,
+  `process-job` set it; `SCIProposal` renders it; `sci-types` declares it) compile.
+
+**Condition (b) — renders only when present:** the chip is inside `{unit.recognitionProvenance && (…)}`
+— legacy-shaped units render nothing (no placeholder).
+
+**EPG-2.3 (DIAG-050):** the (8) diff adds NO `committed_data`/staging comprehension condition; the
+persistence path remains free of comprehension state (DI-1). Verified by diff grep.
+
+Verification: tsc clean; full suite **121 pass / 0 fail**; build exit 0.
