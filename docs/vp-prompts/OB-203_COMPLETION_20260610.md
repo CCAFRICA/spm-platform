@@ -699,3 +699,15 @@ state live; a `failed_interpretation` unit shows a **Retry** button → `retry-u
 
 **Awaiting architect EPG-3.1/3.2/3.3 live run** (blind-holdout; import into a sandbox tenant, then CC
 verifies the state trail + retry via service-role reads).
+
+### PHASE 3 — LIVE RUN PASS (architect-executed 2026-06-11, tenant 24103940, mod3, session a3f3769a)
+
+All witnesses verified (service-role reads + architect browser):
+- **Spine:** all 3 sheets `persisted→profiled→recognized→comprehended→classified→bound`, monotonic, under ONE `importSessionId` (a3f3769a). Classifications transaction / reference / entity.
+- **EPG-3.1 (G7):** 0 migrations, 0 direct inserts; `comprehension:unit_state` via the one canonical writer.
+- **EPG-3.2 (DI-1):** `persisted` batch (22:57:02.281) strictly precedes `profiled` (22:57:02.453) for every sheet — state-zero independent of profiling.
+- **EPG-3.3 / resume:** dev-server restart mid-session + reload → `SessionStateLive` re-rendered the full view from the DB (architect: resume render **yes**). In-memory state gone; `rebuildSessionState` is the sole data source. Resume-after-restart confirmed.
+- **bound:** 3/3 units reached `bound` post-execute under the same session (22:58:52).
+- Retry-click witness deferred to Phase 5 induced-failure CLT (architect ruling); retry stands test-proven.
+
+**Phase 3 PASS.** All EPGs green; live witnesses verified. Ready for merge.
