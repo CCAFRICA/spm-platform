@@ -193,3 +193,52 @@ rows). Atoms accumulate tenant-scoped on this existing surface; foundational/ver
 DI-10-constrained (bucketed structural features only, by construction — never raw values). HALT-7
 bounds the migration to the atom extension. The seeded structural-analog generator is built in this
 phase; no real tenant vocabulary appears anywhere in tests.
+
+---
+
+## PHASE 1 — CLOSED (production witness, blind-holdout) — deploy SHA `750d3c41`
+Architect-executed run (architect-reported environment: production, sandbox tenant
+`3d354bfa-b298-48dd-88a0-9f8c5a00be4e`; two runs 05:05:37 + 05:06:37 retry after `FETCH FAILED`
+— expected client timeout, does not fail verification). Architect witness line:
+`[OB-203] failed_interpretation: emitted 12 signal(s) class=parse_failure duration=67336ms`.
+
+CC durable signal evidence — `classification_signals` query (signal_type
+`comprehension:failed_interpretation`, since 05:00Z): **24 rows, 12 per run** (05:06:46 ×12 dur=67336ms;
+05:07:47 ×12 dur=68191ms). Invariants verified across all 24: `decision_source='failed_interpretation'`,
+`confidence=0`, `failureClass='parse_failure'`, `attemptedTier=3`, dedicated columns populated
+(`sheet_name`, `source_file_name`, `structural_fingerprint.fingerprintHash`), `signal_value`
+carries `{failureClass, durationMs, attemptedTier}`. One signal per affected sheet (12 of 16; the
+other 4 were Tier-1 skips). Sheets: Sucursales, Productos_SKU, Resumen_{Sucursal,Mensual,Turno,
+DiaSemana,Categoria,Producto,Menu,Empleado,Diario}, Ventas_Transaccional.
+**Phase 1 verified in production and CLOSED.** Merge gate for the OB now reduces to EPG-2.4 (Phase 7 anchors aside).
+
+## PHASE 2 — second reinforcement path located (architect disposition 2026-06-11 item 2)
+Beyond the CRR outcome-signal sites (`analyze:686-713`, `process-job:377-382`), a SECOND
+reinforcement path updates fingerprint match_count/confidence ungated on comprehension success:
+```
+fingerprint-flywheel.ts:154   writeFingerprint(...)
+                  :190-191     const newMatchCount = existing.match_count + 1;
+                               const newConfidence = 1 - (1 / (newMatchCount + 1));   // 0.6667→0.75→0.80→0.8333
+                  :193-203     .update({ match_count: newMatchCount, confidence, classification_result, column_roles, ... })
+                  :208         console.log('[SCI-FINGERPRINT] Updated: ... matchCount=N confidence=X')
+```
+Only the HF-247 unknown-role QUALITY gate (:167) guards it — NOT a comprehension-success gate. A
+Tier-1-matched sheet reinforces on every import even when the import's comprehension failed.
+**Phase 2 scope:** gate this update on comprehension success (same invariant as the CRR sites);
+a blocked increment emits a DI-7 remediation signal, never a silent skip.
+
+## PHASE 6 — poisoned/contaminated-fingerprint BEFORE-STATE (architect disposition item 3)
+Captured 2026-06-11 (run tenant `3d354bfa`) as the retirement before-state — confidence climbed
+across the FAILED production runs via the ungated second path:
+```
+hash=ffb69592f7b7  mc=5  conf=0.8333  unknownRoles=false  updated=2026-06-11T05:07:49Z   <-- reinforced across failed runs
+hash=b42ee218cb37  mc=5  conf=0.8333  unknownRoles=false  updated=2026-06-11T05:07:49Z   <-- reinforced
+hash=7707e8553823  mc=4  conf=0.80    unknownRoles=false  updated=2026-06-11T05:06:49Z   <-- reinforced
+hash=afb789d55ae5  mc=2  conf=0.6667  unknownRoles=false  updated=2026-06-10T20:41Z      (not matched this run)
+hash=53c893b312f5  mc=1  conf=0.50    unknownRoles=false  updated=2026-05-15
+hash=53a25f072c9a  mc=1  conf=0.50    unknownRoles=false  updated=2026-05-15
+afb789d55ae5* cross-tenant: 3d354bfa(mc=2,0.6667) · dbe3b308(mc=1,0.5)  [tenant-scoped, confirmed]
+```
+Phase 6 reconciliation (read-only assessment; architect dispositions purge/retrain): the CRR
+`classification:outcome` prior contamination from historical failed runs, AND these reinforced
+fingerprints, are evaluated against this before-state.
