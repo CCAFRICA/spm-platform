@@ -48,6 +48,9 @@ ALTER TABLE public.structural_fingerprints
   DROP CONSTRAINT structural_fingerprints_tenant_id_fingerprint_hash_key,
   ADD CONSTRAINT  structural_fingerprints_tenant_id_fingerprint_hash_granularity_key
     UNIQUE (tenant_id, fingerprint_hash, granularity);
+-- APPLIED 2026-06-11: Postgres truncated the constraint name to its 63-char limit ->
+--   structural_fingerprints_tenant_id_fingerprint_hash_granularity_   (no _key suffix).
+-- The rollback below references that ACTUAL truncated name.
 -- The widened UNIQUE creates the covering index (tenant_id, fingerprint_hash, granularity)
 -- that serves the per-tenant atom lookup; no separate index is needed (algorithm_version is
 -- pinned by the hash, so it is a cheap residual filter at read).
@@ -72,7 +75,7 @@ ALTER TABLE public.structural_fingerprints
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_di10_chk,
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_scope_chk,
 --     DROP CONSTRAINT IF EXISTS structural_fingerprints_granularity_chk,
---     DROP CONSTRAINT IF EXISTS structural_fingerprints_tenant_id_fingerprint_hash_granularity_key,
+--     DROP CONSTRAINT IF EXISTS structural_fingerprints_tenant_id_fingerprint_hash_granularity_,  -- PG-truncated actual name
 --     ADD CONSTRAINT  structural_fingerprints_tenant_id_fingerprint_hash_key
 --       UNIQUE (tenant_id, fingerprint_hash);
 --   ALTER TABLE public.structural_fingerprints
