@@ -7046,7 +7046,1968 @@ Evidence tier: VERIFIED-CODE+DB. Script: `web/scripts/diag/diag063_d4_batch_accu
 
 ## Module E — Engine-Path Confirmations
 
-*(probe results pending)*
+# E1 — temporal_adjustment execution
+
+**CURRENT STATE:** `temporal_adjustment` exists as a typed IntentModifier discriminant (`src/lib/calculation/intent-types.ts:207`) and is faithfully passed through the intent transformer (`src/lib/calculation/intent-transformer.ts:224-233`, HF-223 validation-passthrough). The engine's only handler for it is an explicit refusal: `legacy-intent-to-dag.ts:594-599` throws `UntranslatableLegacyIntentError` ("requires period-history context (not in Phase 0 production inventory)"). It is NOT a ComponentType (the union at `src/types/compensation-plan.ts:57-73` includes `temporal_window` but not `temporal_adjustment`). DB: 0 of 943 calculation_results rows (100% scanned, all tenants) and 0 of 9 rule_sets contain the string anywhere in their components jsonb.
+
+**VERDICT: NEVER-EXECUTED** (and never configured in any stored rule set).
+
+**EVIDENCE:**
+
+Grep sweep (complete hit list — 6 hits, 3 files):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "temporal_adjustment" src/lib --include="*.ts"
+src/lib/calculation/intent-transformer.ts:186:  // dropped 'proration' and 'temporal_adjustment' discriminants entirely. That
+src/lib/calculation/intent-transformer.ts:224:      } else if (modType === 'temporal_adjustment' && m.lookbackPeriods != null) {
+src/lib/calculation/intent-transformer.ts:226:          modifier: 'temporal_adjustment',
+src/lib/calculation/legacy-intent-to-dag.ts:594:    case 'temporal_adjustment': {
+src/lib/calculation/legacy-intent-to-dag.ts:596:        `[legacyIntentToDAG] temporal_adjustment modifier requires period-history context ` +
+src/lib/calculation/intent-types.ts:207:  | { modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' };
+```
+
+Engine handler — the modifier-translation case throws (this is the only execution-path handler):
+
+```typescript
+// src/lib/calculation/legacy-intent-to-dag.ts:594-607 (inside wrapModifier switch)
+    case 'temporal_adjustment': {
+      throw new UntranslatableLegacyIntentError(
+        `[legacyIntentToDAG] temporal_adjustment modifier requires period-history context ` +
+        `(not in Phase 0 production inventory). Emission preserved: ${JSON.stringify(mod)}.`
+      );
+    }
+    default: {
+      const modName = (mod as { modifier?: string }).modifier ?? '<undefined>';
+      throw new UntranslatableLegacyIntentError(
+        `[legacyIntentToDAG] Unrecognized IntentModifier discriminator "${modName}". ` +
+        `Emission preserved: ${JSON.stringify(mod)}.`
+      );
+    }
+```
+
+Modifier path into that handler — all modifiers flow through `wrapModifier` via `legacyIntentToDAG`:
+
+```typescript
+// src/lib/calculation/legacy-intent-to-dag.ts:620-629
+export function legacyIntentToDAG(
+  op: IntentOperation,
+  modifiers: IntentModifier[] = [],
+): PrimeNode {
+  let dag = translateOperation(op);
+  for (const mod of modifiers) {
+    dag = wrapModifier(dag, mod);
+  }
+  return dag;
+}
+```
+
+Transformer passthrough — the modifier IS constructed and carried (it is not dropped pre-engine):
+
+```typescript
+// src/lib/calculation/intent-transformer.ts:224-233
+      } else if (modType === 'temporal_adjustment' && m.lookbackPeriods != null) {
+        modifiers.push({
+          modifier: 'temporal_adjustment',
+          lookbackPeriods: Number(m.lookbackPeriods),
+          triggerCondition: normalizeIntentInput(m.triggerCondition) as IntentSource,
+          adjustmentType: (typeof m.adjustmentType === 'string' && ['full_reversal', 'partial', 'prorated'].includes(m.adjustmentType))
+            ? m.adjustmentType as 'full_reversal' | 'partial' | 'prorated'
+            : 'full_reversal',
+        });
+      }
+```
+
+Not a ComponentType — union includes `temporal_window`, not `temporal_adjustment`:
+
+```typescript
+// src/types/compensation-plan.ts:57-73 (excerpt)
+export type ComponentType =
+  | 'bounded_lookup_1d'
+  | 'bounded_lookup_2d'
+  | 'scalar_multiply'
+  | 'conditional_gate'
+  | 'linear_function'
+  | 'piecewise_linear'
+  | 'scope_aggregate'
+  | 'aggregate'
+  | 'ratio'
+  | 'constant'
+  | 'weighted_blend'
+  | 'temporal_window'
+  | 'prime_dag';
+```
+
+Downstream error handling at the run-calculation fallback call site — the translation throw is swallowed by a bare catch:
+
+```typescript
+// src/lib/calculation/run-calculation.ts:376-392 (excerpt)
+        const dag = legacyIntentToDAG(intentOp);
+        const context = buildEvalContext(entityData);
+        const intentPayoutDecimal = evaluate(dag, context);
+        const intentPayout = toNumber(intentPayoutDecimal);
+        if (intentPayout > 0) {
+          payout = intentPayout;
+          ...
+        }
+      }
+    } catch {
+      // Fallback failed silently — use original $0 payout
+    }
+```
+
+DB probe script (NEW, read-only): `web/scripts/diag/diag063_e1_temporal.ts`
+
+```typescript
+// web/scripts/diag/diag063_e1_temporal.ts (logic summary; full source in file)
+// 1. Inspect ONE calculation_results row's components shape (KEYS ONLY).
+// 2. Server-side PostgREST contains count on candidate type keys:
+//    .select('id', { count: 'exact', head: true })
+//    .contains('components', JSON.stringify([{ [typeKey]: 'temporal_adjustment' }]))
+// 3. Shape is an object keyed by component name (not a typed array), so the
+//    contains pattern is shape-inapplicable -> page ALL rows (1000/page,
+//    ordered created_at desc, cap 50000) and scan client-side via
+//    JSON.stringify(row.components).includes('temporal_adjustment').
+// 4. Supplementary: same string scan over all rule_sets.components.
+// Output: counts + distinct tenant_id/period_id UUIDs only.
+```
+
+Script execution (verbatim):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e1_temporal.ts
+[1] sample row id=e7d390d0-f549-4020-8f59-f81435a28b6d
+[1] components top-level shape: object
+[1] object keys: base_commission, tip_bonus
+[2] contains([{type: 'temporal_adjustment'}]) -> count=0
+[2] contains([{componentType: 'temporal_adjustment'}]) -> count=0
+[3] calculation_results total rows: 943
+[3] client-side scan method: JSON.stringify(components).includes('temporal_adjustment')
+[3] coverage: scanned 943 of 943 rows (most recent first, cap 50000)
+[3] rows containing 'temporal_adjustment' anywhere in components: 0
+[3] distinct tenant_ids with hits: 0 []
+[3] distinct period_ids with hits: 0 []
+[4] rule_sets total rows scanned: 9
+[4] rule_sets containing 'temporal_adjustment' in components: 0
+[4] rule_set ids with hits: []
+[4] distinct tenant_ids with rule_set hits: 0 []
+```
+
+Method/coverage note: `calculation_results.components` is an OBJECT keyed by component name (sample keys: `base_commission`, `tip_bonus`) — not an array of `{type: ...}` objects — so the PostgREST array-contains filter cannot match by shape (counts of 0 at step [2] are shape-artifacts, not evidence). The authoritative result is the client-side string scan at step [3]: 943/943 rows = 100% coverage across ALL tenants, 0 hits. Schema cross-check: `SCHEMA_REFERENCE_LIVE.md:101-116` confirms `calculation_results.components` jsonb NOT NULL; no divergence observed in response keys.
+
+**GAP TO DEMO BAR:** The modifier cannot execute at all: any plan configuring `temporal_adjustment` reaches the throwing case in `wrapModifier`. Missing is (a) the `temporal_adjustment` translation case in `legacy-intent-to-dag.ts` (lookback reversal/partial/prorated logic over prior-period results) and (b) wiring of period-history context into the modifier translation — note OB-81 period-history batch-loading already exists for `temporal_window` (`src/app/api/calculation/run/route.ts:1292-1325`). No tenant has ever configured or executed it (0/9 rule_sets, 0/943 results).
+
+**EFFORT SHAPE:** E3 COMPOSE — implement the `temporal_adjustment` case in `wrapModifier` (`src/lib/calculation/legacy-intent-to-dag.ts`) composing the existing OB-81 period-history context already batch-loaded in `src/app/api/calculation/run/route.ts:1292` for `temporal_window`; transformer (`intent-transformer.ts`) and types (`intent-types.ts:207`) already carry the modifier. No new schema, no new UI surface; existing tables (`calculation_results`, `rule_sets`) suffice.
+
+# E2 — Period-scoped plan assignment
+
+### E2 — Period-scoped plan assignment (gates the MIR seasonal-overlay plan)
+
+**CURRENT STATE:** The schema fully supports period scoping: both `rule_set_assignments` and `rule_sets` carry nullable `effective_from`/`effective_to` date columns (SCHEMA_REFERENCE_LIVE.md). The calculation path does NOT honor them: both calculation entry points fetch assignments filtered only by `tenant_id` + `rule_set_id` with no date-range predicate against the period, and `effective_from`/`effective_to` are never referenced in either calculation file for assignments or rule sets. A repo-wide sweep finds no site anywhere that filters `rule_set_assignments` by effective range; the only reads of those columns are display/readiness payloads. Additionally, an HF-126/HF-189 self-heal inside the calculation route inserts assignments (without `effective_from`) for every unassigned individual entity to whichever rule set is being calculated. Live DB counts: 643 of 703 assignments have NULL `effective_from`, and zero rows in either table have `effective_to`. Date-effectivity machinery does exist in the calc path — but only for entity `temporal_attributes`, not assignments.
+
+**EVIDENCE:**
+
+Schema lines (SCHEMA_REFERENCE_LIVE.md:494-507 and 509-531, relevant rows):
+
+```
+### rule_set_assignments (10 columns)
+| Column | Type | Nullable | Default |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+
+### rule_sets (18 columns)
+| Column | Type | Nullable | Default |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+```
+
+Sweep command (run from web/):
+
+```
+grep -rn "rule_set_assignments" src/lib src/app --include="*.ts"
+```
+
+Complete file-level enumeration (per-file hit counts; 38 line hits total):
+
+```
+src/lib/sci/assignment-creation.ts        (5 hits: header comments, presence-check select, insert)
+src/lib/canvas/graph-service.ts           (1 hit: select rule_set_id, effective_from — graph display)
+src/lib/supabase/rule-set-service.ts      (4 hits: insert + selects of entity_id/effective_from — UI listing)
+src/lib/supabase/database.types.ts        (4 hits: type definitions)
+src/lib/supabase/data-service.ts          (5 hits: comments + presence-check select + insert)
+src/lib/calculation/run-calculation.ts    (1 hit: CALC FETCH — see below)
+src/lib/data/page-loaders.ts              (1 hit: head:true count for readiness)
+src/app/api/intelligence/wire/route.ts    (5 hits: creation + select)
+src/app/api/import/commit/route.ts        (3 hits: creation)
+src/app/api/calculation/run/route.ts      (2 hits: CALC FETCH + self-heal insert — see below)
+src/app/api/import/sci/execute-bulk/route.ts (2 hits: comments referencing assignment-creation.ts)
+src/app/api/rule-set-assignments/route.ts (4 hits: CRUD route, GET selects effective_from/effective_to)
+src/app/api/plan-readiness/route.ts       (1 hit: head:true count)
+```
+
+Calc fetch site 1 — src/lib/calculation/run-calculation.ts:916-935 (no date filter):
+
+```typescript
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+
+    if (aErr) {
+      return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
+  }
+```
+
+Calc fetch site 2 — src/app/api/calculation/run/route.ts:422-446 (identical shape, no date filter):
+
+```typescript
+  // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+```
+
+HF-126/HF-189 self-heal — src/app/api/calculation/run/route.ts:451-495 (excerpt; inserts assignments WITHOUT effective_from, for ALL unassigned individual entities, on every calc run):
+
+```typescript
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  ...
+      if (missingEntityIds.length > 0) {
+        const INSERT_BATCH = 5000;
+        const newAssignments = missingEntityIds.map(eid => ({
+          tenant_id: tenantId,
+          rule_set_id: ruleSetId,
+          entity_id: eid,
+          assignment_type: 'direct',
+          metadata: {},
+        }));
+        for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+          const slice = newAssignments.slice(i, i + INSERT_BATCH);
+          await supabase.from('rule_set_assignments').insert(slice);
+        }
+        entityIds = [...entityIds, ...missingEntityIds];
+```
+
+Period IS fetched in the calc path, but is used for data scoping (source_date), not assignment scoping — src/lib/calculation/run-calculation.ts:957-961:
+
+```typescript
+  // ── 3. Fetch period info (OB-152: include end_date for source_date hybrid) ──
+  const { data: period } = await supabase
+    .from('periods')
+    .select('id, canonical_key, start_date, end_date')
+    .eq('id', periodId)
+```
+
+Repo-wide sweep for any honoring of the effective columns (run from web/):
+
+```
+grep -rn "effective_from\|effective_to" src/lib src/app --include="*.ts" --include="*.tsx"
+```
+
+File-level result (79 line hits total; NO site applies a date predicate to rule_set_assignments):
+
+```
+src/lib/sci/entity-resolution.ts          (9 hits — entity temporal_attributes, not assignments)
+src/lib/supabase/rule-set-service.ts      (11 hits — display mapping effectiveDate/endDate + unfiltered selects)
+src/lib/supabase/entity-service.ts        (8 hits — entity attributes/relationships)
+src/lib/canvas/graph-service.ts           (11 hits — entity_relationships .is('effective_to', null); assignments selected unfiltered)
+src/lib/supabase/database.types.ts        (18 hits — type defs)
+src/app/api/intelligence/wire/route.ts    (3 hits — sets effective_from=today on insert)
+src/app/api/plan/import/route.ts          (2 hits — writes rule_sets.effective_from/to from plan config)
+src/app/api/calculation/run/route.ts      (4 hits — temporal_attributes as-of-date ONLY, lines 1679-1686)
+src/app/api/rule-set-assignments/route.ts (4 hits — sets effective_from=today on insert; GET returns columns)
+src/app/api/import/commit/route.ts        (3 hits — sets effective_from=today on insert)
+src/app/api/import/sci/execute-bulk/route.ts (6 hits — entity temporal_attributes)
+src/lib/sci/assignment-creation.ts        (0 hits — inserts assignments WITHOUT effective_from)
+```
+
+The ONLY date-effectivity honoring in the calculation path is for entity temporal_attributes — src/app/api/calculation/run/route.ts:1682-1686:
+
+```typescript
+          const sorted = [...attrs].sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
+          for (const attr of sorted) {
+            if (attr.key in resolved) continue;
+            if (attr.effective_from && attr.effective_from > asOfDate) continue;
+            if (attr.effective_to && attr.effective_to < asOfDate) continue;
+```
+
+"Active rule set" selection is status-based, not date-based — src/lib/sci/assignment-creation.ts:41-46:
+
+```typescript
+    const { data: activeRuleSets } = await supabase
+      .from('rule_sets')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active');
+```
+
+`population_config` is fetched but never read in either calc file (no alternative scoping mechanism):
+
+```
+$ grep -n "population_config\|populationConfig" src/lib/calculation/run-calculation.ts src/app/api/calculation/run/route.ts
+src/lib/calculation/run-calculation.ts:873:    .select('id, name, components, input_bindings, population_config, metadata')
+src/app/api/calculation/run/route.ts:191:    .select('id, name, components, input_bindings, population_config, metadata')
+```
+
+DB probe — script web/scripts/diag/diag063_e2_effective_range_population.ts (SELECT head:true counts only):
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function count(table: string, mod?: (q: any) => any): Promise<number | string> {
+  let q = supabase.from(table).select('id', { count: 'exact', head: true });
+  if (mod) q = mod(q);
+  const { count: c, error } = await q;
+  if (error) return `ERROR: ${error.message}`;
+  return c ?? 0;
+}
+
+async function main() {
+  const out: Record<string, number | string> = {};
+  out['rule_set_assignments.total'] = await count('rule_set_assignments');
+  out['rule_set_assignments.effective_from_not_null'] = await count(
+    'rule_set_assignments', q => q.not('effective_from', 'is', null));
+  out['rule_set_assignments.effective_to_not_null'] = await count(
+    'rule_set_assignments', q => q.not('effective_to', 'is', null));
+  out['rule_sets.total'] = await count('rule_sets');
+  out['rule_sets.effective_from_not_null'] = await count(
+    'rule_sets', q => q.not('effective_from', 'is', null));
+  out['rule_sets.effective_to_not_null'] = await count(
+    'rule_sets', q => q.not('effective_to', 'is', null));
+  out['rule_sets.status_active'] = await count(
+    'rule_sets', q => q.eq('status', 'active'));
+  for (const [k, v] of Object.entries(out)) console.log(`${k} = ${v}`);
+}
+
+main().catch(e => { console.error('FATAL', e?.message ?? e); process.exit(1); });
+```
+
+Output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e2_effective_range_population.ts
+rule_set_assignments.total = 703
+rule_set_assignments.effective_from_not_null = 60
+rule_set_assignments.effective_to_not_null = 0
+rule_sets.total = 9
+rule_sets.effective_from_not_null = 2
+rule_sets.effective_to_not_null = 0
+rule_sets.status_active = 8
+```
+
+**GAP TO DEMO BAR:** The honoring code is ABSENT. To gate a seasonal-overlay plan by period, the calculation assignment fetch must add a date-range predicate against the period's `start_date`/`end_date` (e.g. `effective_from <= period.end_date AND (effective_to IS NULL OR effective_to >= period.start_date)`) in BOTH calc paths. Two coupled gaps: (1) the HF-126/HF-189 self-heal auto-assigns ALL individual entities to the calculated rule set with NULL `effective_from` on every run, which would re-include out-of-window entities and assign everyone to a seasonal overlay plan; (2) live data is mostly NULL-dated (643/703 assignments NULL `effective_from`, 0/703 with `effective_to`), so demo data needs dated assignments for the overlay plan. `rule_sets.effective_from/to` is written at plan import and read only for display; rule-set selection is status-based.
+
+**EFFORT SHAPE:** E3 COMPOSE — no new schema, no new UI required. Service-layer work in two named sites: the assignment fetch loop in `src/lib/calculation/run-calculation.ts` (~line 921) and `src/app/api/calculation/run/route.ts` (~line 429) gains a period-overlap date filter (period dates are already fetched in both paths); the HF-126/HF-189 self-heal block in `src/app/api/calculation/run/route.ts` (lines 451-495) must be made range-aware so it does not re-assign out-of-window entities; assignment writers (`src/lib/sci/assignment-creation.ts`, `src/app/api/rule-set-assignments/route.ts`, `src/app/api/import/commit/route.ts`, `src/app/api/intelligence/wire/route.ts`) already exist — only `assignment-creation.ts` omits `effective_from` entirely. Optional surface: the existing `/api/rule-set-assignments` POST already accepts the table columns; an effective-range input on the assignment UI would be an E2-style extension on top.
+
+### E3 — Plan variant mechanism (BCL-era)
+
+**CURRENT STATE:** The operative variant mechanism is the HF-119 token-overlap matcher, inline in the calculation orchestrator `src/app/api/calculation/run/route.ts` (inside `export async function POST`, declared at line 71). Variants are parsed from `rule_sets.components` JSONB (legacy nested `{ variants: [{ components: [...] }] }` format, route.ts:202-222); per-variant token sets and discriminant tokens are built once before the entity loop (route.ts:1619-1643); each entity's tokens are built from `flatDataByEntity` (committed_data `row_data` string values) — the BCL-era flat source restored unconditionally by HF-200 (commit 2f2160c5, PR #363) — then scored discriminant-first, total-overlap on tie, default-last on full tie (route.ts:1819-1867). An OB-194 eligibility gate excludes entities matching no variant (route.ts:1876-1900) and HF-212 accumulates a per-variant distribution counter (route.ts:1903-1907). A second, older role-name variant matcher exists in `src/lib/calculation/run-calculation.ts:1367-1397` inside `runCalculation()` (exported at line 856), but that function has no callers — HF-079 moved calculation to the API route — so it is dormant. The mechanism file is identical between this branch's HEAD and the main anchor SHA.
+
+**EVIDENCE:**
+
+Provenance — HF-200 commits (run from repo root):
+
+```
+$ git log -i --grep="HF-200" --oneline
+9f209bdf Merge pull request #363 from CCAFRICA/hf-200-restore-flat-variant-matcher
+2f2160c5 HF-200: restore flatDataByEntity as unconditional variant-matcher source
+```
+
+HF-200 commit message + diff target (excerpt):
+
+```
+$ git show 2f2160c5 --stat | head -30
+commit 2f2160c5c22535a2d3d9a05197723a39c6bbb3a3
+...
+    HF-200: restore flatDataByEntity as unconditional variant-matcher source
+
+    Reverts OB-177 Phase 3 (bbe8fd33) variant-matcher source-priority demotion.
+
+    DIAG-027 + DIAG-028 forensic chain established that reconciliation-era
+    mechanism (flatDataByEntity token-overlap from committed_data via entity_id
+    FK) produced reconciled proof for BCL/CRP/Meridian at cbaacb12/1bd8100b.
+    OB-177 P3 demoted this mechanism to fallback gated on entityTokens.size === 0.
+    materializedState as PRIMARY is broken at canonicalization layer per DIAG-025.
+
+    This commit deletes materializedState read block and gate from variant-matcher;
+    flatDataByEntity becomes unconditional source. ...
+
+ web/src/app/api/calculation/run/route.ts | 28 +++++-----------------------
+ 1 file changed, 5 insertions(+), 23 deletions(-)
+```
+
+Mechanism core part 1 — tokenizer + discriminant build:
+
+```typescript
+// src/app/api/calculation/run/route.ts:1619-1643
+  // HF-119: Token overlap variant matching — build token sets once before entity loop
+  const variantTokenize = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove accents
+      .replace(/[^a-z0-9\s_]/g, ' ')
+      .split(/[\s_]+/)
+      .filter(t => t.length > 2);
+
+  const variantTokenSets = variants.map(v => {
+    const text = [
+      String(v.variantName ?? ''),
+      String(v.description ?? ''),
+      String(v.variantId ?? ''),
+    ].join(' ');
+    return new Set(variantTokenize(text));
+  });
+
+  // Discriminant tokens: tokens unique to each variant (not in any other variant)
+  const variantDiscriminants = variantTokenSets.map((tokens, i) => {
+    const otherTokens = new Set<string>();
+    variantTokenSets.forEach((t, j) => { if (j !== i) t.forEach(tok => otherTokens.add(tok)); });
+    return new Set(Array.from(tokens).filter(t => !otherTokens.has(t)));
+  });
+```
+
+Mechanism core part 2 — per-entity selection (HF-200-restored flat source + scoring):
+
+```typescript
+// src/app/api/calculation/run/route.ts:1819-1867 (excerpt, <=40 lines)
+    // HF-119: Token overlap variant matching — cross-language, structural
+    let selectedComponents = defaultComponents;
+    let selectedVariantIndex = 0;
+    if (variants.length > 1) {
+      // Build entity token set from ALL string field values
+      const entityTokens = new Set<string>();
+      for (const row of entityRowsFlat) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const val of Object.values(rd)) {
+          if (typeof val === 'string' && val.length > 1) {
+            for (const token of variantTokenize(val)) { entityTokens.add(token); }
+          }
+        }
+      }
+      // Score by discriminant token matches
+      const discScores = variantDiscriminants.map((disc, i) => {
+        const matched = Array.from(disc).filter(t => entityTokens.has(t));
+        return { index: i, matches: matched.length, tokens: matched };
+      });
+      discScores.sort((a, b) => b.matches - a.matches);
+
+      let method = 'default_last';
+      if (discScores[0].matches > (discScores[1]?.matches ?? 0)) {
+        selectedVariantIndex = discScores[0].index;          // discriminant winner
+        method = 'discriminant_token';
+      } else {
+        const overlapScores = variantTokenSets.map((tokens, i) => ({
+          index: i,
+          overlap: Array.from(tokens).filter(t => entityTokens.has(t)).length,
+        }));
+        overlapScores.sort((a, b) => b.overlap - a.overlap);
+        if (overlapScores[0].overlap > (overlapScores[1]?.overlap ?? 0)) {
+          selectedVariantIndex = overlapScores[0].index;     // total-overlap winner
+          method = 'total_overlap';
+        } else {
+          selectedVariantIndex = variants.length - 1;        // default to last (Standard)
+        }
+      }
+      selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
+```
+
+Variants source — `rule_sets.components` JSONB parse:
+
+```typescript
+// src/app/api/calculation/run/route.ts:202-220 (excerpt)
+  // Parse components from JSONB — handle 3 formats:
+  // 1. Flat array  2. Wrapped object  3. Legacy nested: { variants: [{ components: [...] }] }
+  const rawComponents = ruleSet.components;
+  let defaultComponents: PlanComponent[];
+  let variants: Array<Record<string, unknown>> = [];
+  ...
+      // Legacy nested format: { variants: [{ components: [...] }] }
+      variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+      defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+```
+
+Matcher is inside the calculation POST handler (single function from line 71 onward; no other `export async function POST` before line 1819):
+
+```
+$ grep -n "export async function POST" src/app/api/calculation/run/route.ts
+71:export async function POST(request: NextRequest)
+```
+
+Call chain hop into the matcher's output — selected components are transformed to intents per entity:
+
+```
+$ grep -rn "transformVariant" src --include="*.ts" --include="*.tsx"
+src/app/api/calculation/run/route.ts:31:import { transformVariant } from '@/lib/calculation/intent-transformer';
+src/app/api/calculation/run/route.ts:418:  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+src/app/api/calculation/run/route.ts:2529:      : transformVariant(selectedComponents);
+src/lib/calculation/intent-transformer.ts:52:export function transformVariant(
+```
+
+Call chain hops into the route (ADJACENT-ARM SWEEP — complete caller enumeration):
+
+```
+$ grep -rn "api/calculation/run" src --include="*.ts" --include="*.tsx" | grep -v "src/app/api/calculation/run"
+src/app/admin/launch/calculate/page.tsx:333:        const response = await fetch('/api/calculation/run', {
+src/app/operate/calculate/page.tsx:252:        const response = await fetch('/api/calculation/run', {
+src/app/operate/lifecycle/page.tsx:195:        const response = await fetch('/api/calculation/run', {
+src/app/api/import/commit/route.ts:986:    // (HF-165) at /api/calculation/run is the single binding decision point so
+src/components/calculate/PlanCard.tsx:87:      const response = await fetch('/api/calculation/run', {
+```
+
+(4 fetch call sites; the import/commit hit is a comment, not a caller.)
+
+Second variant-selection site (dormant arm): `src/lib/calculation/run-calculation.ts:1367-1397` contains an OB-85-R3R4 role-name matcher (exact then contains match on `variant.variantName`/`description` vs entity role) inside `runCalculation()` (exported at run-calculation.ts:856). Complete caller enumeration for `runCalculation`:
+
+```
+$ grep -rn "runCalculation\b" src --include="*.ts" --include="*.tsx" | grep -v "src/lib/calculation/run-calculation.ts"
+src/app/admin/launch/calculate/page.tsx:317:  // HF-079: Call API route (service role) instead of client-side runCalculation()
+src/app/api/calculation/run/route.ts:2566:      bufferTrace(`[CalcTrace] runCalculation:entity_start ...`)
+src/app/api/calculation/run/route.ts:2650:        bufferTrace(`[CalcTrace] runCalculation:component_complete ...`)
+src/app/api/calculation/run/route.ts:3118:    `[CalcTrace] runCalculation:period_complete` +
+src/app/api/calculation/run/route.ts:3131:    `[CalcTrace] runCalculation:batch_complete` +
+```
+
+(All hits are comments or trace-label strings — zero invocations. The route imports only evaluator helpers from run-calculation.ts, route.ts:20-29: `getExpectedMetricNames`, `rowMatchesFilters`, `applyMetricDerivations`, types.)
+
+ADJACENT-ARM SWEEP — the probe's stated search (complete file-level list, 47 files):
+
+```
+$ grep -rnil "variant" src/lib --include="*.ts"
+src/lib/animations.ts
+src/lib/reconciliation/report-engine.ts
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/reconciliation/ai-column-mapper.ts
+src/lib/normalization/dictionary-seeder.ts
+src/lib/normalization/product-variant-generator.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/auth/session-lifecycle.ts
+src/lib/sci/reimport-resume.ts
+src/lib/signals/briefing-signals.ts
+src/lib/sci/plan-orchestration.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/plan-idempotency.ts
+src/lib/sci/import-batch-supersession.ts
+src/lib/sci/content-unit-hash.ts
+src/lib/sci/__tests__/comprehension-state.test.ts
+src/lib/sci/interpretation-errors.ts
+src/lib/sci/__tests__/import-atomicity.test.ts
+src/lib/sci/__tests__/content-unit-hash.test.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/forensics/types.ts
+src/lib/forensics/trace-builder.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/intent-validator.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/calculation/intent-types.ts
+src/lib/calculation/results-formatter.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/import-pipeline/smart-mapper.ts
+src/lib/domain/domains/icm.ts
+src/lib/data/briefing-loader.ts
+src/lib/design-system/interaction-patterns.ts
+```
+
+Variant-SELECTION sites among all hits: (1) route.ts:1619-1907 matcher (LIVE), (2) run-calculation.ts:1367-1397 role matcher (dormant, no callers). The remaining `src/lib` hits are variant-aware plumbing, not selection: interpretation-side per-variant intent emission/binding scope (compositional-intent.ts, convergence-service.ts — HF-251/252/253), DAG-side `variantId`/`transformVariant` (intent-transformer.ts:52, intent-types.ts, intent-executor.ts, legacy-intent-to-dag.ts, intent-validator.ts), and non-plan uses (UI animation variants, product-variant normalization, session/forensics strings).
+
+Anchor confirmation — matcher present at branch HEAD and main anchor; file identical between the two:
+
+```
+$ git rev-parse HEAD main
+dc79a10ad0269875ab4aa97ed9b486360de4b72f   (HEAD, diag/063-mir-demo-capability-assessment)
+d38d63553bddc079fab2cfda6f1fa2d178a2704a   (main anchor)
+
+$ git show dc79a10a...:web/src/app/api/calculation/run/route.ts | grep -n "HF-119\|flatDataByEntity" | tail -3
+1796:    const entityRowsFlat = flatDataByEntity.get(entityId) || [];
+1819:    // HF-119: Token overlap variant matching — cross-language, structural
+2526:    // HF-119: Use selected variant's intents, not always defaultComponents
+
+$ git show d38d6355...:web/src/app/api/calculation/run/route.ts | grep -c "HF-119"
+4
+
+$ git diff --stat main diag/063-mir-demo-capability-assessment -- web/src/app/api/calculation/run/route.ts
+(empty — file identical to anchor)
+
+$ git log -1 --format="%h %s" diag/063-mir-demo-capability-assessment -- web/src/app/api/calculation/run/route.ts
+ff7fea6a HF-281 Phase 2: binding completeness predicate + phase gate
+```
+
+Eligibility gate + distribution counter (downstream of selection):
+
+```typescript
+// src/app/api/calculation/run/route.ts:1876-1907 (excerpt)
+      // OB-194: Variant Eligibility Gate
+      // ... entity matching NONE with score > 0 is excluded from calculation.
+      if (method === 'default_last') {
+        ...
+        if (bestDiscScore === 0 && bestOverlap === 0) {
+          excludedEntities.push({ entityId, entityName, externalId, reason: 'no_qualifying_variant', tokens: tokenList });
+          continue; // Skip calculation for this entity
+        }
+      }
+    // HF-212: Increment variant distribution counter for non-excluded entities.
+    const variantKey = `variant_${selectedVariantIndex}(${...metadata?.role ?? 'unknown'})`;
+    variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
+```
+
+**GAP TO DEMO BAR:** none — the BCL-era flat variant matcher (HF-119 token overlap, HF-200-restored flatDataByEntity source) exists at HEAD, is identical to the main anchor, sits inline in the live calculation orchestrator (POST /api/calculation/run), and is reached from 4 UI call sites. Remaining proof is observational: an architect calculation run on a multi-variant plan showing the `HF-119 Variant discriminants` log line and the HF-212 variant distribution in the Tier 1 footer.
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY — no development. Route: `src/app/api/calculation/run/route.ts` (matcher at 1619-1643 + 1819-1907); service hop: `transformVariant` in `src/lib/calculation/intent-transformer.ts:52` consuming per-entity `selectedComponents` at route.ts:2529; table: `rule_sets.components` JSONB (legacy nested `variants` format). Dormant duplicate in `src/lib/calculation/run-calculation.ts:1367-1397` requires nothing for the demo.
+
+### E4 — Filtered metric derivation (MIR category-commission dependency)
+
+**CURRENT STATE:** Filtered derivation (sum + filters, count + filters) is a fully implemented, operative engine capability. Rules live in `rule_sets.input_bindings.metric_derivations` (JSONB, shape `MetricDerivationRule` at `src/lib/calculation/run-calculation.ts:70`); the executor `applyMetricDerivations` (run-calculation.ts:137) translates each rule via `legacyDerivationToDAG` (src/lib/calculation/legacy-intent-to-dag.ts:662) into an `aggregate` prime wrapped in a `filter`-prime chain, evaluated by the single `evaluate()` surface (src/lib/calculation/intent-executor.ts:145) — `filter` narrows `activeRows` (intent-executor.ts:218), `count` returns row count (256), `sum` Decimal-sums `node.field` (264). The production calc route invokes it once per entity at `src/app/api/calculation/run/route.ts:1928`. A live-DB census found 0 of 9 rule_sets currently carry persisted `metric_derivations`; route.ts:260-301 shows rules are generated at calc time by convergence (Pass 4 emits filters) and persisted on first run, so no live tenant currently exercises the filtered-derivation arm.
+
+**EVIDENCE:**
+
+#### 1. Stated search (E952 complete enumeration)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "derivation\|applyFilter\|derived_metric" src/lib --include="*.ts" | cut -d: -f1 | sort | uniq -c | sort -rn
+  57 src/lib/intelligence/convergence-service.ts
+  24 src/lib/calculation/run-calculation.ts
+   5 src/lib/sci/content-profile.ts
+   5 src/lib/calculation/legacy-intent-to-dag.ts
+   3 src/lib/plan-intelligence/compositional-intent.ts
+   3 src/lib/calculation/intent-types.ts
+   2 src/lib/plan-intelligence/intent-constructor.ts
+   1 src/lib/sci/sci-types.ts
+   1 src/lib/sci/entity-resolution.ts
+   1 src/lib/sci/atom-flywheel.ts
+   1 src/lib/intelligence/canonical-signal-writer.ts
+   1 src/lib/intelligence/__tests__/canonical-signal-writer.test.ts
+   1 src/lib/compensation/ai-plan-interpreter.ts
+=== total ===
+     105
+=== applyFilter alone ===
+       0
+=== derived_metric alone ===
+       0
+```
+
+Total 105 line-level hits in src/lib across the 13 files above (complete file-level list). The tokens `applyFilter` and `derived_metric` have ZERO hits anywhere in src (`grep -rn` over src, .ts+.tsx). The actual vocabulary: `metric_derivations` (JSONB key), `MetricDerivationRule` (type), `applyMetricDerivations` (executor), `rowMatchesFilters` / `rowMatchesPredicate` (filter application), `filter` prime (DAG node). Non-engine hit clusters from the 105: `src/lib/plan-intelligence/*` = `output_derivation` (intent construction, unrelated); `src/lib/sci/*` = pattern/field-identity derivations (import comprehension, unrelated); `src/lib/intelligence/convergence-service.ts` = derivation RULE GENERATION (Pass 4); `src/lib/calculation/*` = derivation RULE EXECUTION (this probe).
+
+#### 2. Derivation rule shape — filters are first-class on the rule
+
+```ts
+// src/lib/calculation/run-calculation.ts:70
+export interface MetricDerivationRule {
+  metric: string;          // Target metric name (from plan configuration)
+  operation: 'count' | 'sum' | 'delta' | 'ratio';  // Derivation operation
+  source_pattern: string;  // Regex pattern to match data_type/sheet name
+  filters: Array<{
+    field: string;         // Field name in row_data (discovered at runtime)
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
+  source_field?: string;   // OB-119: Field to sum (for operation='sum' or 'delta')
+```
+
+#### 3. The derivation executor — rule → DAG → evaluate
+
+```ts
+// src/lib/calculation/run-calculation.ts:171 (inside applyMetricDerivations, declared at :137)
+  for (const rule of derivations) {
+    // HF-238 R2 Closure 5: delta hybrid block deleted. Delta derivations now
+    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+    // every other operation; the prior_period prime switches activeRows to
+    // priorRows for the prior side of the subtraction.
+
+    // Build the LegacyDerivation shape from the rule and translate to DAG.
+    const legacyShape: LegacyDerivation = {
+      metric: rule.metric,
+      operation: rule.operation,
+      source_field: rule.source_field,
+      filters: rule.filters as PrimePredicate[] | undefined,
+      source_pattern: rule.source_pattern,
+      numerator_metric: rule.numerator_metric,
+      denominator_metric: rule.denominator_metric,
+      scale_factor: rule.scale_factor,
+      scope: rule.scope,
+    };
+
+    let dag;
+    try {
+      dag = legacyDerivationToDAG(legacyShape);
+    } catch (err) {
+      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
+      continue;
+    }
+```
+
+```ts
+// src/lib/calculation/run-calculation.ts:206
+    const context: EvalContext = {
+      entity: { metadata: {} },
+      activeRows: allRows,
+      allEntityRows: [],
+      metrics: { ...derived },
+      priorPeriodRows: priorRows,
+    };
+
+    try {
+      const result = evaluate(dag, context);
+      derived[rule.metric] = toNumber(result);
+    } catch (err) {
+      console.warn(`[Derivation] evaluate failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
+    }
+  }
+```
+
+#### 4. Sum-with-filters AND count-with-filters translation (shared path)
+
+Both operations take the identical translation: one `aggregate` node (`op: d.operation` — `sum` or `count`), wrapped in a `filter` chain when `filters` is non-empty.
+
+```ts
+// src/lib/calculation/legacy-intent-to-dag.ts:723
+  // Aggregate ops: sum / count / avg / min / max with optional filter chain
+  const field = d.source_field ?? '';
+  let dag: PrimeNode = {
+    prime: 'aggregate',
+    op: d.operation,
+    field,
+  };
+
+  if (Array.isArray(d.filters) && d.filters.length > 0) {
+    // Innermost filter sits closest to the aggregate. Reverse so the OUTERMOST
+    // filter in the DAG is the FIRST filter in the rule (declaration order
+    // preserved as filter-chain order top-down).
+    for (let i = d.filters.length - 1; i >= 0; i--) {
+      const f = d.filters[i];
+      dag = {
+        prime: 'filter',
+        predicate: { field: f.field, operator: f.operator, value: f.value },
+        downstream: dag,
+      };
+    }
+  }
+
+  // OB-200 Phase 3: wrap with scope prime when the derivation declares an
+  // entity-sibling grouping. [...]
+  if (d.scope?.entity_group_by) {
+    dag = {
+      prime: 'scope',
+      boundary: d.scope.entity_group_by,
+      downstream: dag,
+      ...(d.scope.temporal_range ? { temporal_range: d.scope.temporal_range } : {}),
+    };
+  }
+
+  return dag;
+}
+```
+
+#### 5. Filter execution — `filter` prime narrows activeRows
+
+```ts
+// src/lib/calculation/intent-executor.ts:218
+    case 'filter': {
+      const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
+      return evaluate(node.downstream, { ...context, activeRows: filtered });
+    }
+```
+
+```ts
+// src/lib/calculation/intent-executor.ts:118
+function rowMatchesPredicate(
+  row: Record<string, unknown>,
+  predicate: { field: string; operator: string; value: string | number | boolean },
+): boolean {
+  const raw = row[predicate.field];
+  switch (predicate.operator) {
+    case 'eq':       return raw === predicate.value;
+    case 'neq':      return raw !== predicate.value;
+    case 'gt':       return typeof raw === 'number' && raw > Number(predicate.value);
+    case 'gte':      return typeof raw === 'number' && raw >= Number(predicate.value);
+    case 'lt':       return typeof raw === 'number' && raw < Number(predicate.value);
+    case 'lte':      return typeof raw === 'number' && raw <= Number(predicate.value);
+    case 'contains': return typeof raw === 'string' && String(raw).includes(String(predicate.value));
+    default:         return false;
+  }
+}
+```
+
+#### 6. Count and sum execution — `aggregate` prime over the (filtered) activeRows
+
+```ts
+// src/lib/calculation/intent-executor.ts:250
+    case 'aggregate': {
+      const rows = context.activeRows;
+      if (rows.length === 0) {
+        // count of empty rows is 0; sum/avg/min/max of empty rows is 0.
+        return ZERO;
+      }
+      if (node.op === 'count') {
+        return toDecimal(rows.length);
+      }
+      const values = rows.map(r => {
+        const v = r[node.field];
+        return typeof v === 'number' ? v : (typeof v === 'string' ? parseFloat(v) : 0) || 0;
+      });
+      switch (node.op) {
+        case 'sum': {
+          let total = ZERO;
+          for (const v of values) total = total.plus(toDecimal(v));
+          return total;
+        }
+```
+
+So count+filters = filter prime(s) narrow `activeRows` → `count` returns `rows.length` of the narrowed set; sum+filters = same narrowing → `sum` Decimal-adds `node.field` across the narrowed set.
+
+#### 7. Operative confirmation — calc path invokes the executor (one hop)
+
+Production API route (per-entity loop):
+
+```ts
+// src/app/api/calculation/run/route.ts:1913
+    // HF-228 Phase 4: execute convergence-produced metric_derivations to make
+    // derived metrics available to the intent executor. Convergence produces
+    // derivation rules (operation + filter + source_field per
+    // MetricDerivationRule) that the engine's binding-based path
+    // (resolveMetricsFromConvergenceBindings) cannot express — filtered
+    // counts (Cross-Sell conditional_gate), cross-category sums, ratio
+    // derivations, prior-period deltas. [...]
+    const perEntitySheetData = dataByEntity.get(entityId);
+    const derivedMetrics: Record<string, number> = perEntitySheetData && metricDerivations.length > 0
+      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+      : {};
+```
+
+Rules parsed in the same route:
+
+```ts
+// src/app/api/calculation/run/route.ts:362
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  let metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+  if (metricDerivations.length > 0) {
+    addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+  }
+```
+
+Second operative call site — the lib orchestrator `runCalculation` (rules parsed at run-calculation.ts:908-911):
+
+```ts
+// src/lib/calculation/run-calculation.ts:1420
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+      : {};
+```
+
+Complete call-site enumeration (E952) for executor functions across src (.ts/.tsx):
+
+```
+$ grep -rn "applyMetricDerivations\|rowMatchesFilters\|rowMatchesPredicate\|legacyDerivationToDAG" src --include="*.ts" --include="*.tsx"
+src/types/convergence-bindings.ts:42:  // bridge is retired. Empty / absent means "no filter" — rowMatchesFilters
+src/app/api/calculation/run/route.ts:24:  rowMatchesFilters,
+src/app/api/calculation/run/route.ts:28:  applyMetricDerivations,
+src/app/api/calculation/run/route.ts:1433:    // identical pre-HF-227 behavior via rowMatchesFilters returning true on
+src/app/api/calculation/run/route.ts:1567:    // (applyMetricDerivations in run-calculation.ts) respected filters via
+src/app/api/calculation/run/route.ts:1568:    // rowMatchesFilters. The two paths differed on the filter contract, which
+src/app/api/calculation/run/route.ts:1570:    // rowMatchesFilters returns true for empty/missing filter arrays, so this
+src/app/api/calculation/run/route.ts:1579:      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+src/app/api/calculation/run/route.ts:1920:    // bypassed applyMetricDerivations entirely (DIAG-048 Phase 10 evidence):
+src/app/api/calculation/run/route.ts:1928:      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+src/lib/intelligence/convergence-service.ts:134:  // means "no filter" — rowMatchesFilters returns true for empty filter arrays.
+src/lib/intelligence/convergence-service.ts:639:  // applyMetricDerivations processes the array in order and the last entry
+src/lib/intelligence/convergence-service.ts:2331:// identically (rowMatchesFilters returns true for empty arrays).
+src/lib/intelligence/convergence-service.ts:2497:    // equivalent to absent filters for the engine (rowMatchesFilters returns
+src/lib/calculation/legacy-intent-to-dag.ts:662:export function legacyDerivationToDAG(d: LegacyDerivation): PrimeNode {
+src/lib/calculation/intent-executor.ts:118:function rowMatchesPredicate(
+src/lib/calculation/intent-executor.ts:219:      const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
+src/lib/calculation/run-calculation.ts:24:import { legacyIntentToDAG, legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
+src/lib/calculation/run-calculation.ts:86:  // (window over prior periods). When present, legacyDerivationToDAG wraps the
+src/lib/calculation/run-calculation.ts:117:export function rowMatchesFilters(
+src/lib/calculation/run-calculation.ts:137:export function applyMetricDerivations(
+src/lib/calculation/run-calculation.ts:173:    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+src/lib/calculation/run-calculation.ts:178:    // OB-200 Phase 3: propagate scope through to legacyDerivationToDAG, which
+src/lib/calculation/run-calculation.ts:194:      dag = legacyDerivationToDAG(legacyShape);
+src/lib/calculation/run-calculation.ts:196:      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+src/lib/calculation/run-calculation.ts:1421:      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+```
+
+#### 8. Adjacent arm (E952) — convergence_bindings path also applies filters during sum
+
+The route has a SECOND sum-with-filters arm: when metrics resolve via `convergence_bindings` (Decision 111 primary path), filters come from the binding entry (HF-227) and are applied per-row by `rowMatchesFilters` inside `resolveColumnFromBatch` (HF-226 Phase 3A unified filter contract):
+
+```ts
+// src/app/api/calculation/run/route.ts:1450
+      // HF-227: filters read from the binding entry, not from metric_derivations.
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters);
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:1545
+  function resolveColumnFromBatch(
+    column: string,
+    entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
+  ): number | null {
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:1573
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
+    let sum = 0;
+    let found = false;
+    let filteredOut = 0;
+    const perRowValues: unknown[] = [];
+    for (const rd of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+        filteredOut += 1;
+        continue;
+      }
+      const val = rd[column];
+```
+
+`rowMatchesFilters` (run-calculation.ts:117-135) implements the same 7 operators as `rowMatchesPredicate`; all `resolveColumnFromBatch` call sites pass binding filters: route.ts:1396, 1451, 1452, 1481, 1503 (complete list from grep `resolveColumnFromBatch(` above).
+
+#### 9. Where filtered rules COME FROM — calc-time convergence (Pass 4)
+
+```ts
+// src/app/api/calculation/run/route.ts:260 (HF-165 calc-time convergence block, 232-360)
+    if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
+      addLog('HF-165: input_bindings empty — running calc-time convergence');
+      try {
+        const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:286
+          if (derivationCount > 0) {
+            updatedBindings.metric_derivations = convResult.derivations;
+          }
+          // [...]
+          updatedBindings.convergence_version = 'HF-234';
+          // Persist to rule_set for reuse on subsequent calculations
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: updatedBindings as unknown as Json })
+            .eq('id', ruleSetId);
+```
+
+Pass 4 is the sole filter-discovery surface (HF-226 Phase 2B / HF-234) — `src/lib/intelligence/convergence-service.ts:3374` prompt instruction: "Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category." Emitted rules logged at convergence-service.ts:716: `[Convergence] Pass 4 derivation: ${d.metric} → ${d.operation}(${d.source_field || ''}) filters=${JSON.stringify(d.filters || [])}`.
+
+#### 10. Live-DB census (read-only) — persisted derivation rules
+
+Script: `web/scripts/diag/diag063_e4_derivation_rules_live.ts` (source in repo; scans `rule_sets.input_bindings.metric_derivations`, structural output only — UUIDs, counts, operations, filter operators; no filter values, no tenant names).
+
+```
+$ cd web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e4_derivation_rules_live.ts
+rule_sets scanned: 9
+rule_sets with metric_derivations: 0
+derivation rules by operation: {}
+derivation rules WITH filters by operation: {}
+sum/count-with-filters examples (structural fields only):
+```
+
+Script: `web/scripts/diag/diag063_e4_bindings_state_census.ts` (per-rule_set binding state).
+
+```
+$ npx tsx scripts/diag/diag063_e4_bindings_state_census.ts
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-03T06:00:56.651415+00:00
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-03T06:00:56.651415+00:00
+rule_set=001fe318-e912-4533-86e9-aca83f4fbef1 tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-12T15:21:12.749739+00:00
+rule_set=14325cb4-3da1-4201-9fe0-488fae730d21 tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=archived derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-10T00:42:28.837841+00:00
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active derivations=0 convergence_bindings=8 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-09T22:33:41.77747+00:00
+rule_set=9334db67-604f-4c6f-a197-b184354d1d6f tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-10T00:45:24.392496+00:00
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active derivations=0 convergence_bindings=10 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-10T17:35:37.230631+00:00
+rule_set=c6a9c77e-e595-45ce-9c15-072a233b2c32 tenant=03d28288-700b-43e3-a96b-49a4f849d2df status=active derivations=0 convergence_bindings=10 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-11T16:55:35.595704+00:00
+rule_set=6a35a323-e32e-4f72-b300-f2a1cfc06820 tenant=dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-11T15:54:26.061817+00:00
+total rule_sets: 9
+```
+
+(Both census runs returned 9 rows, 0 derivations. Schema check: `rule_sets.input_bindings jsonb NOT NULL` per SCHEMA_REFERENCE_LIVE.md:509-522 — observed live keys `convergence_version`/`convergence_bindings` are inside the JSONB, no schema divergence.)
+
+Reading: 3 rule_sets are at convergence_version HF-234 with `convergence_bindings` only (their plans resolved via direct column bindings; Pass 4 produced 0 derivation rules — `derivationCount > 0` gate at route.ts:286 means the key is simply absent). 6 rule_sets have empty `input_bindings` and will run calc-time convergence on next calculation (route.ts:260).
+
+**GAP TO DEMO BAR:** The execution machinery for sum+filters and count+filters is complete and operative (parsed route.ts:362-365, executed route.ts:1928 → run-calculation.ts:137 → legacy-intent-to-dag.ts:723-743 → intent-executor.ts:218/250). The gap is evidential, not structural: no live rule_set currently carries a persisted filtered derivation rule, so the MIR category-commission case has not been exercised end-to-end on live data. Producing one requires a calculation run (convergence Pass 4 emits filters at calc time and persists via `rule_sets.update` at route.ts:298-301) — a write, excluded from this read-only probe (HALT-2; recorded as open question).
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY — no new route/component/service/table. Existing structure: route `POST /api/calculation/run` (src/app/api/calculation/run/route.ts), services `applyMetricDerivations` + `legacyDerivationToDAG` + `evaluate()` (src/lib/calculation/run-calculation.ts, legacy-intent-to-dag.ts, intent-executor.ts), rule generator `convergeBindings` Pass 4 (src/lib/intelligence/convergence-service.ts), storage `rule_sets.input_bindings.metric_derivations`. Remaining proof is an architect browser action: run a calculation against a plan whose metric labels imply categorical subsetting and observe Pass 4 emit + engine execute filtered sum/count rules.
+
+# E5 — Condition-subject constructor surface map
+
+### E5 — Constructor boundary map (CRP Plan-3-arc surface; D-158)
+
+**CURRENT STATE:** The intent-constructor surface is `web/src/lib/plan-intelligence/intent-constructor.ts` (`constructTree`, HF-251/Decision 158): a deterministic translator from an LLM-emitted `CompositionalIntent` (shapes: `banded_lookup` / `arithmetic` / `conditional` / `composed`) into a `PrimeNode` DAG. It has exactly ONE production call site — `plan-orchestration.ts:529` — and per HF-252 it is the SOLE interpretation pipeline: every component of every plan import routes through it (a response without `compositional_intent` is a structured failure, not a fallback). The bypass arm is execution-time: `componentIntentToDAG` (legacy-intent-to-dag.ts:772) short-circuits any persisted intent already carrying `{prime: ...}` straight to the evaluator and translates legacy `{operation: ...}` shapes via `legacyIntentToDAG` (11 IntentOperation discriminators + 4 modifiers) without ever touching the constructor. Live DB census: 54/54 components across the 7 variants-shaped rule_sets are `prime_node` with `construction_method=compositional_intent`; one tenant carries 2 rule_sets in a third, pre-prime config-object shape that passes through NEITHER arm.
+
+**EVIDENCE:**
+
+#### 1. Probe-specified searches (complete file-level hit lists)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "intent" src/lib --include="*.ts"
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/design/tokens.ts
+src/lib/test/OB-12-proof-gate.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/intelligence/__tests__/canonical-signal-writer.test.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/sci/plan-orchestration.ts
+src/lib/sci/negotiation.ts
+src/lib/sci/reimport-resume.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/import-batch-supersession.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/sci/tenant-context.ts
+src/lib/sci/interpretation-errors.ts
+src/lib/sci/calc-time-entity-resolution.ts
+src/lib/sci/__tests__/import-atomicity.test.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/agents/insight-agent.ts
+src/lib/agents/reconciliation-agent.ts
+src/lib/supabase/client.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/prime-assembler.ts
+src/lib/compensation/plan-comprehension-emitter.ts
+src/lib/calculation/prime-grammar.ts
+src/lib/calculation/intent-validator.ts
+src/lib/calculation/synaptic-types.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/calculation/primitive-registry.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/anomaly-detector.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/prime-validator.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/calculation/intent-types.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/ai/ai-service.ts
+src/lib/ai/providers/__tests__/anthropic-adapter-normalization.test.ts
+src/lib/ai/types.ts
+src/lib/orchestration/metric-resolver.ts
+src/lib/data/results-loader.ts
+src/lib/help/help-service.ts
+src/lib/design-system/interaction-patterns.ts
+```
+
+```
+$ grep -rn "condition" src/lib --include="*.ts" -l
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/approval-routing/types.ts
+src/lib/approval-routing/approval-service.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/sci/synaptic-ingestion-state.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/seed-priors.ts
+src/lib/sci/signatures.ts
+src/lib/sci/resolver.ts
+src/lib/sci/atom-flywheel.ts
+src/lib/sci/fingerprint-flywheel.ts
+src/lib/sci/hc-pattern-classifier.ts
+src/lib/sci/sci-types.ts
+src/lib/sci/proposal-intelligence.ts
+src/lib/sci/__tests__/hc-pattern-classifier.test.ts
+src/lib/forensics/trace-builder.ts
+src/lib/forensics/types.ts
+src/lib/sci/tenant-context.ts
+src/lib/calculation/prime-grammar.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/intent-types.ts
+src/lib/lifecycle/lifecycle-pipeline.ts
+src/lib/calculation/prime-assembler.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/intent-validator.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/orchestration/metric-resolver.ts
+src/lib/calculation/primitive-registry.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/domain/domains/franchise.ts
+src/lib/payroll/period-processor.ts
+src/lib/domain/domains/rebate.ts
+src/lib/calculation/prime-validator.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/data/results-loader.ts
+src/lib/domain/domains/icm.ts
+src/lib/calculation/results-formatter.ts
+src/lib/domain/domain-registry.ts
+```
+
+Narrowing to constructor/composition resolves to `src/lib/plan-intelligence/intent-constructor.ts` (685 lines) + its input type module `src/lib/plan-intelligence/compositional-intent.ts` (341 lines).
+
+#### 2. The constructor entry + structural dispatcher
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:73
+export function constructTree(intent: CompositionalIntent): PrimeNode {
+  if (!intent || typeof intent !== 'object') {
+    throw new ConstructionError('$', null, 'intent is not an object');
+  }
+  if (!intent.structure) {
+    throw new ConstructionError('$.structure', null, 'structure field missing');
+  }
+  // HF-266 P2: snapshot the RAW LLM intent before normalization, so a construction
+  // failure surfaces the exact malformation (previously only the error path string survived).
+  let rawSnapshot: string;
+  try { rawSnapshot = JSON.stringify(intent); } catch { rawSnapshot = '<unserializable>'; }
+  // HF-266 P3: infer missing shape/kind discriminants from structural cues before validation.
+  normalizeCompositionalIntent(intent);
+  try {
+    return constructStructure(intent.structure, intent.scale, '$.structure');
+  } catch (err) {
+    // HF-266 P2: the raw intent is the diagnostic evidence for any future failure (§4A — retain).
+    console.error(
+      `[intent-constructor] HF-266 construction failed: ${err instanceof Error ? err.message : String(err)} ` +
+      `— raw CompositionalIntent (pre-normalization): ${rawSnapshot}`,
+    );
+    throw err;
+  }
+}
+```
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:164
+function constructStructure(
+  desc: StructuralDescription,
+  scale: ScaleSpec | null,
+  path: string,
+): PrimeNode {
+  if (!desc || typeof desc !== 'object') {
+    throw new ConstructionError(path, null, 'structural description is not an object');
+  }
+  switch (desc.shape) {
+    case 'banded_lookup':
+      return constructBandedLookup(desc, scale, path);
+    case 'arithmetic':
+      return constructArithmetic(desc, scale, path);
+    case 'conditional':
+      return constructConditional(desc, scale, path);
+    case 'composed':
+      return constructComposed(desc, scale, path);
+    default: {
+      // Exhaustiveness — TypeScript narrows desc to `never` here. Defensive
+      // throw for runtime malformations (e.g., LLM emitting an unknown shape).
+      const unknownShape = (desc as { shape?: unknown }).shape;
+      throw new ConstructionError(
+        path,
+        desc as StructuralDescription,
+        `unknown shape "${String(unknownShape)}" (expected banded_lookup | arithmetic | conditional | composed)`,
+      );
+    }
+  }
+}
+```
+
+#### 3. The condition-subject constructor (conditional shape) + its input type
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:360
+function constructConditional(
+  desc: ConditionalDescription,
+  scale: ScaleSpec | null,
+  path: string,
+): PrimeNode {
+  if (!desc.condition) {
+    throw new ConstructionError(path, desc, 'conditional requires a condition');
+  }
+  if (desc.then === undefined || desc.else === undefined) {
+    throw new ConstructionError(path, desc, 'conditional requires both then and else branches');
+  }
+  return {
+    prime: 'conditional',
+    condition: {
+      prime: 'compare',
+      op: desc.condition.operator,
+      inputs: [
+        buildReferenceNode(desc.condition.reference, refSourceField(desc.condition.reference), `${path}.condition.reference`),
+        buildConstantWithScale(desc.condition.threshold, scale, refSourceField(desc.condition.reference), true, desc.condition.reference?.type === 'ratio'),
+      ],
+    },
+    then: constructBranchOrOperand(desc.then, scale, `${path}.then`),
+    else: constructBranchOrOperand(desc.else, scale, `${path}.else`),
+  };
+}
+```
+
+```
+src/lib/plan-intelligence/compositional-intent.ts:105
+export interface ConditionalDescription {
+  shape: 'conditional';
+  condition: {
+    reference: ReferenceSource;
+    operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
+    threshold: number;
+  };
+  then: StructuralDescription | OperandDescription;
+  else: StructuralDescription | OperandDescription;
+}
+```
+
+Conditions are also EMITTED (not just consumed) by the banded-lookup arm — each band becomes a `conditional`+`compare(gte)` pair:
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:316
+    chain = {
+      prime: 'conditional',
+      condition: {
+        prime: 'compare',
+        op: 'gte',
+        inputs: [
+          buildReferenceNode(dim.reference_source, dim.reference_field, `${path}.dim[${dimIdx}].ref`),
+          buildConstantWithScale(breakValue, scale, dim.reference_field, dimIdx === 0, dim.reference_source?.type === 'ratio'),
+        ],
+      },
+      then: thenBranch,
+      else: chain,
+    };
+```
+
+and by the composed arm's reductions (`max`/`min`/`first_match` → conditional cascades, intent-constructor.ts:456-485).
+
+#### 4. Call-site enumeration — ONE production caller (complete list)
+
+```
+$ grep -rn "constructTree" src --include="*.ts" --include="*.tsx"
+src/lib/sci/plan-orchestration.ts:31:import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
+src/lib/sci/plan-orchestration.ts:526:          // Validate structurally inside constructTree; throw ConstructionError
+src/lib/sci/plan-orchestration.ts:529:          const constructedTree = constructTree(ci);
+src/lib/plan-intelligence/intent-constructor.ts:73:export function constructTree(intent: CompositionalIntent): PrimeNode {
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts:18:import { constructTree } from '../intent-constructor';
+(+ 12 further hits, all inside src/lib/plan-intelligence/__tests__/intent-constructor.test.ts)
+```
+
+#### 5. THROUGH-route: interpretation-time — ALL components, no type dispatch, no fallback
+
+```
+src/lib/sci/plan-orchestration.ts:512
+      } else {
+        // HF-252 single pipeline: construction pathway is the sole route.
+        // Response MUST contain compositional_intent. Absence is a structured
+        // failure (MissingCompositionalIntentError), not a silent downgrade to
+        // a deprecated emission pathway (T0-E03 / AP-17 / Decision 154).
+        const compositionalIntentRaw = result.compositional_intent as Record<string, unknown> | undefined;
+        let intent: Record<string, unknown> | undefined;
+        const constructionMethod = 'compositional_intent' as const;
+
+        try {
+          if (!compositionalIntentRaw) {
+            throw new MissingCompositionalIntentError(spec.id, spec.name);
+          }
+          // Decision 158 pathway: LLM emitted a CompositionalIntent.
+          // Validate structurally inside constructTree; throw ConstructionError
+          // on malformed input (caught below and mapped to error class).
+          const ci = compositionalIntentRaw as unknown as CompositionalIntent;
+          const constructedTree = constructTree(ci);
+          intent = constructedTree as unknown as Record<string, unknown>;
+```
+
+The orchestrator runs this for EVERY entry of the skeleton's `componentIndex` (plan-orchestration.ts:188-258, `runOne` → `callPlanComponentWithRetry`); the only skip is reimport-resume, which reuses a PRIOR constructor-built tree (`plan-orchestration.ts:251-258`). The constructed tree persists as the component's `calculationIntent` with `calculationMethod {type:'prime_dag'}`:
+
+```
+src/lib/sci/plan-orchestration.ts:660
+          return {
+            component: {
+              calculationIntent: intent,
+              calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
+              confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
+              reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+              metadataExtension,
+            },
+```
+
+Entry into the orchestrator (sole import-time path):
+
+```
+src/lib/sci/plan-interpretation.ts:286
+  const { orchestratePerComponentInterpretation } = await import('./plan-orchestration');
+  const { loadResumeContext } = await import('./reimport-resume');
+  const resumeCtx = await loadResumeContext(supabase, tenantId, storagePath);
+  ...
+  const orchestration = await orchestratePerComponentInterpretation({
+```
+
+Inside the constructor route, the four shapes that pass THROUGH: `banded_lookup`, `arithmetic`, `conditional`, `composed` (dispatcher at intent-constructor.ts:172-180); operand kinds `reference` / `constant` / `structure` (intent-constructor.ts:499-505); reference-source types `metric`, `attribute`, `ratio`, `aggregate`, `scope_aggregate`, `cross_data`, `prior_component` (intent-constructor.ts:531-575).
+
+#### 6. BYPASS dispatch: execution-time — `componentIntentToDAG` decides
+
+```
+src/lib/calculation/legacy-intent-to-dag.ts:772
+export function componentIntentToDAG(
+  intent: ComponentIntent,
+  routingAttributeValue?: string | number | boolean,
+): { dag: PrimeNode; matchedRoute?: { matchValue: string | number | boolean } } {
+  // HF-238: prime-DAG format short-circuit. When the persisted intent shape
+  // is already a PrimeNode (discriminator key `prime`), skip translation and
+  // use it directly. The shape arrives here at runtime because the engine
+  // hydrates ComponentIntent loosely from JSON — TypeScript views .intent as
+  // an IntentOperation, but a prime-format component carries { prime, ... }
+  // instead.
+  const maybePrimeIntent = (intent as unknown as { intent?: unknown }).intent;
+  if (maybePrimeIntent && isPrimeNode(maybePrimeIntent)) {
+    let dag: PrimeNode = maybePrimeIntent;
+    for (const mod of intent.modifiers ?? []) {
+      dag = wrapModifier(dag, mod);
+    }
+    return { dag };
+  }
+
+  // Variant-routed component
+  if (intent.variants) {
+    const routing = intent.variants;
+    const matched = routing.routes.find(r => String(r.matchValue) === String(routingAttributeValue));
+    if (matched) {
+      return {
+        dag: legacyIntentToDAG(matched.intent, intent.modifiers),
+        matchedRoute: { matchValue: matched.matchValue },
+      };
+    }
+    ...
+  }
+
+  if (intent.intent) {
+    return { dag: legacyIntentToDAG(intent.intent, intent.modifiers) };
+  }
+
+  return { dag: { prime: 'constant', value: 0 } };
+}
+```
+
+```
+src/lib/calculation/intent-types.ts:434
+/** Type guard — narrows unknown into PrimeNode. */
+export function isPrimeNode(value: unknown): value is PrimeNode {
+  return typeof value === 'object' && value !== null && 'prime' in value
+    && typeof (value as Record<string, unknown>).prime === 'string'
+    && VALID_PRIMES.has((value as { prime: string }).prime as PrimeNode['prime']);
+}
+```
+
+So the boundary rule is purely STRUCTURAL: a persisted intent carrying `{prime: <one of 10 grammar primes>}` (`arithmetic`, `aggregate`, `filter`, `conditional`, `scope`, `compare`, `logical`, `constant`, `reference`, `prior_period` — intent-types.ts:389-399) is used AS-IS (constructor-built or hand-authored — the guard cannot tell the difference); anything carrying `{operation: ...}` or `{variants: ...}` is translated by the legacy adapter WITHOUT the constructor.
+
+#### 7. BYPASS arm enumeration — every legacy shape translated outside the constructor
+
+`translateOperation` (legacy-intent-to-dag.ts:165) operation discriminators, and modifier wrappers:
+
+```
+$ grep -n "function translateOperation|case '" src/lib/calculation/legacy-intent-to-dag.ts   (operation + modifier arms)
+165:function translateOperation(op: IntentOperation): PrimeNode {
+177:    case 'constant':            197:    case 'scalar_multiply':
+181:    case 'linear_function':     209:    case 'ratio':
+227:    case 'aggregate':           231:    case 'conditional_gate':
+250:    case 'piecewise_linear':    351:    case 'bounded_lookup_1d':
+428:    case 'bounded_lookup_2d':   497:    case 'weighted_blend':
+523:    case 'temporal_window':
+-- modifiers (wrapModifier) --
+554:    case 'cap':   567:    case 'floor':   579:    case 'proration':   594:    case 'temporal_adjustment':
+-- IntentSource arms --
+70: 'metric'  74: 'ratio'  99: 'aggregate'  112: 'constant'  115: 'entity_attribute'  121: 'prior_component'  125: 'cross_data'  130: 'scope_aggregate'
+```
+
+Production call sites of the bypass translators (complete, non-test):
+
+```
+$ grep -n "legacyIntentToDAG(|legacyDerivationToDAG(|componentIntentToDAG(" (call sites)
+src/lib/calculation/intent-executor.ts:376:  const routingDag = legacyIntentToDAG({ operation: 'aggregate', source: attrSrc });   // variant routing-attribute leaf
+src/lib/calculation/intent-executor.ts:381:  const { dag, matchedRoute } = componentIntentToDAG(intent, routingAttributeValue);   // MAIN execution entry
+src/lib/calculation/legacy-intent-to-dag.ts:797/805/818: internal (variants + plain intent arms)
+src/lib/calculation/run-calculation.ts:194:      dag = legacyDerivationToDAG(legacyShape);                      // metric derivations (convergence metric_derivations)
+src/lib/calculation/run-calculation.ts:376:        const dag = legacyIntentToDAG(intentOp);                     // evaluateComponent $0-fallback (dormant, see #9)
+```
+
+Live calc route execution (sole authority — every selected component goes `executeIntent` → `componentIntentToDAG`):
+
+```
+src/app/api/calculation/run/route.ts:2607
+      const intentResult = executeIntent(ci, entityData);
+```
+
+Binding-resolution dispatch on the same structural boundary:
+
+```
+src/app/api/calculation/run/route.ts:1381
+    const compType = (component as unknown as { componentType?: string }).componentType;
+    const intent = component.calculationIntent as Record<string, unknown> | undefined;
+    const intentIsPrimeNode = !!intent && typeof intent.prime === 'string';
+    if (compType === 'prime_dag' || intentIsPrimeNode) {
+      const refs = extractReferencesFromDAG(intent);
+```
+
+run-calculation.ts foundational ComponentType union (the 12 identifiers admitted past `evaluateComponent`; legacy strings throw `LegacyEngineUnknownComponentTypeError`):
+
+```
+src/lib/calculation/run-calculation.ts:311
+  switch (component.componentType) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+      // Foundational primitive — calculation flows through intent-executor below.
+      break;
+    default:
+      throw new LegacyEngineUnknownComponentTypeError(...)
+```
+
+#### 8. Adjacent-arm sweep (E952): every production module that emits PrimeNode trees
+
+```
+$ grep -rln "prime: '" src --include="*.ts" --include="*.tsx" | grep -v __tests__   (with per-file counts)
+src/lib/calculation/intent-types.ts:10          — type union declarations only (PrimeNode at :389-399), no emission
+src/lib/calculation/intent-executor.ts:1        — a type-guard signature at :80, no emission
+src/lib/plan-intelligence/intent-constructor.ts:27 — THE constructor (through-route)
+src/lib/calculation/legacy-intent-to-dag.ts:107 — the legacy translation adapter (bypass arm)
+```
+
+Looser sweep `grep -rln "prime:"` adds only `src/lib/calculation/prime-assembler.ts` (a type field, :52) and `src/lib/intelligence/convergence-service.ts` (prompt prose, :3335) — neither emits trees. Total: exactly TWO production tree-emitters — intent-constructor.ts and legacy-intent-to-dag.ts.
+
+Dormant surfaces found by the sweep:
+
+```
+$ grep -rn "assembleTree" src --include="*.ts" --include="*.tsx" | grep -v __tests__ | grep -v prime-assembler.ts
+src/lib/calculation/prime-grammar.ts:156:// chunks back into a single PrimeNode tree (assembleTree in this file).   ← comment only
+$ grep -rn "evaluateComponent" src --include="*.ts" --include="*.tsx" | grep -v __tests__ | grep -v "run-calculation.ts"
+src/app/api/calculation/run/route.ts:2489:      // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding   ← comment only
+src/lib/intelligence/convergence-service.ts:1470: * path (run/route.ts) and evaluateComponent to surface a loud per-component `failed` in place   ← comment only
+```
+
+#### 9. Live DB census — which persisted components sit on which side of the boundary
+
+Scripts (read-only, service-role SELECT):
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes.ts` (pass 1 — assumed top-level array; all rows reported 0, exposing the real JSONB shape)
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes2.ts` (pass 2 — structural type + keys, then classification)
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes3.ts` (pass 3 — key-set probe of the two object-shaped rule_sets)
+
+`SCHEMA_REFERENCE_LIVE.md:509` — `rule_sets (18 columns)` includes `components | jsonb | NO`.
+
+Pass 2 output (verbatim):
+
+```
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active components_jsType=object topLevelKeys=[volume,service_quality,revenue_efficiency,operational_discipline]
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active components_jsType=object topLevelKeys=[tip_bonus,base_commission]
+rule_set=001fe318-e912-4533-86e9-aca83f4fbef1 tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=14325cb4-3da1-4201-9fe0-488fae730d21 tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=archived components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=4 legacy_operation=0 variants=0 none_or_other=0
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=8 legacy_operation=0 variants=0 none_or_other=0
+rule_set=9334db67-604f-4c6f-a197-b184354d1d6f tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=2 legacy_operation=0 variants=0 none_or_other=0
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=c6a9c77e-e595-45ce-9c15-072a233b2c32 tenant=03d28288-700b-43e3-a96b-49a4f849d2df status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=6a35a323-e32e-4f72-b300-f2a1cfc06820 tenant=dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+--- global component shape census ---
+{"prime_node":54,"legacy_operation":0,"variants":0,"none_or_other":0}
+--- construction_method marker census ---
+{"compositional_intent":54}
+```
+
+Pass 3 output (verbatim) — the two non-variants rule_sets:
+
+```
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active
+  component_key=volume valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=service_quality valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=revenue_efficiency valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=operational_discipline valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active
+  component_key=tip_bonus valueType=object keys=[type,bonus,metric,threshold,description] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=base_commission valueType=object keys=[type,basis,tiers,description] hasPrime=false hasOperation=false hasCalculationIntent=false
+```
+
+#### 10. Boundary map summary (the route-around table)
+
+| Arm | Shape persisted/consumed | Decided at | Constructor involved |
+|---|---|---|---|
+| THROUGH — interpretation | LLM `compositional_intent` (banded_lookup / arithmetic / conditional / composed) → PrimeNode | plan-orchestration.ts:512-531 (NO type dispatch — all components) | YES — constructTree is the sole route (HF-252) |
+| THROUGH — execution of constructed trees | `calculationIntent.{prime}` / `componentType='prime_dag'` | legacy-intent-to-dag.ts:783-790 isPrimeNode short-circuit; route.ts:1383-1384 binding path | Trees originated in constructTree, but the guard accepts ANY valid PrimeNode — the route-around seam |
+| BYPASS — legacy operations | `{operation: constant\|linear_function\|scalar_multiply\|ratio\|aggregate\|conditional_gate\|piecewise_linear\|bounded_lookup_1d\|bounded_lookup_2d\|weighted_blend\|temporal_window}` (+ modifiers cap/floor/proration/temporal_adjustment) | legacy-intent-to-dag.ts:818 → translateOperation:165 | NO |
+| BYPASS — variant-routed legacy | `{variants: {routingAttribute, routes[]}}` | legacy-intent-to-dag.ts:792-815 + intent-executor.ts:368-381 | NO |
+| BYPASS — metric derivations | LegacyDerivation `{operation: sum\|count\|avg\|min\|max\|ratio\|delta, scope}` | run-calculation.ts:194 → legacyDerivationToDAG:662 | NO |
+| OUTSIDE BOTH | config-object components (keys `[metric,weight,description,output_type]` / `[type,basis,tiers,description]`, no prime/operation/calculationIntent) — 2 live rule_sets, tenant f7093bcc-… | none of the above dispatches matches | NO |
+
+**GAP TO DEMO BAR:** None for the probe's stated bar — the constructor surface, its single production call site, the deciding dispatches (plan-orchestration.ts:512-531 interpretation-side; componentIntentToDAG legacy-intent-to-dag.ts:772-822 execution-side; route.ts:1383-1384 binding-side), and the through/bypass enumeration are all banked with code+DB evidence. For the architect's route-around authoring: there is NO authoring UI for either side of the boundary — the route-around seam is structural (any `{prime: ...}` JSON persisted into `rule_sets.components.variants[].components[].calculationIntent` executes via the isPrimeNode short-circuit without constructor or validator involvement).
+
+**EFFORT SHAPE:** E0 — none (boundary map verified as-is; no development effort required for this probe). If route-around authoring were pursued later, the structural seam is: write a grammar-valid PrimeNode into `rule_sets.components` (table: rule_sets; consuming services: intent-executor.executeIntent → componentIntentToDAG short-circuit; route: /api/calculation/run) — that would be a separate E2/E3 surface, explicitly out of scope here (D-158: probe, never modify).
+
+# E6 — Multi-plan concurrency
+
+### E6 — Multi-plan concurrency
+**CURRENT STATE:** The schema is many-to-many capable (rule_set_assignments rows per entity×rule_set; calculation_results carries per-row rule_set_id; entity_period_outcomes carries a rule_set_breakdown jsonb), but live data contains ZERO entities with >=2 active rule-set assignments (703 assignments, exactly 1 distinct rule_set per entity) and ZERO (entity, period) pairs in calculation_results with >=2 distinct rule_set_ids (943 rows scanned). One tenant (f7093bcc-e90b-4918-9680-69da7952dd65) does run two active rule sets in the same period inside one batch — but over disjoint populations (20 vs 40 entities, overlap 0), and that batch was inserted directly by the seed script `web/scripts/frmx/p6-calc.ts`, not produced by the calculation engine. The engine itself is single-rule-set per invocation (run per ruleSetId; pre-write delete scoped to tenant+rule_set+period so a second plan's rows would coexist in calculation_results), while the entity_period_outcomes materializer is batch-scoped with a period-wide delete, so a second plan's materialization replaces the first plan's outcomes for that period.
+
+**EVIDENCE:**
+
+#### 1. Schema authority — SCHEMA_REFERENCE_LIVE.md
+
+```
+SCHEMA_REFERENCE_LIVE.md:494-507
+### rule_set_assignments (10 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| rule_set_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+| assignment_type | text | NO | direct |
+| metadata | jsonb | NO | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+```
+
+```
+SCHEMA_REFERENCE_LIVE.md:101-116
+### calculation_results (12 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| batch_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| rule_set_id | uuid | YES | |
+| period_id | uuid | YES | |
+| total_payout | numeric | NO | 0 |
+| components | jsonb | NO | |
+| metrics | jsonb | NO | |
+| attainment | jsonb | NO | |
+| metadata | jsonb | NO | |
+| created_at | timestamp with time zone | NO | now() |
+```
+
+```
+SCHEMA_REFERENCE_LIVE.md:224-238
+### entity_period_outcomes (11 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | NO | |
+| total_payout | numeric | NO | 0 |
+| rule_set_breakdown | jsonb | NO | |
+| component_breakdown | jsonb | NO | |
+| lowest_lifecycle_state | text | NO | DRAFT |
+| attainment_summary | jsonb | NO | |
+| metadata | jsonb | NO | |
+| materialized_at | timestamp with time zone | NO | now() |
+```
+
+Note: SCHEMA_REFERENCE_LIVE.md documents columns only; `grep -n "UNIQUE\|unique\|constraint" SCHEMA_REFERENCE_LIVE.md` returned no hits — uniqueness constraints are not documented in the schema authority (see open questions).
+
+#### 2. DB probe (mandated): entities with >=2 active assignments
+
+Script: `web/scripts/diag/diag063_e6_multiplan.ts` (read-only; pages rule_set_assignments, groups client-side by entity_id; active = effective_from null-or-past AND effective_to null-or-future as of today; then checks calculation_results for candidates).
+
+Command and verbatim output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e6_multiplan.ts
+rule_set_assignments total rows: 703
+paged assignments fetched: 703
+distinct entity_ids with any assignment: 703
+entities with >=2 ACTIVE assignments to distinct rule_sets: 0
+distribution (distinct active rule_sets per entity -> entity count):
+  1 -> 703
+assignment_type distribution (all rows):
+  direct: 703
+NO entity with >=2 active distinct rule_set assignments found in data.
+```
+
+Per the probe instruction: **no such entity exists in data — this is the evidence.** Every one of the 703 assigned entities has exactly one active assignment, all `assignment_type='direct'`.
+
+#### 3. DB probe (secondary): any (entity, period) with >=2 distinct rule_set_ids in calculation_results
+
+Script: `web/scripts/diag/diag063_e6_multiplan_results_scan.ts` (pages calculation_results selecting entity_id/period_id/rule_set_id/batch_id/tenant_id only — no payout columns).
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_results_scan.ts
+calculation_results total rows: 943
+rows scanned: 943
+distinct (entity_id, period_id) pairs with non-null period+rule_set: 943
+pairs with >=2 distinct rule_set_ids: 0
+NO (entity, period) pair in calculation_results carries more than one rule_set_id.
+```
+
+#### 4. DB probe (tertiary): per-tenant multi-plan landscape
+
+Script: `web/scripts/diag/diag063_e6_multiplan_tenant_landscape.ts`.
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_tenant_landscape.ts
+tenants with rule_sets or assignments: 7
+
+tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e
+  rule_sets: 1 (active:1)
+  assignments: 0 rows across 0 distinct rule_set_id(s): -
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant e44bbcb1-2710-4880-8c7d-a1bd902720b7
+  rule_sets: 2 (archived:1, active:1)
+  assignments: 0 rows across 0 distinct rule_set_id(s): -
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant f7093bcc-e90b-4918-9680-69da7952dd65
+  rule_sets: 2 (active:2)
+  assignments: 60 rows across 2 distinct rule_set_id(s): fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b, 2054d734-2a3c-4cd7-b199-79d2f1c578f0
+  calculation_results: 60 rows across 2 distinct rule_set_id(s)
+tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111
+  rule_sets: 1 (active:1)
+  assignments: 85 rows across 1 distinct rule_set_id(s): 54fe1094-89fc-4ea9-a439-14ce44af3911
+  calculation_results: 510 rows across 1 distinct rule_set_id(s)
+tenant dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c
+  rule_sets: 1 (active:1)
+  assignments: 79 rows across 1 distinct rule_set_id(s): 6a35a323-e32e-4f72-b300-f2a1cfc06820
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df
+  rule_sets: 1 (active:1)
+  assignments: 400 rows across 1 distinct rule_set_id(s): c6a9c77e-e595-45ce-9c15-072a233b2c32
+  calculation_results: 172 rows across 1 distinct rule_set_id(s)
+tenant 5035b1e8-0754-4527-b7ec-9f93f85e4c79
+  rule_sets: 1 (active:1)
+  assignments: 79 rows across 1 distinct rule_set_id(s): cac8c391-74b3-48b1-a9d5-6b2156dcd658
+  calculation_results: 201 rows across 1 distinct rule_set_id(s)
+```
+
+Exactly one tenant runs 2 active rule sets with assignments and results under both.
+
+#### 5. DB probe (detail): the 2-plan tenant — disjoint populations, one batch, one period
+
+Script: `web/scripts/diag/diag063_e6_multiplan_tenant_detail.ts`.
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_tenant_detail.ts
+tenant f7093bcc-e90b-4918-9680-69da7952dd65: 60 assignment rows
+  rule_set 2054d734-2a3c-4cd7-b199-79d2f1c578f0: 20 assigned entities
+  rule_set fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b: 40 assigned entities
+  entity overlap between the two rule_sets: 0
+  distinct (effective_from, effective_to, type) tuples: from=2024-01-01 to=null type=direct
+
+calculation_results rows: 60
+grouped by (rule_set_id, period_id):
+  rule_set 2054d734-2a3c-4cd7-b199-79d2f1c578f0 period 849991e5-396e-4b06-ba39-c760383bad1b:
+    rows=20 entities=20 batches=ac82b514-10c1-4696-8f8f-734ecb012a83
+    created_at (distinct, second precision): 2026-06-03T06:03:04
+  rule_set fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b period 849991e5-396e-4b06-ba39-c760383bad1b:
+    rows=40 entities=40 batches=ac82b514-10c1-4696-8f8f-734ecb012a83
+    created_at (distinct, second precision): 2026-06-03T06:03:04
+period 849991e5-396e-4b06-ba39-c760383bad1b: results from 2 distinct rule_set(s)
+```
+
+Tenant-level multi-plan in one period exists (2 rule sets, 1 period, 1 shared batch UUID) but entity populations are disjoint — no entity calculates under both.
+
+#### 6. Origin of the dual-rule-set batch: seed script, not the engine
+
+```
+$ grep -rln "f7093bcc" scripts/ src/ | grep -v "scripts/diag/diag063_e6"
+scripts/verify-hf283-rls.ts
+scripts/frmx/p9-verify.ts
+```
+
+```
+web/scripts/frmx/p6-calc.ts:24-28, 41, 54, 59 (grep -n "batch\|rule_set\|calculation_results")
+24:  // batch
+25:  await sb.from('calculation_results').delete().eq('tenant_id',tid);
+26:  await sb.from('calculation_batches').delete().eq('tenant_id',tid);
+27:  const { data: batch, error: be } = await sb.from('calculation_batches').insert({ tenant_id:tid, period_id:monthly, batch_type:'standard', lifecycle_state:'APPROVED', entity_count:60, summary:{note:'FRMX reseed — Performance Index (20 locations) + Server Commission (40 servers)'}, config:{} }).select('id').single(); if(be) throw be;
+41:    results.push({ tenant_id:tid, batch_id:bid, entity_id:loc.id, rule_set_id:rsPerf, period_id:monthly, total_payout:0,
+54:    results.push({ tenant_id:tid, batch_id:bid, entity_id:s.id, rule_set_id:rsComm, period_id:monthly, total_payout:payout,
+59:  for(let i=0;i<results.length;i+=500){ const{error}=await sb.from('calculation_results').insert(results.slice(i,i+500)); if(error)throw error; }
+```
+
+The one batch with two rule_set_ids was direct-inserted by this seed script; it never passed through the calculation engine.
+
+#### 7. Adjacent-arm sweep — every site touching rule_set_assignments (complete file list, 14 files)
+
+```
+$ grep -rn "rule_set_assignments" src/ --include="*.ts" --include="*.tsx" -l
+src/app/api/intelligence/wire/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/rule-set-assignments/route.ts
+src/app/api/import/commit/route.ts
+src/app/api/import/sci/execute-bulk/route.ts
+src/app/api/plan-readiness/route.ts
+src/scripts/clear-tenant.ts
+src/lib/sci/assignment-creation.ts
+src/lib/supabase/data-service.ts
+src/lib/canvas/graph-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/supabase/rule-set-service.ts
+src/lib/supabase/database.types.ts
+src/lib/data/page-loaders.ts
+```
+
+Complete file list touching calculation_results (22 files):
+
+```
+$ grep -rn "calculation_results" src/ --include="*.ts" --include="*.tsx" -l
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/perform/statements/page.tsx
+src/app/api/reconciliation/run/route.ts
+src/app/api/reconciliation/analyze/route.ts
+src/app/api/reconciliation/compare/route.ts
+src/app/operate/results/page.tsx
+src/app/api/calculation/run/route.ts
+src/lib/calculation/intent-types.ts
+src/app/api/ai/assessment/route.ts
+src/lib/data/briefing-loader.ts
+src/components/calculate/PlanResults.tsx
+src/lib/intelligence/state-reader.ts
+src/lib/data/results-loader.ts
+src/lib/supabase/database.types.ts
+src/scripts/clear-tenant.ts
+src/lib/data/persona-queries.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/supabase/calculation-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/data/page-loaders.ts
+src/lib/data/intelligence-stream-loader.ts
+```
+
+#### 8. Engine is single-rule-set per run; an entity in two plans = two runs
+
+```
+src/lib/calculation/run-calculation.ts:913-933 (assignment fetch — filtered to ONE rule set)
+  // ── 2. Fetch entities with assignments (OB-75: paginated) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+```
+
+```
+src/app/api/calculation/run/route.ts:73-77 (single ruleSetId required per invocation)
+  const { tenantId, periodId, ruleSetId } = body;
+
+  if (!tenantId || !periodId || !ruleSetId) {
+    return NextResponse.json(
+      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+```
+
+Pre-write cleanup is scoped to (tenant, rule_set, period) — a run for plan A does NOT delete plan B's rows in the same period, so per-entity multi-plan rows can coexist in calculation_results across two batches:
+
+```
+src/lib/calculation/run-calculation.ts:1489-1495
+  // ── 7. Write results (HF-078: DELETE before INSERT to prevent UNIQUE constraint violations) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+```
+
+```
+src/app/api/calculation/run/route.ts:2818-2824
+  // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+```
+
+Results write carries per-row rule_set_id:
+
+```
+src/lib/supabase/calculation-service.ts:344-353 (saveResults insert mapping)
+  const insertRows: CalcResultInsert[] = results.map(r => ({
+    tenant_id: tenantId,
+    batch_id: batchId,
+    entity_id: r.entityId,
+    rule_set_id: r.ruleSetId || null,
+    period_id: r.periodId || null,
+    total_payout: r.totalPayout,
+    components: r.components,
+    metrics: r.metrics,
+    attainment: r.attainment || ({} as Json),
+    metadata: r.metadata || ({} as Json),
+  }));
+```
+
+#### 9. Two code paths that CREATE multi-plan assignments
+
+(a) HF-126/HF-189 self-heal in the run route auto-assigns every unassigned individual entity of the tenant to the rule set being run (so calculating a second plan force-creates overlapping assignments — and erases intentional population splits):
+
+```
+src/app/api/calculation/run/route.ts:451-490 (excerpt)
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  // HF-126 original: fires when zero assignments exist
+  // HF-189 expansion: also fires when some entities are missing (import timing gap)
+  {
+    const allTenantEntityIds: string[] = [];
+    ...
+        .eq('entity_type', 'individual')  // HF-263: never self-assign grouping entities for calculation
+    ...
+      const missingEntityIds = allTenantEntityIds.filter(id => !assignedSet.has(id));
+
+      if (missingEntityIds.length > 0) {
+        const INSERT_BATCH = 5000;
+        const newAssignments = missingEntityIds.map(eid => ({
+          tenant_id: tenantId,
+          rule_set_id: ruleSetId,
+          entity_id: eid,
+          assignment_type: 'direct',
+          metadata: {},
+        }));
+        for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+          const slice = newAssignments.slice(i, i + INSERT_BATCH);
+          await supabase.from('rule_set_assignments').insert(slice);
+        }
+```
+
+(b) SCI bulk assignment creation builds the full cross-product entities × ALL active rule sets:
+
+```
+src/lib/sci/assignment-creation.ts:90-101
+    for (const rs of activeRuleSets) {
+      for (const entityId of allEntityIds) {
+        if (!assignedSet.has(`${entityId}:${rs.id}`)) {
+          newAssignments.push({
+            tenant_id: tenantId,
+            rule_set_id: rs.id,
+            entity_id: entityId,
+            assignment_type: 'direct',
+            metadata: {},
+          });
+        }
+      }
+    }
+```
+
+#### 10. Downstream aggregation: multi-plan-aware shape, single-batch materialization
+
+entity_period_outcomes carries a per-rule-set breakdown (multi-plan-aware row shape):
+
+```
+src/lib/supabase/calculation-service.ts:521-532 (ruleSetBreakdown construction)
+    const ruleSetBreakdown: Array<{ rule_set_id: string; total_payout: number; components: Json }> = [];
+    const ruleSetMap = new Map<string, { total: number; components: Json[] }>();
+    for (const r of results) {
+      const rsId = r.rule_set_id || 'unknown';
+      const existing = ruleSetMap.get(rsId) || { total: 0, components: [] };
+      existing.total += r.total_payout || 0;
+      existing.components.push(r.components);
+      ruleSetMap.set(rsId, existing);
+    }
+```
+
+But materialization reads only ONE batch and deletes the whole period's outcomes before inserting:
+
+```
+src/lib/supabase/calculation-service.ts:477-501 (excerpt — docstring vs query)
+ * Materialize entity_period_outcomes for a period.
+ *
+ * Triggered on lifecycle transitions (OFFICIAL, APPROVED, POSTED, PUBLISHED).
+ * For each entity in the batch:
+ * 1. Read all calculation_results for the entity in this period
+ ...
+  // Read all results for this batch
+  const { data: batchResults, error: resErr } = await supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+```
+
+```
+src/lib/supabase/calculation-service.ts:562-568
+  // Upsert: delete existing for this period, then insert new
+  if (outcomes.length > 0) {
+    await supabase
+      .from('entity_period_outcomes')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId);
+```
+
+Consequence for two batches (plan A, plan B) in one period: the second batch's materialization deletes the period's outcomes (including plan A's) and re-inserts only from the second batch.
+
+#### Scripts written (all new, read-only)
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_results_scan.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_tenant_landscape.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_tenant_detail.ts
+
+**GAP TO DEMO BAR:** The probe's bar — one entity with >=2 active assignments calculating under both in one period — is NOT met in data: zero dual-assigned entities (703 assignments, all 1-per-entity) and zero (entity, period) pairs with 2 distinct rule_set_ids in calculation_results (943 rows). The only dual-rule-set batch (tenant f7093bcc…, batch ac82b514…, period 849991e5…) is seed-script-inserted over disjoint populations. To demonstrate live: (1) one assignment write via the existing POST /api/rule-set-assignments route, (2) two engine runs (one per rule set) in the same period — both are architect actions, not builds (writes were not performed under the READ-ONLY constraint). Residual structural gap: materializeEntityPeriodOutcomes is single-batch-scoped with a period-wide delete, so entity_period_outcomes (and any surface reading it) would retain only the last-materialized plan; calculation_results-level coexistence is supported (rule-set-scoped pre-write delete in both engine paths).
+
+**EFFORT SHAPE:** Split — assignments+results-level concurrency E1 (routes POST /api/rule-set-assignments and POST /api/calculation/run, table rule_set_assignments, table calculation_results — code green, remaining proof is the architect browser sequence below); period-outcome aggregation across plans E3 (service `materializeEntityPeriodOutcomes` in src/lib/supabase/calculation-service.ts re-shaped to aggregate calculation_results per period across batches instead of one batch_id, feeding the existing rule_set_breakdown column of entity_period_outcomes; consumers already read that breakdown shape).
 
 ---
 
