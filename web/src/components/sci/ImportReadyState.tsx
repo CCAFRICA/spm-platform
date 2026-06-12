@@ -51,20 +51,29 @@ export function ImportReadyState({
 }: ImportReadyStateProps) {
   const [sessionUnits, setSessionUnits] = useState<UnitStateView[] | null>(null);
   const [telemetry, setTelemetry] = useState<ImportTelemetry | null>(null);
+  const [auditVerdict, setAuditVerdict] = useState<{ divergent: boolean; fields?: string[] } | null>(null);
 
   // D10/D18: read the full unit set AND the final telemetry from the durable surface (?telemetry=1). This
   // is the ONLY source — never the execute response (which died at Vercel's 300s cap in run-5 while the
   // server kept committing). The completion screen renders the truth: what the DB actually holds.
+  // OB-203 Phase D: the settle audit is invoked FIRST (idempotent backstop — first audit wins), so the
+  // session-state read that follows carries the reconciliation verdict.
   useEffect(() => {
     if (!tenantId || !importSessionId) return;
     let cancelled = false;
     (async () => {
       try {
+        await fetch('/api/import/sci/settle-audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, importSessionId }),
+        }).catch(() => null);
         const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}&telemetry=1`);
         if (res.ok && !cancelled) {
-          const view = (await res.json()) as SessionStateView & { telemetry?: ImportTelemetry };
+          const view = (await res.json()) as SessionStateView & { telemetry?: ImportTelemetry; audit?: { divergent?: boolean; fields?: string[] } | null };
           setSessionUnits(view.units);
           if (view.telemetry) setTelemetry(view.telemetry);
+          if (view.audit) setAuditVerdict({ divergent: view.audit.divergent === true, fields: view.audit.fields });
         }
       } catch { /* graceful degradation to results-only below */ }
     })();
@@ -198,6 +207,20 @@ export function ImportReadyState({
             );
           })}
         </div>
+
+        {/* OB-203 Phase D: settle-audit reconciliation flag — truth-telling, never silent
+            self-correction. Rendered only when the audit found accumulated != scanned. */}
+        {auditVerdict?.divergent && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+            <p className="text-[11px] text-amber-300/90">
+              Telemetry reconciliation: the settle audit found {auditVerdict.fields?.length ?? 0} field
+              {(auditVerdict.fields?.length ?? 0) === 1 ? '' : 's'} where the live counters diverged from
+              scanned truth ({(auditVerdict.fields ?? []).join(', ')}). Scanned truth is recorded on the
+              session record for review.
+            </p>
+          </div>
+        )}
 
         {/* 2.2 conclusion centerpiece: the Progressive-Performance story — what memory SAVED (first, the
             payoff), what was LEARNED, what it COST. Durable telemetry, persisted on the screen. */}

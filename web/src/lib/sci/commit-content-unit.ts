@@ -46,6 +46,7 @@ import { resolveDataTypeFromClassification } from './data-type-resolver';
 import { computeContentUnitHashSha256 } from './content-unit-hash';
 import { supersedePriorBatchOnContentMatch } from './import-batch-supersession';
 import { extractFieldIdentitiesFromTrace } from './header-comprehension';
+import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 
 // ============================================================
 // PUBLIC SHAPE — minimal common surface both callers can satisfy
@@ -273,6 +274,24 @@ export async function commitContentUnit(
     } as unknown as Json,
   });
 
+  // OB-203 Phase D Hook 2 (batch created): the unit's expected work is now
+  // known — record it on the session telemetry row, piggybacked on the batch
+  // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
+  // cannot land before this one.
+  await accumulateUnitCommitFields({
+    tenantId,
+    importSessionId: proposalId,
+    unitId: unit.contentUnitId,
+    fields: {
+      sheetName: tabName,
+      expectedRows: rows.length,
+      pulsesTotal: Math.ceil(rows.length / profile.chunkSize),
+      rowsCommitted: 0,
+      pulsesLanded: 0,
+      batchCommitted: false,
+    },
+  }, supabase);
+
   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
   await supersedePriorBatchOnContentMatch(
     supabase,
@@ -430,6 +449,15 @@ export async function commitContentUnit(
       chunksCompleted++;
       // OB-203 §2/§5: a write is a PULSE (DS-021 family; "nanobatch" stays reserved for DS-020 learning).
       ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: chunksCompleted, ofTotal: totalChunks, rows: totalInserted });
+      // OB-203 Phase D Hook 2 (pulse landed): ONE counter update per 500-row
+      // pulse, never per row (Amendment 2 D.2/D.4). The panels' pulse/row
+      // numbers move with this write.
+      await accumulateUnitCommitFields({
+        tenantId,
+        importSessionId: proposalId,
+        unitId: unit.contentUnitId,
+        fields: { rowsCommitted: totalInserted, pulsesLanded: chunksCompleted },
+      }, supabase);
       // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
       // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
       if (profile.pacingMs > 0 && i + profile.chunkSize < insertRows.length) {
@@ -465,6 +493,15 @@ export async function commitContentUnit(
         `[commitContentUnit] UNIT-ATOMIC ROLLBACK batch=${batchId}: removed ${totalInserted} partial rows ` +
           `(${rbErr ? 'ROLLBACK FAILED: ' + rbErr.message : 'ok'})`,
       );
+      // OB-203 Phase D Hook 2 (rollback): the unit retains NOTHING (D16) — its
+      // telemetry snapshot says so too. Decision 95: the panel never shows rows
+      // the table no longer holds.
+      await accumulateUnitCommitFields({
+        tenantId,
+        importSessionId: proposalId,
+        unitId: unit.contentUnitId,
+        fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+      }, supabase);
       return {
         batchId,
         totalInserted: 0,
@@ -488,6 +525,15 @@ export async function commitContentUnit(
       row_count: totalInserted,
     })
     .eq('id', batchId);
+
+  // OB-203 Phase D Hook 2 (batch completed): terminal commit truth on the
+  // telemetry row, piggybacked on the finalize update.
+  await accumulateUnitCommitFields({
+    tenantId,
+    importSessionId: proposalId,
+    unitId: unit.contentUnitId,
+    fields: { rowsCommitted: totalInserted, batchCommitted: true },
+  }, supabase);
 
   console.log(
     `[commitContentUnit] ${classification} (${source}): ${totalInserted} rows committed, ` +

@@ -286,6 +286,14 @@ export function SCIExecution({
     }
     // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
     await settleFromSurface();
+    // OB-203 Phase D: trigger the once-per-session settle audit (idempotent —
+    // first audit wins; ImportReadyState also invokes it on mount as a backstop).
+    // Fire-and-forget: the audit verdict surfaces on the completion screen.
+    void fetch('/api/import/sci/settle-audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, importSessionId: proposal.proposalId }),
+    }).catch(() => { /* completion-screen invocation is the backstop */ });
   }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, settleFromSurface]);
 
   // Legacy execution — used for plan units (document-based) and fallback when no storagePath

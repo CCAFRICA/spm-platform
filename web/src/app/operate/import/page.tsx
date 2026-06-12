@@ -71,8 +71,10 @@ async function analyzeTabular(
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
         if (r.ok) {
-          const view = await r.json() as { units: Array<{ history: unknown[]; state: string }> };
-          const count = view.units.reduce((s, u) => s + (u.history?.length ?? 0), 0);
+          const view = await r.json() as { units: Array<{ state: string }>; progressTick?: number };
+          // OB-203 Phase D: the monotonic progress tick is total_signals_written on the
+          // session telemetry record (the view no longer carries per-unit history).
+          const count = view.progressTick ?? 0;
           if (count > lastCount) {
             lastCount = count;
             lastProgressAt = Date.now();
@@ -111,8 +113,8 @@ async function analyzeTabular(
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
         if (r.ok) {
-          const view = await r.json() as { units: Array<{ history: unknown[] }> };
-          const c = view.units.reduce((s, u) => s + (u.history?.length ?? 0), 0);
+          const view = await r.json() as { progressTick?: number };
+          const c = view.progressTick ?? 0;   // OB-203 Phase D: monotonic tick from the session record
           if (c > recoverCount) { recoverCount = c; recoverProgressAt = Date.now(); }   // server still advancing → keep waiting
         }
       } catch { /* keep polling */ }

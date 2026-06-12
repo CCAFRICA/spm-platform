@@ -189,6 +189,10 @@ export interface SessionStateView {
   tenantId: string;
   units: UnitStateView[];
   isOpen: boolean;                  // any unit not yet in {bound, resolved} (no completion gate on comprehension)
+  // OB-203 Phase D: monotonic progress tick (= total_signals_written on the
+  // session telemetry record). The analyze stall-detector reads this instead of
+  // summing per-unit history lengths; absent on reducer-built views.
+  progressTick?: number;
 }
 
 // Minimal row shape the reducer consumes (a subset of classification_signals).
@@ -320,9 +324,17 @@ export interface ImportTelemetry {
 }
 
 // Pulse size mirrors commit-content-unit's sci-bulk write profile (D16: 500-row pulses). Kept in sync so
-// "pulse X of Y" matches the actual write shape.
-const PULSE_SIZE = 500;
+// "pulse X of Y" matches the actual write shape. Exported for the settle audit's
+// formula-level pulse comparison (the accumulated record carries ACTUAL pulse
+// counts; this constant only feeds the auditor's re-derivation).
+export const PULSE_SIZE = 500;
 
+// OB-203 Phase D (Amendment 2 §2 D.3): DEMOTED TO AUDITOR. This full-scan
+// derivation is no longer on any polling path — its sole caller is the
+// once-per-session settle audit (/api/import/sci/settle-audit), which compares
+// this scanned truth against the write-time-accumulated session telemetry
+// record and flags divergence as a named platform_event. Display reads come
+// from projectImportTelemetry over the single-row record.
 export async function deriveImportTelemetry(
   tenantId: string,
   importSessionId: string,

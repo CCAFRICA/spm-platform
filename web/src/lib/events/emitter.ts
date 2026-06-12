@@ -21,6 +21,9 @@ export type PlatformEventType =
   | 'data.imported'
   | 'data.committed'
   | 'data.anomaly_detected'
+  // OB-203 Phase D: settle-audit found the accumulated session telemetry
+  // diverging from scanned truth (reconciliation flag, never silent).
+  | 'data.import_telemetry_audit_divergence'
   // Plan
   | 'plan.imported'
   | 'plan.interpreted'
