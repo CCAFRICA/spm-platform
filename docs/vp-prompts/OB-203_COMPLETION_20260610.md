@@ -911,3 +911,22 @@ polish defects, same durable-read pattern:
 
 Build green; 79 tests pass; typecheck + lint clean. No full CLT re-run required (architect 60-second visual
 check: import → click Retry → see Processing; exclude → see Excluded treatment), then the Phase 5 PR opens.
+
+### PHASE 5 — D10 (completion screen truthful) + D11 (recorded)
+
+**D10 (fixed, Phase 5 scope) — `ImportReadyState`:**
+1. **Excluded/failed units appear.** The completion screen now reads the FULL unit set from the durable
+   `SessionStateView` (single fetch by `importSessionId` = `result.proposalId`), not just the committed
+   `results`. Each unit renders by disposition: imported (rows), `failed — unresolved`, `excluded`
+   (dimmed, line-through), `resolved — not committed`. Summary: `Session — N of M units imported · R rows
+   · K not imported`. The user's exclude decision is no longer erased.
+2. **No placeholder panels.** The `Components` stat box and the `Plan` context row are **suppressed when no
+   plan exists** (was `Components —` + `Plan: No active plan`). The next action is plan-aware: the
+   `Go to Calculate` CTA renders only when a plan exists; on a no-plan tenant the guidance reads
+   "Imported data is saved. A plan is needed before calculation — configure one to continue."
+3. Same durable-read derivation (`SessionStateView`), no new surface.
+
+**D11 (recorded, NOT built):** full completion-screen redesign against Wayfinder / Health / IAP Action
+Proximity → **operations backlog BL-002** (design homes DS-013/DS-003). Out of Phase 5 scope.
+
+Build green; 79 tests pass; typecheck + lint clean.

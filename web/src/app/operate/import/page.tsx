@@ -40,6 +40,7 @@ type ImportState =
 interface PostImportData {
   totalRowsCommitted: number;
   results: ContentUnitResult[];
+  importSessionId?: string;   // OB-203 Phase 5 (D10): completion screen reads SessionStateView for the full unit set
   entityCount?: number;
   planName?: string;
   componentCount?: number;
@@ -399,6 +400,7 @@ export default function OperateImportPage() {
     setPostImportData({
       totalRowsCommitted: totalRows,
       results: result.results,
+      importSessionId: result.proposalId,   // = comprehension-session id; completion reads the full unit set
     });
 
     setState({ phase: 'complete', executionResult: result });
@@ -566,6 +568,8 @@ export default function OperateImportPage() {
             <ImportReadyState
               results={postImportData.results}
               totalRowsCommitted={postImportData.totalRowsCommitted}
+              tenantId={tenantId}
+              importSessionId={postImportData.importSessionId}
               entityCount={postImportData.entityCount}
               planName={postImportData.planName}
               componentCount={postImportData.componentCount}
