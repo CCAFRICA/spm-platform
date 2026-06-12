@@ -78,6 +78,12 @@ export interface CommitContentUnitParams {
   fileName: string;
   source: CommitContentUnitSource;
   fileHashSha256: string;
+  // OB-203 Phase C: pulses the CALLER already landed for this unit before the
+  // committed_data commit (entity creation/enrichment chunks). The unit's pulse
+  // counters compose caller-phase + commit-phase on the ONE spine — "pulse X of
+  // Y" stays a single number line, no entity-specific vocabulary. Default 0/0
+  // keeps every other caller byte-identical (DD-7).
+  pulseBase?: { landed: number; total: number };
 }
 
 export interface CommitContentUnitResult {
@@ -277,7 +283,9 @@ export async function commitContentUnit(
   // OB-203 Phase D Hook 2 (batch created): the unit's expected work is now
   // known — record it on the session telemetry row, piggybacked on the batch
   // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
-  // cannot land before this one.
+  // cannot land before this one. Phase C: pulse counters compose on top of
+  // the caller-phase base (entity creation/enrichment pulses already landed).
+  const pulseBase = params.pulseBase ?? { landed: 0, total: 0 };
   await accumulateUnitCommitFields({
     tenantId,
     importSessionId: proposalId,
@@ -285,9 +293,9 @@ export async function commitContentUnit(
     fields: {
       sheetName: tabName,
       expectedRows: rows.length,
-      pulsesTotal: Math.ceil(rows.length / profile.chunkSize),
+      pulsesTotal: pulseBase.total + Math.ceil(rows.length / profile.chunkSize),
       rowsCommitted: 0,
-      pulsesLanded: 0,
+      pulsesLanded: pulseBase.landed,
       batchCommitted: false,
     },
   }, supabase);
@@ -456,7 +464,7 @@ export async function commitContentUnit(
         tenantId,
         importSessionId: proposalId,
         unitId: unit.contentUnitId,
-        fields: { rowsCommitted: totalInserted, pulsesLanded: chunksCompleted },
+        fields: { rowsCommitted: totalInserted, pulsesLanded: pulseBase.landed + chunksCompleted },
       }, supabase);
       // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
       // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.

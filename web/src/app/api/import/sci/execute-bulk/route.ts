@@ -31,6 +31,11 @@ import { executePostCommitConstruction } from '@/lib/sci/post-commit-constructio
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
 import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+// OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
+// through the one observability spine (VERBOSE 'pulse' + session record).
+import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
+import { accumulateUnitCommitFields } from '@/lib/sci/session-telemetry-accumulator';
+import { ob203Trace } from '@/lib/sci/ob203-verbose';
 // OB-203 Phase 3 (R2): terminal `bound` state on the canonical surface.
 import { emitUnitStates } from '@/lib/sci/comprehension-state-service';
 // HF-239 Phase 0.1: plan interpretation extracted into a shared module.
@@ -437,6 +442,29 @@ export async function POST(req: NextRequest) {
             // A state-spine write failure must never re-mark a committed unit as failed.
             console.warn(`[SCI Bulk] per-unit bound emit failed (non-blocking) for ${result.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
           }
+        } else {
+          // OB-203 Phase C (combined arms, named in the ADR): a FAILED data unit
+          // lands on the same spine as a committed one — terminal
+          // failed_interpretation with its reason, durable, so no panel ever
+          // shows a unit stuck mid-flight when the server already knows it died
+          // (D16 truthful completion covers failure too; plan units already did
+          // this at the batched-plan emission).
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: result.contentUnitId,
+                sheetName: unit.tabName ?? result.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'failed_interpretation' as const, seq: 5,
+                classification: unit.confirmedClassification ?? null,
+                failureClass: (result.error ?? 'unit_failed').slice(0, 300),
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (stateErr) {
+            console.warn(`[SCI Bulk] per-unit failed emit failed (non-blocking) for ${result.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+          }
         }
       } catch (err) {
         results.push({
@@ -447,6 +475,23 @@ export async function POST(req: NextRequest) {
           pipeline: unit.confirmedClassification,
           error: String(err),
         });
+        // Phase C combined arms: thrown failures land on the spine too.
+        try {
+          await emitUnitStates(
+            [{
+              tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+              sheetName: unit.tabName ?? unit.contentUnitId.split('::')[1] ?? null,
+              sourceFileName: unit.sourceFile ?? null,
+              state: 'failed_interpretation' as const, seq: 5,
+              classification: unit.confirmedClassification ?? null,
+              failureClass: String(err).slice(0, 300),
+            }],
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+        } catch (stateErr) {
+          console.warn(`[SCI Bulk] per-unit failed emit failed (non-blocking) for ${unit.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+        }
       }
     }
 
@@ -720,20 +765,32 @@ async function processEntityUnit(
     entityData.set(key, meta);
   }
 
-  // Fetch existing entities in batches of 200 (Section G)
+  // Fetch existing entities in batches of 200 (Section G). OB-203 Phase C: the
+  // select is WIDENED to carry the enrichment-merge inputs (temporal_attributes,
+  // metadata) plus the columns the upsert must re-assert — this one batched read
+  // (already happening) eliminates BOTH per-entity SELECTs the retired enrich
+  // loop ran (DS-020 litmus: batch I/O, no per-entity round-trips).
+  interface ExistingEntityRow {
+    id: string; external_id: string | null; entity_type: string; status: string;
+    display_name: string; temporal_attributes: Json; metadata: Json;
+  }
   const allIds = Array.from(entityData.keys());
   const existingMap = new Map<string, string>();
+  const existingRows = new Map<string, ExistingEntityRow>();
   const BATCH = 200;
   for (let i = 0; i < allIds.length; i += BATCH) {
     const slice = allIds.slice(i, i + BATCH);
     const { data: existing } = await supabase
       .from('entities')
-      .select('id, external_id')
+      .select('id, external_id, entity_type, status, display_name, temporal_attributes, metadata')
       .eq('tenant_id', tenantId)
       .in('external_id', slice);
     if (existing) {
-      for (const e of existing) {
-        if (e.external_id) existingMap.set(e.external_id, e.id);
+      for (const e of existing as unknown as ExistingEntityRow[]) {
+        if (e.external_id) {
+          existingMap.set(e.external_id, e.id);
+          existingRows.set(e.external_id, e);
+        }
       }
     }
   }
@@ -750,92 +807,119 @@ async function processEntityUnit(
     }));
   }
 
-  // Create new entities — bulk insert in 5000-row chunks
+  // OB-203 Phase C: compute the ENTIRE write plan in memory BEFORE any write —
+  // new-entity rows (unchanged build) plus the enrichment changed-set (pure
+  // merge over the widened fetch; the retired loop's exact semantics live in
+  // computeEnrichmentMerge). Knowing the plan up front makes the entity phase's
+  // pulse total truthful from the first pulse.
   const newIds = allIds.filter(eid => !existingMap.has(eid));
-  let created = 0;
-  if (newIds.length > 0) {
-    const newEntities = newIds.map(eid => {
-      const meta = entityData.get(eid);
-      return {
-        tenant_id: tenantId,
-        external_id: eid,
-        display_name: meta?.name || eid,
-        entity_type: 'individual' as const,
-        status: 'active' as const,
-        temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
-        metadata: {
-          ...(meta?.enrichment || {}),  // HF-190: All enrichment fields in metadata for scope resolution
-          ...(meta?.role ? { role: meta.role } : {}),
-          ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
-        } as Record<string, Json>,
-      };
-    });
+  const newEntities = newIds.map(eid => {
+    const meta = entityData.get(eid);
+    return {
+      tenant_id: tenantId,
+      external_id: eid,
+      display_name: meta?.name || eid,
+      entity_type: 'individual' as const,
+      status: 'active' as const,
+      temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
+      metadata: {
+        ...(meta?.enrichment || {}),  // HF-190: All enrichment fields in metadata for scope resolution
+        ...(meta?.role ? { role: meta.role } : {}),
+        ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
+      } as Record<string, Json>,
+    };
+  });
 
-    const INSERT_BATCH = 5000;
-    for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
-      const slice = newEntities.slice(i, i + INSERT_BATCH);
-      const { error: entErr } = await supabase.from('entities').insert(slice);
-      if (entErr) {
-        // D16 unit-atomic: roll back every entity THIS unit created (all are new — pre-existing were
-        // filtered out via existingMap), so a partial entity insert retains nothing, then report truthfully.
-        await rollbackNewEntities(supabase, tenantId, newIds);
-        return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${entErr.message} — entity unit rolled back (${created} partial entities removed)` };
-      }
-      created += slice.length;
-    }
-  }
-
-  // OB-177: Enrich EXISTING entities — merge temporal_attributes (don't overwrite)
-  let enriched = 0;
+  // OB-177 semantics preserved: enrich EXISTING entities — merge temporal
+  // attributes (don't overwrite), spread enrichment into metadata (HF-190).
+  const upsertRows: Array<Record<string, unknown>> = [];
   for (const eid of allIds) {
-    const entityId = existingMap.get(eid);
-    if (!entityId) continue;
+    const row = existingRows.get(eid);
+    if (!row) continue;
     const meta = entityData.get(eid);
     if (!meta?.enrichment || Object.keys(meta.enrichment).length === 0) continue;
+    const merge = computeEnrichmentMerge({
+      existingAttrs: ((row.temporal_attributes ?? []) as unknown as TemporalAttr[]),
+      existingMeta: ((row.metadata ?? {}) as Record<string, unknown>),
+      enrichment: meta.enrichment,
+      role: meta.role,
+      importDate,
+    });
+    if (!merge.changed) continue; // idempotent — nothing to write for this entity
+    upsertRows.push({
+      id: row.id,
+      tenant_id: tenantId,
+      external_id: row.external_id,
+      display_name: row.display_name,
+      entity_type: row.entity_type,
+      status: row.status,
+      temporal_attributes: merge.temporalAttributes as unknown as Json[],
+      metadata: merge.metadata as unknown as Json,
+      updated_at: new Date().toISOString(),
+    });
+  }
 
-    // Fetch current temporal_attributes
-    const { data: current } = await supabase
-      .from('entities')
-      .select('temporal_attributes')
-      .eq('id', entityId)
-      .single();
+  // Entity-phase pulse plan: every WRITE chunk is a pulse on the SAME spine as
+  // commit pulses (HALT-1 disposition §3: one observability spine, no
+  // entity-specific vocabulary). Creation writes in 5000s; enrichment upserts
+  // at the standing 200 (Amendment 2 §3).
+  const INSERT_BATCH = 5000;
+  const ENRICH_BATCH = 200;
+  const entityPulsesTotal = Math.ceil(newEntities.length / INSERT_BATCH) + Math.ceil(upsertRows.length / ENRICH_BATCH);
+  let entityPulsesLanded = 0;
+  if (entityPulsesTotal > 0) {
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { sheetName: tabName, pulsesTotal: entityPulsesTotal, pulsesLanded: 0 },
+    }, supabase);
+  }
+  const landEntityPulse = async (entitiesWritten: number) => {
+    entityPulsesLanded++;
+    ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: entityPulsesLanded, ofTotal: entityPulsesTotal, rows: entitiesWritten });
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { pulsesLanded: entityPulsesLanded },
+    }, supabase);
+  };
+  const zeroEntityPulses = async () => {
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { pulsesLanded: 0, pulsesTotal: 0 },
+    }, supabase);
+  };
 
-    const existingAttrs = (current?.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
-
-    // Merge: for each enrichment field, check if value changed
-    const newAttrs = [...existingAttrs];
-    for (const [key, value] of Object.entries(meta.enrichment)) {
-      const existing = newAttrs.find(a => a.key === key && a.effective_to === null);
-      if (existing && existing.value === value) continue; // Same value, idempotent
-      if (existing) {
-        // Close current entry
-        existing.effective_to = importDate;
-      }
-      // Add new entry
-      newAttrs.push({ key, value, effective_from: importDate, effective_to: null });
+  // Create new entities — bulk insert in 5000-row chunks (unchanged write shape).
+  let created = 0;
+  for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
+    const slice = newEntities.slice(i, i + INSERT_BATCH);
+    const { error: entErr } = await supabase.from('entities').insert(slice);
+    if (entErr) {
+      // D16 unit-atomic: roll back every entity THIS unit created (all are new — pre-existing were
+      // filtered out via existingMap), so a partial entity insert retains nothing, then report truthfully.
+      await rollbackNewEntities(supabase, tenantId, newIds);
+      await zeroEntityPulses();
+      return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${entErr.message} — entity unit rolled back (${created} partial entities removed)` };
     }
+    created += slice.length;
+    await landEntityPulse(created);
+  }
 
-    // HF-190: Spread ALL enrichment fields into metadata (not just role)
-    {
-      const { data: entData } = await supabase.from('entities').select('metadata').eq('id', entityId).single();
-      const existingMeta = (entData?.metadata ?? {}) as Record<string, unknown>;
-      const mergedMeta = {
-        ...existingMeta,
-        ...meta.enrichment,  // HF-190: All enrichment fields in metadata for scope resolution
-        ...(meta.role ? { role: meta.role } : {}),
-      };
-      const metaChanged = JSON.stringify(existingMeta) !== JSON.stringify(mergedMeta);
-      if (metaChanged || newAttrs.length !== existingAttrs.length) {
-        await supabase.from('entities').update({
-          temporal_attributes: newAttrs as unknown as Json[],
-          metadata: mergedMeta as unknown as Json,
-        }).eq('id', entityId);
-        enriched++;
-        continue;
-      }
+  // Enrich changed entities — 200-row upsert chunks. The retired per-entity
+  // loop's 2 SELECTs + 1 UPDATE per entity are extinct on this path: the reads
+  // rode the widened batch fetch above; the writes land here, in pulses.
+  // No enrich rollback (same posture as the retired loop): the merge is
+  // idempotent and re-runnable; a chunk failure fails the unit truthfully.
+  let enriched = 0;
+  for (let i = 0; i < upsertRows.length; i += ENRICH_BATCH) {
+    const slice = upsertRows.slice(i, i + ENRICH_BATCH);
+    const { error: upErr } = await supabase.from('entities').upsert(slice as never[], { onConflict: 'id' });
+    if (upErr) {
+      await rollbackNewEntities(supabase, tenantId, newIds);
+      await zeroEntityPulses();
+      return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${upErr.message} — enrich upsert failed at chunk ${Math.floor(i / ENRICH_BATCH) + 1}; entity unit rolled back (${created} new entities removed)` };
     }
-
-    // HF-190: temporal-only update path removed — unified update above handles both metadata + temporal
+    enriched += slice.length;
+    await landEntityPulse(created + enriched);
   }
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
@@ -854,6 +938,8 @@ async function processEntityUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
+    // Phase C: compose entity-phase pulses with commit pulses on one number line.
+    pulseBase: { landed: entityPulsesLanded, total: entityPulsesTotal },
   });
   // D16 unit-atomic + truthfulness: commitContentUnit rolls back its OWN partial rows on failure; if its
   // committed_data write failed, roll back this unit's new entities too (all-or-nothing across both

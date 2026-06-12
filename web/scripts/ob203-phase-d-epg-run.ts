@@ -43,10 +43,14 @@ async function getAuthCookie(): Promise<string> {
 // ── Synthetic workbook: roster (entity) + lookup (reference) + fact (transaction) ──
 function buildWorkbook(): { buffer: Buffer; sheets: Array<{ sheetName: string; columns: string[]; rows: Record<string, unknown>[]; totalRowCount: number }> } {
   const regions = ['NORTE', 'SUR', 'ESTE', 'OESTE'];
+  // OB203_EPG_MUTATE=1 rotates every rep's region — all 40 roster entities then
+  // carry CHANGED enrichment, so the Phase C enrich-upsert write path fires
+  // live (temporal close+append + metadata merge + pulse per 200-chunk).
+  const shift = process.env.OB203_EPG_MUTATE === '1' ? 1 : 0;
   const roster = Array.from({ length: 40 }, (_, i) => ({
     rep_id: `R${String(i + 1).padStart(3, '0')}`,
     rep_name: `Representative ${i + 1}`,
-    region: regions[i % regions.length],
+    region: regions[(i + shift) % regions.length],
   }));
   const lookup = regions.map((r, i) => ({ region_code: r, region_label: `Region ${r}`, display_order: i + 1 }));
   const fact = Array.from({ length: 3200 }, (_, i) => ({
