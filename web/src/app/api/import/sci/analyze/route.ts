@@ -232,10 +232,19 @@ export async function POST(req: NextRequest) {
             const unitId = unitIdBySheet.get(u.sheetName);
             if (!unitId) return;
             const state = u.status === 'failed_interpretation' ? 'failed_interpretation' as const : 'comprehended' as const;
+            // D17: carry tier + knownCount on the STREAMED state so the telemetry counters (fingerprints,
+            // atoms, LLM) move live off the per-sheet stream — not off the end-batched tier/composition
+            // signals. The flywheel signals still fire below; these are the same numbers, streamed.
+            const tier = sheetFlywheelResults.get(u.sheetName)?.tier ?? null;
+            const colCount = profileMap.get(u.sheetName)?.structure.columnCount ?? 0;
+            const novel = u.novelCount ?? 0;
             void emitUnitStates(
-              [{ tenantId, importSessionId, unitId, sheetName: u.sheetName, sourceFileName: file.fileName, state, seq: 3, novelCount: u.novelCount, failureClass: u.failureClass }],
+              [{ tenantId, importSessionId, unitId, sheetName: u.sheetName, sourceFileName: file.fileName, state, seq: 3, tier, knownCount: Math.max(0, colCount - novel), novelCount: u.novelCount, failureClass: u.failureClass }],
               process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
             );
+            // D17: stream the decision verbose AT completion time (per-sheet), not end-batched.
+            ob203Trace('llm', { sheet: u.sheetName, tier, decision: u.status === 'comprehended' ? 'made' : 'failed' });
+            ob203Trace('atom', { sheet: u.sheetName, known: Math.max(0, colCount - novel), novel });
           },
         );
         hcMetrics = dc.metrics;
@@ -310,7 +319,15 @@ export async function POST(req: NextRequest) {
       // which carry injected headerComprehension and never entered the dispatch.
       await emitUnitStates(
         Array.from(profileMap.keys()).filter(sheetName => sheetSkipHC(sheetName) && !perSheetFailure.has(sheetName))
-          .map(sheetName => stateBase(sheetName, 'comprehended', 3, { novelCount: provenanceMap.get(sheetName)?.novelCount ?? null })),
+          .map(sheetName => {
+            // D17: Tier-1 recognized sheets carry tier + knownCount on the stream too, so the live
+            // counters show the memory-bypass (these are the warm path — LLM bypassed by recognition).
+            const colCount = profileMap.get(sheetName)?.structure.columnCount ?? 0;
+            const novel = provenanceMap.get(sheetName)?.novelCount ?? 0;
+            const tier = sheetFlywheelResults.get(sheetName)?.tier ?? 1;
+            ob203Trace('llm', { sheet: sheetName, tier, decision: 'bypassed-by-memory' });
+            return stateBase(sheetName, 'comprehended', 3, { tier, knownCount: Math.max(0, colCount - novel), novelCount: novel });
+          }),
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
@@ -328,8 +345,9 @@ export async function POST(req: NextRequest) {
           buildTierResolutionSignal({ tenantId, unitId, sheetName, tier, resolver, injectedBindings: injectedBindingsBySheet.get(sheetName) ?? 0, importSessionId }),
           process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
-        ob203Trace('llm', { sheet: sheetName, tier, resolver, decision: resolver === 'llm' ? 'made' : 'bypassed-by-memory' });
-        ob203Trace('fingerprint', { sheet: sheetName, tier, recognized: resolver === 'flywheel' });
+        // D17: the llm/fingerprint verbose now STREAMS per-sheet at comprehension time (onUnitDone +
+        // Tier-1 emit above) — no longer end-batched here. The tier_resolution signal still fires here
+        // for the flywheel (fieldBindings provenance), but the witness-trace happens at decision time.
         if (prov) {
           // knownCount: columns NOT in the novel residue (clean, NaN-free approximation; the load-
           // bearing signal is compositionConfidence = recognizedFraction).

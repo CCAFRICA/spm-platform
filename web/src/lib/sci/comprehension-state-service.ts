@@ -344,17 +344,26 @@ export async function deriveImportTelemetry(
   const signalsPerType: Record<string, number> = {};
   let recognizedTier1 = 0, storedNew = 0, llmMade = 0, llmBypassed = 0;
   let atomsMemory = 0, atomsNovel = 0, fieldBindingsInjected = 0;
+  // D17: the fingerprint/atom/LLM counters derive from the STREAMED `comprehended` unit-states (emitted
+  // per-sheet as each finishes, carrying tier + knownCount + novelCount), so the counters move LIVE through
+  // the comprehension stretch instead of jumping at the end off the batched tier/composition signals.
+  // fieldBindings still rides the tier_resolution signal (the only place it lives). Dedupe per unit.
+  const seenUnits = new Set<string>();
   for (const r of signals) {
     signalsPerType[r.signal_type] = (signalsPerType[r.signal_type] ?? 0) + 1;
     const sv = r.signal_value ?? {};
-    if (r.signal_type === 'comprehension:tier_resolution') {
-      const resolver = sv.resolver as string | undefined;
-      if (resolver === 'llm') { storedNew++; llmMade++; }
-      else if (resolver === 'flywheel') { recognizedTier1++; llmBypassed++; }
+    if (r.signal_type === 'comprehension:unit_state' && sv.state === 'comprehended') {
+      const uid = sv.unitId as string | undefined;
+      if (uid && !seenUnits.has(uid)) {
+        seenUnits.add(uid);
+        const tier = sv.tier as number | null;
+        if (tier === 1) { recognizedTier1++; llmBypassed++; }
+        else if (tier === 3) { storedNew++; llmMade++; }
+        atomsMemory += (sv.knownCount as number) ?? 0;
+        atomsNovel += (sv.novelCount as number) ?? 0;
+      }
+    } else if (r.signal_type === 'comprehension:tier_resolution') {
       fieldBindingsInjected += (sv.injectedBindings as number) ?? 0;
-    } else if (r.signal_type === 'comprehension:composition') {
-      atomsMemory += (sv.knownCount as number) ?? 0;
-      atomsNovel += (sv.novelCount as number) ?? 0;
     }
   }
 

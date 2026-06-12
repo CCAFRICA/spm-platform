@@ -332,6 +332,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // D18: plan units write no committed_data, so without this they never reach a terminal spine state and
+    // the completion screen (which reads the durable surface) can't settle them OR show their reason. Emit
+    // each plan unit's terminal state per-unit AS the batch resolved — bound on success, failed_interpretation
+    // carrying the REASON on failure (e.g. "plan interpretation found zero components"). The story persists.
+    if (handledPlanUnitIds.size > 0) {
+      const planStates = results
+        .filter(r => handledPlanUnitIds.has(r.contentUnitId))
+        .map(r => {
+          const cu = contentUnits.find(u => u.contentUnitId === r.contentUnitId);
+          return {
+            tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
+            sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
+            sourceFileName: cu?.sourceFile ?? null,
+            state: r.success ? ('bound' as const) : ('failed_interpretation' as const),
+            seq: 5, classification: 'plan' as const,
+            failureClass: r.success ? null : (r.error ?? 'plan interpretation failed'),
+          };
+        });
+      try {
+        await emitUnitStates(planStates, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      } catch (e) {
+        console.warn('[SCI Bulk] plan unit-state emit failed (non-blocking):', e instanceof Error ? e.message : e);
+      }
+    }
+
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
       try {

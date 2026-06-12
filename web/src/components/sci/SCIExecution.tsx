@@ -151,6 +151,46 @@ export function SCIExecution({
     return () => clearInterval(interval);
   }, [executionDone, units]);
 
+  // D18: the durable DATA SURFACE is the only truth for per-unit disposition. After firing execute-bulk we
+  // poll session-state + telemetry until the server has settled EVERY unit (bound/resolved/failed) — a dead
+  // HTTP response (Vercel's 300s cap fired mid-Ventas in run-5 while the server kept committing and FINISHED)
+  // is a NON-EVENT. Per-unit committed rows come from telemetry; a failed unit carries its reason from the
+  // spine. Bounded by a stall window that server-progress resets (same shape as the D13 analyze recovery).
+  const settleFromSurface = useCallback(async () => {
+    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const STALL_MS = 90_000;
+    const trackedIds = confirmedUnits.map(u => u.contentUnitId);
+    let lastSettled = -1, lastProgressAt = Date.now();
+    while (Date.now() - lastProgressAt < STALL_MS) {
+      try {
+        const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}&telemetry=1`);
+        if (r.ok) {
+          const view = await r.json() as { units?: Array<{ unitId: string; state: string; sheetName: string | null; failureClass: string | null }>; telemetry?: { perUnit?: Array<{ sheetName: string | null; expectedRows: number }> } };
+          const sUnits = view.units ?? [];
+          const rowsBySheet = new Map((view.telemetry?.perUnit ?? []).map(p => [p.sheetName, p.expectedRows]));
+          setUnits(prev => prev.map(u => {
+            const su = sUnits.find(x => x.unitId === u.contentUnitId);
+            if (!su) return u;
+            if (su.state === 'bound' || su.state === 'resolved') {
+              return { ...u, status: 'complete' as const, result: { contentUnitId: u.contentUnitId, classification: u.classification, success: true, rowsProcessed: rowsBySheet.get(su.sheetName) ?? u.result?.rowsProcessed ?? 0, pipeline: u.classification } };
+            }
+            if (su.state === 'failed_interpretation') {
+              return { ...u, status: 'error' as const, error: su.failureClass ?? u.error ?? 'interpretation failed' };
+            }
+            return u;
+          }));
+          const settledCount = trackedIds.filter(id => {
+            const su = sUnits.find(x => x.unitId === id);
+            return su && ['bound', 'resolved', 'failed_interpretation'].includes(su.state);
+          }).length;
+          if (settledCount > lastSettled) { lastSettled = settledCount; lastProgressAt = Date.now(); }
+          if (settledCount >= trackedIds.length) return; // every tracked unit has a terminal disposition
+        }
+      } catch { /* keep polling — the surface is the truth, a missed poll self-corrects */ }
+      await sleep(2000);
+    }
+  }, [tenantId, proposal.proposalId, confirmedUnits]);
+
   // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
   // `bound` states AS they STREAM (execute-bulk writes one per unit the moment it commits, keyed by
   // proposalId). Without this the strip sat at 0/N for the entire bulk window even though units were
@@ -223,41 +263,30 @@ export function SCIExecution({
         }),
       });
 
+      // D18: the response is a BONUS, not the truth. A non-OK / dead response is a NON-EVENT — the server
+      // may still be committing (run-5: Vercel's 300s cap fired mid-Ventas while the server finished). We
+      // log and fall through to read the durable data surface, which is authoritative.
       if (!res.ok) {
-        const errBody = await res.text().catch(() => 'Unknown error');
-        throw new Error(`Bulk processing failed (${res.status}): ${errBody.substring(0, 200)}`);
-      }
-
-      const bulkResult: SCIExecutionResult = await res.json();
-
-      // Map results back to individual units
-      for (const result of bulkResult.results) {
-        setUnits(prev => prev.map(u =>
-          u.contentUnitId === result.contentUnitId
-            ? {
-                ...u,
-                status: result.success ? 'complete' as const : 'error' as const,
-                result,
-                error: result.success ? undefined : result.error,
-              }
-            : u
-        ));
+        const errBody = await res.text().catch(() => '');
+        console.warn(`[SCIExecution] execute-bulk responded ${res.status} (reading durable surface): ${errBody.slice(0, 160)}`);
+      } else {
+        // Optimistic fast-path: seed from the response, but the surface settle below is the final word.
+        try {
+          const bulkResult: SCIExecutionResult = await res.json();
+          for (const result of bulkResult.results) {
+            setUnits(prev => prev.map(u => u.contentUnitId === result.contentUnitId
+              ? { ...u, status: result.success ? 'complete' as const : 'error' as const, result, error: result.success ? undefined : result.error }
+              : u));
+          }
+        } catch { /* malformed body — the surface settle is authoritative anyway */ }
       }
     } catch (err) {
-      const errorMsg = err instanceof DOMException && err.name === 'AbortError'
-        ? 'Request timed out — the server may still be processing'
-        : err instanceof Error ? err.message : 'Bulk processing failed';
-
-      // Mark all data units as error
-      for (const du of dataUnits) {
-        setUnits(prev => prev.map(u =>
-          u.contentUnitId === du.contentUnitId
-            ? { ...u, status: 'error' as const, error: errorMsg }
-            : u
-        ));
-      }
+      // D18: timeout / network drop is also a non-event — do NOT mark units failed. Read the surface.
+      console.warn('[SCIExecution] execute-bulk response did not return (reading durable surface):', err instanceof Error ? err.message : err);
     }
-  }, [confirmedUnits, proposal.proposalId, tenantId, storagePath]);
+    // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
+    await settleFromSurface();
+  }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, settleFromSurface]);
 
   // Legacy execution — used for plan units (document-based) and fallback when no storagePath
   const executeLegacyUnit = useCallback(async (unit: ExecutionUnit) => {

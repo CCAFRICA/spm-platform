@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { Check, XCircle, ArrowRight, Upload, AlertTriangle, RotateCcw, MinusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
-import type { SessionStateView, UnitStateView } from '@/lib/sci/comprehension-state-service';
+import type { SessionStateView, UnitStateView, ImportTelemetry } from '@/lib/sci/comprehension-state-service';
 
 const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   plan: 'Plan Rules', entity: 'Team Roster', target: 'Perf. Targets', transaction: 'Transaction Data', reference: 'Reference Data',
@@ -32,7 +32,16 @@ interface ImportReadyStateProps {
 }
 
 type Disposition = 'imported' | 'failed' | 'excluded' | 'resolved';
-interface CompletionRow { key: string; sheetName: string; disposition: Disposition; rows: number; classification?: AgentType; }
+interface CompletionRow { key: string; sheetName: string; disposition: Disposition; rows: number; classification?: AgentType; reason?: string | null; }
+
+function Conclusion({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="py-0.5">
+      <p className="text-sm text-zinc-200 tabular-nums">{value}</p>
+      <p className="text-[11px] text-zinc-500">{label}</p>
+    </div>
+  );
+}
 
 const sheetOf = (id: string) => id.split('::')[1] || id;
 
@@ -41,19 +50,31 @@ export function ImportReadyState({
   onNavigateToCalculate, onImportMore, onRetryFailed,
 }: ImportReadyStateProps) {
   const [sessionUnits, setSessionUnits] = useState<UnitStateView[] | null>(null);
+  const [telemetry, setTelemetry] = useState<ImportTelemetry | null>(null);
 
-  // D10: read the full unit set from the durable SessionStateView (single fetch — states are settled).
+  // D10/D18: read the full unit set AND the final telemetry from the durable surface (?telemetry=1). This
+  // is the ONLY source — never the execute response (which died at Vercel's 300s cap in run-5 while the
+  // server kept committing). The completion screen renders the truth: what the DB actually holds.
   useEffect(() => {
     if (!tenantId || !importSessionId) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
-        if (res.ok && !cancelled) setSessionUnits(((await res.json()) as SessionStateView).units);
+        const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}&telemetry=1`);
+        if (res.ok && !cancelled) {
+          const view = (await res.json()) as SessionStateView & { telemetry?: ImportTelemetry };
+          setSessionUnits(view.units);
+          if (view.telemetry) setTelemetry(view.telemetry);
+        }
       } catch { /* graceful degradation to results-only below */ }
     })();
     return () => { cancelled = true; };
   }, [tenantId, importSessionId]);
+
+  // D18: per-unit committed rows come from the durable telemetry (keyed by sheet), not the dead response.
+  const telRowsBySheet = new Map((telemetry?.perUnit ?? []).map(p => [p.sheetName, p.expectedRows]));
+  // D18: the authoritative "records imported" is the durable row count, not the response-scoped prop.
+  const committedRows = telemetry ? telemetry.rows.committed : totalRowsCommitted;
 
   // Rows + commit-failures from the execute results (keyed by sheet).
   const resultBySheet = new Map(results.map(r => [sheetOf(r.contentUnitId), r]));
@@ -67,7 +88,9 @@ export function ImportReadyState({
         else if (u.state === 'failed_interpretation') disposition = 'failed';
         else if (u.state === 'resolved') disposition = 'resolved';
         else disposition = 'excluded';
-        return { key: u.unitId, sheetName: u.sheetName ?? sheetOf(u.unitId), disposition, rows: r?.rowsProcessed ?? 0, classification: (r?.classification ?? u.classification ?? undefined) as AgentType | undefined };
+        // D18: rows from durable telemetry (by sheet); reason persists from the spine's failureClass.
+        const sheetName = u.sheetName ?? sheetOf(u.unitId);
+        return { key: u.unitId, sheetName, disposition, rows: telRowsBySheet.get(sheetName) ?? r?.rowsProcessed ?? 0, classification: (r?.classification ?? u.classification ?? undefined) as AgentType | undefined, reason: u.failureClass };
       })
     : results.map(r => ({ key: r.contentUnitId, sheetName: sheetOf(r.contentUnitId), disposition: (r.success ? 'imported' : 'failed') as Disposition, rows: r.rowsProcessed, classification: r.classification }));
 
@@ -77,7 +100,7 @@ export function ImportReadyState({
   const importedCount = importedRows.length;
 
   const hasPlan = !!planName;
-  const hasData = totalRowsCommitted > 0;
+  const hasData = committedRows > 0;
   const calculateReady = hasData && hasPlan;
 
   const title = notImportedRows.length > 0
@@ -101,7 +124,7 @@ export function ImportReadyState({
         {/* Stat boxes — Components shown only when a plan exists (D10.2: no placeholder) */}
         <div className={cn('grid gap-6 mb-6', hasPlan ? (sourceDateRange ? 'grid-cols-3' : 'grid-cols-2') : (sourceDateRange ? 'grid-cols-2' : 'grid-cols-1'))}>
           <div className="text-center">
-            <p className="text-2xl text-zinc-100 font-light tabular-nums">{totalRowsCommitted.toLocaleString()}</p>
+            <p className="text-2xl text-zinc-100 font-light tabular-nums">{committedRows.toLocaleString()}</p>
             <p className="text-xs text-zinc-500 mt-1">Records imported</p>
           </div>
           {sourceDateRange && (
@@ -142,7 +165,7 @@ export function ImportReadyState({
         {/* Session summary (truthful) */}
         <div className="h-px bg-zinc-800 mb-6" />
         <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">
-          Session — {importedCount} of {total} units imported · {totalRowsCommitted.toLocaleString()} rows
+          Session — {importedCount} of {total} units imported · {committedRows.toLocaleString()} rows
           {notImportedRows.length > 0 && ` · ${notImportedRows.length} not imported`}
         </p>
         <div className="space-y-0.5">
@@ -160,17 +183,37 @@ export function ImportReadyState({
           {notImportedRows.map(r => {
             const chip = DISPO_CHIP[r.disposition as Exclude<Disposition, 'imported'>];
             return (
-              <div key={r.key} className="flex items-center gap-3 px-3 py-2 rounded-lg opacity-70">
-                <div className="w-4 h-4 rounded-full bg-zinc-600/20 flex items-center justify-center flex-shrink-0">
-                  {r.disposition === 'failed' ? <XCircle className="w-2.5 h-2.5 text-rose-400" /> : <MinusCircle className="w-2.5 h-2.5 text-zinc-400" />}
+              <div key={r.key} className="px-3 py-2 rounded-lg opacity-70">
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 rounded-full bg-zinc-600/20 flex items-center justify-center flex-shrink-0">
+                    {r.disposition === 'failed' ? <XCircle className="w-2.5 h-2.5 text-rose-400" /> : <MinusCircle className="w-2.5 h-2.5 text-zinc-400" />}
+                  </div>
+                  <span className={cn('text-sm flex-1 min-w-0 truncate', r.disposition === 'excluded' ? 'text-zinc-500 line-through' : 'text-zinc-400')}>{r.sheetName}</span>
+                  <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border flex-shrink-0', chip.cls)}>{chip.label}</span>
+                  <span className="text-xs text-zinc-600 tabular-nums w-20 text-right flex-shrink-0">not committed</span>
                 </div>
-                <span className={cn('text-sm flex-1 min-w-0 truncate', r.disposition === 'excluded' ? 'text-zinc-500 line-through' : 'text-zinc-400')}>{r.sheetName}</span>
-                <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border flex-shrink-0', chip.cls)}>{chip.label}</span>
-                <span className="text-xs text-zinc-600 tabular-nums w-20 text-right flex-shrink-0">not committed</span>
+                {/* D18: the failure REASON persists — the story is not erased ("plan interpretation found zero components"). */}
+                {r.reason && <p className="text-[11px] text-zinc-500 mt-1 ml-7">{r.reason.replace(/_/g, ' ')}</p>}
               </div>
             );
           })}
         </div>
+
+        {/* D18 conclusion summary: the final telemetry persists on the screen — the platform's work, durable. */}
+        {telemetry && (
+          <>
+            <div className="h-px bg-zinc-800 my-6" />
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">What the platform did</p>
+            <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-3">
+              <Conclusion label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
+              <Conclusion label="Pulses" value={`${telemetry.pulses.committed} / ${telemetry.pulses.total}`} />
+              <Conclusion label="Atoms learned (novel)" value={telemetry.atoms.novelComprehended.toLocaleString()} />
+              <Conclusion label="Atoms from memory" value={telemetry.atoms.claimedFromMemory.toLocaleString()} />
+              <Conclusion label="LLM calls made / bypassed" value={`${telemetry.llm.made} / ${telemetry.llm.bypassedByMemory}`} />
+              <Conclusion label="Signals captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+            </div>
+          </>
+        )}
 
         {results.some(r => !r.success) && onRetryFailed && (
           <div className="mt-4">
