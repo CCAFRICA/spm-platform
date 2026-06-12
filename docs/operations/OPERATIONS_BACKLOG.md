@@ -19,3 +19,18 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
   - **comprehension cost curve** (LLM calls / bounded-residue size vs novelty — the DI-2 witness).
 - **Design home:** Addendum-9 Observatory spec.
 - **Source:** OB-203 Phase 2 EPG-2.4 / SR-43 evidence (`docs/vp-prompts/OB-203_COMPLETION_20260610.md`).
+
+---
+
+## BL-003 — Completion-screen redesign (Wayfinder / Health / IAP Action Proximity)
+
+- **Recorded:** 2026-06-11 (architect, OB-203 Phase 5 D11) — BL-002 is Format Coverage Expansion (architect registry, recorded earlier 2026-06-11); this entry takes the next free number BL-003.
+- **Category:** Design + Feature (import completion experience)
+- **Status:** Backlog — **needs a design-spec pass** before build
+- **Source:** OB-203 Phase 5 CLT findings (D10 truthfulness fixes shipped; the full redesign is out of Phase 5 scope)
+- **Scope:** the post-import completion screen (`ImportReadyState`) re-designed against the Wayfinder /
+  Health / IAP Action Proximity principles — coherent next-action proximity, session health at a glance,
+  wayfinding to the right next step (calculate / configure plan / import more) per tenant state.
+- **Design homes:** DS-013, DS-003.
+- **Note:** Phase 5 D10 already made the screen *truthful* (full unit set incl. excluded/failed; plan-aware
+  panels). BL-003 is the holistic redesign, not the truthfulness fix.

@@ -784,3 +784,149 @@ mod4 = mod3 + `Notas_Turno` (novel column → `Datos_Rendimiento` Tier-3 → dec
 - D6 fixed: interaction authorized via canonical `resolveIdentity()` (platform-scope cross-tenant; tenant-scope confined) — HF-282 class.
 
 **Phase 4 PASS.** EPG-4.1/4.2/4.3 + SR-39 accepted; 5/7 vocabulary types live-witnessed, 2 condition-gated + test-proven.
+
+---
+
+## PHASE 5 — Observer Import Experience (D4 full) — CODE-COMPLETE (2026-06-11)
+
+Branch `OB-203-phase-5` off `main` @ `458b9fdb`. Full SCI suite **76 pass** (+4); typecheck 0.
+
+### Observer (DS-027 §4.4) — `SessionStateLive` as the unified state surface (architect path-a ratified)
+Polls `SessionStateView` (Phase 3) live; each unit renders its state; **`failed_interpretation` holds visibly**
+and carries the STANDING resolution action set. Recognition provenance (Phase 2 field, via `contentUnits`)
+renders on comprehended/classified/bound rows. `SCIProposal` keeps Decision-73 confirm/correct for comprehended units.
+
+### Resolution action set (HALT-6 RATIFIED — standing interpretation-failure pattern) + signal mapping
+| Action | Mechanism | Outcome signal(s) |
+|---|---|---|
+| view structural detail | expand read-only panel (tier / atoms known / novel residue / failure class) | `interaction action='expand'` |
+| retry comprehension | Phase 3 `retry-unit` (same decomposed dispatch) | `resolution` (failed→comprehended) + `action_click` |
+| manually assign classification | `resolve-unit` action=assign | `unit_state='resolved'` + `resolution` (`user_corrected`) + `interaction action='correction'` |
+| exclude unit | `resolve-unit` action=exclude | `interaction action_click control='exclude'` |
+
+**Manual assign is CLASSIFICATION-LEVEL only** (architect item 2). **BINDING-LEVEL correction → Phase 6**
+(interacts with convergence + the workbook graph), recorded here as the explicit boundary alongside contextual-role resolution.
+
+### Endpoint — `POST /api/import/sci/resolve-unit` (SR-39: 401 unauth; tenant via `resolveIdentity`)
+The action→signal mapping is the pure `resolveUnitSignals()` (`resolve-unit-signals.ts`); the route does nothing
+but emit what it returns — `assign` awaits the `resolved` state then fires `resolution` + `correction`; `exclude`
+fires the `action_click`. **EPG-5.2** holds by construction: an action's entire durable effect IS its returned signals.
+
+### Client-tier failure surface (absorbed scope) — `page.tsx`
+`fetchAnalyzeWithTimeout` wraps both analyze fetches in an `AbortController` + 120s deadline. On timeout/abort/network
+failure → the existing `error` phase with a **perceptible cause + suggested action** ("timed out after 120s … try
+again or split the file" / "could not reach the server … check connection"). No infinite spinner.
+
+### EPGs
+- **5.1 (every action emits a signal):** `resolveUnitSignals` test — assign → resolved+resolution+correction; exclude
+  → action_click; every action ≥1 signal. view/expand + retry capture via `captureImportInteraction`/`retry-unit`.
+- **5.2 (no mutation outside the signal path):** action effect = `{states, signals}` only; route emits, nothing else.
+
+### CLT (browser) — corrupt-analog + observer/action witness
+1. **Generate input:** `npx tsx scripts/ob203-clt-corrupt-analog.ts 4242 /tmp/ob203_clt.xlsx` — a seeded analog whose
+   FACT sheet is collapsed to one unintelligible noise column (boundary-corruption; the engineered-to-fail unit);
+   clean sheets comprehend normally → a MIX.
+2. **Import** `/tmp/ob203_clt.xlsx` via `/operate/import` (sandbox tenant). **Observe:** clean sheets progress to
+   classified; the corrupted unit holds at `failed_interpretation` with the action set rendered.
+3. **Retry** the failed unit → re-runs the same decomposed dispatch (lights `resolution` on success).
+4. **Assign** a classification on the failed unit → unit shows `resolved`; **lights `comprehension:resolution`
+   (`user_corrected`) live** (the deferred resolution witness).
+5. **Exclude** → `action_click control=exclude`. **Confirm** the proposal (excluded/failed units absent).
+6. **Verify:** `npx tsx scripts/ob203-trace.ts <tenant> <session>` — `failed_interpretation` present, then
+   `comprehension:resolution` + `interaction:import` (expand/correction/action_click) rows.
+
+### Tests (+4)
+`resolve-unit-signals`: assign signal set, exclude signal set, every-action-≥1-signal (5.1), tenant-scope (5.2).
+
+### HALT — none. No new table/channel; resolution actions write via the canonical surface; client failure surface is UI-only.
+
+**Awaiting architect CLT run (corrupt-analog import → observe → retry → assign → confirm) for the live witness, then PR.**
+
+### PHASE 5 — CLT v2: boundary fault-injection (architect 2026-06-11; data-corruption couldn't defeat the LLM)
+
+Data-level corruption comprehended anyway (Wimoxi: a role assigned to an empty column name). Replaced with
+**dev-only fault injection at the comprehension-response boundary** (`header-comprehension.ts`):
+- `ob203FaultInjected(sheetName)` — TRUE only when **not production** AND `OB203_FAULT_SHEET` is set AND it names
+  the sheet. The residue comprehender then returns `{ ok:false, failureClass:'parse_failure' }` BEFORE the LLM call,
+  so the failure traverses the **real Phase 1 path** (decomposed dispatch → `perSheetFailure` → `failed_interpretation`
+  state + `emitComprehensionFailureSignals`). **Hard-gated** (inert without the env var; NEVER in prod builds —
+  `NODE_ENV` guard). Durable test instrumentation, not a workaround. 3 gate tests.
+
+**Re-run recipe (which sheet fails):**
+1. Fresh witness (prior analog's fingerprints are warm): `web/clt-witness/ob203_clt_corrupt_5555.xlsx` —
+   sheets **Naroji, Gakudo, Viraqu, Rocece, Ziqufe** (all Tier-3 novel → all run comprehension).
+2. `OB203_FAULT_SHEET=Gakudo npm run dev` (faults the `Gakudo` unit; pick any sheet name).
+3. Import the seed-5555 file (sandbox 24103940). **Gakudo holds at `failed_interpretation`**; the others comprehend.
+4. Observer action set → **Assign** a classification → `resolved` + **`comprehension:resolution` (user_corrected)** live
+   (the deferred resolution witness). **Retry** while the env var is set re-fails (supersession witness); unset + retry
+   to witness retry-success. **Exclude** → `action_click`. **Confirm**.
+5. Verify: `npx tsx scripts/ob203-trace.ts <tenant> <session>` — `failed_interpretation`, then `comprehension:resolution`
+   + `interaction:import` rows.
+
+### REGISTRY OBSERVATION (recorded, NOT Phase 5 scope — architect disposition later)
+CLT run committed `Wimoxi` at `winner=target@31%` (and other sub-50% units): **low-confidence units proceed to commit
+through confirm without a distinct low-confidence HOLD state**. The state machine has `failed_interpretation` for
+comprehension failure but no "low-confidence / needs-review" hold distinct from a confident classification — a unit can
+commit at 31% with only the existing `requiresHumanReview` warning chip. Assess against the CLT registry + DS-027 (the
+`§4.4` action set could extend to a low-confidence hold); disposition deferred to the architect. Not in Phase 5 scope.
+
+### PHASE 5 — CLT FAIL → D7/D8 FIXES (architect 2026-06-11; signal mechanics all green)
+
+CLT verdict was FAIL on two EXPERIENCE defects (signals all witnessed: fault fired, failed_interpretation
+emitted, retry re-ran real dispatch + re-failed, interaction 200, resolve-unit 200).
+
+**D7 (structural — two contradictory surfaces):** the proposal card ("Failed") and the separate
+SessionStateLive panel ("Resolved") showed the SAME unit in CONTRADICTORY states. Fix (reversal of the
+observer-path ratification — implemented the original alternative (b)): unit state + the four resolution
+actions are folded INTO each proposal card; card state derives from the SAME durable `SessionStateView`
+read (poll in `SCIProposalView`). The separate `SessionStateLive` panel is **deleted** — one surface, no
+parallel unit listing. A failed unit now HOLDS on its card with view-detail / retry / assign / exclude;
+assign flips THAT card (durable read → `resolved`).
+
+**D8 (interaction — import blocked):** "Import N rows" was disabled unless ALL units were selected, so a
+failed unit made import impossible (and execute-bulk never ran — D8 manifest). Fix: import proceeds with
+ANY non-empty selection; failed/excluded units simply don't commit; the button reflects the subset
+(`Import 76 rows · 3 of 5 units`). The confirmed subset flows through `handleConfirmAll` → execute-bulk.
+
+**Re-run recipe (seed-5555 now warm):** fresh witness `web/clt-witness/ob203_clt_corrupt_7777.xlsx`
+(sheets **Nacuxi, Lokudi, Pocilo, Madasi, Cepapi**). `OB203_FAULT_SHEET=Lokudi npm run dev`, import the
+file. **Acceptance:** failed unit (Lokudi) holds ON ITS CARD with four actions; assign flips THAT card;
+exclude Lokudi + import the REST → execute-bulk present in log; no second listing anywhere.
+
+Build green (clean rebuild); full SCI suite 79 pass; typecheck + lint clean.
+
+### PHASE 5 — CLT v3 PASS ON SUBSTANCE + D9a/D9b polish (architect 2026-06-11)
+
+CLT v3 (seed-7777, OB203_FAULT_SHEET=Lokudi, session 125cf2d5): **all acceptance criteria met** — Lokudi
+held at `failed_interpretation` ON ITS CARD with the four actions; assign resolved THAT card; exclude +
+subset import → **execute-bulk ran (157 rows committed, 4 of 5 units)**; no second listing. Two card-level
+polish defects, same durable-read pattern:
+
+- **D9a (retry feedback):** Retry gave no visible in-progress indication. Fix: a `Processing…` chip (with
+  spinner) renders on THAT card while `busy` (the action's fetch + the durable-state re-poll), with the
+  action buttons disabled until the durable read returns the outcome.
+- **D9b (excluded representation):** an excluded unit now stays in the list with explicit excluded
+  treatment — dimmed card, **line-through** sheet name, **`Excluded`** chip, no action set — so the user
+  sees what was left out.
+
+Build green; 79 tests pass; typecheck + lint clean. No full CLT re-run required (architect 60-second visual
+check: import → click Retry → see Processing; exclude → see Excluded treatment), then the Phase 5 PR opens.
+
+### PHASE 5 — D10 (completion screen truthful) + D11 (recorded)
+
+**D10 (fixed, Phase 5 scope) — `ImportReadyState`:**
+1. **Excluded/failed units appear.** The completion screen now reads the FULL unit set from the durable
+   `SessionStateView` (single fetch by `importSessionId` = `result.proposalId`), not just the committed
+   `results`. Each unit renders by disposition: imported (rows), `failed — unresolved`, `excluded`
+   (dimmed, line-through), `resolved — not committed`. Summary: `Session — N of M units imported · R rows
+   · K not imported`. The user's exclude decision is no longer erased.
+2. **No placeholder panels.** The `Components` stat box and the `Plan` context row are **suppressed when no
+   plan exists** (was `Components —` + `Plan: No active plan`). The next action is plan-aware: the
+   `Go to Calculate` CTA renders only when a plan exists; on a no-plan tenant the guidance reads
+   "Imported data is saved. A plan is needed before calculation — configure one to continue."
+3. Same durable-read derivation (`SessionStateView`), no new surface.
+
+**D11 (recorded, NOT built):** full completion-screen redesign against Wayfinder / Health / IAP Action
+Proximity → **operations backlog BL-003** (design homes DS-013/DS-003). Out of Phase 5 scope.
+
+Build green; 79 tests pass; typecheck + lint clean.

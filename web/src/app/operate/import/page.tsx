@@ -11,7 +11,6 @@ import { useTenant } from '@/contexts/tenant-context';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/SCIUpload';
 import { SCIProposalView } from '@/components/sci/SCIProposal';
-import { SessionStateLive } from '@/components/sci/SessionStateLive';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { ImportProgress } from '@/components/sci/ImportProgress';
@@ -41,6 +40,7 @@ type ImportState =
 interface PostImportData {
   totalRowsCommitted: number;
   results: ContentUnitResult[];
+  importSessionId?: string;   // OB-203 Phase 5 (D10): completion screen reads SessionStateView for the full unit set
   entityCount?: number;
   planName?: string;
   componentCount?: number;
@@ -48,6 +48,25 @@ interface PostImportData {
 }
 
 const ANALYSIS_SAMPLE_SIZE = 50;
+
+// OB-203 Phase 5 (D4 client-tier failure surface): the analyze fetch must never hang the UI into an
+// infinite spinner. AbortController enforces a perceptible deadline; on timeout/abort/network failure
+// the caller's catch lands the `error` phase with a perceptible cause + suggested action.
+const ANALYZE_TIMEOUT_MS = 120_000; // client deadline under the route's 300s server maxDuration
+async function fetchAnalyzeWithTimeout(url: string, init: RequestInit, label: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(`${label} timed out after ${ANALYZE_TIMEOUT_MS / 1000}s. The file may be large or the service is busy — try again, or split the file into smaller sheets.`);
+    }
+    throw new Error(`${label} could not reach the server (network issue). Check your connection and try again.`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const PHASE_SUBTITLES: Record<string, string> = {
   upload: 'Upload your data and the platform will handle the rest.',
@@ -240,11 +259,11 @@ export default function OperateImportPage() {
             totalRowCount: s.totalRowCount,
           })),
         }));
-        const res = await fetch('/api/import/sci/analyze', {
+        const res = await fetchAnalyzeWithTimeout('/api/import/sci/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tenantId, files: analysisFiles }),
-        });
+        }, 'Analysis');
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
           throw new Error(err.error || `Analysis failed (${res.status})`);
@@ -253,7 +272,7 @@ export default function OperateImportPage() {
       }
 
       const documentProposals = await Promise.all(documentFiles.map(async (f) => {
-        const res = await fetch('/api/import/sci/analyze-document', {
+        const res = await fetchAnalyzeWithTimeout('/api/import/sci/analyze-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -262,7 +281,7 @@ export default function OperateImportPage() {
             fileBase64: f.parsedData.documentBase64,
             mimeType: f.parsedData.documentMimeType,
           }),
-        });
+        }, 'Document analysis');
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Document analysis failed' }));
           throw new Error(err.error || `Document analysis failed (${res.status})`);
@@ -381,6 +400,7 @@ export default function OperateImportPage() {
     setPostImportData({
       totalRowsCommitted: totalRows,
       results: result.results,
+      importSessionId: result.proposalId,   // = comprehension-session id; completion reads the full unit set
     });
 
     setState({ phase: 'complete', executionResult: result });
@@ -514,25 +534,17 @@ export default function OperateImportPage() {
           {/* ─── PROPOSAL STATE ─── */}
           {/* OB-175: Single file header in SCIProposalView — no duplicate collapsed SCIUpload */}
           {state.phase === 'proposal' && (
-            <>
-              <SCIProposalView
-                proposal={state.proposal}
-                fileName={state.fileName}
-                rawData={state.rawData}
-                onConfirmAll={handleConfirmAll}
-                onCancel={handleCancel}
-              />
-              {/* OB-203 Phase 3: live durable comprehension state + retry-without-reimport. */}
-              {state.proposal.importSessionId && (
-                <div className="mt-4">
-                  <SessionStateLive
-                    tenantId={tenantId}
-                    importSessionId={state.proposal.importSessionId}
-                    storagePaths={storagePathsRef.current}
-                  />
-                </div>
-              )}
-            </>
+            /* OB-203 Phase 5 (D7): ONE surface — unit state + the resolution action set live ON the
+               proposal cards (durable SessionStateView read). No separate state panel. */
+            <SCIProposalView
+              proposal={state.proposal}
+              fileName={state.fileName}
+              rawData={state.rawData}
+              tenantId={tenantId}
+              storagePaths={storagePathsRef.current}
+              onConfirmAll={handleConfirmAll}
+              onCancel={handleCancel}
+            />
           )}
 
           {/* ─── EXECUTING STATE ─── */}
@@ -556,6 +568,8 @@ export default function OperateImportPage() {
             <ImportReadyState
               results={postImportData.results}
               totalRowsCommitted={postImportData.totalRowsCommitted}
+              tenantId={tenantId}
+              importSessionId={postImportData.importSessionId}
               entityCount={postImportData.entityCount}
               planName={postImportData.planName}
               componentCount={postImportData.componentCount}
