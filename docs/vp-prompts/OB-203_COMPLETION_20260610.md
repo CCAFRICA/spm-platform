@@ -772,3 +772,15 @@ No new table/channel (new `signal_type` values on the one surface/writer); no wr
 preserved); no persistence conditioned on comprehension. The interaction POST writes to the same surface.
 
 **Awaiting architect EPG-4.1/4.2/4.3 review + SR-39 sign-off, then PR.**
+
+### PHASE 4 — LIVE WITNESS (architect-executed 2026-06-11/12, tenant 24103940, mod4, session bdbab5b9)
+
+mod4 = mod3 + `Notas_Turno` (novel column → `Datos_Rendimiento` Tier-3 → decomposed dispatch). Trace:
+- `unit_state` 18 (3 sheets × full spine) · `session_lifecycle` open→settled (unitCount=3) ·
+  `tier_resolution` 3 (mixed: 2 flywheel/tier_1 + 1 llm/tier_3) · `composition` 1 (known 17/novel 6, rf 0.74) ·
+  `atom_recognition` 23 (17 claimed + 6 novel; roles measure/attribute/name) · `interaction:import` 1 (view — **D6 closed**, POST 200).
+- `resolution` 0 + `learning_write_blocked` 0 — condition-gated (no retry, no unknown-role block in a clean import);
+  shape + DI-7 fire-and-forget proven by unit tests; the DI-7 rollup query (#5) verified (returns family structure, 0 events).
+- D6 fixed: interaction authorized via canonical `resolveIdentity()` (platform-scope cross-tenant; tenant-scope confined) — HF-282 class.
+
+**Phase 4 PASS.** EPG-4.1/4.2/4.3 + SR-39 accepted; 5/7 vocabulary types live-witnessed, 2 condition-gated + test-proven.
