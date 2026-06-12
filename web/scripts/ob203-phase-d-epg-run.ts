@@ -106,13 +106,17 @@ async function pollLoop(tenantId: string, sessionId: string, t0: number, cookie:
 
 async function main() {
   // 1. Scratch tenant — keeps the witness tenant clean; left in place for inspection.
-  const tenantId = crypto.randomUUID();
-  const { error: tErr } = await sb.from('tenants').insert({
-    id: tenantId, name: 'OB-203 Phase D EPG', slug: `ob203-phase-d-epg-${tenantId.slice(0, 8)}`,
-    settings: {}, hierarchy_labels: {}, entity_type_labels: {}, features: {},
-  });
-  if (tErr) throw new Error(`tenant create failed: ${tErr.message}`);
-  console.log(`scratch tenant: ${tenantId}`);
+  //    OB203_EPG_TENANT reuses an existing scratch tenant (re-import: supersession +
+  //    entity-enrich path engage — the Phase C before/after timing run).
+  const tenantId = process.env.OB203_EPG_TENANT ?? crypto.randomUUID();
+  if (!process.env.OB203_EPG_TENANT) {
+    const { error: tErr } = await sb.from('tenants').insert({
+      id: tenantId, name: 'OB-203 Phase D EPG', slug: `ob203-phase-d-epg-${tenantId.slice(0, 8)}`,
+      settings: {}, hierarchy_labels: {}, entity_type_labels: {}, features: {},
+    });
+    if (tErr) throw new Error(`tenant create failed: ${tErr.message}`);
+  }
+  console.log(`scratch tenant: ${tenantId}${process.env.OB203_EPG_TENANT ? ' (REUSED — re-import run)' : ''}`);
 
   // 2. Workbook -> Storage (same bucket/path shape as the UI, page.tsx HF-141).
   const { buffer, sheets } = buildWorkbook();
@@ -148,6 +152,7 @@ async function main() {
 
   // 4. Execute-bulk — same body SCIExecution sends (SCIExecution.tsx:233-263).
   console.log('--- EXECUTE-BULK (polling continues) ---');
+  const execT0 = Date.now();
   const execRes = await fetch(`${BASE_URL}/api/import/sci/execute-bulk`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', cookie },
     body: JSON.stringify({
@@ -155,7 +160,21 @@ async function main() {
       contentUnits: proposal.contentUnits.filter(u => u.classification !== 'plan').map(u => ({
         contentUnitId: u.contentUnitId,
         confirmedClassification: u.classification,
-        confirmedBindings: u.fieldBindings ?? [],
+        // OB203_EPG_FIX_BINDINGS: fixture-level stand-in for the proposal-review
+        // confirmation step — the warm path's flywheel-injected bindings scramble
+        // roles across sheets sharing column names (rep_id -> transaction_identifier
+        // on the roster; residual finding, out of Phase C/D scope), which a user
+        // would correct in review. The override keys on THIS fixture's sheets only.
+        confirmedBindings: process.env.OB203_EPG_FIX_BINDINGS === '1'
+          ? (u.fieldBindings ?? []).map(b => {
+              const bb = b as { sourceField: string; semanticRole: string };
+              if (u.tabName === 'Team_Roster' && bb.sourceField === 'rep_id') return { ...bb, semanticRole: 'entity_identifier' };
+              if (u.tabName === 'Region_Lookup' && bb.sourceField === 'region_code') return { ...bb, semanticRole: 'entity_identifier' };
+              if (u.tabName === 'Sales_Events' && bb.sourceField === 'event_id') return { ...bb, semanticRole: 'transaction_identifier' };
+              if (u.tabName === 'Sales_Events' && bb.sourceField === 'rep_id') return { ...bb, semanticRole: 'reference_key' };
+              return b;
+            })
+          : (u.fieldBindings ?? []),
         originalClassification: u.classification,
         originalConfidence: u.confidence,
         ...(u.classificationTrace ? { classificationTrace: u.classificationTrace } : {}),
@@ -165,7 +184,7 @@ async function main() {
     }),
   });
   const execBody = await execRes.json().catch(() => ({}));
-  console.log(`execute-bulk: ${execRes.status} overallSuccess=${(execBody as { overallSuccess?: boolean }).overallSuccess}`);
+  console.log(`execute-bulk: ${execRes.status} overallSuccess=${(execBody as { overallSuccess?: boolean }).overallSuccess} wall=${((Date.now() - execT0) / 1000).toFixed(1)}s`);
 
   // Let two more polls land the terminal state, then stop.
   await new Promise(r => setTimeout(r, 5000));
