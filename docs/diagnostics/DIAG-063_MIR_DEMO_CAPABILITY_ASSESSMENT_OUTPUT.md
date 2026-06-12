@@ -3886,7 +3886,1087 @@ Interpretation against the probe's four bars:
 
 ## Module C — Trust Loop (Disputes, Adjustments, Audit)
 
-*(probe results pending)*
+# C1 — Disputes foundation inventory
+
+### C1 — Disputes foundation inventory
+**CURRENT STATE:** SCHEMA_REFERENCE_LIVE.md (2026-03-18) lists a 16-column `disputes` table, but the live database no longer has it: migration `web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql` dropped it on 2026-04-28 (AUD-004 / OB-196 Phase 1.6.5, 0 rows, zero FK fan-in) with the stated intent that the feature "reconstructs on engine foundation as roadmap item ('structured dispute workflow')". A live read-only probe confirms PGRST205 (table not in schema cache). No API route under `src/app/api` mentions "dispute" (zero grep hits). UI artifacts remain: `src/app/performance/adjustments/page.tsx` is a full initiate/approve/reject queue page still wired to `.from('disputes')` (reads via `loadAdjustmentsPageData` in `src/lib/data/page-loaders.ts`, plus direct client-side insert/update), an unmounted `AttributionDetails` component carries a "Report a Problem" dispute affordance, and `Sidebar.tsx` links `/insights/disputes` for which no route directory exists. Supporting primitives exist independently: `audit_logs` table + `writeAuditLog` service, dispute event names in `src/lib/events/emitter.ts`, dispute notification template, and the calculation orchestrator at `src/app/api/calculation/run/route.ts` — but nothing links dispute resolution to recalculation.
+
+**EVIDENCE:**
+
+#### Layer 1 — Schema
+
+SCHEMA_REFERENCE_LIVE.md lines 172–192 (16 columns, matches probe statement):
+
+```
+### disputes (16 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | YES | |
+| batch_id | uuid | YES | |
+| status | text | NO | open |
+| category | text | YES | |
+| description | text | NO | |
+| resolution | text | YES | |
+| amount_disputed | numeric | YES | |
+| amount_resolved | numeric | YES | |
+| filed_by | uuid | YES | |
+| resolved_by | uuid | YES | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+| resolved_at | timestamp with time zone | YES | |
+```
+
+Live existence probe — script `web/scripts/diag/diag063_c1_disputes.ts` (NEW, read-only):
+
+```ts
+// web/scripts/diag/diag063_c1_disputes.ts (excerpt)
+const { count, error: countError } = await supabase
+  .from('disputes')
+  .select('*', { count: 'exact', head: true })
+// ...
+const { data, error: rowError } = await supabase
+  .from('disputes')
+  .select('*')
+  .limit(1)
+// prints Object.keys(data[0]) only — no content values
+```
+
+Command and verbatim output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c1_disputes.ts
+disputes row count: null
+ROW ERROR: PGRST205 Could not find the table 'public.disputes' in the schema cache
+```
+
+Explanation found in migrations — the table was deliberately dropped AFTER the schema reference was generated:
+
+```
+$ grep -rln -i "disputes" --include="*.sql" .   # from repo root, node_modules excluded
+web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql
+web/supabase/seed.sql
+web/supabase/migrations/006_vl_admin_cross_tenant_read.sql
+web/supabase/migrations/009_vl_admin_write_access.sql
+web/supabase/migrations/003_data_and_calculation.sql
+web/supabase/migrations/020_hf090_drop_audit_fk_constraints.sql
+```
+
+```sql
+-- web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql:1 (entire file)
+-- AUD-004 / OB-196 Phase 1.6.5: drop disputes table per architect direction
+-- Disputes feature reconstructs on engine foundation as roadmap item ("structured dispute workflow");
+-- current table contaminated by demo-era coupling (calculation-engine.ts, GuidedDisputeFlow,
+-- SystemAnalyzer, dispute-service.ts demo arms). Future feature builds on fresh schema design.
+--
+-- Pre-migration verification (CC service-role query 2026-04-28):
+--   disputes_row_count = 0
+--   audit_log dispute_rows = null (no orphan-data risk)
+--   FK fan-in: zero (verified via grep web/supabase/migrations: zero hits for REFERENCES disputes / dispute_id)
+--
+-- Architect applies via Supabase SQL Editor (Standing Rule 7).
+-- Post-application verification:
+--   SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'disputes';  -- expected 0
+
+DROP TABLE IF EXISTS disputes CASCADE;
+```
+
+Generated DB types still carry the dropped table (stale alongside SCHEMA_REFERENCE_LIVE.md):
+
+```
+$ grep -n "disputes" src/lib/supabase/database.types.ts | head
+22: * 14. disputes                   - Entity dispute records
+665:      // TABLE 14: disputes
+667:      disputes: {
+1252:export type Dispute = Tables<'disputes'>;
+```
+
+#### Layer 2 — API
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "dispute" src/app/api
+exit:1   (zero hits — no API route references disputes)
+```
+
+No route excerpts possible: there are no dispute API routes. The audit logger documents an intended (non-existent) dispute API consumer:
+
+```ts
+// src/lib/audit/audit-logger.ts:1
+/**
+ * Centralized Audit Logger
+ *
+ * Writes to the audit_logs table (SCHEMA_REFERENCE.md verified).
+ * Columns: id, tenant_id, profile_id, action, resource_type, resource_id, changes, metadata, ip_address, created_at
+ *
+ * Used by: dispute API, approval API, lifecycle transitions.
+ */
+// ...
+export interface AuditEntry {
+  tenant_id: string;
+  profile_id: string | null;
+  action: string;          // e.g. 'dispute.created', 'approval.requested', 'lifecycle.transition'
+  resource_type: string;   // e.g. 'dispute', 'approval_request', 'calculation_batch'
+  resource_id: string;
+  changes: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+```
+
+(`audit_logs` is live in SCHEMA_REFERENCE_LIVE.md line 65: "### audit_logs (10 columns)".)
+
+#### Layer 3 — Services / UI
+
+Stated search, complete file-level hit list:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "dispute" src/ --include="*.tsx"
+src/app/my-compensation/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/notifications/page.tsx
+src/components/bulk/BulkSelectionBar.tsx
+src/components/navigation/mission-control/QueuePanel.tsx
+src/components/navigation/Sidebar.tsx
+src/components/compensation/AttributionDetails.tsx
+src/components/approvals/PayoutBatchCard.tsx
+src/components/approvals/PayoutEmployeeTable.tsx
+```
+
+Adjacent-arm sweep (supplementary, `--include="*.ts"`, complete file-level list, 29 files):
+
+```
+$ grep -ril "dispute" src/ --include="*.ts"
+src/types/alert.ts                      src/types/navigation.ts
+src/types/bulk-operations.ts            src/types/search.ts
+src/types/permission.ts                 src/types/notification.ts
+src/scripts/clear-tenant.ts             src/lib/payout-service.ts
+src/lib/rbac/rbac-service.ts            src/lib/auth/permissions.ts
+src/lib/auth/role-permissions.ts        src/lib/training/milestones.ts
+src/lib/navigation/command-registry.ts  src/lib/permissions/role-templates.ts
+src/lib/supabase/database.types.ts      src/lib/agents/registry.ts
+src/lib/alerts/alert-service.ts         src/lib/events/emitter.ts
+src/lib/audit/audit-logger.ts           src/lib/domain/domain-registry.ts
+src/lib/notifications/notification-service.ts  src/lib/help/help-service.ts
+src/lib/data/page-loaders.ts            src/lib/domain/negotiation-protocol.ts
+src/lib/domain/domain-viability.ts      src/lib/domain/domains/rebate.ts
+src/lib/domain/domains/franchise.ts     src/lib/domain/domains/icm.ts
+src/lib/stripe/config.ts
+```
+
+Key UI sites:
+
+```ts
+// src/app/performance/adjustments/page.tsx:6 — admin queue page, wired to the DROPPED table
+ * OB-73 Mission 5 / F-31, F-32: Wired to Supabase disputes table.
+// line 83-91 (handleApprove)
+    const { error } = await supabase
+      .from('disputes')
+      .update({
+        status: 'resolved',
+        resolution: 'Approved',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+// line 151-175 (handleNewAdjustment)
+    // Get first entity as placeholder (user should pick in a real form)
+    const { data: entity } = await supabase
+      .from('entities').select('id').eq('tenant_id', tenantId).limit(1).maybeSingle();
+    // ...
+    const { error } = await supabase
+      .from('disputes')
+      .insert({
+        tenant_id: tenantId,
+        entity_id: entity.id,
+        period_id: period?.id || null,
+        category: 'adjustment',
+        status: 'open',
+        description: newDescription.trim(),
+        amount_disputed: parseFloat(newAmount) || 0,
+        filed_by: profileId,
+      });
+```
+
+```
+$ grep -rn "audit" src/app/performance/adjustments/page.tsx
+exit:1   (resolve path writes no audit entry)
+```
+
+```ts
+// src/lib/data/page-loaders.ts:510 — reader for the adjustments page; dropped table fails silently to empty
+export async function loadAdjustmentsPageData(tenantId: string): Promise<AdjustmentsPageData> {
+  const supabase = createClient();
+  const { data: disputes, error } = await supabase
+    .from('disputes')
+    .select(`
+      id, entity_id, period_id, category, status,
+      description, resolution, amount_disputed, amount_resolved,
+      filed_by, resolved_by, created_at, updated_at, resolved_at
+    `)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+  if (error || !disputes) {
+    return { adjustments: [] };
+  }
+```
+
+```ts
+// src/app/my-compensation/page.tsx:6 — vendedor statement page; dispute UI deliberately removed
+ * OB-34 Phase 7 / OB-196 Phase 1.6.5: Lifecycle visibility gate + AI personal
+ * performance narrative. Dispute UI removed pending future structured-dispute
+ * workflow build on engine foundation.
+```
+
+```ts
+// src/components/compensation/AttributionDetails.tsx:176 — flag-transaction affordance, UNMOUNTED
+        {(hasAttributionError || isMissingCredit || disputeEligible) && (
+          <div className="pt-2 border-t">
+            {hasDispute ? (
+              <Badge variant="secondary" className="flex items-center gap-1 w-fit">
+                <HelpCircle className="h-3 w-3" />
+                Dispute In Progress
+              </Badge>
+            ) : (
+              <Button ... onClick={onReportProblem}>
+                <AlertTriangle className="h-4 w-4" />
+                {hasAttributionError || isMissingCredit
+                  ? 'Report Attribution Error'
+                  : 'Report a Problem'}
+```
+
+```
+$ grep -rln "AttributionDetails" src/
+src/components/compensation/AttributionDetails.tsx
+src/components/compensation/index.ts
+(only the component itself and its barrel export — no page mounts it)
+```
+
+```ts
+// src/components/navigation/Sidebar.tsx:136 — nav item to a route that does not exist
+        { name: isSpanish ? "Análisis de Disputas" : "Dispute Analytics", href: "/insights/disputes", module: "insights" },
+```
+
+```
+$ ls src/app/insights/
+analytics  compensation  my-team  page.tsx  performance  sales-finance  trends
+$ ls src/app/insights/disputes
+exit:1   (no /insights/disputes route directory)
+```
+
+```ts
+// src/types/navigation.ts:95 — queue item type includes 'dispute'
+export type QueueItemType = 'approval' | 'data_quality' | 'dispute' | 'alert' | 'notification' | 'exception' | 'reconciliation';
+```
+
+```
+$ grep -rn "dispute" src/lib/navigation/queue-service.ts src/lib/navigation/compensation-clock-service.ts
+(zero hits — queue services never source dispute items; QueuePanel 'dispute' is an icon-map entry only)
+```
+
+Supporting primitives (events, notifications, demo-arm removal confirmed):
+
+```ts
+// src/lib/events/emitter.ts:46
+  // Dispute
+  | 'dispute.submitted'
+  | 'dispute.resolved'
+// src/lib/notifications/notification-service.ts:153 — DISPUTE-SPECIFIC NOTIFICATIONS
+// notifyAdjustmentApplied(...) -> createFromTemplate('adjustment_applied', ..., '/my-compensation', ...)
+```
+
+```
+$ grep -rn "GuidedDisputeFlow" src/   -> exit 1 (removed)
+$ grep -rn "dispute-service" src/     -> exit 1 (removed)
+```
+
+Roadmap confirmation that the workflow is a planned (sold) module, not an implementation:
+
+```
+// src/lib/stripe/config.ts:190
+    description: 'Structured dispute workflow, pre-screening, audit trail',
+```
+
+#### Functional-bar table (six rows)
+
+| # | Functional-bar step | Status | Evidence ref |
+|---|---|---|---|
+| 1 | Statement-open (vendedor opens own statement) | EXISTS | `src/app/my-compensation/page.tsx` (lifecycle-gated personal dashboard); nav `Sidebar.tsx:113` (`/my-compensation`) |
+| 2 | Flag a specific transaction | MISSING | Affordance exists only in unmounted `AttributionDetails.tsx:176` (`onReportProblem` callback, no consumer); `my-compensation/page.tsx:7` states dispute UI removed |
+| 3 | Structured reason + data reference | MISSING | Table dropped (`20260428_aud_004` + live PGRST205); even the dropped 16-col schema had no per-transaction reference (closest: `batch_id`/`period_id`/`entity_id`; no `committed_data` row ref) |
+| 4 | Admin queue | MISSING (UI shell exists, dead data layer) | `src/app/performance/adjustments/page.tsx` + `page-loaders.ts:510` read `.from('disputes')` (dropped — loader returns `{ adjustments: [] }` silently); `/insights/disputes` nav target has no route; queue services source no disputes |
+| 5 | Adjustment-resolve, approved + audited | MISSING | `handleApprove`/`handleReject` (page.tsx:80/102) update the dropped table client-side; no audit write (`grep audit` in page = exit 1); `writeAuditLog` + live `audit_logs` table exist unused for disputes; no dispute API route |
+| 6 | Recalculation reflects delta on statement | MISSING | No code path links dispute/adjustment resolution to `src/app/api/calculation/run/route.ts`; recalc grep hits (`rollback-service.ts`, `period-processor.ts`, `impact-calculator.ts`, etc.) contain no dispute linkage |
+
+**GAP TO DEMO BAR:** Five of six functional-bar steps are missing. The single biggest gap is the data layer: the `disputes` table was dropped 2026-04-28 with the explicit note that the future feature "builds on fresh schema design," so every surviving UI wire (`/performance/adjustments`, `loadAdjustmentsPageData`) targets a non-existent table — insert/update fail and reads silently render an empty queue. There is no dispute API route, no transaction-level data reference in any past or present schema, no audit write on resolve, and no resolution-to-recalculation linkage. Raw materials exist: statement page, unmounted flag-transaction component, admin queue page shell, `audit_logs` + `writeAuditLog`, `dispute.submitted`/`dispute.resolved` event names, dispute notification template, calculation orchestrator.
+
+**EFFORT SHAPE:** Split — schema/service **E4**; admin queue **E2**; flag-transaction **E3**; recalc linkage **E3**.
+- Step 2 (flag-transaction): E3 — mount/extend existing `AttributionDetails` (or successor) on `/my-compensation`; new `POST /api/disputes` route; writes new disputes table; emits `dispute.submitted` (emitter.ts type already declared).
+- Step 3 (structured reason + data ref): E4 — net-new `disputes` schema (per AUD-004 directive) adding a data-reference column set (e.g. `committed_data` row id and/or `calculation_results` id) absent from the dropped design; net-new dispute service (`dispute-service` was removed).
+- Step 4 (admin queue): E2 — `/performance/adjustments` page shell + `loadAdjustmentsPageData` loader exist; rewire to the new table/service; add dispute sourcing to `queue-service.ts` (QueueItemType `'dispute'` already declared); either create `/insights/disputes` route or remove the dead `Sidebar.tsx:136` nav item.
+- Step 5 (resolve approved + audited): E3 — new `PATCH /api/disputes/[id]` (or service call) composing existing `writeAuditLog` -> `audit_logs`; replaces direct client-side table updates.
+- Step 6 (recalc reflects): E3 — service-layer linkage from dispute resolution to the existing calculation orchestrator (`src/app/api/calculation/run/route.ts`); statement re-read on `/my-compensation`.
+- Step 1 (statement-open): E1 — page exists; remaining proof is an architect browser action.
+
+# C2 — Adjustments / exception approval
+
+### C2 — Adjustments / exception approval
+**CURRENT STATE:** An adjustments UI exists at `/performance/adjustments` (re-exported at `/investigate/adjustments`) with working New Adjustment / Approve / Reject handlers wired to a `disputes` table — but that table was deliberately dropped from the live DB by migration `20260428_aud_004_drop_disputes_table.sql` (AUD-004 / OB-196 Phase 1.6.5, "future feature builds on fresh schema design"), so the entire surface targets a nonexistent table. DB-backed approval machinery exists only for calculation batches (`approval_requests` table + `/api/approvals` routes + audit logging + lifecycle transition); it has 0 rows live. The dispute/adjustment path emits no audit events, has no approval_requests linkage, no separation-of-duties check, and no recalculation trigger; the vendedor statement page renders source transactions display-only with no flag affordance, and `my-compensation` carries a comment that the dispute UI was removed pending a "structured-dispute workflow build on engine foundation." The `manual_adjustment` approval domain is declared in the in-memory approval-routing module but has no producer. Live audit_logs table contains 0 rows total.
+
+**EVIDENCE:**
+
+#### 1. Stated search (file-level enumeration, complete)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "adjust\|exception\|approv" src/ --include="*.ts" --include="*.tsx"
+src/types/alert.ts
+src/types/data-quality.ts
+src/types/bulk-operations.ts
+src/types/navigation.ts
+src/types/demo.ts
+src/types/scenario.ts
+src/types/rbac.ts
+src/types/user-import.ts
+src/types/plan-approval.ts
+src/types/shadow-payroll.ts
+src/types/notification.ts
+src/types/calculation-engine.ts
+src/types/audit.ts
+src/types/permission.ts
+src/types/reconciliation.ts
+src/types/payroll-period.ts
+src/types/compensation-plan.ts
+src/contexts/persona-context.tsx
+src/contexts/auth-context.tsx
+src/app/test-ds/page.tsx
+src/app/my-compensation/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/spm/alerts/page.tsx
+src/app/configure/periods/page.tsx
+src/app/investigate/adjustments/page.tsx
+src/app/stream/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx
+src/app/admin/audit/page.tsx
+src/app/admin/access-control/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/approve/page.tsx
+src/app/operate/import/page.tsx
+src/app/api/plan/import/route.ts
+src/app/perform/statements/page.tsx
+src/app/api/signals/route.ts
+src/app/api/platform/users/invite/route.ts
+src/app/api/lifecycle/transition/route.ts
+src/app/api/platform/observatory/route.ts
+src/app/api/admin/tenants/create/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/auth/signup/route.ts
+src/app/api/analyze-workbook/route.ts
+src/app/api/users/update-role/route.ts
+src/app/api/approvals/[id]/route.ts
+src/app/api/approvals/route.ts
+src/app/api/calculation/density/route.ts
+src/app/govern/approvals/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/performance/page.tsx
+src/app/performance/approvals/plans/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/performance/approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/app/approvals/page.tsx
+src/app/performance/approvals/payouts/page.tsx
+src/app/notifications/page.tsx
+src/app/data/quality/page.tsx
+src/app/data/import/enhanced/page.tsx
+src/components/intelligence/SystemHealthCard.tsx
+src/components/intelligence/LifecycleCard.tsx
+src/components/platform/ObservatoryTab.tsx
+src/components/data-quality/QuarantineTable.tsx
+src/components/sci/SCIExecution.tsx
+src/components/lifecycle/LifecycleActionBar.tsx
+src/components/plan-approval/SubmitForApprovalDialog.tsx
+src/components/navigation/Sidebar.tsx
+src/components/navigation/mission-control/QueuePanel.tsx
+src/components/navigation/mission-control/CycleIndicator.tsx
+src/components/plan-approval/ApprovalWorkflowTimeline.tsx
+src/components/plan-approval/ReviewerActionsPanel.tsx
+src/components/forensics/ComparisonUpload.tsx
+src/components/operate/OperateSelector.tsx
+src/components/results/NarrativeSpine.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/approvals/PayoutBatchCard.tsx
+src/components/approvals/impact-rating-badge.tsx
+src/components/approvals/PayoutEmployeeTable.tsx
+src/components/approvals/approval-card.tsx
+src/components/approvals/approval-request-card.tsx
+src/components/design-system/PayrollSummary.tsx
+src/components/design-system/ImpactRatingBadge.tsx
+src/components/design-system/ConfidenceRing.tsx
+src/components/user-import/HierarchyReviewPanel.tsx
+src/hooks/use-permissions.ts
+src/hooks/useCapability.ts
+src/scripts/clear-tenant.ts
+src/lib/payout-service.ts
+src/lib/access-control.ts
+src/lib/approval-service.ts
+src/lib/types.ts
+src/lib/rbac/rbac-service.ts
+src/lib/data-architecture/types.ts
+src/lib/data-architecture/transform-pipeline.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/shadow-payroll/engine.ts
+src/lib/approval-routing/types.ts
+src/lib/approval-routing/index.ts
+src/lib/intelligence/next-action-engine.ts
+src/lib/financial/cheque-import-service.ts
+src/lib/approval-routing/impact-calculator.ts
+src/lib/approval-routing/approval-service.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/insight-engine.ts
+src/lib/auth/permissions.ts
+src/lib/auth/role-permissions.ts
+src/lib/data-quality/quarantine-service.ts
+src/lib/training/milestones.ts
+src/lib/sci/synaptic-ingestion-state.ts
+src/lib/sci/sci-signal-types.ts
+src/lib/sci/seed-priors.ts
+src/lib/sci/header-comprehension.ts
+src/lib/sci/weight-evolution.ts
+src/lib/sci/resolver.ts
+src/lib/sci/agents.ts
+src/lib/sci/fingerprint-flywheel.ts
+src/lib/sci/classification-signal-service.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/sci/tenant-context.ts
+src/lib/navigation/acceleration-hints.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/navigation/queue-service.ts
+src/lib/navigation/page-status.ts
+src/lib/navigation/command-registry.ts
+src/lib/lifecycle/lifecycle-pipeline.ts
+src/lib/permissions/role-templates.ts
+src/lib/plan-approval/plan-approval-service.ts
+src/lib/agents/registry.ts
+src/lib/navigation/cycle-service.ts
+src/lib/agents/insight-agent.ts
+src/lib/agents/reconciliation-agent.ts
+src/lib/supabase/calculation-service.ts
+src/lib/forensics/types.ts
+src/lib/compensation/plan-comprehension-emitter.ts
+src/lib/supabase/database.types.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/search/search-service.ts
+src/lib/supabase/rule-set-service.ts
+src/lib/calculation/synaptic-density.ts
+src/lib/calculation/lifecycle-utils.ts
+src/lib/alerts/alert-service.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/engine.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/ai/signal-reader.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/payroll/period-management.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/events/emitter.ts
+src/lib/calculation/intent-types.ts
+src/lib/import-pipeline/import-service.ts
+src/lib/rollback/rollback-service.ts
+src/lib/audit/audit-logger.ts
+src/lib/import-pipeline/smart-mapper.ts
+src/lib/data/persona-queries.ts
+src/lib/governance/approval-service.ts
+src/lib/domain/domains/icm.ts
+src/lib/design-system/interaction-patterns.ts
+src/lib/rollback/cascade-analyzer.ts
+src/lib/user-import/hierarchy-detection.ts
+src/lib/payroll/period-processor.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/stripe/config.ts
+src/lib/data/platform-queries.ts
+src/lib/data/page-loaders.ts
+src/lib/design-system/tokens.ts
+src/lib/help/help-service.ts
+src/lib/validation/ob02-validation.ts
+src/lib/notifications/notification-service.ts
+```
+
+Line-level totals (line listings exceed ~400 lines combined, so per-file counts are pasted; complete file-level enumeration above): `adjust` (case-insensitive) = 238 hits across 53 files; `approv` = 1303 hits across 137 files; `exception` = 131 hits across 26 files.
+
+#### 2. Classification of hits
+
+**(A) Adjustment machinery — disputes-backed (the C2 target).** `src/app/performance/adjustments/page.tsx` (37 adjust-hits, the working surface), `src/app/investigate/adjustments/page.tsx` (re-export), `src/lib/data/page-loaders.ts` (`loadAdjustmentsPageData`, reads `disputes`), `src/lib/payout-service.ts` (display-only numeric `adjustments`/`disputes` fields on `PayoutEmployee`).
+
+```
+src/app/investigate/adjustments/page.tsx:1
+// Re-export adjustments page
+export { default } from '@/app/performance/adjustments/page';
+```
+
+```
+src/app/performance/adjustments/page.tsx:3
+/**
+ * Adjustments Page — Manage outcome adjustments, credits, and corrections
+ *
+ * OB-73 Mission 5 / F-31, F-32: Wired to Supabase disputes table.
+ * Approve/Reject/New Adjustment buttons are fully functional.
+ */
+```
+
+Approve handler — direct client-side write, no audit, no approval_requests, no recalculation:
+
+```
+src/app/performance/adjustments/page.tsx:79-99
+  // OB-73 Mission 5 / F-32: Wire Approve button
+  const handleApprove = async (id: string) => {
+    setProcessing(id);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('disputes')
+      .update({
+        status: 'resolved',
+        resolution: 'Approved',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+
+    if (!error) {
+      setAdjustments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'resolved', resolution: 'Approved', resolvedAt: new Date().toISOString() } : a
+      ));
+    }
+    setProcessing(null);
+  };
+```
+
+New Adjustment handler — placeholder entity, no transaction/data reference:
+
+```
+src/app/performance/adjustments/page.tsx:151-175
+    // Get first entity as placeholder (user should pick in a real form)
+    const { data: entity } = await supabase
+      .from('entities')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!entity?.id) {
+      setProcessing(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('disputes')
+      .insert({
+        tenant_id: tenantId,
+        entity_id: entity.id,
+        period_id: period?.id || null,
+        category: 'adjustment',
+        status: 'open',
+        description: newDescription.trim(),
+        amount_disputed: parseFloat(newAmount) || 0,
+        filed_by: profileId,
+      });
+```
+
+**(B) Calculation-batch approval machinery — DB-backed (`approval_requests`).** `src/app/api/approvals/route.ts` (POST inserts `approval_requests` with `request_type` default `'calculation_approval'` + writes audit log), `src/app/api/approvals/[id]/route.ts` (PATCH: role gate, updates `approval_requests`, validates and applies `calculation_batches.lifecycle_state` transition, writes TWO audit entries + canonical signal), `src/lib/governance/approval-service.ts` (lists approval items derived from `calculation_batches`; separation-of-duties enforced in `resolveApproval`), `src/app/govern/calculation-approvals/page.tsx` (UI), plus lifecycle plumbing (`lifecycle-pipeline.ts`, `calculation-lifecycle-service.ts`, `lifecycle-utils.ts`, `api/lifecycle/transition/route.ts`, `LifecycleActionBar.tsx`, `operate/approve`, `operate/pay`).
+
+```
+src/app/api/approvals/route.ts:52-62
+      const { data: approval, error: insertError } = await (supabase as any)
+        .from('approval_requests')
+        .insert({
+          tenant_id: profile.tenant_id,
+          batch_id,
+          period_id: period_id || null,
+          request_type: request_type || 'calculation_approval',
+          status: 'pending',
+          requested_by: profile.id,
+          requested_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+```
+
+```
+src/app/api/approvals/[id]/route.ts:135-149
+    // 5. Write audit logs
+    // Approval decision audit
+    await writeAuditLog(supabase, {
+      tenant_id: profile.tenant_id,
+      profile_id: profile.id,
+      action: status === 'approved' ? 'approval.approved' : 'approval.rejected',
+      resource_type: 'approval_request',
+      resource_id: approvalId,
+      changes: {
+        batch_id,
+        before_status: 'pending',
+        after_status: status,
+        decision_notes: decision_notes || null,
+      },
+    });
+```
+
+```
+src/lib/governance/approval-service.ts:84-96 (separation of duties — calculation approvals only)
+export function resolveApproval(
+  item: ApprovalItem,
+  resolvedBy: string,
+  action: 'approved' | 'rejected',
+  comments: string
+): ApprovalItem {
+  if (resolvedBy === item.submittedBy) {
+    throw new Error('Approval requires a different user than the submitter (separation of duties).');
+  }
+```
+
+**(C) Plan approval machinery — in-memory defaults.** `src/lib/plan-approval/plan-approval-service.ts` (`getAllApprovalRequests()` returns `getDefaultApprovalRequests()`; `STORAGE_KEY` unused), `src/types/plan-approval.ts`, `src/components/plan-approval/*` (SubmitForApprovalDialog, ApprovalWorkflowTimeline, ReviewerActionsPanel), `src/app/performance/approvals/plans/page.tsx`. Not DB-backed; distinct from adjustments.
+
+**(D) Universal approval-routing — in-memory; declares `manual_adjustment` but nothing produces it.**
+
+```
+src/lib/approval-routing/types.ts:8-16
+export type ApprovalDomain =
+  | 'import_batch'
+  | 'rollback'
+  | 'compensation_plan'
+  | 'period_operation'
+  | 'hierarchy_change'
+  | 'manual_adjustment'
+  | 'personnel_change'
+  | 'configuration_change';
+```
+
+Complete producer/consumer enumeration (E952):
+
+```
+$ grep -rn "createApprovalRequest\|approval-routing/" src/ --include="*.ts" --include="*.tsx" | grep -v "^src/lib/approval-routing/"
+src/app/approvals/page.tsx:41:} from '@/lib/approval-routing/approval-service';
+src/app/approvals/page.tsx:42:import type { ApprovalRequest, ApprovalDomain, ApprovalStatus } from '@/lib/approval-routing/types';
+src/components/approvals/impact-rating-badge.tsx:16:import type { ImpactRating } from '@/lib/approval-routing/types';
+src/components/approvals/approval-request-card.tsx:46:import type { ApprovalRequest, ApprovalDomain } from '@/lib/approval-routing/types';
+src/lib/import-pipeline/import-service.ts:30:import { createApprovalRequest } from '../approval-routing/approval-service';
+src/lib/import-pipeline/import-service.ts:31:import type { ApprovalContext } from '../approval-routing/types';
+src/lib/import-pipeline/import-service.ts:122:    const approval = createApprovalRequest(approvalContext);
+src/lib/rollback/rollback-service.ts:22:import { createApprovalRequest } from '../approval-routing/approval-service';
+src/lib/rollback/rollback-service.ts:23:import type { ApprovalContext } from '../approval-routing/types';
+src/lib/rollback/rollback-service.ts:174:    const approval = createApprovalRequest(approvalContext);
+```
+
+Only producers: import-service (domain `import_batch`) and rollback-service (domain `rollback`). `manual_adjustment` has zero producers (its only other appearances are display labels):
+
+```
+$ grep -rn "manual_adjustment" src/ --include="*.ts" --include="*.tsx"
+src/app/approvals/page.tsx:53:  manual_adjustment: { en: 'Manual Adjustment', es: 'Ajuste Manual' },
+src/lib/approval-routing/types.ts:14:  | 'manual_adjustment'
+src/components/approvals/approval-request-card.tsx:64:  manual_adjustment: FileText,
+```
+
+Store is in-memory only:
+
+```
+src/lib/approval-routing/approval-service.ts:38-45
+function loadFromStorage<T>(_key: string): Map<string, T> {
+  return new Map();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveToStorage<T>(_key: string, _map: Map<string, T>): void {
+  // No-op: localStorage removed
+}
+```
+
+**(E) Payout approval surfaces.** `src/lib/payout-service.ts` (`PayoutStatus` includes `pending_approval`; `initialize()` is "no-op: localStorage removed"), `src/app/performance/approvals/payouts/*`, `src/components/approvals/PayoutBatchCard.tsx`, `PayoutEmployeeTable.tsx`. Display layer over batch approval; not adjustment approval.
+
+**(F) `exception` hits — none are an approval workflow.** Dominant sites: `src/app/api/calculation/run/route.ts` (32 hits — engine structural exceptions: `structural_exception` refuse-to-calculate, `[CalcRecon-T3] EXCEPTION` observability lines), `src/components/dashboards/AdminDashboard.tsx` (18 — exceptions triage list display), `src/lib/data/persona-queries.ts` (11 — `deriveExceptions` from outcomes), `src/components/results/NarrativeSpine.tsx` (17), `src/lib/intelligence/insight-engine.ts` (9), remainder are alert/insight phrasing and try/catch prose. Sample:
+
+```
+src/app/api/calculation/run/route.ts:2142-2144
+        // HF-218 Component 2: structural exception — binding cannot be verified; refuse to calculate.
+        addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=structural_exception reason="${bindingExceptionReason}"`);
+```
+
+#### 3. Schema layer
+
+SCHEMA_REFERENCE_LIVE.md lists both tables:
+
+```
+SCHEMA_REFERENCE_LIVE.md:47 — approval_requests (13 columns): id, tenant_id, batch_id, period_id,
+  request_type (default 'calculation_approval'), status (default 'pending'), requested_by, decided_by,
+  decision_notes, requested_at, decided_at, created_at, updated_at
+SCHEMA_REFERENCE_LIVE.md:172 — disputes (16 columns): id, tenant_id, entity_id, period_id, batch_id,
+  status (default 'open'), category, description, resolution, amount_disputed, amount_resolved,
+  filed_by, resolved_by, created_at, updated_at, resolved_at
+```
+
+Note: the `disputes` schema has NO source-transaction/data reference column (closest are `period_id`/`batch_id`); the bar's "data reference" has no home even in the historical schema.
+
+Migration record — `disputes` was deliberately dropped AFTER the schema reference was generated (2026-03-18):
+
+```
+web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql:1-15
+-- AUD-004 / OB-196 Phase 1.6.5: drop disputes table per architect direction
+-- Disputes feature reconstructs on engine foundation as roadmap item ("structured dispute workflow");
+-- current table contaminated by demo-era coupling (calculation-engine.ts, GuidedDisputeFlow,
+-- SystemAnalyzer, dispute-service.ts demo arms). Future feature builds on fresh schema design.
+--
+-- Pre-migration verification (CC service-role query 2026-04-28):
+--   disputes_row_count = 0
+--   audit_log dispute_rows = null (no orphan-data risk)
+--   FK fan-in: zero (verified via grep web/supabase/migrations: zero hits for REFERENCES disputes / dispute_id)
+--
+-- Architect applies via Supabase SQL Editor (Standing Rule 7).
+-- Post-application verification:
+--   SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'disputes';  -- expected 0
+
+DROP TABLE IF EXISTS disputes CASCADE;
+```
+
+`approval_requests` provenance:
+
+```
+web/supabase/migrations/013_approval_requests.sql:20-27 (excerpt)
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  batch_id         UUID NOT NULL REFERENCES calculation_batches(id) ON DELETE CASCADE,
+  period_id        UUID NOT NULL REFERENCES periods(id),
+  request_type     TEXT NOT NULL DEFAULT 'calculation_approval',
+  status           TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'recalled')),
+```
+
+Generated types still include the dropped table: `src/lib/supabase/database.types.ts:667` (`disputes:` table def), `:1252` (`export type Dispute = Tables<'disputes'>;`).
+
+#### 4. Live DB layer
+
+Script: `web/scripts/diag/diag063_c2_adjustments_approvals.ts` (source in repo; SELECT/head-count only). Output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c2_adjustments_approvals.ts
+disputes ERROR: Could not find the table 'public.disputes' in the schema cache
+approval_requests total count: 0
+approval_requests by request_type: {}
+approval_requests by status: {}
+audit_logs approval.* actions pattern="approval.%" count=0
+audit_logs actions containing dispute pattern="%dispute%" count=0
+audit_logs actions containing adjust pattern="%adjust%" count=0
+```
+
+(First run printed `like '0ispute%'` for the dispute probe — a console.log printf `%d` format-specifier artifact in the script's own log line, not a DB result; logging was corrected and re-run. Both runs returned identical DB results.)
+
+Env sanity — this is the populated platform DB, not an empty environment (`web/scripts/diag/diag063_c2_env_sanity.ts`):
+
+```
+entities head count: 22148
+calculation_batches head count: 15
+audit_logs head count: 0
+periods head count: 16
+approval_requests head count: 0
+```
+
+#### 5. Bar-step mapping
+
+**Step 1 — vendedor opens own statement:** EXISTS. `/perform/statements` renders source transactions, display-only:
+
+```
+src/app/perform/statements/page.tsx:556-563 (source-data table rows — no action column)
+                        {transactions.map((txn, i) => (
+                          <tr key={i} className="border-t border-zinc-800">
+                            <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{txn.dataType}</td>
+                            <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{txn.sourceDate || '—'}</td>
+                            <td className="px-3 py-2 text-zinc-500">
+                              {formatRowData(txn.rowData)}
+                            </td>
+                          </tr>
+                        ))}
+```
+
+**Step 2 — flag transaction with structured reason + data reference:** MISSING. No flag/dispute affordance on statements (`grep -n -i "dispute\|flag" src/app/perform/statements/page.tsx` → 0 hits); the prior dispute entry point was removed:
+
+```
+src/app/my-compensation/page.tsx:3-8
+/**
+ * My Compensation - Personal Performance Dashboard
+ *
+ * OB-34 Phase 7 / OB-196 Phase 1.6.5: Lifecycle visibility gate + AI personal
+ * performance narrative. Dispute UI removed pending future structured-dispute
+ * workflow build on engine foundation.
+```
+
+No dispute/adjustment API route exists: `find src/app/api -iname "*dispute*" -o -iname "*adjust*"` → no results. The audit-logger header still claims a dispute API consumer (stale): `src/lib/audit/audit-logger.ts:7` `* Used by: dispute API, approval API, lifecycle transitions.`
+
+**Step 3 — dispute enters admin queue:** UI EXISTS (`/performance/adjustments` with status filters open/resolved/rejected and pending stats) but its backing `disputes` table is absent live (Section 4), so the queue cannot hold rows.
+
+**Step 4 — admin resolves via adjustment, approved + audited:** PARTIAL-NEGATIVE. Approve/Reject handlers exist (Section 2A) but: write directly from the browser client; emit no audit event (`grep -rn -i "action: *['\"].*\(dispute\|adjust\)" src/` → 0 hits; live `audit_logs` total = 0); create no `approval_requests` row; have no submitter≠approver check (unlike calculation approvals, Section 2B).
+
+**Step 5 — recalculation reflects the delta:** MISSING. Neither handler triggers recalculation; `amount_resolved` is never written anywhere in src (only read in `page-loaders.ts:518`); the only recalculation entry points are `src/lib/payroll/period-processor.ts:419` (`recalculate()`, whose `runPeriodCalculation` is a stub taking `_tenantId` underscore params) and the `/api/calculation/run` orchestrator — neither consumes dispute/adjustment rows, and the engine reads `committed_data`, which has no adjustment input path.
+
+**GAP TO DEMO BAR:** Every step of the bar except "vendedor opens own statement" has a gap. (1) The dispute store itself does not exist live — dropped by AUD-004 with the stated intent to rebuild on a fresh schema; the historical schema also lacked a source-transaction data-reference column, so the bar's "structured reason + data reference" needs net-new schema. (2) No initiation affordance exists on the statement surface (removed per OB-196 Phase 1.6.5). (3) The admin queue UI exists but points at the dropped table. (4) Resolution is unaudited, unapproved (no approval_requests linkage), unprotected (no separation of duties), and client-side. (5) No path applies an approved adjustment to calculation results — no recalculation trigger, no delta application, `amount_resolved` write-side absent. The DB-backed approval+audit+lifecycle pattern needed for step 4 already exists end-to-end for calculation batches (`/api/approvals` + `approval_requests` + `writeAuditLog` + lifecycle transition) and is directly reusable as the template.
+
+**EFFORT SHAPE:**
+- Dispute store (steps 2/3 substrate): **E4** — net-new table (successor to dropped `disputes`) with entity_id, period_id, structured category/reason, and a source data reference (e.g., committed_data row id); plus regenerated `database.types.ts`.
+- Statement flag affordance (step 2): **E3** — new action column on the existing `/perform/statements` source-data table (`src/app/perform/statements/page.tsx`) posting to a new server route, composing the existing profile-resolution pattern.
+- Admin queue (step 3): **E2** — `/performance/adjustments` page already implements queue/filters/stats; rewire `loadAdjustmentsPageData` (`src/lib/data/page-loaders.ts`) to the new store.
+- Approved + audited resolution (step 4): **E3** — new server route modeled directly on `src/app/api/approvals/[id]/route.ts` (role gate + `approval_requests` row with a dispute/adjustment `request_type` + `writeAuditLog` calls + separation-of-duties check from `src/lib/governance/approval-service.ts`).
+- Recalculation delta (step 5): **E4** — net-new service bridge from approved adjustment to `calculation_results`/`entity_period_outcomes` (or an adjustment input the `/api/calculation/run` orchestrator consumes); no existing component performs this.
+
+### C3 — Audit trail coverage
+
+**CURRENT STATE:** Two audit sinks exist. `platform_events` is live with 1,656 rows across 22 distinct event types — almost entirely auth/session/tenant-entry telemetry (HF-150-series), written via `logAuthEvent`/`logAuthEventClient` -> `POST /api/auth/log-event`, plus a server-side `emitEvent()` emitter (`src/lib/events/emitter.ts`) that defines 25+ business event types (data, plan, calculation, lifecycle, dispute, billing, agent) but has only 4 call sites (signup, plan import, billing webhook, agent runner) — and zero rows for any of those business types except auth/tenant/identity. `audit_logs` has 8 code emit sites covering approvals, calculation batch creation, and lifecycle transitions, but the table contains **0 rows**. Of the eight demo-path action classes, only login is DB-verified instrumented; plan import is code-instrumented with no observed rows; calculate has audit_logs emit sites on the live path with no observed rows; import, export, adjustment, dispute, and persona switch are not instrumented. A third, in-memory-only `audit-service` backs the `/admin/audit` UI (no persistence; flush is a no-op).
+
+**EVIDENCE:**
+
+Schema authority (`SCHEMA_REFERENCE_LIVE.md`):
+
+```
+### platform_events (8 columns)
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | |
+| event_type | text | NO | |
+| actor_id | uuid | YES | |
+| entity_id | uuid | YES | |
+| payload | jsonb | YES | |
+| processed_by | jsonb | YES | |
+| created_at | timestamp with time zone | NO | now() |
+
+### audit_logs (10 columns)
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| profile_id | uuid | YES | |
+| action | text | NO | |
+| resource_type | text | NO | |
+| resource_id | uuid | YES | |
+| changes | jsonb | NO | |
+| metadata | jsonb | NO | |
+| ip_address | inet | YES | |
+| created_at | timestamp with time zone | NO | now() |
+```
+
+#### DB probe — script `web/scripts/diag/diag063_c3_events.ts` (SELECT-only; head:true counts, then pages ONLY the needed columns in 1000-row pages and aggregates client-side, since PostgREST has no GROUP BY)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c3_events.ts
+platform_events total rows (head:true count): 1656
+method: paging event_type column only, 1000-row pages, client-side aggregation
+
+platform_events.event_type (22 distinct):
+  auth.login.success  -> 309
+  auth.session.bookkeeping_reset  -> 306
+  auth.mfa.verify.success  -> 229
+  auth.redirect.unauth_protected  -> 214
+  auth.session.expired.idle  -> 189
+  auth.redirect.unauth_root  -> 80
+  auth.redirect.mfa_verify  -> 65
+  tenant.entered  -> 63
+  auth.redirect.tenant_select  -> 61
+  auth.login.failure  -> 48
+  auth.logout  -> 25
+  auth.mfa.verify.failure  -> 13
+  auth.shell.unauth_redirect  -> 11
+  auth.shell.hydration_timeout  -> 11
+  auth.redirect.tenant_cookie_present  -> 10
+  auth.session.expired.absolute  -> 8
+  identity.resolve.duplicate_rows  -> 8
+  auth.mfa.enroll  -> 2
+  auth.shell.tenant_gate  -> 1
+  tenant.cleared  -> 1
+  auth.shell.loop_break  -> 1
+  data.import_telemetry_audit_divergence  -> 1
+
+audit_logs total rows (head:true count): 0
+```
+
+#### Code sweep — probe-specified grep (full file-level list, complete)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rln "platform_events\|recordEvent\|logEvent" src/ --include="*.ts"
+src/app/api/auth/log-event/route.ts
+src/app/api/platform/events/route.ts
+src/lib/auth/auth-logger.ts
+src/lib/agents/runner.ts
+src/lib/events/emitter.ts
+```
+
+Adjacent-arm: same grep over `--include="*.tsx"` returned **zero files**. Line-level hits for the 5 .ts files:
+
+```
+$ grep -rn "platform_events\|recordEvent\|logEvent" src/ --include="*.ts"
+src/app/api/auth/log-event/route.ts:7: * INSERT into platform_events (bypasses RLS).
+src/app/api/auth/log-event/route.ts:79:    await supabase.from('platform_events').insert({
+src/app/api/platform/events/route.ts:28:    // platform_events table created via SQL migration — not yet in generated types
+src/app/api/platform/events/route.ts:31:      .from('platform_events')          [GET reader]
+src/app/api/platform/events/route.ts:69:  // platform_events table created via SQL migration — not yet in generated types
+src/app/api/platform/events/route.ts:72:    .from('platform_events')          [POST insert]
+src/lib/auth/auth-logger.ts:4: * Provider-agnostic auth event logging to platform_events table.
+src/lib/auth/auth-logger.ts:68:    await supabase.from('platform_events').insert({
+src/lib/agents/runner.ts:35:      .from('platform_events')          [SELECT: agent loop reads last-24h events]
+src/lib/events/emitter.ts:5: * Events are written to platform_events table and consumed by agents.
+src/lib/events/emitter.ts:77:    // platform_events table created via SQL migration — not yet in generated types
+src/lib/events/emitter.ts:80:      .from('platform_events')          [emitEvent insert]
+```
+
+`emitEvent`/`emitEventClient` call sites outside the emitter/API route (complete):
+
+```
+$ grep -rn "emitEvent\|emitEventClient" src/ --include="*.ts" --include="*.tsx" | grep -v "src/lib/events/emitter.ts" | grep -v "src/app/api/platform/events/route.ts"
+src/app/api/auth/signup/route.ts:164:    emitEvent({            -> 'user.signed_up'
+src/app/api/plan/import/route.ts:149:    emitEvent({            -> 'plan.imported'
+src/app/api/billing/webhook/route.ts:76:  emitEvent({            -> 'billing.subscription_activated'
+src/lib/agents/runner.ts:112:      emitEvent({                  -> 'agent.recommendation'
+```
+
+`logAuthEvent`/`logAuthEventClient` call sites: 43 line hits across 10 files (complete file list):
+
+```
+src/middleware.ts
+src/contexts/tenant-context.tsx
+src/app/auth/mfa/enroll/page.tsx
+src/app/auth/mfa/verify/page.tsx
+src/components/layout/auth-shell.tsx
+src/components/platform/ObservatoryTab.tsx
+src/components/session/SessionExpiryWarning.tsx
+src/lib/auth/resolve-identity.ts
+src/lib/auth/auth-logger.ts
+src/lib/supabase/auth-service.ts
+```
+
+#### audit_logs writers — complete sweep
+
+```
+$ grep -rln "audit_logs" src/ --include="*.ts" --include="*.tsx"
+src/app/api/lifecycle/transition/route.ts        (direct insert :227, action `lifecycle_<state>`)
+src/app/api/approvals/route.ts                   (via writeAuditLog :76, 'approval.requested')
+src/app/api/approvals/[id]/route.ts              (via writeAuditLog :137 'approval.approved|rejected', :152 'lifecycle.transition')
+src/lib/lifecycle/lifecycle-service.ts           (direct insert :277, 'lifecycle_transition')
+src/lib/supabase/database.types.ts               (generated types only)
+src/lib/audit/audit-logger.ts                    (writeAuditLog definition)
+src/lib/supabase/data-service.ts                 (:448 second writeAuditLog definition — zero callers found)
+src/lib/calculation/calculation-lifecycle-service.ts  (direct insert :206 'lifecycle_transition:<from>-><to>'; :238 audit-trail READER)
+
+$ grep -rn "writeAuditLog" src/ --include="*.ts" --include="*.tsx"
+src/app/api/approvals/route.ts:16,76
+src/app/api/approvals/[id]/route.ts:17,137,152
+src/lib/supabase/calculation-service.ts:9,85,246   ('batch.created'; 'lifecycle.<from>_to_<to>')
+src/lib/supabase/data-service.ts:448                (definition; no callers)
+src/lib/audit/audit-logger.ts:27                    (definition)
+```
+
+`createCalculationBatch` (which emits 'batch.created' to audit_logs) IS on the live calculation path:
+
+```
+src/lib/calculation/run-calculation.ts:1318
+  const batch = await createCalculationBatch(tenantId, {
+src/app/api/calculation/run/route.ts:29
+  } from '@/lib/calculation/run-calculation';
+```
+
+```
+src/lib/supabase/calculation-service.ts:85
+  writeAuditLog(supabase, {
+    tenant_id: tenantId,
+    profile_id: params.createdBy || null,
+    action: 'batch.created',
+    resource_type: 'calculation_batch',
+    ...
+  }).catch(() => {});
+```
+
+Yet `audit_logs` head:true count = 0 (script output above). All audit writes are fire-and-forget with errors swallowed (`.catch(() => {})`, try/catch, or unchecked insert result).
+
+`src/lib/lifecycle/lifecycle-service.ts:277` insert omits `metadata` — a NOT NULL column with no default per SCHEMA_REFERENCE_LIVE.md — and does not check the insert result:
+
+```
+src/lib/lifecycle/lifecycle-service.ts:276-289
+  try {
+    await supabase.from('audit_logs').insert({
+      tenant_id: tenantId,
+      action: 'lifecycle_transition',
+      resource_type: 'calculation_batch',
+      resource_id: batch.id,
+      changes: { from: currentDashboardState, to: newState, period_id: periodId },
+    });
+  } catch {
+    // Audit log failure should not block the transition
+  }
+```
+
+#### Demo-path action instrumentation checks
+
+```
+$ grep -n "emitEvent\|writeAuditLog\|audit_logs\|platform_events" src/app/api/import/commit/route.ts src/app/api/calculation/run/route.ts
+exit=1   (zero hits in both files)
+
+$ grep -rn "logAuthEventClient\|logAuthEvent\|emitEventClient\|emitEvent" src/contexts/persona-context.tsx
+exit=1   (zero hits; persona switch fn = setPersonaOverride, persona-context.tsx:37)
+
+$ find src/app/api -type d | grep -i "disput\|adjust"
+(no output — no dispute or adjustment API routes)
+
+$ grep -rln "Content-Disposition\|text/csv" src/app --include="*.ts" --include="*.tsx"
+src/app/admin/launch/calculate/page.tsx
+src/app/admin/audit/page.tsx
+src/app/operations/audits/page.tsx
+src/app/operations/audits/logins/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/api/ingest/setup/route.ts
+src/app/api/import/prepare/route.ts
+(none of these 8 emit any event/audit on export — verified by the platform_events/audit_logs sweeps above, which contain none of these files)
+```
+
+Login emit sites (DB-verified type):
+
+```
+src/lib/supabase/auth-service.ts:41   await logAuthEventClient('auth.login.failure', { email, reason: error.message });
+src/lib/supabase/auth-service.ts:46   await logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
+  -> POST /api/auth/log-event -> src/app/api/auth/log-event/route.ts:79 platform_events insert (service role)
+```
+
+Dispute/data/calculation event types are DEFINED but never emitted — `src/lib/events/emitter.ts:19-50` `PlatformEventType` union includes `'data.imported' | 'data.committed' | 'plan.imported' | 'calculation.started' | 'calculation.completed' | 'lifecycle.advanced' | 'dispute.submitted' | 'dispute.resolved'` (and more); the only emit sites are the 4 listed above. `src/lib/audit/audit-logger.ts:7` header comment reads "Used by: dispute API, approval API, lifecycle transitions" — no dispute API route exists.
+
+In-memory audit arm (UI-facing, non-persistent):
+
+```
+src/lib/audit-service.ts:3-10
+  class AuditService {
+    private queue: AuditLogEntry[] = [];
+    constructor() {
+      // no-op: localStorage removed, auto-flush disabled
+    }
+src/lib/audit-service.ts:159-161
+  private flush(): void {
+    // no-op: localStorage removed
+  }
+```
+
+`src/app/admin/audit/page.tsx:22` imports this service (`import { audit } from '@/lib/audit-service'`) and its CSV export at :100 (`audit.exportAsCSV(filteredLogs)`) reads the in-memory queue. `src/app/operations/audits/logins/page.tsx:49-68` renders mock arrays (`mockLoginAudits`, `techCorpLoginAudits`), not platform_events.
+
+#### Coverage table — demo-path action classes
+
+| Action class | Instrumented? | Event name + emit site |
+|---|---|---|
+| login | YES (DB-verified) | `auth.login.success` (309 rows) / `auth.login.failure` (48) — `src/lib/supabase/auth-service.ts:46/:41` -> `src/app/api/auth/log-event/route.ts:79` -> platform_events |
+| data import | NOT INSTRUMENTED | `data.imported`/`data.committed` defined in `emitter.ts` type union only; `src/app/api/import/commit/route.ts` has zero emit/audit references; 0 DB rows |
+| plan import | CODE ONLY (0 DB rows) | `plan.imported` — `emitEvent` at `src/app/api/plan/import/route.ts:149`; platform_events contains 0 `plan.imported` rows |
+| calculate | CODE ONLY (0 DB rows) | `batch.created` + `lifecycle.<from>_to_<to>` to audit_logs — `calculation-service.ts:85/:246`, on live path via `run-calculation.ts:1318`; audit_logs = 0 rows; no platform_events `calculation.*` emit site |
+| export | NOT INSTRUMENTED | 8 export/download surfaces; none emit; `/admin/audit` CSV export reads in-memory queue |
+| adjustment | NOT INSTRUMENTED | no adjustment API route; no audit action string |
+| dispute | NOT INSTRUMENTED | `dispute.submitted`/`dispute.resolved` exist only in the `PlatformEventType` union; no dispute route, no emit site |
+| persona switch | NOT INSTRUMENTED | `setPersonaOverride` (`src/contexts/persona-context.tsx:37`) has zero logging references |
+
+**GAP TO DEMO BAR:** The Module C functional bar (dispute flagged -> admin queue -> approved adjustment -> audited recalculation) has audit coverage for exactly one segment: the approvals API writes `approval.requested/approved/rejected` to audit_logs (code-verified), and calculation batch creation/lifecycle writes exist on the live path — but audit_logs holds 0 rows, so no end-to-end audit trail has ever landed. Dispute initiation and adjustment have no emit sites and no write paths to instrument. Data import, calculation (platform_events side), export, and persona switch emit nothing. The audit UI surfaces (`/admin/audit`, `/operations/audits/*`) do not read either DB sink.
+
+**EFFORT SHAPE:** Split. login E0 — none. plan import / calculate / approvals E1 — emit sites exist on live paths; remaining proof is an architect browser action (perform the action, observe the row land; audit_logs landing is currently unproven at 0 rows). import / export / persona switch E3 — add `emitEvent()`/`writeAuditLog()` calls to existing routes (`api/import/commit`, export handlers, `persona-context`) using the existing `emitter.ts` + `audit-logger.ts` services; plus an audit-viewer surface change to read `platform_events`/`audit_logs` instead of the in-memory `audit-service`/mock arrays (E2). dispute / adjustment E4 — no routes or write paths exist to instrument; audit coverage arrives only with the Module C build (event types are pre-declared in `emitter.ts`).
 
 ## Module D — Net-New Definition and Demo-Surface Invariants
 
