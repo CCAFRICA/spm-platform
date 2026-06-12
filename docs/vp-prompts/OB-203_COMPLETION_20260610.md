@@ -930,3 +930,48 @@ check: import → click Retry → see Processing; exclude → see Excluded treat
 Proximity → **operations backlog BL-003** (design homes DS-013/DS-003). Out of Phase 5 scope.
 
 Build green; 79 tests pass; typecheck + lint clean.
+
+---
+
+## PHASE 6 — Workbook Graph + Contextual-Role Resolution + Reconciliation — CODE-COMPLETE (2026-06-12)
+
+Branch `OB-203-phase-6` off `main` @ `d38d6355`. Full SCI suite **87 pass** (+8); typecheck + lint clean; build green.
+**HALT-5 cleared:** the graph is DERIVED, FLAG-ONLY — informs at consumption, never gates comprehension, no new tables.
+
+### 1. Workbook-graph synthesis (`workbook-graph.ts`) — DI-3 / DI-4
+Pure, total relational pass over compact per-sheet summaries (identifier/reference_key value-sets, repeat ratio,
+atom hashes). STRUCTURAL tests only (cross-sheet value overlap + repeat-ratio direction + atom sharing) — **zero name
+literals**. Derives `roster / fact / reference / derived` roles + `fact→roster` edges; degrades a sheet to `'unknown'`
+rather than failing the workbook (DI-4 synthesis totality). Wired into analyze: annotates each proposal unit with
+`graphEvidence {role, reasoning, nonFkReferenceKeys}`, logs `[SCI-WORKBOOK-GRAPH]`, fires `comprehension:workbook_graph`
+(fire-and-forget). Proposal shows the workbook map (role chip + relational reasoning).
+
+### 2. Contextual-role resolution (D3) — the spurious-entity fix
+The graph's `referenceKeyResolution` answers: does a reference_key reference a roster identifier? `Codigo_Turno`
+(shift codes) references no roster → **not a foreign key**. The reliable enforcement is at the consumption layer
+(`entity-resolution.ts`): external_ids are tagged by batch origin; an external_id that exists as NO entity and
+originates ONLY from a transaction/target event-unit reference_key is a categorical dimension — **entity creation is
+suppressed**. A real FK's entities are pre-created by the roster (entity batch) → in `existingMap` → linked unchanged.
+Full-data + committed-roster (no sampling). **HALT-9-gated by the Phase 7 regression.**
+
+### 3. Reconciliation assessment (`scripts/ob203-reconcile.ts`) — read-only, SR-44
+Enumerates poisoned sheet fingerprints (d464 `fieldBindings`-under-wrong-classification + `unknown`-role rows), the
+sentinel census, and accumulated ambiguous atoms — and **authors** the retire/re-derive SQL (never executes; SR-44).
+Live sandbox run: **(A) zero poisoned sheet fingerprints** (Phase 2's class fix + targeted reset already reconciled the
+d464 shape); **(B) 4 ambiguous atoms** (`0441c426eab1` etc. — correctly routing to comprehension; KEEP-or-RETIRE SQL
+authored for architect disposition); **(C) sentinel census clean** (0 string/empty/null). The contamination is largely
+self-reconciled; the authored SQL stands for the architect's ambiguous-atom disposition.
+
+### 4. DI-8 temporal identity (`di8-temporal-identity.test.ts`) — 3 tests
+An atom recognized in period N resolves Tier-1 in period N+1: atom identity is structural (period-agnostic). Pinned.
+
+### EPGs / evidence
+- Graph signals on the one canonical surface (no new table) — `comprehension:workbook_graph`.
+- D3 fix logs `· N spurious entity(ies) suppressed (D3: non-FK reference_key)`.
+- 8 new tests (5 graph incl. the Codigo_Turno fix, 3 DI-8).
+
+### Staged exit verification (architect-executed blind-holdout import)
+`scripts/ob203-phase6-verify.ts <tenant> [session]` reports: (1) workbook-graph roles per sheet (Empleados=roster,
+Ventas_Transaccional=fact, Resumen_*=derived, Portada=excluded non-tabular); (2) classifications; (3) entity census —
+**`entity_type=location` from non-roster reference_keys = 0** (D3 PASS). Plus `ob203-trace.ts` for the signal timeline
+and zero-LLM re-import recognition. Meridian regression (185,063 / 175,585 / 196,337) is the full-pipeline witness.
