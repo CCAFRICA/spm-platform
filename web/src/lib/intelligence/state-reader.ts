@@ -110,21 +110,15 @@ export interface TenantContext {
 export async function getStateReader(tenantId: string): Promise<TenantContext> {
   const supabase = createClient();
 
-  // HF-196 Phase 1E: pre-fetch superseded batch ids for committed_data filtering.
-  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
-  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
-
-  // Build committed_data query — apply Phase 1E supersession filter if any prior batches superseded.
+  // Build committed_data query.
   let committedDataQuery = supabase
     .from('committed_data')
     .select('period_id, source_date, data_type')
     .eq('tenant_id', tenantId)
     .not('data_type', 'eq', 'personal') // personal rows don't have source_date
     .limit(1000);
-  if (supersededIds.length > 0) {
-    committedDataQuery = committedDataQuery.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
-  }
-  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  // Phase 6B: the SINGLE canonical visibility gate hides non-completed AND superseded batches (the HF-196
+  // fetchSupersededBatchIds filter is retired into it). No-op when nothing is hidden.
   {
     const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
     const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);

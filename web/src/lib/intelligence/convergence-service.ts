@@ -963,10 +963,8 @@ async function inventoryData(
 ): Promise<DataCapability[]> {
   const capabilities: DataCapability[] = [];
 
-  // HF-196 Phase 1E: filter out superseded batches per Rule 30.
-  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
-  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
-  // OB-203 D16.1: also exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  // Phase 6B: the SINGLE canonical visibility gate hides non-completed AND superseded batches (the HF-196
+  // fetchSupersededBatchIds filter is retired into it). No-op when nothing is hidden.
   const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
   const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
 
@@ -977,7 +975,6 @@ async function inventoryData(
     .eq('tenant_id', tenantId)
     .not('data_type', 'is', null)
     .limit(500);
-  if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
   q = applyCommittedDataVisibility(q, hiddenBatchIds);
   const { data: rows } = await q;
 
@@ -989,7 +986,6 @@ async function inventoryData(
     .not('data_type', 'is', null)
     .not('metadata->semantic_roles', 'is', null)
     .limit(50);
-  if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
   q2 = applyCommittedDataVisibility(q2, hiddenBatchIds);
   const { data: sciRows } = await q2;
 
