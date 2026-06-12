@@ -17,7 +17,10 @@ import { resolveClassification } from '@/lib/sci/resolver';
 // OB-203 Phase 3 (R2/DI-1): durable unit-state emission on the canonical surface.
 import { emitUnitStates, type UnitStateSignalParams, type UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
 // OB-203 Phase 4 (R3): signal-spine vocabulary — fire-and-forget (DI-5 write-side; never blocks import).
-import { fireSignal, buildTierResolutionSignal, buildCompositionSignal, buildSessionLifecycleSignal } from '@/lib/sci/comprehension-signal-vocabulary';
+import { fireSignal, buildTierResolutionSignal, buildCompositionSignal, buildSessionLifecycleSignal, buildWorkbookGraphSignal } from '@/lib/sci/comprehension-signal-vocabulary';
+// OB-203 Phase 6: workbook-graph synthesis (derived, flag-only).
+import { synthesizeWorkbookGraph, type SheetSummary } from '@/lib/sci/workbook-graph';
+import { computeAtomFingerprint } from '@/lib/sci/atom-fingerprint';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
@@ -654,6 +657,53 @@ export async function POST(req: NextRequest) {
         const prov = provenanceMap.get(cu.tabName);
         if (prov) cu.recognitionProvenance = prov;
       }
+      // OB-203 Phase 6: workbook-graph synthesis (DERIVED, FLAG-ONLY). Build compact per-sheet
+      // summaries from the comprehended units' identifier/reference_key value-sets + repeat ratios,
+      // derive inter-sheet relations, and ANNOTATE the proposal (role + reasoning + the D3
+      // non-FK reference_key list). Informs the proposal map + the commit-layer entity-association
+      // guard; never gates comprehension. Fire-and-forget signal.
+      {
+        const summaries: SheetSummary[] = fileContentUnits
+          .filter(cu => !perSheetFailure.has(cu.tabName))
+          .map(cu => {
+            const profile = profileMap.get(cu.tabName);
+            const rows = sheetRowsBySheet.get(cu.tabName) ?? [];
+            const interps = profile?.headerComprehension?.interpretations;
+            const identifierColumns: Array<{ column: string; values: Set<string> }> = [];
+            const referenceKeyColumns: Array<{ column: string; values: Set<string> }> = [];
+            const atomHashes: string[] = [];
+            let hasMeasure = false;
+            if (interps) for (const [col, interp] of Array.from(interps.entries())) {
+              const values = new Set(rows.map(r => String(r[col] ?? '')).filter(v => v !== ''));
+              if (interp.columnRole === 'identifier') identifierColumns.push({ column: col, values });
+              else if (interp.columnRole === 'reference_key') referenceKeyColumns.push({ column: col, values });
+              else if (interp.columnRole === 'measure') hasMeasure = true;
+              atomHashes.push(computeAtomFingerprint(col, rows.map(r => r[col])).hash);
+            }
+            return {
+              unitId: cu.contentUnitId, sheetName: cu.tabName, classification: cu.classification,
+              identifierColumns, referenceKeyColumns, atomHashes,
+              rowCount: profile?.structure.rowCount ?? rows.length,
+              idRepeatRatio: profile?.structure.identifierRepeatRatio ?? 1,
+              hasMeasure,
+            };
+          });
+        const graph = synthesizeWorkbookGraph(summaries);
+        let suppressed = 0;
+        for (const cu of fileContentUnits) {
+          const role = graph.roles[cu.contentUnitId];
+          if (!role) continue;
+          const nonFk = (graph.referenceKeyResolution[cu.contentUnitId] ?? []).filter(r => !r.referencesRoster).map(r => r.column);
+          suppressed += nonFk.length;
+          cu.graphEvidence = { role, reasoning: graph.reasoning[cu.contentUnitId] ?? '', nonFkReferenceKeys: nonFk };
+        }
+        console.log(`[SCI-WORKBOOK-GRAPH] file=${file.fileName} roles=${JSON.stringify(graph.roles)} edges=${graph.edges.length} nonFkRefKeys=${suppressed}`);
+        fireSignal(
+          buildWorkbookGraphSignal({ tenantId, importSessionId, roles: graph.roles, edgeCount: graph.edges.length, suppressedReferenceKeys: suppressed }),
+          process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+      }
+
       // OB-203 Phase 3: `classified` — resolution complete. Failed units keep
       // `failed_interpretation` (NOT classified) so the durable state reflects the failure.
       await emitUnitStates(

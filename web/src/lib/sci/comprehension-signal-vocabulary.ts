@@ -22,6 +22,7 @@ export const SIGNAL = {
   resolution: 'comprehension:resolution',
   learningWriteBlocked: 'comprehension:learning_write_blocked',
   interactionImport: 'interaction:import',
+  workbookGraph: 'comprehension:workbook_graph',
 } as const;
 
 const CTX = { phase: '4', ob: 'OB-203' };
@@ -130,6 +131,21 @@ export function buildLearningWriteBlockedSignal(p: LearningWriteBlockedParams): 
     confidence: 0, decisionSource: 'failed_interpretation',
     sheetName: p.sheetName ?? null, sourceFileName: p.sourceFileName ?? null, scope: 'tenant', source: 'sci_agent',
     context: { ...CTX, di: 'DI-7' },
+  };
+}
+
+export interface WorkbookGraphParams {
+  tenantId: string; importSessionId?: string | null;
+  roles: Record<string, string>;        // unitId -> graph role
+  edgeCount: number;
+  suppressedReferenceKeys: number;      // D3: reference_keys flagged as non-FK (spurious-entity prevention)
+}
+export function buildWorkbookGraphSignal(p: WorkbookGraphParams): CanonicalSignalInput {
+  return {
+    tenantId: p.tenantId, signalType: SIGNAL.workbookGraph,
+    signalValue: { roles: p.roles, edgeCount: p.edgeCount, suppressedReferenceKeys: p.suppressedReferenceKeys },
+    scope: 'tenant', source: 'sci_agent',
+    context: { ...CTX, importSessionId: p.importSessionId ?? null },
   };
 }
 
