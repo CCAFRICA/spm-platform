@@ -975,3 +975,29 @@ An atom recognized in period N resolves Tier-1 in period N+1: atom identity is s
 Ventas_Transaccional=fact, Resumen_*=derived, Portada=excluded non-tabular); (2) classifications; (3) entity census —
 **`entity_type=location` from non-roster reference_keys = 0** (D3 PASS). Plus `ob203-trace.ts` for the signal timeline
 and zero-LLM re-import recognition. Meridian regression (185,063 / 175,585 / 196,337) is the full-pipeline witness.
+
+### RECORD CORRECTION — intra-file learning (architect, 2026-06-12)
+
+Holdout run-1's mid-file atom claims (e.g. Ventas claiming 13/30 "from atoms learned sheets 1-15") were
+**sandbox PRE-EXISTING atoms**, NOT intra-file learning. The honest **cold run-2** (tenant 3d354bfa, freshly
+reset) shows **`known=0/N` on every sheet** — atoms write at the **END** of analyze (`writeAtoms` after the
+decomposed dispatch), so a cold multi-sheet file gets zero intra-file recognition; each sheet comprehends
+its full residue independently. **Correction:** the within-import flywheel does not exist yet. The recorded
+successor **"Incremental Comprehension — Persist, Release, Read Back"** is therefore the mechanism that
+**CREATES** the intra-file flywheel (persist each unit's atoms immediately, read them back for later sheets
+in the same import), **not an optimization of an existing one** — priority note raised accordingly.
+
+### HOLDOUT — engine PASS twice (run-1 119.7s, run-2 cold 73.7s) — D13 experience fixes
+
+Both holdout runs: server succeeded, all 16 sheets comprehended, bounded per-sheet, zero silent fallback,
+analyze 200. **D13** (self-inflicted client stall):
+- **D13.1 — STREAM unit states.** Comprehended/failed states were batched at end-of-file (Phase 3), so the
+  long mid-file comprehension stretch streamed nothing → the client stall detector false-tripped. Fix:
+  `decomposeComprehension` / `runDecomposedComprehension` take an `onUnitDone` callback; the analyze route
+  fire-and-forget-emits each unit's `comprehended`/`failed_interpretation` state **as that sheet finishes**.
+  The batched emission now covers only Tier-1 (no-dispatch) sheets. The progress strip advances truthfully N/16.
+- **D13.2 — recovery is a POLL, not a shot.** On stall-abort the client now polls proposal + session-state;
+  a 404 while server states still advance = keep waiting; failure only when the server session is genuinely
+  quiet for the stall window AND no proposal materializes (run-2's proposal persisted 13s after the false abort).
+
+Build green; 87 tests pass; typecheck + lint clean.

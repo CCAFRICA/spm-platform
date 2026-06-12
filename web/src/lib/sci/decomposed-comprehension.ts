@@ -67,8 +67,13 @@ export async function decomposeComprehension(
   known: Map<string, KnownAtom>,
   comprehendResidue: ResidueComprehender,
   minConfidence = 0.5,
+  // OB-203 D13: streamed per-unit completion — fired as EACH sheet finishes (recognized /
+  // comprehended / failed), not at end-of-file, so the import surface advances truthfully and the
+  // stall detector sees live progress through the long comprehension stretch.
+  onUnitDone?: (r: UnitComprehensionResult) => void,
 ): Promise<UnitComprehensionResult[]> {
   const results: UnitComprehensionResult[] = [];
+  const emit = (r: UnitComprehensionResult) => { results.push(r); try { onUnitDone?.(r); } catch { /* streaming must never break comprehension */ } };
 
   for (const sheet of sheets) {
     const plan = planSheetComprehension(sheet.sheetName, sheet.columns, sheet.rows, known, minConfidence);
@@ -81,7 +86,7 @@ export async function decomposeComprehension(
     }
 
     if (plan.novelColumns.length === 0) {
-      results.push({
+      emit({
         sheetName: sheet.sheetName,
         status: 'recognized',
         knownColumns: plan.knownColumns,
@@ -97,7 +102,7 @@ export async function decomposeComprehension(
     if (!res.ok) {
       // HOLD (b): THIS unit fails; siblings already pushed / will be pushed independently.
       // HOLD (a): no atoms written for a failed unit.
-      results.push({
+      emit({
         sheetName: sheet.sheetName,
         status: 'failed_interpretation',
         knownColumns: plan.knownColumns,
@@ -121,7 +126,7 @@ export async function decomposeComprehension(
       }
     }
 
-    results.push({
+    emit({
       sheetName: sheet.sheetName,
       status: 'comprehended',
       knownColumns: plan.knownColumns,

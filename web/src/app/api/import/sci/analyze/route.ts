@@ -223,6 +223,19 @@ export async function POST(req: NextRequest) {
           tenantId,
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          // OB-203 D13: STREAM the comprehended/failed state as EACH sheet finishes (fire-and-forget),
+          // so the import surface advances truthfully through the long comprehension stretch and the
+          // client stall detector sees live progress. The batched comprehended emission below now
+          // covers ONLY the Tier-1 (recognized, no-dispatch) sheets.
+          (u) => {
+            const unitId = unitIdBySheet.get(u.sheetName);
+            if (!unitId) return;
+            const state = u.status === 'failed_interpretation' ? 'failed_interpretation' as const : 'comprehended' as const;
+            void emitUnitStates(
+              [{ tenantId, importSessionId, unitId, sheetName: u.sheetName, sourceFileName: file.fileName, state, seq: 3, novelCount: u.novelCount, failureClass: u.failureClass }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          },
         );
         hcMetrics = dc.metrics;
         provenanceMap = dc.provenance;
@@ -288,17 +301,12 @@ export async function POST(req: NextRequest) {
         console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-254)`);
       }
 
-      // OB-203 Phase 3: `comprehended` (both decomposed-dispatch and Tier-1-injected sheets now
-      // carry headerComprehension) or `failed_interpretation` for sheets the dispatch isolated.
-      // The existing emitComprehensionFailureSignals (DI-4 failure surface) stands alongside;
-      // this adds the unit's STATE on the same canonical surface.
+      // OB-203 D13: the decomposed-dispatch sheets STREAMED their comprehended/failed state per unit
+      // (above). Here we emit `comprehended` ONLY for the Tier-1 (recognized, no-dispatch) sheets,
+      // which carry injected headerComprehension and never entered the dispatch.
       await emitUnitStates(
-        Array.from(profileMap.keys()).map(sheetName => {
-          const failure = perSheetFailure.get(sheetName);
-          if (failure) return stateBase(sheetName, 'failed_interpretation', 3, { failureClass: failure });
-          const prov = provenanceMap.get(sheetName);
-          return stateBase(sheetName, 'comprehended', 3, { novelCount: prov?.novelCount ?? null });
-        }),
+        Array.from(profileMap.keys()).filter(sheetName => sheetSkipHC(sheetName) && !perSheetFailure.has(sheetName))
+          .map(sheetName => stateBase(sheetName, 'comprehended', 3, { novelCount: provenanceMap.get(sheetName)?.novelCount ?? null })),
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );

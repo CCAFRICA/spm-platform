@@ -34,3 +34,21 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
 - **Design homes:** DS-013, DS-003.
 - **Note:** Phase 5 D10 already made the screen *truthful* (full unit set incl. excluded/failed; plan-aware
   panels). BL-003 is the holistic redesign, not the truthfulness fix.
+
+---
+
+## BL-004 — Tenant Landing Experience Rework — IAP / Action Proximity / Intuitive Actions
+
+- **Recorded:** 2026-06-12 (architect, CLT finding — tenant landing page)
+- **Category:** Design + Feature (tenant landing / home)
+- **Status:** Backlog — **complete rework**; **Experience-First Gate required** (five sections authored before any build)
+- **Finding (FAILS IAP):** status-report layout with **no Intelligence surfaced** (the platform knows plan / roster /
+  data states but offers no synthesis or recommendation); **Action Proximity violated** (three redundant Import CTAs,
+  an undifferentiated link stack); **placeholder values rendered** ("None" / "—" — the D10 class); functions indiscernible.
+- **Scope:** rework the tenant landing as an Intelligence-Action-Proximity surface — synthesis + the right next action
+  per tenant state (plan/roster/data health → recommendation), differentiated actions, no placeholder rendering.
+- **Gate:** Experience-First — five sections before build.
+- **Design homes:** DS-013, DS-003, TMR Addendum 8.
+- **Cross-ref:** the D10-class placeholder-rendering fix ("None"/"—" suppressed when no data) is an **already-ratified
+  pattern** (OB-203 Phase 5 D10) and may be cited here.
+- **Note:** NOT OB-203 scope.

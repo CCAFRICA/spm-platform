@@ -291,6 +291,8 @@ export async function runDecomposedComprehension(
   tenantId: string,
   supabaseUrl: string,
   supabaseServiceKey: string,
+  // OB-203 D13: streamed per-unit completion (sheetName + status) as each sheet finishes.
+  onUnitDone?: (u: { sheetName: string; status: 'recognized' | 'comprehended' | 'failed_interpretation'; recognizedFraction: number; novelCount: number; failureClass?: ComprehensionFailureClass }) => void,
 ): Promise<{
   metrics: HeaderComprehensionMetrics;
   perSheetFailure: Map<string, ComprehensionFailureClass>;
@@ -346,7 +348,15 @@ export async function runDecomposedComprehension(
   };
 
   // 4. per-unit decomposed dispatch (atoms computed on full rows inside the planner).
-  const results = await decomposeComprehension(sheets, known, residue);
+  const results = await decomposeComprehension(sheets, known, residue, 0.5, (r) => {
+    onUnitDone?.({
+      sheetName: r.sheetName,
+      status: r.status,
+      recognizedFraction: r.recognizedFraction,
+      novelCount: r.comprehendedColumns?.length ?? 0,
+      failureClass: r.failure?.failureClass,
+    });
+  });
 
   // 5. reconstruct headerComprehension + enhance; collect failures, provenance, atoms-to-write.
   const perSheetFailure = new Map<string, ComprehensionFailureClass>();

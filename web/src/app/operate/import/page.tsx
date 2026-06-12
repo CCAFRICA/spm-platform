@@ -92,13 +92,31 @@ async function analyzeTabular(
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as { error?: string }).error || `Analysis failed (${res.status})`); }
     return await res.json() as SCIProposal;
   } catch (e) {
-    // Response raced the stall-abort, or the network dropped — recover the persisted proposal.
-    try {
-      const rec = await fetch(`/api/import/sci/proposal?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
-      if (rec.ok) return await rec.json() as SCIProposal;
-    } catch { /* fall through to the error below */ }
+    // D13: recovery is a POLL, not a single shot. The response raced the abort / the network dropped —
+    // keep polling the proposal AND the server session. A 404 while states still advance = keep
+    // waiting. Only surface failure when the SERVER session is genuinely quiet for the stall window
+    // AND no proposal has materialized.
+    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    let recoverCount = lastCount;
+    let recoverProgressAt = Date.now();
+    while (Date.now() - recoverProgressAt < ANALYZE_STALL_MS) {
+      try {
+        const rec = await fetch(`/api/import/sci/proposal?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        if (rec.ok) return await rec.json() as SCIProposal;   // proposal persisted — recovered
+      } catch { /* keep polling */ }
+      try {
+        const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        if (r.ok) {
+          const view = await r.json() as { units: Array<{ history: unknown[] }> };
+          const c = view.units.reduce((s, u) => s + (u.history?.length ?? 0), 0);
+          if (c > recoverCount) { recoverCount = c; recoverProgressAt = Date.now(); }   // server still advancing → keep waiting
+        }
+      } catch { /* keep polling */ }
+      await sleep(2000);
+    }
+    // Server quiet for the full stall window AND no proposal — a genuine failure.
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error('Analysis stalled — no progress for 60 seconds. The service may be busy; please try again.');
+      throw new Error('Analysis stopped responding. The service may be busy; please try again.');
     }
     throw e instanceof Error ? e : new Error('Analysis could not reach the server. Check your connection and try again.');
   } finally {
