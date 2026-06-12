@@ -67,3 +67,27 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
 - **Design homes:** DS-013, DS-003, Addendum 9.
 - **Feeds:** BL-001 (Observatory atom-flywheel panel — same vocabulary/trace surface).
 - **Note:** distinct from the D14 progress-counter fix (mechanical); BL-005 is the telemetry experience.
+
+---
+
+## INF-001 — Ingestion at Scale: Loading Dock Architecture
+
+- **Recorded:** 2026-06-12 (architect; surfaced by OB-203 run-3/run-4 502s)
+- **Category:** Infrastructure (ingestion execution model)
+- **Status:** Backlog — **before any million-row tenant commitment; after OB-203 arc close**
+- **Trigger:** run-3 and run-4 both 502'd on a Small Supabase instance committing the ~162k-row Ventas
+  sheet (chunk 8/81, then 11/81). The exposure is architectural, not a tuning miss: **execute runs inside
+  the request lifecycle with no queueing, backpressure, or bounded concurrency** — 81 chunks + the signal
+  storm saturate the instance with zero load management.
+- **Required (proof-of-scale gate):**
+  - imports as **queued jobs**, off the request lifecycle (Vercel 300s maxDuration is not a job runtime);
+  - **bounded global concurrency across tenants** (one tenant's bulk cannot starve others);
+  - **chunked transactional writes** — the D16 unit-atomic contract (rollback on partial, per-unit
+    durability) is the SEED of this;
+  - **progress from durable session state** — the Phase-3 spine IS the job ledger (already the substrate
+    the in-progress strip and completion screen read);
+  - **retry / resume** per the "Persist, Release, Read Back" successor.
+- **Compute-tier upgrade:** recorded as HEADROOM only — explicitly **NOT the fix** (a bigger instance
+  moves the ceiling, it does not add load management).
+- **Seeded by:** D16 (chunk-500 + 200ms pacing + unit-atomic rollback) — interim headroom under the
+  current ceiling; INF-001 is the durable replacement.

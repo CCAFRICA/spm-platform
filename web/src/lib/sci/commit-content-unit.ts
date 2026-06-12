@@ -189,16 +189,20 @@ function resolveEntityIdField(
 
 interface RouteProfile {
   chunkSize: number;
-  retryAttempts: number; // 1 means a single attempt; 3 means up to 3 attempts with backoff
+  retryAttempts: number; // 1 means a single attempt; 4 means up to 4 attempts with exponential backoff
+  pacingMs: number;      // D16: inter-chunk pause to keep instantaneous write load under the instance ceiling
 }
 
 function profileFor(source: CommitContentUnitSource): RouteProfile {
-  // sci-bulk preserves OB-174 Phase 5 nanobatch contract (2000-row chunks,
-  // up to 3 retries with linear backoff). sci uses the wider 5000-row
-  // chunks with no retry — the existing execute behavior.
+  // D16 (run-4 ceiling): the prior 2000-row chunk overran a Small instance's write ceiling on the
+  // ~162k-row Ventas sheet (502 at chunk 11/81, both runs). Drop sci-bulk to 500-row chunks with a
+  // 200ms inter-chunk pause — 4× smaller, lower instantaneous load. Implication for the big sheet:
+  // ~162k rows / 500 = ~325 chunks; at insert (~150ms) + 200ms pace ≈ ~115s for Ventas, comfortably
+  // under Vercel's 300s maxDuration. (This is headroom under the instance ceiling — the durable fix is
+  // the BL "Loading Dock" queue, off the request lifecycle.) sci keeps the wide no-retry execute path.
   return source === 'sci-bulk'
-    ? { chunkSize: 2000, retryAttempts: 3 }
-    : { chunkSize: 5000, retryAttempts: 1 };
+    ? { chunkSize: 500, retryAttempts: 4, pacingMs: 200 }
+    : { chunkSize: 5000, retryAttempts: 1, pacingMs: 0 };
 }
 
 // ============================================================
@@ -419,6 +423,11 @@ export async function commitContentUnit(
     if (chunkSuccess) {
       totalInserted += slice.length;
       chunksCompleted++;
+      // D16: inter-chunk pacing — give the instance breathing room between writes (only when more chunks
+      // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
+      if (profile.pacingMs > 0 && i + profile.chunkSize < insertRows.length) {
+        await new Promise(r => setTimeout(r, profile.pacingMs));
+      }
     } else {
       // D16 (unit-atomic execute): a unit that cannot fully commit retains NOTHING. Roll back every row
       // already inserted under this batch, mark the batch failed/rolled_back, and return an atomic

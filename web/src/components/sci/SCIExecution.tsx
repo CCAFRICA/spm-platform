@@ -151,6 +151,32 @@ export function SCIExecution({
     return () => clearInterval(interval);
   }, [executionDone, units]);
 
+  // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
+  // `bound` states AS they STREAM (execute-bulk writes one per unit the moment it commits, keyed by
+  // proposalId). Without this the strip sat at 0/N for the entire bulk window even though units were
+  // committing — the same spine the completion screen reads, now read live by the in-progress strip.
+  useEffect(() => {
+    if (executionDone) return;
+    const hasActive = units.some(u => u.status === 'processing');
+    if (!hasActive) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}`);
+        if (!r.ok || cancelled) return;
+        const view = await r.json() as { units: Array<{ unitId: string; state: string }> };
+        const boundIds = new Set(view.units.filter(u => u.state === 'bound').map(u => u.unitId));
+        if (boundIds.size === 0) return;
+        setUnits(prev => prev.some(u => u.status === 'processing' && boundIds.has(u.contentUnitId))
+          ? prev.map(u => (u.status === 'processing' && boundIds.has(u.contentUnitId) ? { ...u, status: 'complete' as const } : u))
+          : prev);
+      } catch { /* best-effort: the fetch return is the source of truth; this only advances the strip */ }
+    };
+    const interval = setInterval(() => { void poll(); }, 2000);
+    void poll();
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [executionDone, units, tenantId, proposal.proposalId]);
+
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
   // HF-140: Now accepts explicit path parameter for per-file isolation
   const executeBulk = useCallback(async (dataUnits: ExecutionUnit[], bulkStoragePath?: string) => {

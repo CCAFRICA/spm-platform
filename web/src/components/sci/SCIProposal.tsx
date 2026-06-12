@@ -102,6 +102,14 @@ function ContentUnitCard({
   const isDocPlan = unit.classification === 'plan' && !!unit.documentMetadata;
   const stateKey = liveState?.state;
 
+  // D7 contradiction guard: the workbook-graph role implies a classification (roster→entity,
+  // fact→transaction, derived/reference→reference). After the D15.1 symmetric prior these should agree;
+  // if they DON'T, the chip must say so rather than sit silently beside a contradicting classification.
+  const graphImplied: AgentType | null = unit.graphEvidence
+    ? (({ roster: 'entity', fact: 'transaction', derived: 'reference', reference: 'reference', unknown: null } as Record<string, AgentType | null>)[unit.graphEvidence.role] ?? null)
+    : null;
+  const graphContradicts = graphImplied != null && graphImplied !== unit.classification;
+
   return (
     <div className={cn(
       'border rounded-lg transition-colors',
@@ -155,10 +163,21 @@ function ContentUnitCard({
           </span>
         )}
 
-        {/* OB-203 Phase 6: workbook-graph role (DERIVED, FLAG-ONLY) — the relational map. */}
+        {/* OB-203 Phase 6: workbook-graph role (DERIVED, FLAG-ONLY) — the relational map. D7: when the
+            role contradicts the classification, the chip flags it (amber) instead of disagreeing silently. */}
         {unit.graphEvidence && unit.graphEvidence.role !== 'unknown' && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-500/10 text-sky-300 border border-sky-500/20 capitalize" title={unit.graphEvidence.reasoning}>
-            {unit.graphEvidence.role}
+          <span
+            className={cn(
+              'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border capitalize',
+              graphContradicts
+                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                : 'bg-sky-500/10 text-sky-300 border-sky-500/20',
+            )}
+            title={graphContradicts
+              ? `Workbook relation reads this as "${unit.graphEvidence.role}" (implies ${graphImplied}), but it is classified ${unit.classification}. ${unit.graphEvidence.reasoning}`
+              : unit.graphEvidence.reasoning}
+          >
+            {unit.graphEvidence.role}{graphContradicts ? ` ⚠︎ ≠ ${unit.classification}` : ''}
           </span>
         )}
 
@@ -250,6 +269,9 @@ function ContentUnitCard({
             <div>
               <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Workbook Relation</h4>
               <p className="text-sm text-zinc-400"><span className="capitalize text-sky-300">{unit.graphEvidence.role}</span> — {unit.graphEvidence.reasoning}</p>
+              {graphContradicts && (
+                <p className="text-xs text-amber-400 mt-1">⚠︎ This relation implies <span className="font-medium">{graphImplied}</span>, but the sheet is classified <span className="font-medium">{unit.classification}</span>. Review the classification or override it below.</p>
+              )}
               {unit.graphEvidence.nonFkReferenceKeys.length > 0 && (
                 <p className="text-xs text-zinc-500 mt-1">Reference key(s) with no roster match (no entity created): {unit.graphEvidence.nonFkReferenceKeys.join(', ')}</p>
               )}

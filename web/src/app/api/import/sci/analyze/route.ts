@@ -561,17 +561,17 @@ export async function POST(req: NextRequest) {
             }
             console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} classification=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% pattern=${hcResult.patternName} conditions=[${hcResult.matchedConditions.join(', ')}]${priorClass ? ` graph=${graphRole}(agrees)` : ''}`);
           } else {
-            // D15: graph DISAGREES with the HC pattern. Inform, never veto. The HC pattern keeps its
-            // confidence on ITS class (no hard cap on the others — the graph-preferred class must stay
-            // visible); the graph prior adds a bounded boost to its mapped class; the winner is RE-DERIVED
-            // from the combined scores. So a measure-bearing roster (HC: target@85%) that the graph reads
-            // as a roster gets entity boosted and can win — without the prior ever forcing it.
+            // D15.1: graph DISAGREES with the HC pattern. The prior is SYMMETRIC — graph evidence that
+            // contradicts a pattern PENALIZES that pattern's confidence AND boosts the graph-implied class
+            // (run-4 proved a boost alone can't move an 85% pattern: the competitor rose to 60% but the
+            // pattern stayed 85% and won). The penalty is floored, never zeroed — non-veto: a strong
+            // pattern with other corroborating evidence can still survive. The winner is RE-DERIVED.
             const r2Scores = state.round2Scores.get(unitId);
             if (r2Scores) {
               const hcScore = r2Scores.find(s => s.agent === hcResult.classification);
               if (hcScore) {
-                hcScore.confidence = Math.max(hcScore.confidence, hcResult.confidence);
-                hcScore.signals.unshift({ signal: `hc_pattern:${hcResult.patternName}`, weight: hcResult.confidence, evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}` });
+                hcScore.confidence = Math.max(0.02, hcResult.confidence - GRAPH_PRIOR_WEIGHT);
+                hcScore.signals.unshift({ signal: `workbook_graph:${graphRole}:contradicts`, weight: -GRAPH_PRIOR_WEIGHT, evidence: `graph role ${graphRole} contradicts the ${hcResult.patternName} pattern (${hcResult.classification}) — pattern confidence penalized (symmetric, non-veto)` });
               }
               const pc = r2Scores.find(s => s.agent === priorClass);
               if (pc) {
@@ -582,23 +582,30 @@ export async function POST(req: NextRequest) {
               const winner = r2Scores[0];
               if (winner.agent === hcResult.classification) level1Sheets.add(profile.tabName);
               applyGraphWinner(unitId, winner, 'hc_pattern', winner.agent === priorClass ? `graph_prior:${graphRole}` : `hc_pattern+graph_prior:${graphRole}`);
-              console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} hc=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (informed, non-veto)`);
+              console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} hc=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}%→${((hcScore?.confidence ?? 0) * 100).toFixed(0)}% graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (symmetric, non-veto)`);
             }
           }
         } else {
-          // Level-2 CRR retained (HC silent). Apply the graph prior; re-derive the winner if it flips.
+          // Level-2 CRR retained (HC silent). Apply the SYMMETRIC graph prior: boost the graph-implied
+          // class, and when the graph contradicts the current CRR winner, penalize that winner too
+          // (agreement leaves it untouched). Re-derive the winner if it flips.
           const r2Scores = state.round2Scores.get(unitId);
           if (priorClass && r2Scores && r2Scores.length > 0) {
-            const before = r2Scores.reduce((m, s) => (s.confidence > m.confidence ? s : m), r2Scores[0]).agent;
+            const beforeScore = r2Scores.reduce((m, s) => (s.confidence > m.confidence ? s : m), r2Scores[0]);
+            const before = beforeScore.agent;
             const pc = r2Scores.find(s => s.agent === priorClass);
             if (pc) {
+              if (before !== priorClass) {
+                beforeScore.confidence = Math.max(0.02, beforeScore.confidence - GRAPH_PRIOR_WEIGHT);
+                beforeScore.signals.unshift({ signal: `workbook_graph:${graphRole}:contradicts`, weight: -GRAPH_PRIOR_WEIGHT, evidence: `graph role ${graphRole} contradicts CRR winner ${before} — penalized (symmetric, non-veto)` });
+              }
               pc.confidence = Math.min(0.95, pc.confidence + GRAPH_PRIOR_WEIGHT);
               pc.signals.unshift({ signal: `workbook_graph:${graphRole}`, weight: GRAPH_PRIOR_WEIGHT, evidence: `graph role ${graphRole} → ${priorClass} prior (informs, non-vetoing)` });
               r2Scores.sort((a, b) => b.confidence - a.confidence);
               const winner = r2Scores[0];
               if (winner.agent !== before) {
                 applyGraphWinner(unitId, winner, 'heuristic', `crr+graph_prior:${graphRole}`);
-                console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} crr=${before} graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (informed Level-2)`);
+                console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} crr=${before} graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (symmetric Level-2)`);
               }
             }
           }
