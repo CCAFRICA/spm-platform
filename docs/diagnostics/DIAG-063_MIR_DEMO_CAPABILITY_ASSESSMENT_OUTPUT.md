@@ -4970,7 +4970,2079 @@ src/lib/audit-service.ts:159-161
 
 ## Module D — Net-New Definition and Demo-Surface Invariants
 
-*(probe results pending)*
+# D1 — Company-wide dashboard adjacents (composition material inventory)
+
+**CURRENT STATE:** A DB-backed, company-wide (tenant-level, single-period) dashboard already exists: `AdminDashboard` mounted at `/perform` (persona `admin`), fed by `getAdminDashboardData()` in `src/lib/data/persona-queries.ts`, which rolls up `entity_period_outcomes` (total payout sum, attainment distribution, per-entity/store breakdown, component composition, lifecycle state) with a fallback to `calculation_results` for pre-OFFICIAL batches. The `entity_period_outcomes` table is live (883 rows across 3 tenant UUIDs, multi-period for 2 of them) and is written by the calc run route and by `materializeEntityPeriodOutcomes()` on lifecycle transitions. A rich library of prop-driven chart components exists (recharts wrappers + design-system visuals). The remaining "dashboard" surfaces (`/insights/analytics`, `/data/reports`, `/insights/compensation`) render synthetic/fixture data, not DB data. A cross-period company trend view does not exist as a UI; the query material for it does (per-period outcome rows + an unconsumed `getDashboardKPIs()` YTD rollup + the platform-observatory `tenant_id, period_id, total_payout` select pattern).
+
+---
+
+## EVIDENCE
+
+### 1. Chart component inventory
+
+Command (from `web/`):
+
+```
+$ grep -rnil "recharts\|Chart" src/ --include="*.tsx"
+src/app/insights/page.tsx
+src/app/insights/sales-finance/page.tsx
+src/app/insights/compensation/page.tsx
+src/app/insights/my-team/page.tsx
+src/app/insights/trends/page.tsx
+src/app/insights/performance/page.tsx
+src/app/insights/analytics/page.tsx
+src/app/test-ds/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/page.tsx
+src/app/operate/results/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/approvals/page.tsx
+src/app/data/import/enhanced/page.tsx
+src/components/ui/chart.tsx
+src/components/hierarchy/HierarchyViewer.tsx
+src/components/hierarchy/HierarchyNode.tsx
+src/components/calculate/PlanResults.tsx
+src/components/intelligence/InsightPanel.tsx
+src/components/intelligence/DistributionCard.tsx
+src/components/platform/AIIntelligenceTab.tsx
+src/components/data-quality/QualityScoreGauge.tsx
+src/components/navigation/ChromeSidebar.tsx
+src/components/navigation/command-palette/CommandPalette.tsx
+src/components/navigation/Sidebar.tsx
+src/components/charts/CompensationPieChart.tsx
+src/components/charts/CompensationTrendChart.tsx
+src/components/charts/sales-history-chart.tsx
+src/components/forensics/PipelineHealth.tsx
+src/components/dashboards/WelcomeCard.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/search/GlobalSearchDialog.tsx
+src/components/design-system/DistributionChart.tsx
+src/components/analytics/MetricTrendChart.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/analytics/ExportDialog.tsx
+src/components/help/HelpPanel.tsx
+src/components/reports/revenue-by-rep.tsx
+src/components/design-system/StateIndicator.tsx
+src/components/analytics/KPICard.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/reports/revenue-by-region.tsx
+src/components/reports/revenue-by-period.tsx
+src/components/reports/commission-expense.tsx
+src/components/reports/revenue-by-product.tsx
+```
+
+Files that actually import recharts (26):
+
+```
+$ grep -rn "recharts" src/ --include="*.tsx" -l | sort
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/insights/page.tsx
+src/app/insights/performance/page.tsx
+src/app/insights/trends/page.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/analytics/MetricTrendChart.tsx
+src/components/charts/CompensationPieChart.tsx
+src/components/charts/CompensationTrendChart.tsx
+src/components/charts/sales-history-chart.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/intelligence/DistributionCard.tsx
+src/components/reports/commission-expense.tsx
+src/components/reports/revenue-by-period.tsx
+src/components/reports/revenue-by-product.tsx
+src/components/reports/revenue-by-region.tsx
+src/components/reports/revenue-by-rep.tsx
+src/components/ui/chart.tsx
+```
+
+**Classification of all 55 hits:**
+
+| Class | Files |
+|---|---|
+| Reusable prop-driven chart primitives (recharts) | `src/components/ui/chart.tsx` (shadcn ChartContainer wrapper, `import * as RechartsPrimitive`), `src/components/charts/CompensationPieChart.tsx`, `src/components/charts/CompensationTrendChart.tsx`, `src/components/charts/sales-history-chart.tsx`, `src/components/analytics/MetricTrendChart.tsx`, `src/components/analytics/BreakdownChart.tsx`, `src/components/intelligence/DistributionCard.tsx` |
+| Report widgets, prop-driven (recharts) | `src/components/reports/revenue-by-rep.tsx`, `revenue-by-region.tsx`, `revenue-by-period.tsx`, `revenue-by-product.tsx`, `commission-expense.tsx` |
+| Custom (non-recharts) design-system visuals | `src/components/design-system/DistributionChart.tsx` (5-bucket histogram), `src/components/data-quality/QualityScoreGauge.tsx`, `src/components/design-system/StateIndicator.tsx` |
+| Pages with inline recharts usage | 10× `src/app/financial/*` pages, `src/app/insights/page.tsx`, `src/app/insights/performance/page.tsx`, `src/app/insights/trends/page.tsx`, `src/components/import/import-summary-dashboard.tsx` |
+| Matched only on lucide icon names / word "Chart" — NOT chart components | `src/app/approvals/page.tsx`, `src/app/data/import/enhanced/page.tsx`, `src/app/insights/analytics/page.tsx`, `src/app/insights/compensation/page.tsx`, `src/app/insights/my-team/page.tsx`, `src/app/insights/sales-finance/page.tsx`, `src/app/operate/{calculate,lifecycle,page,results}.tsx`, `src/app/operate/page.tsx`, `src/app/test-ds/page.tsx`, `src/components/analytics/ExportDialog.tsx`, `src/components/analytics/KPICard.tsx` (lucide `BarChart3` icon at lines 20/39/59 only — prop-driven KPI tile, no recharts import; reclassified from the chart-primitives row), `src/components/calculate/PlanResults.tsx`, `src/components/dashboards/AdminDashboard.tsx`, `src/components/dashboards/WelcomeCard.tsx`, `src/components/forensics/PipelineHealth.tsx`, `src/components/help/HelpPanel.tsx`, `src/components/hierarchy/HierarchyNode.tsx`, `src/components/hierarchy/HierarchyViewer.tsx`, `src/components/intelligence/InsightPanel.tsx`, `src/components/navigation/{ChromeSidebar,Sidebar}.tsx`, `src/components/navigation/command-palette/CommandPalette.tsx`, `src/components/platform/AIIntelligenceTab.tsx`, `src/components/search/GlobalSearchDialog.tsx` |
+
+Verification command for icon-only matches (set difference of the two lists; each line shows the matched tokens — `BarChart3`, `PieChart`, `LineChart` are lucide-react icons):
+
+```
+$ comm -23 <(grep -rnil "recharts\|Chart" src/ --include="*.tsx" | sort) <(grep -rln "recharts" src/ --include="*.tsx" | sort)
+(29 files; tokens per file were BarChart3 / PieChart / LineChart / "Chart" word-matches —
+ full output retained in probe transcript; e.g.
+ src/components/navigation/Sidebar.tsx :: BarChart3,
+ src/components/dashboards/AdminDashboard.tsx :: Chart,   <- DistributionChart import)
+```
+
+Prop-driven chart signatures (compose-ready, take data as props):
+
+```
+src/components/charts/CompensationTrendChart.tsx:16
+interface TrendData { ... }
+interface CompensationTrendChartProps { ... }
+export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
+
+src/components/charts/CompensationPieChart.tsx:13
+interface PieChartData { ... }
+export function CompensationPieChart({ data }: CompensationPieChartProps) {
+
+src/components/reports/revenue-by-period.tsx:28
+interface RevenueByPeriodProps {
+  monthlyData: PeriodData[];
+  quarterlyData: PeriodData[];
+}
+export function RevenueByPeriod({ monthlyData, quarterlyData }: RevenueByPeriodProps) {
+```
+
+### 2. entity_period_outcomes — schema, writers, readers
+
+Schema authority (matches live shape exactly — see DB probe in §4):
+
+```
+SCHEMA_REFERENCE_LIVE.md:224
+### entity_period_outcomes (11 columns)
+| Column | Type | Nullable | Default |
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | NO | |
+| total_payout | numeric | NO | 0 |
+| rule_set_breakdown | jsonb | NO | |
+| component_breakdown | jsonb | NO | |
+| lowest_lifecycle_state | text | NO | DRAFT |
+| attainment_summary | jsonb | NO | |
+| metadata | jsonb | NO | |
+| materialized_at | timestamp with time zone | NO | now() |
+```
+
+Complete hit list (adjacent-arm sweep):
+
+```
+$ grep -rn "entity_period_outcomes" src/ | sort
+src/app/api/calculation/run/route.ts:2948:  // ── 9. Materialize entity_period_outcomes ──
+src/app/api/calculation/run/route.ts:2970:    .from('entity_period_outcomes')
+src/app/api/calculation/run/route.ts:2980:      .from('entity_period_outcomes')
+src/app/api/calculation/run/route.ts:2992:    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes ...`)
+src/app/api/platform/observatory/route.ts:164:  const outcomePromise = supabase.from('entity_period_outcomes')
+src/app/api/platform/observatory/route.ts:522:    supabase.from('entity_period_outcomes').select('tenant_id, total_payout')...
+src/app/api/platform/observatory/route.ts:598:    supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true }),
+src/components/dashboards/AdminDashboard.tsx:126:  // field exists in entity_period_outcomes. (comment)
+src/lib/calculation/run-calculation.ts:6: * Writes calculation_batches, calculation_results, entity_period_outcomes. (comment)
+src/lib/canvas/graph-service.ts:231:    .from('entity_period_outcomes')
+src/lib/data/persona-queries.ts:144,258,271,287,335,351,368,789:    .from('entity_period_outcomes')
+src/lib/data/platform-queries.ts:232,478,534: ... from('entity_period_outcomes') ...
+src/lib/supabase/calculation-service.ts:21,478,484,564,585,604,625,649,658,663
+src/lib/supabase/database.types.ts:31,1009,1011,1261 (type defs)
+src/scripts/clear-tenant.ts:64 (table list)
+```
+
+**Writer 1 — calc run route (delete + batched insert, per tenant+period):**
+
+```
+src/app/api/calculation/run/route.ts:2948
+  // ── 9. Materialize entity_period_outcomes ──
+  const outcomeRows = entityResults.map(r => ({
+    tenant_id: tenantId,
+    entity_id: r.entity_id,
+    period_id: r.period_id,
+    total_payout: r.total_payout,
+    lowest_lifecycle_state: 'PREVIEW',
+    rule_set_breakdown: [{ rule_set_id: ruleSetId, total_payout: r.total_payout }] as unknown as Json,
+    component_breakdown: r.components.map(c => ({
+      componentId: c.componentId, componentName: c.componentName, payout: c.payout,
+    })) as unknown as Json,
+    attainment_summary: r.attainment as unknown as Json,
+    metadata: {} as unknown as Json,
+  }));
+  // Delete existing outcomes for this tenant+period first
+  await supabase.from('entity_period_outcomes').delete()
+    .eq('tenant_id', tenantId).eq('period_id', periodId);
+  // OB-75: Batched insert for 22K+ outcomes
+  for (let i = 0; i < outcomeRows.length; i += WRITE_BATCH) {
+    const slice = outcomeRows.slice(i, i + WRITE_BATCH);
+    const { error: outErr } = await supabase.from('entity_period_outcomes').insert(slice);
+    ...
+```
+
+**Writer 2 — lifecycle-triggered materializer:**
+
+```
+src/lib/supabase/calculation-service.ts:478
+/**
+ * Materialize entity_period_outcomes for a period.
+ * Triggered on lifecycle transitions (OFFICIAL, APPROVED, POSTED, PUBLISHED).
+ * For each entity in the batch:
+ * 1. Read all calculation_results for the entity in this period
+ * 2. Aggregate: total_payout, per-rule-set breakdown, lowest lifecycle state
+ * 3. Write/update entity_period_outcomes (upsert by tenant+entity+period)
+ */
+export async function materializeEntityPeriodOutcomes(
+  tenantId: string, periodId: string, batchId: string
+): Promise<EntityPeriodOutcomeRow[]> {
+```
+
+**Reader 1 — the company-wide rollup (tenant + period):**
+
+```
+src/lib/data/persona-queries.ts:134
+export async function getAdminDashboardData(tenantId: string): Promise<AdminDashboardData> {
+  const supabase = createClient();
+  const periodId = await getCurrentPeriodId(tenantId);
+  ...
+  const { data: outcomes } = await supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('period_id', periodId);
+```
+
+```
+src/lib/data/persona-queries.ts:219 (return shape)
+  return {
+    totalPayout: sum(safeOutcomes.map(o => o.total_payout)),
+    entityCount: safeOutcomes.length,
+    attainmentDistribution: safeOutcomes.map(o => extractAttainment(o.attainment_summary)),
+    storeBreakdown: safeOutcomes.map(o => ({
+      entityId: o.entity_id,
+      entityName: entityMap.get(o.entity_id)?.display_name ?? o.entity_id,
+      totalPayout: o.total_payout,
+      entityType: entityMap.get(o.entity_id)?.entity_type ?? 'individual',
+    })),
+    lifecycleState,
+    exceptions: deriveExceptions(safeOutcomes, entityMap),
+    componentComposition: aggregateComponents(safeOutcomes),
+    aiMetrics,
+  };
+```
+
+Note: the function also has a documented fallback to `calculation_results` of the latest non-superseded batch when no outcomes are materialized (persona-queries.ts:155-204) — so the dashboard renders for PREVIEW/DRAFT states too.
+
+`AdminDashboardData` interface (persona-queries.ts:26-35): `totalPayout, entityCount, attainmentDistribution[], storeBreakdown[], lifecycleState, exceptions[], componentComposition[], aiMetrics?`. Sibling rollups: `getManagerDashboardData(tenantId, entityIds, canSeeAll)` (team scope, persona-queries.ts:241) and `getRepDashboardData` (persona-queries.ts:319, includes per-period `history`).
+
+**Reader 2 — tenant YTD rollup, currently UNCONSUMED:**
+
+```
+src/lib/supabase/calculation-service.ts:649
+/**
+ * Fetch all dashboard KPI data in parallel from the correct tables.
+ * Queries: entity_period_outcomes, calculation_results, entities.
+ */
+export async function getDashboardKPIs(tenantId: string): Promise<DashboardKPIs> {
+  const [outcomesRes, pendingRes, entityRes, batchRes] = await Promise.all([
+    supabase.from('entity_period_outcomes').select('total_payout').eq('tenant_id', tenantId),       // YTD
+    supabase.from('entity_period_outcomes').select('total_payout').eq('tenant_id', tenantId)
+      .eq('lowest_lifecycle_state', 'APPROVED'),                                                     // pending
+    supabase.from('entities').select('*', { count: 'exact', head: true })...
+```
+
+```
+$ grep -rn "getDashboardKPIs" src/ --include="*.tsx" --include="*.ts" | grep -v calculation-service.ts
+(no output — zero consumers)
+```
+
+**Reader 3 — cross-tenant per-period rollup pattern (platform observatory, vl_admin):**
+
+```
+src/lib/data/platform-queries.ts:232
+    supabase.from('entity_period_outcomes').select('tenant_id, period_id, total_payout')
+      .in('tenant_id', tenantIds),
+```
+
+(same pattern at `src/app/api/platform/observatory/route.ts:164`.)
+
+**Reader 4 — canvas graph service (defect, see Finding F1):**
+
+```
+src/lib/canvas/graph-service.ts:230
+  const { data: outcomes } = await supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false })   // <- column does not exist (probe §4)
+    .limit(1);
+```
+
+Also: `getEntityPeriodOutcomes` / `getEntityOutcome` (calculation-service.ts:596/618) and `getPeerRankings` (persona-queries.ts:781-789).
+
+### 3. Dashboard-ish routes
+
+```
+$ find src/app -type d -iname "*dashboard*" -o -iname "*overview*" -o -iname "*report*" -o -iname "*analytic*" -o -iname "*insight*"
+src/app/api/insights
+src/app/data/reports
+src/app/govern/audit-reports
+src/app/insights
+src/app/insights/analytics
+```
+
+Full route inventory relevant to a company view (from `find src/app -name "page.tsx"`):
+
+| Route | Data source | Notes |
+|---|---|---|
+| `/perform` | `entity_period_outcomes` via persona-queries | Persona-switched: `{persona === 'admin' && <AdminDashboard />}` at `src/app/perform/page.tsx:248`; Manager/Rep variants same file. **The existing company-wide dashboard.** |
+| `/insights/analytics` | `src/lib/analytics/analytics-service.ts` — **generated demo data** | "Advanced Analytics Dashboard" w/ KPICard, MetricTrendChart, BreakdownChart, ExportDialog |
+| `/data/reports` | `src/lib/financial-service.ts` — **static fixture** | RevenueByPeriod/Rep/Product/Region, CommissionExpense |
+| `/insights/compensation` | `restaurant-service` (demo) | CompensationPieChart, CompensationTrendChart, Leaderboard |
+| `/insights`, `/insights/performance`, `/insights/trends` | inline recharts | |
+| `/operate/results` | calc results surfaces | |
+| `/financial/*` (11 pages) | financial module (feature-flagged) | |
+| `/api/platform/observatory` | cross-tenant outcomes rollup | vl_admin scope |
+
+AdminDashboard hero composition (`src/components/dashboards/AdminDashboard.tsx:5-21`): Hero total payout (AnimatedNumber) + DistributionChart (5-bucket attainment histogram) + LifecycleStepper + BenchmarkBar (locations vs budget) + ComponentStack (part-of-whole) + exceptions queue + TrendArrow + AssessmentPanel + readiness checklist.
+
+Period machinery exists: `src/contexts/period-context.tsx` exports `PeriodProvider`/`usePeriod` with `activePeriodId` (line 16/118). However:
+
+```
+src/components/dashboards/AdminDashboard.tsx:113
+    getAdminDashboardData(tenantId).then(result => { ... });
+    ...
+  }, [tenantId, activePeriodId]);
+```
+
+`getAdminDashboardData(tenantId)` takes no period argument — it internally resolves the latest period by `start_date` (`getCurrentPeriodId`, persona-queries.ts:103-128), so the `activePeriodId` dependency re-triggers a fetch of the same latest period (Finding F5).
+
+Self-documented budget placeholder:
+
+```
+src/components/dashboards/AdminDashboard.tsx:125
+  // CLT-56: Budget is estimated as 110% of actual payout since no real budget
+  // field exists in entity_period_outcomes. This produces a tautological -9.1%
+  // delta (=-1/11) for all entities. When a real budget_target column is added,
+  // this should read from the database instead.
+```
+
+Synthetic data evidence for `/insights/analytics`:
+
+```
+src/lib/analytics/analytics-service.ts:28
+export function getExecutiveDashboard(tenantId: string, startDate: string, endDate: string): AnalyticsDashboard {
+  const kpis = generateKPIs();
+  const trends = generateTrends(startDate, endDate);
+  const breakdowns = generateBreakdowns();
+  ...
+src/lib/analytics/analytics-service.ts:62
+  // Generate demo data based on metric and granularity
+  const dataPoints = generateTimeSeriesData(metric, granularity, startDate, endDate);
+```
+
+Fixture data evidence for `/data/reports`:
+
+```
+src/app/data/reports/page.tsx:38
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 800);   // simulated loading
+  ...
+  const monthlyData = getRevenueByPeriod('monthly');            // financial-service
+
+src/lib/financial-service.ts:154
+export function getRevenueByPeriod(type: 'monthly' | 'quarterly' = 'monthly'): RevenueByPeriod[] {
+  const summaries = financialSummariesData as typeof financialSummariesData;   // static JSON fixture
+```
+
+### 4. DB probe — entity_period_outcomes is populated (read-only, service-role)
+
+Script: `web/scripts/diag/diag063_d1_outcomes_rollup.ts` (source on disk; SELECT + head:true counts only, tenant UUIDs only, JSONB keys printed without values).
+
+```
+$ cd web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_d1_outcomes_rollup.ts
+TOTAL entity_period_outcomes rows: 883
+tenants total: 15
+tenant 5035b1e8-0754-4527-b7ec-9f93f85e4c79: 201 outcome rows
+tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111: 510 outcome rows
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 172 outcome rows
+tenants WITH outcomes: 3 | WITHOUT: 12
+  tenant 5035b1e8-... period 8896974e-56bb-420c-b519-07ed29bd6c55 key=monthly_2025-01-01_2025-01-31 status=open: 67 outcome rows
+  tenant 5035b1e8-... period 9a240061-736f-496c-8297-af8ea7652fc2 key=monthly_2025-02-01_2025-02-28 status=open: 67 outcome rows
+  tenant 5035b1e8-... period 8ac39a1d-bd1b-4137-8db3-469e596e9a4b key=monthly_2025-03-01_2025-03-31 status=open: 67 outcome rows
+  tenant b1c2d3e4-... period 0fcd8fa0-c2f2-43c3-b8e6-234244914c16 key=monthly_2025-10-01_2025-10-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period a33899eb-24bc-49e4-b2fc-cbd22dbe46d2 key=monthly_2025-11-01_2025-11-30 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period 4a5805f0-762e-49ae-a28e-1276ce26024f key=monthly_2025-12-01_2025-12-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period d839d264-76ca-4192-8062-5c7ce625100b key=monthly_2026-01-01_2026-01-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period a8febd82-85fb-4f63-9e6e-4ba1c36f67aa key=monthly_2026-02-01_2026-02-28 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period 924cbece-d827-48bb-ae7f-62523edfbe98 key=monthly_2026-03-01_2026-03-31 status=open: 85 outcome rows
+row column keys: id, tenant_id, entity_id, period_id, total_payout, rule_set_breakdown, component_breakdown, lowest_lifecycle_state, attainment_summary, metadata, materialized_at
+rule_set_breakdown: ARRAY length=1; first-element keys: rule_set_id, total_payout
+component_breakdown: ARRAY length=4; first-element keys: payout, componentId, componentName
+attainment_summary: OBJECT keys: overall
+metadata: OBJECT keys:
+materialized_at of newest row: 2026-06-11T19:32:40.909944+00:00
+created_at column probe: ERROR: column entity_period_outcomes.created_at does not exist
+```
+
+Live shape matches SCHEMA_REFERENCE_LIVE.md (11 columns, no divergence). Multi-period coverage exists for 2 tenants (3 and 6 periods respectively) — a cross-period trend view has real data to draw.
+
+Follow-up script: `web/scripts/diag/diag063_d1_orphan_periods.ts` — tenant `03d28288...` printed no per-period rows above; verification:
+
+```
+$ npx tsx scripts/diag/diag063_d1_orphan_periods.ts
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 172 outcome rows, 1 distinct period_id(s): b1361a9f-506b-4ed6-8ec7-b37f9aa03333
+periods rows for tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 0
+referenced period_ids found in periods table: 1
+  period b1361a9f-506b-4ed6-8ec7-b37f9aa03333 -> tenant dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=open
+```
+
+I.e., all 172 outcome rows of tenant `03d28288...` reference a `period_id` whose `periods` row belongs to a different tenant (`dbe3b308...`); tenant `03d28288...` has zero rows in `periods`. Recorded as Finding F2 (no fix attempted — HALT-2/READ-ONLY).
+
+---
+
+## COMPOSE-FROM LIST (company view: total payout, attainment by grouping, period view)
+
+1. **Data**: `entity_period_outcomes` (live, 883 rows, multi-period) — `total_payout`, `attainment_summary.overall`, `component_breakdown[{componentId, componentName, payout}]`, `rule_set_breakdown`, `lowest_lifecycle_state`, keyed by `tenant_id + entity_id + period_id`. Period labels from `periods` (`canonical_key`, `label`, `start_date`).
+2. **Rollup queries**: `getAdminDashboardData` (tenant+period; total/distribution/breakdown/composition — in production use), `getDashboardKPIs` (tenant YTD + pending — written, zero consumers), platform pattern `select('tenant_id, period_id, total_payout')` (platform-queries.ts:232) — the exact per-period group-by shape a trend view needs.
+3. **Grouping material**: `storeBreakdown` carries `entityType` per entity; `entities.entity_type` join already in `getAdminDashboardData`; team scope via `getManagerDashboardData(tenantId, entityIds)`; `entity_relationships` table exists (SCHEMA_REFERENCE_LIVE.md:240).
+4. **Period machinery**: `period-context.tsx` (`usePeriod().activePeriodId`, `periods` list) already mounted.
+5. **Presentation**: AdminDashboard's design-system set (AnimatedNumber hero, DistributionChart, ComponentStack, BenchmarkBar, LifecycleStepper, TrendArrow) + prop-driven recharts primitives (`CompensationTrendChart`, `MetricTrendChart`, `BreakdownChart`, `CompensationPieChart`, `ui/chart.tsx`) plus the prop-driven, non-recharts `KPICard` tile (lucide icon only).
+
+## GAP TO DEMO BAR
+
+- **Single-period company view (total payout, attainment distribution, per-location grouping, component composition): no gap** — AdminDashboard at `/perform` (persona `admin`) is DB-backed and live; remaining proof is a browser action.
+- **Period view (cross-period trend / period switching): gap** — no UI reads outcomes across periods for one tenant (`getRepDashboardData` does per-entity history only; platform observatory is cross-tenant vl_admin). AdminDashboard ignores the selected `activePeriodId` (F5). The dashboards that *look* like the bar (`/insights/analytics`, `/data/reports`) are synthetic/fixture-fed (F3, F4).
+- **Attainment by arbitrary grouping (team/region)**: per-entity and per-entity-type grouping exists; team/region grouping needs a join through `entity_relationships`/manager scope — query-level work only, schema present.
+
+## EFFORT SHAPE
+
+**Split: current-period company view E1 VERIFY-ONLY / period-view + grouping company view E3 COMPOSE.** Not E4 — no new table or schema change required.
+
+- E1 part: architect browser action on existing route `/perform` (persona `admin`), components `AdminDashboard` + design-system set, service `getAdminDashboardData`, table `entity_period_outcomes`.
+- E3 part: one service function (persona-queries or calculation-service) of the already-proven shape `select tenant_id, period_id, total_payout, attainment_summary` grouped client-side per period (pattern exists at platform-queries.ts:232) + thread `activePeriodId`/period range into `getAdminDashboardData` + compose `CompensationTrendChart`/`MetricTrendChart` + `BreakdownChart` onto `/perform` (or a new `/insights` tab). Wiring `getDashboardKPIs` (already written, unconsumed) covers the YTD headline.
+
+# D2 — Currency formatting (PDR-01) class analysis
+
+### D2 — Currency formatting (PDR-01) class analysis
+**CURRENT STATE:** Currency formatting is NOT a single authority: the repo contains **10 independent formatting definition sites** — `formatTenantCurrency` (src/types/tenant.ts:134, the only tenant-aware one, exposed via `useCurrency()` at src/contexts/tenant-context.tsx:265 and consumed in 65 files) plus **9 rival `formatCurrency` definitions** (5 exported library-level, 4 component-local), four of which hardcode `en-US`/`USD`. Beyond named formatters, 561 raw formatting hits span 127 files, including **13 surviving hardcoded `` `$${...toLocaleString()}` `` template sites** in lib/export paths. Git history shows at least **14 prior currency-fix commits across 11 cycles** (OB-36/37/38/49, HF-038, OB-101, HF-063, HF-069, HF-070, OB-132, OB-175), each a page-level sweep; the PDR-01 rule itself was redefined three times inside `formatTenantCurrency` (no-cents ≥1,000 → no-cents ≥10,000 → whole-number suppression). This is the AUD-009 instance-closure signature: each cycle closed instances while the rival definitions and raw call sites remained reachable.
+
+**EVIDENCE:**
+
+#### (1) Full grep sweep — totals and per-file enumeration
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rni "toLocaleString\|Intl.NumberFormat\|formatCurrency\|formatMoney" src/ --include="*.ts" --include="*.tsx" | wc -l
+     561
+$ grep -rnic "toLocaleString\|Intl.NumberFormat\|formatCurrency\|formatMoney" src/ --include="*.ts" --include="*.tsx" | grep -v ":0$" | wc -l
+     127
+```
+
+Line-level listing exceeds 400 lines (561), so per E952 the complete file-level enumeration with per-file hit counts follows. Pattern breakdown of the 561:
+
+```
+formatCurrency:      366
+toLocaleString:      175
+Intl.NumberFormat:    20
+formatMoney:           0
+hardcoded "$"+toLocaleString template sites: 13
+```
+
+(Note: some `toLocaleString` hits format counts/dates rather than money; the grep defines the class boundary as stated by the probe.)
+
+Surface totals (classification rule: lib = src/lib|contexts|types|components/ui|app/api; statement = app/perform/statements; export = components/reports; admin = app/admin|govern|operations|upgrade + components/platform|rbac; rep = app/perform|my-compensation|stream + components/briefing|compensation|intelligence|acceleration; dashboard = remainder. Caveat: AdminBriefing.tsx/ManagerBriefing.tsx fall under components/briefing and are counted in "rep" by this rule):
+
+```
+admin       12 files   56 hits
+dashboard   60 files  242 hits
+export       5 files   17 hits
+statement    1 files    6 hits
+lib         26 files   52 hits
+rep         23 files  188 hits
+TOTAL      127 files  561 hits
+```
+
+Complete per-file enumeration (hits, file), grouped by surface:
+
+```
+## ADMIN
+   11  src/app/admin/launch/calculate/page.tsx
+   11  src/components/platform/OnboardingTab.tsx
+    7  src/components/platform/InfrastructureTab.tsx
+    6  src/components/platform/BillingUsageTab.tsx
+    5  src/components/platform/IngestionTab.tsx
+    4  src/app/govern/calculation-approvals/page.tsx
+    4  src/components/platform/ObservatoryTab.tsx
+    3  src/app/upgrade/page.tsx
+    2  src/components/rbac/AuditLogTable.tsx
+    1  src/app/operations/rollback/page.tsx
+    1  src/components/platform/AIIntelligenceTab.tsx
+    1  src/components/platform/FeatureFlagsTab.tsx
+
+## DASHBOARD
+   19  src/app/operate/reconciliation/page.tsx
+   12  src/app/operate/results/page.tsx
+   12  src/components/calculate/PlanResults.tsx
+   11  src/app/operate/page.tsx
+   10  src/components/reconciliation/ReconciliationTracePanel.tsx
+    9  src/app/data/import/enhanced/page.tsx
+    9  src/components/calculate/PlanCard.tsx
+    8  src/app/operate/lifecycle/page.tsx
+    8  src/components/results/ResultsHero.tsx
+    7  src/components/approvals/PayoutEmployeeTable.tsx
+    7  src/components/transactions/transaction-detail-modal.tsx
+    6  src/app/operate/calculate/page.tsx
+    6  src/app/performance/approvals/payouts/[id]/page.tsx
+    6  src/components/results/EntityTable.tsx
+    5  src/app/operate/pay/page.tsx
+    5  src/components/analytics/BreakdownChart.tsx
+    5  src/components/results/NarrativeSpine.tsx
+    5  src/components/results/StoreHeatmap.tsx
+    4  src/app/configure/people/page.tsx
+    4  src/app/data/page.tsx
+    4  src/app/data/reports/page.tsx
+    4  src/app/financial/server/[id]/page.tsx
+    4  src/app/insights/analytics/page.tsx
+    4  src/components/financial/manual-entry-form.tsx
+    4  src/components/results/PopulationHealth.tsx
+    3  src/app/financial/timeline/page.tsx
+    3  src/app/performance/approvals/payouts/page.tsx
+    3  src/components/analytics/KPICard.tsx
+    3  src/components/approvals/PayoutBatchCard.tsx
+    3  src/components/charts/CompensationTrendChart.tsx
+    3  src/components/financial/summary-cards.tsx
+    3  src/components/financial/transaction-table.tsx
+    3  src/components/forensics/ReconciliationTable.tsx
+    3  src/components/sci/ImportReadyState.tsx
+    3  src/components/sci/SCIProposal.tsx
+    2  src/app/financial/location/[id]/page.tsx
+    2  src/app/financial/patterns/page.tsx
+    2  src/app/operate/import/history/page.tsx
+    2  src/components/design-system/ComponentStack.tsx
+    2  src/components/design-system/WhatIfSlider.tsx
+    2  src/components/forensics/EmployeeTrace.tsx
+    2  src/components/lifecycle/LifecycleSubway.tsx
+    2  src/components/operate/OperateSelector.tsx
+    2  src/components/sci/ExecutionProgress.tsx
+    1  src/app/data/operations/page.tsx
+    1  src/app/data/quality/page.tsx
+    1  src/app/financial/page.tsx
+    1  src/app/financial/pulse/page.tsx
+    1  src/app/financial/summary/page.tsx
+    1  src/app/operate/import/quarantine/page.tsx
+    1  src/components/canvas/panels/EntityDetailPanel.tsx
+    1  src/components/data-quality/QuarantineTable.tsx
+    1  src/components/design-system/AnimatedNumber.tsx
+    1  src/components/design-system/BudgetGauge.tsx
+    1  src/components/design-system/CalculationWaterfall.tsx
+    1  src/components/design-system/PayrollSummary.tsx
+    1  src/components/design-system/PeriodComparison.tsx
+    1  src/components/design-system/RelativeLeaderboard.tsx
+    1  src/components/forensics/ExecutionTraceView.tsx
+    1  src/components/import/import-summary-dashboard.tsx
+
+## EXPORT
+    6  src/components/reports/commission-expense.tsx
+    3  src/components/reports/revenue-by-product.tsx
+    3  src/components/reports/revenue-by-region.tsx
+    3  src/components/reports/revenue-by-rep.tsx
+    2  src/components/reports/revenue-by-period.tsx
+
+## LIB
+    5  src/lib/currency.ts
+    4  src/lib/approval-routing/impact-calculator.ts
+    4  src/lib/calculation/results-formatter.ts
+    3  src/lib/forensics/ai-forensics.ts
+    3  src/lib/i18n.ts
+    3  src/lib/reconciliation/benchmark-intelligence.ts
+    2  src/app/api/calculation/run/route.ts
+    2  src/components/ui/currency-display.tsx
+    2  src/contexts/locale-context.tsx
+    2  src/lib/data-architecture/validation-engine.ts
+    2  src/lib/data-service.ts
+    2  src/lib/financial-service.ts
+    2  src/lib/navigation/pulse-service.ts
+    2  src/lib/payroll/period-processor.ts
+    2  src/lib/search/search-service.ts
+    2  src/lib/utils.ts
+    1  src/components/ui/calendar.tsx
+    1  src/components/ui/chart.tsx
+    1  src/contexts/period-context.tsx
+    1  src/lib/data/persona-queries.ts
+    1  src/lib/ingestion/batch-manager.ts
+    1  src/lib/intelligence/anomaly-detection.ts
+    1  src/lib/notifications/notification-service.ts
+    1  src/lib/reconciliation/report-engine.ts
+    1  src/lib/sci/proposal-intelligence.ts
+    1  src/types/tenant.ts
+
+## REP
+   36  src/app/perform/page.tsx
+   23  src/app/stream/page.tsx
+   19  src/components/briefing/AdminBriefing.tsx
+   15  src/components/briefing/ManagerBriefing.tsx
+   13  src/components/intelligence/TrajectoryCard.tsx
+   12  src/components/briefing/IndividualBriefing.tsx
+    8  src/components/compensation/CalculationBreakdown.tsx
+    8  src/components/compensation/LookupTableVisualization.tsx
+    6  src/components/compensation/EarningsSummaryCard.tsx
+    5  src/components/intelligence/ComponentBreakdownCard.tsx
+    5  src/components/intelligence/DistributionCard.tsx
+    4  src/components/compensation/ComponentBreakdownCard.tsx
+    4  src/components/intelligence/PersonalEarningsCard.tsx
+    4  src/components/intelligence/SystemHealthCard.tsx
+    3  src/components/acceleration/goal-pacing.tsx
+    3  src/components/intelligence/ActionRequiredCard.tsx
+    3  src/components/intelligence/AllocationCard.tsx
+    3  src/components/intelligence/CoachingPriorityCard.tsx
+    3  src/components/intelligence/OptimizationCard.tsx
+    3  src/components/intelligence/RelativePositionCard.tsx
+    3  src/components/intelligence/TeamHealthCard.tsx
+    3  src/components/intelligence/TeamHeatmapCard.tsx
+    2  src/app/my-compensation/page.tsx
+
+## STATEMENT
+    6  src/app/perform/statements/page.tsx
+```
+
+#### (2) Definition-site enumeration — every `formatCurrency` definition in src/
+
+```
+$ grep -rn "const formatCurrency\|function formatCurrency\|formatCurrency =" src/ --include="*.ts" --include="*.tsx"
+src/app/data/import/enhanced/page.tsx:2405:  const formatCurrency = (value: unknown): string => {
+src/components/compensation/CalculationBreakdown.tsx:20:  const formatCurrency = (value: number) => {
+src/components/charts/CompensationTrendChart.tsx:28:  const formatCurrency = (value: number) => {
+src/components/analytics/BreakdownChart.tsx:53:  const formatCurrency = (value: number) => {
+src/lib/financial-service.ts:210:export function formatCurrency(amount: number): string {
+src/lib/utils.ts:8:export function formatCurrency(amount: number): string {
+src/lib/currency.ts:49:export function formatCurrency(
+src/lib/approval-routing/impact-calculator.ts:294:function formatCurrency(amount: number, currency: string): string {
+src/lib/data-service.ts:517:export function formatCurrency(amount: number): string {
+```
+
+Plus the tenant-aware authority:
+
+```
+$ grep -rn "formatTenantCurrency" src/ --include="*.ts" --include="*.tsx"
+src/types/tenant.ts:134:export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
+src/contexts/tenant-context.tsx:16:import { DEFAULT_TERMINOLOGY, DEFAULT_FEATURES, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+src/contexts/tenant-context.tsx:279:    format: (amount: number) => formatTenantCurrency(amount, currency, locale),
+$ grep -rln "useCurrency" src/ --include="*.ts" --include="*.tsx" | wc -l
+      65
+```
+
+src/types/tenant.ts:134 (the tenant-aware authority — current PDR-01 rule = whole-number suppression, per OB-173):
+
+```typescript
+// src/types/tenant.ts:134
+export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
+  // OB-173: Suppress .00 on whole-dollar amounts. $8,698 not $8,698.00
+  const isWhole = Number.isInteger(amount);
+  const fractionDigits = isWhole ? 0 : 2;
+  const formatted = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount);
+  // Distinguish MXN from USD — both use $ in native locales.
+  // Replace bare $ with MX$ for MXN to avoid ambiguity.
+  if (currency === 'MXN' && !formatted.includes('MX')) {
+    return formatted.replace('$', 'MX$');
+  }
+  return formatted;
+}
+```
+
+src/contexts/tenant-context.tsx:265 (the hook that exposes it):
+
+```typescript
+// src/contexts/tenant-context.tsx:265
+export function useCurrency() {
+  const { currentTenant } = useTenant();
+  const currency = currentTenant?.currency || 'USD';
+  const locale = currentTenant?.locale || 'en-US';
+  ...
+  return {
+    format: (amount: number) => formatTenantCurrency(amount, currency, locale),
+    currency,
+    symbol: symbols[currency],
+    locale,
+  };
+}
+```
+
+Rival 1 — src/lib/utils.ts:8 (hardcoded en-US/USD, 0 fraction digits; imported by e.g. src/components/transactions/transaction-detail-modal.tsx):
+
+```typescript
+// src/lib/utils.ts:8
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+```
+
+Rival 2 — src/lib/currency.ts:49 (own currency table, default USD, 0 fraction digits by default; also carries mock EXCHANGE_RATES at line 22 with comment "in production, fetch from API"; sole importer = src/components/ui/currency-display.tsx):
+
+```typescript
+// src/lib/currency.ts:49 (excerpt)
+export function formatCurrency(
+  amount: number,
+  currencyCode: CurrencyCode = 'USD',
+  options?: { ... }
+): string {
+  const currency = SUPPORTED_CURRENCIES.find((c) => c.code === currencyCode);
+  const locale = currency?.locale || 'en-US';
+  const formatOptions: Intl.NumberFormatOptions = {
+    style: 'currency',
+    currency: currencyCode,
+    minimumFractionDigits: options?.minimumFractionDigits ?? 0,
+    maximumFractionDigits: options?.maximumFractionDigits ?? 0,
+  };
+  ...
+  let formatted = new Intl.NumberFormat(locale, formatOptions).format(amount);
+  ...
+}
+```
+
+Rivals 3 and 4 — src/lib/data-service.ts:517 and src/lib/financial-service.ts:210 are byte-identical hardcoded en-US/USD implementations:
+
+```typescript
+// src/lib/data-service.ts:517 (identical body at src/lib/financial-service.ts:210)
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+```
+
+Rival 5 — src/lib/approval-routing/impact-calculator.ts:294 (en-US with passed currency code, raw `$` fallback):
+
+```typescript
+// src/lib/approval-routing/impact-calculator.ts:294
+function formatCurrency(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${amount.toLocaleString()}`;
+  }
+}
+```
+
+Rivals 6-9 are component-local `const formatCurrency` definitions (src/app/data/import/enhanced/page.tsx:2405, src/components/compensation/CalculationBreakdown.tsx:20, src/components/charts/CompensationTrendChart.tsx:28, src/components/analytics/BreakdownChart.tsx:53).
+
+#### (3) Surviving hardcoded `` `$${...toLocaleString()}` `` template sites (13, complete list)
+
+```
+$ grep -rn '\$\${' src/ --include="*.ts" --include="*.tsx" | grep -i "toLocaleString"
+src/components/platform/OnboardingTab.tsx:865:                    {bill.experienceFee > 0 && ` — $${bill.experienceFee.toLocaleString()}/mo`}
+src/components/platform/ObservatoryTab.tsx:164:            value={`$${overview.mrr.toLocaleString()}`}
+src/lib/intelligence/anomaly-detection.ts:83:        description: `${entityIds.length} entities have identical payout of $${value.toLocaleString()}`,
+src/lib/data-architecture/validation-engine.ts:229:            message: `Amount ($${amount.toLocaleString()}) exceeds $1M threshold - requires review`,
+src/lib/data-architecture/validation-engine.ts:420:        message: `Amount ($${amount.toLocaleString()}) is a statistical outlier (${zScore.toFixed(1)} standard deviations from mean)`,
+src/lib/approval-routing/impact-calculator.ts:303:    return `$${amount.toLocaleString()}`;
+src/lib/forensics/ai-forensics.ts:117:          description: `"${ct.componentName}" affects ${ct.employeesAffected} employees with total diff $${ct.difference.toLocaleString()}`,
+src/lib/forensics/ai-forensics.ts:178:  lines.push(`${trace.entityName} (${trace.entityRole}) earned $${trace.totalIncentive.toLocaleString()} in total incentive.`);
+src/lib/forensics/ai-forensics.ts:189:    lines.push(`  ${comp.componentName}: $${comp.outputValue.toLocaleString()} (${pct}% of total)`);
+src/lib/search/search-service.ts:77:      subtitle: `${t.rep} - $${t.amount.toLocaleString()}`,
+src/lib/search/search-service.ts:78:      subtitleEs: `${t.rep} - $${t.amount.toLocaleString()}`,
+src/lib/calculation/results-formatter.ts:521:    return `$${value.toLocaleString()}`;
+src/lib/payroll/period-processor.ts:389:            message: `Calculated ${result.summary.entitiesProcessed} employees, total payout: $${result.summary.totalPayout.toLocaleString()}`,
+```
+
+All 13 are in lib/service paths or vl_admin platform tabs — i.e., the layers the page-level sweeps did not reach.
+
+#### (4) History — git log + git show --stat for each prior fix commit
+
+```
+$ git log --oneline -i --grep="currenc\|cents\|PDR"
+4f13ecb3 OB-203 Phase 2 (5b): full decomposed-dispatch swap in both SCI routes (architect-approved)
+d7497bf6 HF-260 Phase 1 (ADR / confirmation gate): HALT-1 — fetch failed + hang NOT caused by HF-258/259
+cb9b47a2 Merge pull request #447 from CCAFRICA/dev
+d93e9d88 HF-259 Phase 6: bounded-concurrency parallel Phase B (Q4)
+1bf13a84 HF-259 Phase 1: ADR + FP-49 schema gate (idempotency + audited supersession + bounded-concurrency)
+2077b168 HF-257: Enforce single plan-interpretation pipeline (AP-17) (#445)
+82e5e4f5 HF-256: Restore universal file ingestion (Decision 82) — document plans, multi-file, mixed-format (#444)
+0c2da09d HF-255: Restore unified any-format plan import (document transport regressed by HF-239) (#443)
+9cd13fe3 HF-254: Ingestion flywheel — single skip authority, role-bearing caches, lexical prior (#442)
+2ca8b9a2 HF-253: Per-Variant Binding Scope + Distribution Signal in Column Mapping (#441)
+327d3da4 HF-252: Per-Variant Component Intent Emission + Fallback Removal (#440)
+5fde465c HF-251: Compositional Intent + Constructor — Decision 158 Implementation (#439)
+37a9f76d HF-250: Multi-call skeleton/chunk separation — complete HF-249 per IRA Option A specification (#438)
+5d380d9e HF-230 Phase 1: primitive-based decision tree replaces enumerated pattern registry
+4af09ace HF-230 Phase 0: diagnostic -- current HC pattern classifier state
+c1e99fbe HF-226 Phase 2A: signal consumers carry full context
+6df13cbe HF-219: Engine Self-Correction + Flywheel Demotion + Signal-Registry Eradication (#390)
+70e28a40 HF-196 Phase 1D: data_type surface reconstruction per D154/D155 — single canonical declaration via SCI informational_label; 4 import paths converged on shared resolver; processDataUnit boundary parity; normalizeFileNameToDataType repurposed for hashing only
+1babd645 HF-195 Phase 0: prompt-layer registry derivation diagnostic + prerequisites verified
+eaf3f252 HF-194 Phase 0: pre-flight verification
+98408eb9 HF-191 Phase 0: Architecture Decision Gate
+7624aa3e HF-182 Fixes 7-8: Deduplicate plan cards by name
+9abbf9ad OB-189: State refresh, cadence filtering, reconciliation parseNumericValue, NaN guards, structured logging
+31310d05 OB-175 Phase 4: Stream empty state context + currency verification
+8fb4d313 OB-173 Phase A-D: Experience Architecture — User Journey Remediation
+4c5f2252 HF-097 Phase 1: Fix VL Admin login + consolidate role to platform
+28de147a HF-095 Complete: HC Override Authority + nameSignals Elimination
+a6f6e5bf HF-095 Phase 3: Classification accuracy verification — all three sheets correct
+0dcb08b0 HF-095 Phase 1: HC override authority — identifier, temporal, currency detection
+c20beea6 HF-095 Phase 0: Diagnostic — HC authority mapping + nameSignals inventory
+568c2e0a CLT-160 Trace Diagnostic: Layer-by-layer classification analysis for Datos_Flota_Hub misclassification
+e335ce5a CLT-160 Diagnostic: Comprehensive pipeline state analysis after plan import
+bd9745c7 OB-134 Phase 1: Architecture decision — Round 2 Negotiation + Field-Level Claims
+fd067359 OB-132 Phase 4: PDR items — currency formatting, N+1 reduction, persona verification
+927eeb71 OB-132 Phase 0: Full platform diagnostic — platform healthier than expected
+57a6221b HF-081 Phase 3: Convergence source_pattern validation — prevent race condition
+ccc846b6 OB-110 Phase 3: Post-AI confidence calibration — value validation + duplicate detection
+bba072d4 OB-108 Complete: Operate landing pipeline readiness cockpit
+3416aef4 HF-073 Phase 3: Fix Excel serial dates in Data Preview
+e56f0432 HF69-Merge pull request #113 from CCAFRICA/dev
+20a5e120 HF-069 Complete: PDR sweep — currency, persona, brand cards, amber threshold
+b616902a HF-069 Phase 1: PDR-01 Currency no cents — platform-wide sweep
+92467ed3 HF-069 Phase 0: PDR sweep diagnostic — current state of all 4 items
+a94df252 HF-069 Phase 0: Commit prompt — PDR sweep specification
+deedbef1 HF70-Merge pull request #112 from CCAFRICA/dev
+3c327425 HF-070 Complete: Auth bypass fix + PDR sweep
+9e657c78 HF-070 Phase 5: PDR-05 Persona filtering — effectivePersona in my-compensation
+1aad9dbd HF-070 Phase 4: PDR-01 Currency no cents — sweep key pages
+57acc5a5 HF-070: Commit prompt — Auth Bypass Fix + PDR Sweep
+9f2f8d22 HF-063 Phase 6: Sidebar navigation — fix labels and add missing routes
+c1f2f330 HF-063 Phase 2: PDR-01 Currency no cents — threshold 1000 to 10000
+928e015c HF-063 Phase 1: PDR-02 Financial-only redirect — gate ICM data load
+100ad50c HF-063 Phase 0: Browser-truth diagnostic complete
+093b0afa OB-101 Phase 5: Location Detail — 6-section composite with cognitive fit
+641c8618 OB-101 Phase 4: Server Detail — complete 5-section spec with IAP compliance
+f8679c10 OB-101 Phase 1: Platform fixes — currency no-cents, redirect render guard
+d87b28d9 OB-99 Phase 2: Location card visual fixes (F-2, F-3, F-4, F-5)
+99789bd5 OB-98 Phase 5: Rep Performance Trajectory
+be96dacd OB-95 Phase 5: Importable POS demo files for normalization demo
+aa090d74 OB-59 Phase 2: Canvas visualization — dark theme, DS-001, wired to Design
+851ebad1 OB-57 Phases 1-2: Tenant creation wizard + API
+7071875d HF-038 Phase 3: Gerente fixes — currency prefix, zone average benchmark
+06413b22 OB-50 Phase 0: OB-49 gap remediation — request explosion, currency, landing page, headings, Status Chip
+a09494f1 OB-49 Phase 9: Observatory contrast and interactivity fixes
+3100767d OB-49 Phase 6: Tenant-aware currency consistency
+c3a2bb95 OB-42 Phase 12: Demo seed, verification, Korean Test
+85993e94 OB-39-9: Payroll export from lifecycle action bar
+da4a0727 OB-39-6: Reconciliation results display with expandable rows
+60372b85 OB-38-11: Currency verification sweep -- replace hardcoded $ with useCurrency
+d2ce8772 OB-38-7: Perform page persona-aware rendering
+e3dee223 OB-38-6: Reconciliation ADR results display
+a8c6685e OB-37-11: Global currency sweep -- replace hardcoded $ with useCurrency
+f5dc6a3f OB-37-9: Perform page data connection -- verified 3-tier result loading
+1f354f55 OB-37-4: Reconciliation currency, locale, and Wayfinder compliance
+e4f7d501 OB-36-11: formatCurrency sweep - tenant-aware currency across 31 files
+f45d06cd OB-35-9: Register frmx-demo as dual-module tenant (financial + compensation)
+16613568 OB-32: Platform chrome fixes — breadcrumbs, pulse metrics, branding, scripts
+32b110c4 OB-26A: Strict Compliance Re-Run - All 20 Criteria Verified
+74a78939 OB-26: UX/UI Polish + Gap Closure
+2f01bb6e OB-22 Phase 2-4: Plan tier extraction + Period filtering + Chunked storage
+49fa7700 OB-20 Phase 2: Fix variant selection — derive isCertified from employee role
+68bf0ced OB-10: Completion Report - Kill the Demo Employees
+003ab1ef OB-10 Phase 4: Calculate page UX fixes
+7d3908e4 OB-03 Phase 1: Data Package Import field mapping redesign
+329d62c1 feat(CL-01): add RetailCGMX incentive plan with full 6-component structure
+399190fd P1: UX Design System Foundation — tokens, module context, wayfinding shell, state communication components, interaction patterns
+c7747b0e 5.7: Add automated alerts
+bbdad52e 5.6: Add product catalog
+36195733 5.3: Add data readiness config
+52629f50 feat(session4): add transaction line-item detail view (Phase 4.6)
+ecab1647 feat(session4): add shared chart components
+b4edfb22 3.4: Add TSV import service for cheques
+e1df91f8 2C.2: Add tenant context and hooks
+6be0f0ac 2C.1: Add tenant types and registry
+8bb38638 Sessions 2A/2B: Polish & Financial Management Module
+```
+
+Many grep hits above match only on commit-body text; the currency-formatting **fix** commits (subject names a currency formatting change) are the 14 below. One line on each, with `git show --stat`:
+
+- **e4f7d501 (OB-36-11)** — replaced per-page formatting with tenant-aware currency across 31 page/component files (sweep; no authority change).
+- **1f354f55 (OB-37-4)** — reworked reconciliation page + comparison-engine currency/locale display (2 files).
+- **a8c6685e (OB-37-11)** — replaced hardcoded `$` with `useCurrency` in 5 page/component files (sweep).
+- **60372b85 (OB-38-11)** — replaced hardcoded `$` with `useCurrency` in 12 more files (sweep).
+- **3100767d (OB-49 Phase 6)** — tenant-aware currency consistency pass over 10 dashboard/design-system files (sweep).
+- **7071875d (HF-038 Phase 3)** — currency prefix fix confined to ManagerDashboard.tsx (1 file).
+- **f8679c10 (OB-101 Phase 1)** — introduced the PDR-01 rule into `formatTenantCurrency` (no cents >= 1,000) + touched operate/perform pages (3 files).
+- **c1f2f330 (HF-063 Phase 2)** — changed the PDR-01 threshold 1,000 -> 10,000 in `src/types/tenant.ts` only (1 file; commit message states the prior threshold was "changed without authorization by OB-101").
+- **b616902a (HF-069 Phase 1)** — "platform-wide sweep" over 11 dashboard/design-system component files (sweep).
+- **20a5e120 (HF-069 Complete)** — completion report only (1 md file).
+- **1aad9dbd (HF-070 Phase 4)** — swept 3 more key pages (financial/timeline, operate, global-search).
+- **3c327425 (HF-070 Complete)** — completion report only (1 md file).
+- **fd067359 (OB-132 Phase 4)** — currency formatting fix confined to admin/launch/calculate page (1 file).
+- **31310d05 (OB-175 Phase 4)** — currency verification confined to stream page (1 file). (OB-173 8fb4d313 separately rewrote the rule to whole-number suppression — the version on main today.)
+
+```
+$ for sha in c1f2f330 b616902a 20a5e120 1aad9dbd 3c327425 fd067359 f8679c10 3100767d 60372b85 a8c6685e e4f7d501 1f354f55 7071875d 31310d05; do git show --stat --oneline "$sha"; done
+
+===== git show --stat c1f2f330 =====
+c1f2f330 HF-063 Phase 2: PDR-01 Currency no cents — threshold 1000 to 10000
+ web/src/types/tenant.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+===== git show --stat b616902a =====
+b616902a HF-069 Phase 1: PDR-01 Currency no cents — platform-wide sweep
+ .claude/settings.local.json                              |  3 ++-
+ web/src/app/operate/lifecycle/page.tsx                   |  2 +-
+ web/src/app/transactions/disputes/page.tsx               |  4 ++--
+ web/src/components/dashboards/AdminDashboard.tsx         | 10 +++++-----
+ web/src/components/dashboards/ManagerDashboard.tsx       |  8 ++++----
+ web/src/components/dashboards/RepDashboard.tsx           | 16 ++++++++--------
+ web/src/components/design-system/BudgetGauge.tsx         | 13 +++++++++----
+ .../components/design-system/CalculationWaterfall.tsx    |  7 ++++++-
+ web/src/components/design-system/PayrollSummary.tsx      | 11 +++++++++--
+ web/src/components/design-system/PeriodComparison.tsx    |  7 ++++++-
+ web/src/components/design-system/WhatIfSlider.tsx        |  9 +++++++--
+ web/src/components/intelligence/RepTrajectory.tsx        | 12 ++++++------
+ 12 files changed, 65 insertions(+), 37 deletions(-)
+
+===== git show --stat 20a5e120 =====
+20a5e120 HF-069 Complete: PDR sweep — currency, persona, brand cards, amber threshold
+ HF-069_COMPLETION_REPORT.md | 149 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 149 insertions(+)
+
+===== git show --stat 1aad9dbd =====
+1aad9dbd HF-070 Phase 4: PDR-01 Currency no cents — sweep key pages
+ web/src/app/financial/timeline/page.tsx     |  8 ++++----
+ web/src/app/operate/page.tsx                | 18 ++++++++++--------
+ web/src/components/search/global-search.tsx |  4 ++--
+ 3 files changed, 16 insertions(+), 14 deletions(-)
+
+===== git show --stat 3c327425 =====
+3c327425 HF-070 Complete: Auth bypass fix + PDR sweep
+ HF-070_COMPLETION_REPORT.md | 124 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 124 insertions(+)
+
+===== git show --stat fd067359 =====
+fd067359 OB-132 Phase 4: PDR items — currency formatting, N+1 reduction, persona verification
+ web/src/app/admin/launch/calculate/page.tsx | 59 ++++++++++++++++-------------
+ 1 file changed, 32 insertions(+), 27 deletions(-)
+
+===== git show --stat f8679c10 =====
+f8679c10 OB-101 Phase 1: Platform fixes — currency no-cents, redirect render guard
+ web/src/app/operate/page.tsx | 11 ++++++++++-
+ web/src/app/perform/page.tsx |  9 +++++++++
+ web/src/types/tenant.ts      |  5 ++++-
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+===== git show --stat 3100767d =====
+3100767d OB-49 Phase 6: Tenant-aware currency consistency
+ web/src/app/my-compensation/page.tsx                      |  4 ++--
+ web/src/app/operate/page.tsx                              |  5 +++--
+ web/src/components/dashboards/AdminDashboard.tsx          |  9 +++++----
+ web/src/components/dashboards/ManagerDashboard.tsx        |  5 +++--
+ web/src/components/dashboards/RepDashboard.tsx            | 11 ++++++-----
+ web/src/components/design-system/BudgetGauge.tsx          |  2 +-
+ web/src/components/design-system/CalculationWaterfall.tsx |  2 +-
+ web/src/components/design-system/PayrollSummary.tsx       |  2 +-
+ web/src/components/design-system/PeriodComparison.tsx     |  2 +-
+ web/src/components/design-system/WhatIfSlider.tsx         |  2 +-
+ 10 files changed, 24 insertions(+), 20 deletions(-)
+
+===== git show --stat 60372b85 =====
+60372b85 OB-38-11: Currency verification sweep -- replace hardcoded $ with useCurrency
+ web/src/app/acceleration/page.tsx                             |  4 +++-
+ web/src/app/admin/launch/page.tsx                             |  4 +++-
+ web/src/app/admin/launch/plan-import/page.tsx                 |  5 +++--
+ web/src/app/performance/adjustments/page.tsx                  |  6 ++++--
+ web/src/components/charts/CompensationPieChart.tsx            |  4 +++-
+ web/src/components/compensation/CalculationBreakdown.tsx      |  2 +-
+ web/src/components/compensation/LookupTableVisualization.tsx  | 11 +++--------
+ .../components/compensation/plan-editors/PercentageEditor.tsx | 10 ++++++----
+ web/src/components/disputes/GuidedDisputeFlow.tsx             |  9 +++++----
+ web/src/components/financial/manual-entry-form.tsx            |  2 +-
+ web/src/components/forensics/EmployeeTrace.tsx                |  9 ++++++---
+ web/src/components/forensics/PipelineHealth.tsx               |  6 ++++--
+ 12 files changed, 42 insertions(+), 30 deletions(-)
+
+===== git show --stat a8c6685e =====
+a8c6685e OB-37-11: Global currency sweep -- replace hardcoded $ with useCurrency
+ web/src/app/data/import/page.tsx                     | 7 ++++---
+ web/src/app/financial/staff/page.tsx                 | 4 ++--
+ web/src/app/operate/pay/page.tsx                     | 6 +++---
+ web/src/components/financial/manual-entry-form.tsx   | 6 ++++--
+ web/src/components/forensics/ReconciliationTable.tsx | 6 ++++--
+ 5 files changed, 17 insertions(+), 12 deletions(-)
+
+===== git show --stat e4f7d501 =====
+e4f7d501 OB-36-11: formatCurrency sweep - tenant-aware currency across 31 files
+ web/src/app/admin/launch/calculate/page.tsx        | 15 ++------
+ web/src/app/financial/timeline/page.tsx            | 22 ++++++------
+ web/src/app/govern/calculation-approvals/page.tsx  | 11 ++----
+ web/src/app/insights/performance/page.tsx          |  6 ++--
+ web/src/app/insights/trends/page.tsx               | 40 ++++++++++++----------
+ web/src/app/my-compensation/page.tsx               | 12 ++-----
+ web/src/app/operate/results/page.tsx               | 11 ++----
+ .../performance/approvals/payouts/[id]/page.tsx    | 10 ++----
+ web/src/app/performance/approvals/payouts/page.tsx | 10 ++----
+ web/src/app/transactions/[id]/dispute/page.tsx     | 11 ++----
+ web/src/components/acceleration/goal-pacing.tsx    | 12 ++-----
+ web/src/components/analytics/BreakdownChart.tsx    |  8 +++--
+ web/src/components/analytics/KPICard.tsx           |  9 ++---
+ web/src/components/analytics/MetricTrendChart.tsx  |  6 ++--
+ web/src/components/approvals/PayoutBatchCard.tsx   | 10 ++----
+ .../components/approvals/PayoutEmployeeTable.tsx   |  9 ++---
+ .../components/charts/CompensationTrendChart.tsx   |  8 +++--
+ .../compensation/ComponentBreakdownCard.tsx        | 10 ++----
+ .../compensation/EarningsSummaryCard.tsx           | 12 ++-----
+ .../compensation/RecentTransactionsCard.tsx        |  9 ++---
+ .../components/compensation/ScenarioComparison.tsx | 10 ++----
+ .../components/compensation/TeamImpactSummary.tsx  | 11 ++----
+ .../components/disputes/DisputeResolutionForm.tsx  | 13 +++----
+ web/src/components/disputes/GuidedDisputeFlow.tsx  |  8 ++---
+ .../disputes/ResolutionOutcomesChart.tsx           | 11 ++----
+ web/src/components/disputes/SystemAnalyzer.tsx     | 13 +++----
+ web/src/components/reports/commission-expense.tsx  |  4 ++-
+ web/src/components/reports/revenue-by-period.tsx   |  4 ++-
+ web/src/components/reports/revenue-by-region.tsx   |  4 ++-
+ web/src/components/reports/revenue-by-rep.tsx      |  4 ++-
+ web/src/components/search/global-search.tsx        |  5 +--
+ 31 files changed, 112 insertions(+), 216 deletions(-)
+
+===== git show --stat 1f354f55 =====
+1f354f55 OB-37-4: Reconciliation currency, locale, and Wayfinder compliance
+ web/src/app/admin/launch/reconciliation/page.tsx | 176 +++++++++++++----------
+ web/src/lib/reconciliation/comparison-engine.ts  |   8 +-
+ 2 files changed, 107 insertions(+), 77 deletions(-)
+
+===== git show --stat 7071875d =====
+7071875d HF-038 Phase 3: Gerente fixes — currency prefix, zone average benchmark
+ web/src/components/dashboards/ManagerDashboard.tsx | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+===== git show --stat 31310d05 =====
+31310d05 OB-175 Phase 4: Stream empty state context + currency verification
+ web/src/app/stream/page.tsx | 74 ++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 63 insertions(+), 11 deletions(-)
+```
+
+#### (5) The PDR-01 rule itself has been redefined three times in the authority
+
+```
+$ git show f8679c10 -- web/src/types/tenant.ts   (OB-101: rule introduced)
+ export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
++  // OB-101 PDR-01: No cents on amounts >= 1,000 (cleaner display for large financial amounts)
++  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
+   const formatted = new Intl.NumberFormat(locale, {
+     style: 'currency',
+     currency: currency,
+-    minimumFractionDigits: 2,
++    minimumFractionDigits: fractionDigits,
++    maximumFractionDigits: fractionDigits,
+   }).format(amount);
+
+$ git show c1f2f330 -- web/src/types/tenant.ts   (HF-063 Phase 2: threshold corrected)
+    PDR-01 defines: amounts >= MX$10,000 show no cents. The previous
+    implementation used >= 1,000 (changed without authorization by OB-101).
+    Corrected to match the actual PDR definition.
+
+    All financial pages use useCurrency().format which calls
+    formatTenantCurrency — single fix propagates everywhere.
+ ...
+-  // OB-101 PDR-01: No cents on amounts >= 1,000 (cleaner display for large financial amounts)
+-  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
++  // PDR-01: No cents on amounts >= MX$10,000 (cleaner display for large financial amounts)
++  const fractionDigits = Math.abs(amount) >= 10000 ? 0 : 2;
+```
+
+Current main (OB-173, src/types/tenant.ts:135-138) replaced the threshold rule entirely with whole-number suppression: `const fractionDigits = Number.isInteger(amount) ? 0 : 2;` — i.e., three different definitions of the same invariant have shipped, all inside the single tenant-aware authority, while the 9 rival `formatCurrency` definitions and 13 raw `$`-template sites never received any of the three rules.
+
+#### (6) Structural statement (the CLASS)
+
+**N independent sites, not one authority.** Concretely:
+- 1 tenant-aware authority: `formatTenantCurrency` (src/types/tenant.ts:134) via `useCurrency()` (src/contexts/tenant-context.tsx:265), consumed by 65 files.
+- 9 rival `formatCurrency` definitions (4 of them hardcoded en-US/USD; 2 byte-identical duplicates in data-service.ts and financial-service.ts).
+- 13 raw `` `$${...toLocaleString()}` `` template sites in lib/service/platform-tab paths.
+- ~175 raw `toLocaleString` call sites and 20 raw `Intl.NumberFormat` constructions distributed over 127 files.
+
+Every prior fix commit above is an instance closure (AUD-009 signature): it rewrote call sites in a chosen page set and stopped; the rival definitions stayed importable, so new pages re-acquired the defect (demonstrated by HF-038 → OB-49 → OB-36/37/38 → OB-101 → HF-063 → HF-069 → HF-070 → OB-132 → OB-173 → OB-175 recurrence, and by HF-063's own claim "single fix propagates everywhere" followed by three further cycles). The eventual fix is one invariant at one authority. The natural home **already exists**: `formatTenantCurrency` in `src/types/tenant.ts`, exposed to components via `useCurrency()` in `src/contexts/tenant-context.tsx`, is the only tenant-aware implementation and already the majority consumer path (65 files); non-React lib paths (results-formatter, period-processor, impact-calculator, forensics, search, validation-engine) can import it directly since it is a plain function. The structural fix shape is: retire the 9 rival definitions in favor of that one function (re-export or delete), and convert the 13 `$`-template plus remaining raw sites to it. No fix performed here (probe is read-only by mandate).
+
+**GAP TO DEMO BAR:** No single formatting authority — for a MIR demo, any page on the `useCurrency()` path renders tenant-correct currency, but admin platform tabs (ObservatoryTab.tsx:164, OnboardingTab.tsx:865), approval-routing fallbacks, forensics narratives, search results, validation messages, payroll status messages, and results-formatter fallback (line 521) render hardcoded `$`/en-US regardless of tenant currency/locale. A demo walking only useCurrency-path pages shows no defect; a demo touching the 13 listed sites with a non-USD tenant shows the class.
+
+**EFFORT SHAPE:** E3 COMPOSE — no new schema, no new service, no new UI. Shape: converge 9 rival `formatCurrency` definitions (src/lib/utils.ts:8, src/lib/currency.ts:49, src/lib/data-service.ts:517, src/lib/financial-service.ts:210, src/lib/approval-routing/impact-calculator.ts:294, plus 4 component-local consts) and 13 raw `$`-template sites onto the existing authority `formatTenantCurrency` (src/types/tenant.ts:134) / `useCurrency()` (src/contexts/tenant-context.tsx:265); the authority itself needs no new code, only universal adoption plus a guard (lint rule or CI grep) banning raw `toLocaleString`/`$${` money formatting outside the authority module.
+
+# D3 — Demo-path language inventory (neutral)
+
+**CURRENT STATE:** The platform has a custom, library-free i18n stack (no next-intl/i18next in package.json): (1) a JSON-dictionary mechanism — `src/lib/i18n.ts` loads `src/locales/{en-US,es-MX,pt-BR}/{common,compensation}.json` (~125–131 value lines each) through `LocaleProvider`/`useLocale().t()` in `src/contexts/locale-context.tsx`, persisting preference to `profiles.locale`; and (2) an inline per-component bilingual pattern — 89 `.tsx` files carry `'es-MX'`/`isSpanish` conditional label records (e.g. `useAdminLocale().getLabel`, `{ en, es }` records, `isSpanish ? … : …` ternaries). Dictionary `t()` is consumed by exactly 1 route page (`src/app/login/page.tsx`). On the demo path, the SCI import flow (`src/app/operate/import` + `src/components/sci`), calculate (`src/app/operate/calculate` + `src/components/calculate`), results (`src/app/operate/results` + `src/components/results`), and statements (`src/app/my-compensation`, `src/app/perform/statements`, `src/components/compensation`) contain 0 files with locale-conditional strings and carry hardcoded English literals; `src/app/data/import/enhanced` (mapping flow) and the insights dashboards are partially bilingual via the inline pattern. There is no route-level locale handling: `src/middleware.ts` and `next.config.*` have no locale/i18n hits and `src/app/layout.tsx:39` sets `<html lang="en">` statically.
+
+**EVIDENCE:**
+
+## (1) i18n mechanism
+
+Stated grep (note: `--include="*.ts"` as specified — excludes `.tsx`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "i18n\|locale\|dictionar\|translations" src/ --include="*.ts" | sort
+src/app/api/admin/tenants/create/route.ts
+src/app/api/ai/assessment/route.ts
+src/app/api/auth/signup/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/financial/data/route.ts
+src/app/api/ingest/event/route.ts
+src/app/api/intelligence/narrate/route.ts
+src/app/api/periods/create-from-data/route.ts
+src/app/api/periods/detect/route.ts
+src/app/api/platform/tenant-config/route.ts
+src/app/api/platform/tenants/create/route.ts
+src/hooks/useAdminLocale.ts
+src/lib/ai/ai-service.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/analytics/analytics-service.ts
+src/lib/approval-routing/impact-calculator.ts
+src/lib/auth/__tests__/resolve-identity.test.ts
+src/lib/auth/resolve-identity.ts
+src/lib/auth/server-auth.ts
+src/lib/billing/pricing.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/results-formatter.ts
+src/lib/calculation/run-calculation.ts
+src/lib/currency.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/data-service.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/data/persona-queries.ts
+src/lib/data/platform-queries.ts
+src/lib/financial/financial-service.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/i18n.ts
+src/lib/import/period-detector.ts
+src/lib/ingestion/batch-manager.ts
+src/lib/intelligence/ai-metrics-service.ts
+src/lib/intelligence/anomaly-detection.ts
+src/lib/intelligence/narration-service.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/trajectory-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/navigation/pulse-service.ts
+src/lib/normalization/dictionary-seeder.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/normalization/normalization-engine.ts
+src/lib/payroll/period-management.ts
+src/lib/payroll/period-processor.ts
+src/lib/rbac/rbac-service.ts
+src/lib/reconciliation/benchmark-intelligence.ts
+src/lib/reconciliation/report-engine.ts
+src/lib/sci/__tests__/structural-analog-generator.test.ts
+src/lib/sci/agents.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/header-comprehension.ts
+src/lib/sci/proposal-intelligence.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/search/search-service.ts
+src/lib/supabase/__tests__/auth-service.test.ts
+src/lib/supabase/auth-service.ts
+src/lib/supabase/database.types.ts
+src/lib/supabase/entity-service.ts
+src/lib/tenant/provisioning-engine.ts
+src/lib/utils.ts
+src/types/tenant.ts
+```
+
+Most hits are incidental (`toLocaleString`, `locale` config fields, "dictionary-seeder" for data normalization). The i18n core is `src/lib/i18n.ts`, `src/hooks/useAdminLocale.ts`, `src/contexts/locale-context.tsx`.
+
+No i18n library in package.json:
+
+```
+$ grep -nE '"(next-intl|react-i18next|i18next|next-i18next|formatjs|lingui|@formatjs)' package.json
+(no output)
+```
+
+Mechanism A — JSON dictionaries (`src/lib/i18n.ts:1-9, 27-31`):
+
+```ts
+// src/lib/i18n.ts:1
+export type Locale = 'en-US' | 'es-MX' | 'pt-BR';
+
+export const SUPPORTED_LOCALES: { code: Locale; name: string; flag: string }[] = [
+  { code: 'en-US', name: 'English', flag: '🇺🇸' },
+  { code: 'es-MX', name: 'Español', flag: '🇲🇽' },
+  { code: 'pt-BR', name: 'Português', flag: '🇧🇷' },
+];
+
+export const DEFAULT_LOCALE: Locale = 'en-US';
+// src/lib/i18n.ts:27
+  try {
+    // Dynamic import based on locale and namespace
+    const translations = await import(`@/locales/${locale}/${namespace}.json`);
+    translationCache[cacheKey] = translations.default || translations;
+    return translationCache[cacheKey];
+```
+
+```
+$ ls src/locales && ls src/locales/*
+en-US  es-MX  pt-BR
+src/locales/en-US: common.json  compensation.json
+src/locales/es-MX: common.json  compensation.json
+src/locales/pt-BR: common.json  compensation.json
+
+$ for f in src/locales/en-US/common.json src/locales/en-US/compensation.json src/locales/es-MX/common.json src/locales/pt-BR/common.json; do echo "$f: $(grep -c '":' $f) value-lines"; done
+src/locales/en-US/common.json: 125 value-lines
+src/locales/en-US/compensation.json: 131 value-lines
+src/locales/es-MX/common.json: 125 value-lines
+src/locales/pt-BR/common.json: 125 value-lines
+```
+
+`src/contexts/locale-context.tsx:122-127` exposes `t()`; `:104-115` persists preference to `profiles.locale` ('en'/'es'/'pt'); `:88-92` initializes from the auth-context profile locale.
+
+```ts
+// src/contexts/locale-context.tsx:122
+  const t = useCallback(
+    (key: string, params?: Record<string, string | number>): string => {
+      return getTranslation(translations, key, params);
+    },
+    [translations]
+  );
+```
+
+Mechanism B — inline per-component bilingual records (`src/hooks/useAdminLocale.ts:15, 44-48`):
+
+```ts
+// src/hooks/useAdminLocale.ts:15
+export type SupportedLocale = 'en-US' | 'es-MX';
+// src/hooks/useAdminLocale.ts:44
+    const locale: SupportedLocale =
+      (userLocale === 'es-MX' || userLocale === 'en-US') ? userLocale
+      : currentTenant?.locale === 'es-MX' ? 'es-MX'
+      : 'en-US';
+    const isSpanish = locale === 'es-MX';
+```
+
+Adoption split between the two mechanisms:
+
+```
+$ grep -rln "useAdminLocale" src/ --include="*.tsx" | sort
+src/app/admin/launch/calculate/page.tsx
+
+$ grep -rln "loadTranslations\|getTranslation" src/ --include="*.ts" --include="*.tsx" | sort
+src/contexts/locale-context.tsx
+src/lib/i18n.ts
+
+$ grep -rln "useLocale" src/ --include="*.tsx" | wc -l
+      91
+
+$ grep -rln "useLocale" src/ --include="*.tsx" | xargs grep -ln "[^a-zA-Z]t('"
+src/app/login/page.tsx                          # the only route page calling the t() dictionary
+
+$ grep -rln "'es-MX'" src/components src/app --include="*.tsx" | wc -l
+      89                                         # files with inline locale-conditional records
+```
+
+No route-level locale handling; root layout hardcodes lang:
+
+```
+$ grep -rn "locale\|i18n" src/middleware.ts next.config.* | head
+(no output)
+$ grep -n "LocaleProvider\|lang=" src/app/layout.tsx | head
+7:import { LocaleProvider } from "@/contexts/locale-context";
+39:    <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
+46:            <LocaleProvider>
+53:            </LocaleProvider>
+```
+
+## (2) Demo-path route enumeration
+
+Complete page.tsx enumeration under src/app (`find src/app -name "page.tsx" | sort`, 127 entries) — demo-path-relevant dirs marked:
+
+```
+src/app/acceleration/page.tsx
+src/app/admin/access-control/page.tsx
+src/app/admin/audit/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx   <- calculate (admin launch)
+src/app/admin/launch/calculate/page.tsx               <- calculate (admin launch)
+src/app/admin/launch/page.tsx
+src/app/admin/launch/plan-import/page.tsx             <- import (plan)
+src/app/admin/launch/reconciliation/page.tsx
+src/app/admin/tenants/new/page.tsx
+src/app/approvals/page.tsx
+src/app/auth/mfa/enroll/page.tsx
+src/app/auth/mfa/verify/page.tsx
+src/app/configuration/locations/page.tsx
+src/app/configuration/page.tsx
+src/app/configuration/personnel/page.tsx
+src/app/configuration/teams/page.tsx
+src/app/configuration/terminology/page.tsx
+src/app/configure/[...slug]/page.tsx
+src/app/configure/data-specs/page.tsx
+src/app/configure/locations/page.tsx
+src/app/configure/organization/locations/page.tsx
+src/app/configure/organization/teams/page.tsx
+src/app/configure/page.tsx
+src/app/configure/people/page.tsx
+src/app/configure/periods/page.tsx
+src/app/configure/system/page.tsx
+src/app/configure/teams/page.tsx
+src/app/configure/users/invite/page.tsx
+src/app/configure/users/page.tsx
+src/app/data/import/enhanced/page.tsx                 <- import + mapping (enhanced wizard)
+src/app/data/import/page.tsx                          <- import (data)
+src/app/data/imports/page.tsx                         <- import history (data)
+src/app/data/operations/page.tsx
+src/app/data/page.tsx
+src/app/data/quality/page.tsx
+src/app/data/readiness/page.tsx
+src/app/data/reports/page.tsx
+src/app/data/transactions/new/page.tsx
+src/app/data/transactions/page.tsx
+src/app/design/[...slug]/page.tsx
+src/app/design/budget/page.tsx
+src/app/design/goals/page.tsx
+src/app/design/page.tsx
+src/app/design/plans/new/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/summary/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/govern/[...slug]/page.tsx
+src/app/govern/access/page.tsx
+src/app/govern/approvals/page.tsx
+src/app/govern/audit-reports/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/govern/data-lineage/page.tsx
+src/app/govern/page.tsx
+src/app/insights/analytics/page.tsx                   <- dashboards
+src/app/insights/compensation/page.tsx                <- dashboards
+src/app/insights/my-team/page.tsx                     <- dashboards
+src/app/insights/page.tsx                             <- dashboards
+src/app/insights/performance/page.tsx                 <- dashboards
+src/app/insights/sales-finance/page.tsx               <- dashboards
+src/app/insights/trends/page.tsx                      <- dashboards
+src/app/integrations/catalog/page.tsx
+src/app/investigate/[...slug]/page.tsx
+src/app/investigate/adjustments/page.tsx
+src/app/investigate/audit/page.tsx
+src/app/investigate/entities/page.tsx
+src/app/investigate/page.tsx
+src/app/investigate/reconciliation/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/login/page.tsx                                <- login
+src/app/my-compensation/page.tsx                      <- statement (rep)
+src/app/notifications/page.tsx
+src/app/operate/[...slug]/page.tsx
+src/app/operate/approve/page.tsx
+src/app/operate/briefing/page.tsx
+src/app/operate/calculate/page.tsx                    <- calculate
+src/app/operate/import/enhanced/page.tsx              <- import (SCI, enhanced)
+src/app/operate/import/history/page.tsx               <- import history
+src/app/operate/import/page.tsx                       <- import (SCI primary)
+src/app/operate/import/quarantine/page.tsx            <- import quarantine
+src/app/operate/lifecycle/page.tsx
+src/app/operate/monitor/operations/page.tsx
+src/app/operate/monitor/quality/page.tsx
+src/app/operate/monitor/readiness/page.tsx
+src/app/operate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/results/page.tsx                      <- results
+src/app/operations/audits/logins/page.tsx
+src/app/operations/audits/page.tsx
+src/app/operations/data-readiness/page.tsx
+src/app/operations/messaging/page.tsx
+src/app/operations/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/page.tsx
+src/app/perform/[...slug]/page.tsx
+src/app/perform/compensation/page.tsx
+src/app/perform/page.tsx
+src/app/perform/statements/page.tsx                   <- statement (manager/entity)
+src/app/perform/team/page.tsx
+src/app/perform/trends/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/performance/approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/app/performance/approvals/payouts/page.tsx
+src/app/performance/approvals/plans/page.tsx
+src/app/performance/goals/page.tsx
+src/app/performance/page.tsx
+src/app/select-tenant/page.tsx
+src/app/signup/page.tsx
+src/app/spm/alerts/page.tsx
+src/app/stream/page.tsx
+src/app/test-ds/page.tsx
+src/app/unauthorized/page.tsx
+src/app/upgrade/page.tsx
+src/app/workforce/permissions/page.tsx
+src/app/workforce/roles/page.tsx
+src/app/workforce/personnel/page.tsx
+src/app/workforce/teams/page.tsx
+```
+
+"Mapping" is not a standalone route: it is a step inside the import flows. Mapping surfaces found:
+
+```
+$ grep -rniln "mapping" src/components --include="*.tsx" | sort | head -20
+src/components/design-system/DataReadinessPanel.tsx
+src/components/forensics/ComparisonUpload.tsx
+src/components/import/column-mapper.tsx        <- mapping UI
+src/components/import/field-mapper.tsx         <- mapping UI
+src/components/import/validation-preview.tsx
+src/components/navigation/command-palette/CommandPalette.tsx
+src/components/platform/AIIntelligenceTab.tsx
+
+$ grep -rniln "mapping" src/app/operate/import src/app/data/import --include="*.tsx"
+src/app/data/import/enhanced/page.tsx
+```
+
+The SCI import route (`src/app/operate/import/page.tsx:12-16`) composes `src/components/sci/` (SCIUpload, SCIProposal, SCIExecution, ImportReadyState, ImportProgress) — the proposal step is the SCI-flow mapping/comprehension surface.
+
+## (3) Hardcoded English UI string sampling per route scope
+
+Pattern: `"Submit\|Cancel\|Loading\|Search\|Settings\|Save\|Delete\|Upload\|Download\|Export"`, `--include="*.tsx" --include="*.ts"`. Raw hit counts (counts include identifier matches such as `isLoading`/`handleSubmit`; exemplars below are user-visible strings):
+
+```
+== login (src/app/login) ==                                                            18
+== import-sci (src/app/operate/import + src/components/sci) ==                         49
+== import-data+mapping (src/app/data/import + src/components/import) ==                46
+== calculate (src/app/operate/calculate + src/components/calculate + src/app/admin/launch/calculate) == 44
+== results (src/app/operate/results + src/components/results) ==                       15
+== statement (src/app/my-compensation + src/app/perform/statements + src/components/compensation) == 28
+== dashboards (src/app/insights + src/components/dashboards) ==                        92
+```
+
+Exemplars (file:line + string):
+
+login — 18 hits:
+```
+src/app/login/page.tsx:177:              {isLoading ? 'Signing in...' : 'Sign In'}
+src/app/login/page.tsx:217:            {googleLoading ? 'Redirecting...' : 'Continue with Google'}
+src/app/login/page.tsx:112:            {t('auth.signIn')}        <- same page also uses the t() dictionary (line 39: t('auth.welcomeBack', ...))
+```
+
+import (SCI) — 49 hits:
+```
+src/app/operate/import/page.tsx:72:  upload: 'Upload your data and the platform will handle the rest.',
+src/app/operate/import/history/page.tsx:175:              <p className="text-zinc-400">Loading ingestion events...</p>
+src/app/operate/import/quarantine/page.tsx:289:                        Reject & Delete
+```
+
+import (data) + mapping — 46 hits:
+```
+src/components/import/field-mapper.tsx:308:                {isSpanish ? 'Guardar Plantilla' : 'Save Template'}   <- inline bilingual ternary
+src/app/data/import/enhanced/page.tsx:102:    title: { en: 'Upload Package', es: 'Cargar Paquete' },           <- inline { en, es } record
+src/app/data/import/enhanced/page.tsx:103:    description: { en: 'Upload your data workbook', es: 'Cargue su libro de datos' },
+```
+
+calculate — 44 hits:
+```
+src/app/operate/calculate/page.tsx:778:                        Export CSV
+src/components/calculate/PlanCard.tsx:295:              Calculating...
+src/app/operate/calculate/page.tsx:672:        {/* Loading state */}   (surrounding spinner block; page has no locale-conditional strings)
+```
+
+results — 15 hits:
+```
+src/components/results/EntityTable.tsx:150:            placeholder="Search ID, name, store..."
+src/app/operate/results/page.tsx:589:                placeholder="Search entity..."
+src/app/operate/results/page.tsx:587:              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+```
+
+statement — 28 hits:
+```
+src/app/my-compensation/page.tsx:254:          <p className="text-muted-foreground">Loading your outcomes...</p>
+src/app/perform/statements/page.tsx:321:        <span className="ml-2 text-sm text-zinc-500">Loading statement...</span>
+src/app/perform/statements/page.tsx:362:                    placeholder="Search..."
+```
+
+dashboards — 92 hits:
+```
+src/app/insights/compensation/page.tsx:347:                  Export CSV
+src/app/insights/page.tsx:128:          <p className="text-muted-foreground">Loading insights...</p>
+src/app/insights/trends/page.tsx:162:              {isSpanish ? 'Exportar' : 'Export'}   <- inline bilingual ternary
+```
+
+## Locale-conditional coverage per demo-path scope (files containing `isSpanish` or `'es-MX'`)
+
+```
+src/app/login: 0 of 1 tsx files          (uses t() dictionary instead, partially)
+src/app/operate/import: 0 of 4 tsx files
+src/components/sci: 0 of 6 tsx files
+src/app/data/import: 1 of 2 tsx files
+src/components/import: 2 of 6 tsx files
+src/app/operate/calculate: 0 of 1 tsx files
+src/components/calculate: 0 of 2 tsx files
+src/app/operate/results: 0 of 1 tsx files
+src/components/results: 0 of 5 tsx files
+src/app/my-compensation: 0 of 1 tsx files
+src/app/perform/statements: 0 of 1 tsx files
+src/components/compensation: 0 of 6 tsx files
+src/app/insights: 2 of 7 tsx files
+src/components/dashboards: 3 of 4 tsx files
+```
+
+## Language selector surface
+
+```
+$ grep -rln "SUPPORTED_LOCALES\|setLocale" src/components src/app --include="*.tsx" | sort
+src/components/layout/language-switcher.tsx
+
+$ grep -rln "language-switcher\|LanguageSwitcher" src/ --include="*.tsx" | sort
+src/components/layout/language-switcher.tsx
+src/components/navigation/Navbar.tsx          <- mounted in global navbar chrome
+```
+
+**GAP TO DEMO BAR:** The probe bar is the inventory itself — complete; no translation work performed (per probe scope). Inventory facts relevant to a non-English demo: en-US strings are hardcoded across all seven demo-path scopes; es-MX coverage exists only via inline records in `src/app/data/import/enhanced`, `src/components/import` (2 files), `src/app/insights` (2 files), `src/components/dashboards` (3 files), and via the t() dictionary on the login page; the SCI import, calculate, results, and statement scopes have zero locale-conditional strings. pt-BR dictionaries exist but `useAdminLocale.SupportedLocale` covers only `en-US | es-MX`.
+
+**EFFORT SHAPE:** Inventory: E0 — none (this probe is read-only enumeration). If the MIR demo requires an es-MX demo path: E3 COMPOSE — apply the two existing mechanisms (`useLocale().t()` + `src/locales/*` namespaces, or the inline `getLabel`/`isSpanish` record pattern already present in 89 files) to the zero-coverage demo-path surfaces: `src/app/operate/import/*` + `src/components/sci/*` (6 components), `src/app/operate/calculate` + `src/components/calculate` (2), `src/app/operate/results` + `src/components/results` (5), `src/app/my-compensation`, `src/app/perform/statements`, `src/components/compensation` (6). No new schema, services, or routes; `profiles.locale` persistence and `LocaleProvider` wiring already exist in `src/app/layout.tsx:46`.
+
+# D4 — Post-calc display integrity (#69/#71/#72 family)
+
+**CURRENT STATE:** The primary calculate-and-view surface (`/operate/calculate`) re-fetches results after every calculation: the calc API is synchronous (its HTTP response is the completion signal), the trigger calls `onCalculateComplete → refreshBatches()`, and the DS-007 results effect depends on the refreshed `batches` array, re-running `loadResultsPageData` which always selects the latest non-superseded batch. The standalone `/operate/results` page keys off `selectedBatchId`, which is pinned by sessionStorage and is NOT invalidated by a recalculation — and recalculation never sets `superseded_by` on the prior batch (DB-verified: 0 of 15 batches superseded; 4 tenant/period/plan groups carry 2 live PREVIEW batches each). Displayed entity counts in results surfaces derive from `calculation_results` rows (calculated entities); the PlanCard's pre-calc "N entities" derives from `rule_set_assignments` count (assigned, not calculated). The calculate page's period selector reads from OperateContext and the in-page period-creation flow awaits `refreshPeriods()`, so a newly created period appears without page exit.
+
+---
+
+## EVIDENCE
+
+### Adjacent-arm sweep — every calc trigger surface (callers of `/api/calculation/run`)
+
+```
+$ grep -rn "api/calculation/run" src --include="*.ts" --include="*.tsx" -l
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/api/calculation/run/route.ts        (the route itself)
+src/app/api/import/commit/route.ts          (comment only — see below)
+src/components/calculate/PlanCard.tsx
+```
+
+`import/commit` is a comment reference, not a trigger:
+
+```
+src/app/api/import/commit/route.ts:986
+    // HF-224: Import-time convergence (OB-120) removed. Calc-time convergence
+    // (HF-165) at /api/calculation/run is the single binding decision point so
+    // every run sees the full committed dataset and a fresh distinguishability
+    // check (no partial bindings persisted from upload time).
+```
+
+Trigger surfaces: (a) `PlanCard` per-plan Calculate, (b) `/operate/calculate` "Calculate All", (c) `/operate/lifecycle` DRAFT→PREVIEW advance, (d) `/admin/launch/calculate` run button. All four are traced below.
+
+---
+
+### READ 1 — Results staleness: trigger → completion signal → refetch (or absence)
+
+**Completion signal = the synchronous HTTP response.** The route writes all `calculation_results`, transitions the batch to PREVIEW, then returns counts in the response body:
+
+```
+src/app/api/calculation/run/route.ts:2870-2877
+  // ── 8. Transition batch to PREVIEW ──
+  const { error: transErr } = await supabase
+    .from('calculation_batches')
+    .update({
+      lifecycle_state: 'PREVIEW',
+      entity_count: entityResults.length,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+```
+
+```
+src/app/api/calculation/run/route.ts:3142-3147
+  return NextResponse.json({
+    success: true,
+    batchId: batch.id,
+    entityCount: entityResults.length,
+    excludedCount: excludedEntities.length,
+    totalPayout: grandTotal,
+```
+
+**Surface (a)+(b): `/operate/calculate` — re-fetch chain verified.** PlanCard awaits the response, then fires the completion callback:
+
+```
+src/components/calculate/PlanCard.tsx:86-97,127-128
+    try {
+      const response = await fetch('/api/calculation/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          periodId,
+          ruleSetId: plan.planId,
+        }),
+      });
+
+      const result = await response.json();
+...
+        onCalculateComplete();
+        onSelect(plan.planId); // HF-182 Fix 1: auto-select plan to show results
+```
+
+The page's completion handler refreshes batches + readiness:
+
+```
+src/app/operate/calculate/page.tsx:228-240
+  // Refresh readiness after calculation
+  const handleCalculateComplete = useCallback(async () => {
+    await refreshBatches();
+    try {
+      const resp = await fetch(`/api/plan-readiness?tenantId=${tenantId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setPlanReadiness(data.plans || []);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [tenantId, refreshBatches]);
+```
+
+("Calculate All" also ends with `await handleCalculateComplete();` at src/app/operate/calculate/page.tsx:274.)
+
+`refreshBatches` is `loadBatches` in OperateContext, which `setBatches(...)` with a new array reference:
+
+```
+src/contexts/operate-context.tsx:228-241,261
+    const supabase = createClient();
+    let query = supabase
+      .from('calculation_batches')
+      .select('id, period_id, rule_set_id, lifecycle_state, entity_count, summary, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', selectedPeriodId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (selectedPlanId) {
+      query = query.eq('rule_set_id', selectedPlanId);
+    }
+
+    const { data } = await query;
+...
+    setBatches(loadedBatches);
+```
+
+The DS-007 results effect lists `batches` in its dependency array, so the refreshed reference re-runs the loader:
+
+```
+src/app/operate/calculate/page.tsx:203-226
+  // Load DS-007 results when a plan is selected
+  useEffect(() => {
+    if (!selectedPlanId || !tenantId || !selectedPeriodId) {
+      setResultsData(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      setResultsLoading(true);
+      try {
+        const data = await loadResultsPageData(tenantId, selectedPeriodId, selectedPlanId);
+        if (!cancelled) setResultsData(data);
+      } catch {
+        if (!cancelled) setResultsData(null);
+      } finally {
+        if (!cancelled) setResultsLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [selectedPlanId, tenantId, selectedPeriodId, batches]);
+```
+
+And the loader always selects the LATEST non-superseded batch:
+
+```
+src/lib/data/results-loader.ts:108-118
+  const [batchRes, ruleSetRes, periodRes] = await Promise.all([
+    supabase
+      .from('calculation_batches')
+      .select('id, lifecycle_state, entity_count, summary, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .eq('rule_set_id', ruleSetId)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+```
+
+**Current behavior (from code), `/operate/calculate`:** the results view DOES re-fetch after calculation completes — trigger → awaited response → `refreshBatches()` → `batches` dependency → `loadResultsPageData` → latest batch. Not stale.
+
+**Surface (c): `/operate/lifecycle`** — refetches after calc:
+
+```
+src/app/operate/lifecycle/page.tsx:195-209
+        const response = await fetch('/api/calculation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, periodId: activePeriodId, ruleSetId }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          setCalcError(result.error || (isSpanish ? 'Error al ejecutar calculo' : 'Calculation failed'));
+          return;
+        }
+
+        // Calculation succeeded — reload page data to show results
+        await reloadData();
+```
+
+**Surface (d): `/admin/launch/calculate`** — refetches after calc:
+
+```
+src/app/admin/launch/calculate/page.tsx:357-370 (inside handleRunCalculation)
+      // Refresh batches and results
+      const batches = await listCalculationBatches(currentTenant.id);
+      setRecentBatches(batches.slice(0, 10));
+
+      // Load the latest batch
+      const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+      setActiveBatch(batch);
+      if (batch) {
+        const [results, cycle] = await Promise.all([
+          getCalculationResults(currentTenant.id, batch.id),
+          batchToCycle(batch, currentTenant.id),
+        ]);
+        setBatchResults(results);
+        setActiveCycle(cycle);
+      }
+```
+
+**Standalone `/operate/results` — staleness path exists.** The page keys ONLY off `selectedBatchId`:
+
+```
+src/app/operate/results/page.tsx:96,112-126,188
+  const { selectedBatchId, selectedBatch, isLoading: contextLoading } = useOperate();
+...
+  // OB-92: Load results for the batch selected in OperateContext
+  useEffect(() => {
+    if (!tenantId || !selectedBatchId) {
+      setResults([]);
+      setTotalPayout(0);
+      setAnomalyReport(null);
+      if (!contextLoading) setIsLoaded(true);
+      return;
+    }
+...
+        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+  }, [tenantId, selectedBatchId, contextLoading]);
+```
+
+`selectedBatchId` auto-select PREFERS the sessionStorage-pinned batch, and `loadBatches` (above) does NOT filter `superseded_by`:
+
+```
+src/contexts/operate-context.tsx:263-274
+    // Auto-select batch: prefer sessionStorage, then most recent
+    const storedBatch = ssGet(SK_BATCH);
+    const validStoredBatch = loadedBatches.find(b => b.id === storedBatch);
+    if (validStoredBatch) {
+      setSelectedBatchId(validStoredBatch.id);
+    } else if (loadedBatches.length > 0) {
+      setSelectedBatchId(loadedBatches[0].id);
+      ssSet(SK_BATCH, loadedBatches[0].id);
+    } else {
+      setSelectedBatchId(null);
+      ssSet(SK_BATCH, null);
+    }
+```
+
+The recalc path never marks the prior batch superseded — the run route only INSERTS a new batch:
+
+```
+src/app/api/calculation/run/route.ts:1247-1262
+  // ── 5. Create calculation batch ──
+  // OB-197 G11: explicit id == calculationRunId so any signal scoped to the
+  // run (convergence, in-run SCI, lifecycle) joins back to this batch row.
+  const { data: batch, error: batchErr } = await supabase
+    .from('calculation_batches')
+    .insert({
+      id: calculationRunId,
+      tenant_id: tenantId,
+      period_id: periodId,
+      rule_set_id: ruleSetId,
+      batch_type: 'standard',
+      lifecycle_state: 'DRAFT',
+      entity_count: calculationEntityIds.length,
+      config: {} as unknown as Json,
+      summary: {} as unknown as Json,
+    })
+```
+
+`supersedeBatch` exists but is reachable only via an explicit SUPERSEDED lifecycle transition (OFFICIAL+ batches), and the lifecycle UI skips it:
+
+```
+$ grep -rn "supersedeBatch" src --include="*.ts" --include="*.tsx"
+src/lib/supabase/calculation-service.ts:278:export async function supersedeBatch(
+src/lib/calculation/calculation-lifecycle-service.ts:18:  supersedeBatch,
+src/lib/calculation/calculation-lifecycle-service.ts:410:      const newBatch = await supersedeBatch(tenantId, batchId, {
+
+src/components/lifecycle/LifecycleActionBar.tsx:92-93
+    // Skip SUPERSEDED — handled separately
+    if (targetState === 'SUPERSEDED') continue;
+```
+
+**DB verification (read-only script, service-role SELECT/head-count only):**
+
+Script: `web/scripts/diag/diag063_d4_batch_accumulation_check.ts`
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_d4_batch_accumulation_check.ts
+calculation_batches total=15 superseded_by_set=0 non_superseded=15
+
+groups(tenant|period|rule_set) seen=11; groups with >1 NON-superseded batch=4
+
+Top 10 groups by non-superseded batch count:
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 period=0fcd8fa0-c2f2-43c3-b8e6-234244914c16 rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-11T19:32:31.342201+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=8ac39a1d-bd1b-4137-8db3-469e596e9a4b rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:36:22.864878+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=9a240061-736f-496c-8297-af8ea7652fc2 rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:36:07.999297+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=8896974e-56bb-420c-b519-07ed29bd6c55 rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:35:52.010776+00:00
+```
+
+(`superseded_by` column confirmed against SCHEMA_REFERENCE_LIVE.md, `calculation_batches (16 columns)`, line 90.)
+
+**Current behavior (from code+DB), `/operate/results`:** after a recalculation, the prior batch remains in the unfiltered batch list and the sessionStorage-pinned `selectedBatchId` remains valid, so the page continues displaying the pre-recalc batch until the user manually changes the Run dropdown (OperateSelector). Recorded, not fixed.
+
+---
+
+### READ 2 — Entity-count source: calculated entities or all entities?
+
+**Results hero ("Entities" stat) — calculated entities.** Displayed value:
+
+```
+src/components/results/ResultsHero.tsx:86-93
+            <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/30 p-3">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Entities</p>
+              <p className="text-lg font-bold text-zinc-200 mt-0.5"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                {resultCount.toLocaleString()}
+              </p>
+            </div>
+```
+
+Exact data source — the count of `calculation_results` rows for the selected batch:
+
+```
+src/lib/data/results-loader.ts:147-154,349-353
+  // Round 2: calculation_results for this batch (1 call)
+  const { data: results } = await supabase
+    .from('calculation_results')
+    .select('entity_id, total_payout, components, attainment, metadata, metrics')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batch.id);
+
+  if (!results || results.length === 0) return null;
+...
+  return {
+    totalPayout,
+    resultCount: entities.length,
+```
+
+**`/operate/results` page ("N entities") — calculated entities of the selected batch:**
+
+```
+src/app/operate/results/page.tsx:126,346,363-366
+        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+  const entityCount = results.length;
+...
+          <p className="text-slate-400 text-sm">
+            {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+          </p>
+```
+
+**PlanCard ("N entities") — TWO sources under one label:**
+
+```
+src/components/calculate/PlanCard.tsx:194-202
+        <div className="flex items-center gap-4 text-xs text-zinc-500 mb-3">
+          <span className="flex items-center gap-1">
+            {(calcEntityCount ?? plan.entityCount) > 0 ? (
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+            ) : (
+              <AlertTriangle className="w-3 h-3 text-amber-500" />
+            )}
+            {calcEntityCount ?? plan.entityCount} entities{excludedCount > 0 && ` (${excludedCount} excl.)`}
+          </span>
+```
+
+Pre-calculation, `plan.entityCount` is the `rule_set_assignments` exact count — assigned entities, not calculated:
+
+```
+src/app/api/plan-readiness/route.ts:39-47,102-108
+  // Fetch assignment counts per plan using exact count (avoids max_rows truncation)
+  const assignCountByPlan = new Map<string, number>();
+  for (const rs of ruleSets) {
+    const { count } = await supabase
+      .from('rule_set_assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', rs.id);
+    assignCountByPlan.set(rs.id, count || 0);
+  }
+...
+  const plans = ruleSets.map(rs => {
+    const latest = latestBatchByPlan.get(rs.id);
+    return {
+      planId: rs.id,
+      planName: rs.name,
+      status: rs.status,
+      entityCount: assignCountByPlan.get(rs.id) || 0,
+```
+
+Post-calculation (in-session), `calcEntityCount` comes from the API response, which is the count of written results (`entityCount: entityResults.length`, run/route.ts:3145). Note the calc route self-heals assignments to ALL tenant `individual` entities, so the assignment count converges to the full individual-entity population:
+
+```
+src/app/api/calculation/run/route.ts:448-462 (condensed)
+  let entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
+
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  {
+    const allTenantEntityIds: string[] = [];
+    ...
+      const { data: ep } = await supabase
+        .from('entities')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('entity_type', 'individual')  // HF-263: never self-assign grouping entities for calculation
+```
+
+**OperateSelector Run dropdown ("N ent") — `calculation_batches.entity_count` column.** Set to scoped population at insert (`entity_count: calculationEntityIds.length`, run/route.ts:1259), then overwritten at completion with the calculated count (`entity_count: entityResults.length`, run/route.ts:2875). Display:
+
+```
+src/components/operate/OperateSelector.tsx:126-129
+                    {statusDot(b.lifecycleState)}
+                    <span className="truncate">
+                      {b.lifecycleState} — {b.entityCount} ent — {formatCurrency(b.totalPayout)}
+                    </span>
+```
+
+**Current behavior (from code):** all results-view counts (ResultsHero, `/operate/results`, OperateSelector post-completion) derive from CALCULATED entities (`calculation_results` rows / `entity_count` updated to `entityResults.length`). The PlanCard count on the same page derives from `rule_set_assignments` (assigned entities) until a calculation runs in-session, then switches source to the calculated count — same label, two sources.
+
+---
+
+### READ 3 — Period-selector refresh: does a new period appear without page exit?
+
+**Selector data source** — OperateContext `periods`, cadence-filtered:
+
+```
+src/app/operate/calculate/page.tsx:110-113,473-483
+  const filteredPeriods = useMemo(() => {
+    if (!selectedPlanCadence) return periods;
+    return periods.filter(p => p.period_type === selectedPlanCadence);
+  }, [periods, selectedPlanCadence]);
+...
+          {filteredPeriods.length > 0 ? (
+            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); setResultsData(null); setSelectedPlanId(null); }}>
+              <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredPeriods.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-sm font-medium">{p.label || p.canonicalKey}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+```
+
+Context loads periods once per tenant and exposes an explicit refresh:
+
+```
+src/contexts/operate-context.tsx:137-141,193-201,212
+        supabase
+          .from('periods')
+          .select('id, label, canonical_key, start_date, end_date, status, period_type')
+          .eq('tenant_id', tenantId)
+          .order('start_date', { ascending: true }),
+...
+  // OB-153: refreshPeriods — reload periods from database
+  const loadPeriods = useCallback(async () => {
+    if (!tenantId) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('periods')
+      .select('id, label, canonical_key, start_date, end_date, status, period_type')
+      .eq('tenant_id', tenantId)
+      .order('start_date', { ascending: true });
+...
+    setPeriods(loaded);
+```
+
+**In-page creation path refreshes without exit** — Detect Periods → Create → `await refreshPeriods()`:
+
+```
+src/app/operate/calculate/page.tsx:403-427 (condensed)
+  const handleCreateDetectedPeriods = async () => {
+    const toCreate = detectedPeriods.filter(p => p.selected && !p.exists);
+    if (toCreate.length === 0) return;
+    setIsCreatingPeriods(true);
+    try {
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          periods: toCreate.map(p => ({ ... status: 'open', metadata: { source: 'ob187_detect' } })),
+        }),
+      });
+      if (res.ok) {
+        setShowDetectionPanel(false);
+        setDetectedPeriods([]);
+        await refreshPeriods();
+```
+
+Complete caller enumeration for `refreshPeriods` (only one consumer surface):
+
+```
+$ grep -rn "refreshPeriods" src --include="*.tsx" --include="*.ts"
+src/contexts/operate-context.tsx:70:  refreshPeriods: () => Promise<void>;
+src/contexts/operate-context.tsx:193:  // OB-153: refreshPeriods — reload periods from database
+src/contexts/operate-context.tsx:343:    refreshPeriods: loadPeriods,
+src/app/operate/calculate/page.tsx:56:    refreshPeriods,
+src/app/operate/calculate/page.tsx:427:        await refreshPeriods();
+```
+
+**Cross-surface creation path** — "Create Manually" navigates to `/configure/periods` (its own load/create via `/api/periods`); that route is OUTSIDE the Operate segment, and `OperateProvider` is mounted at the Operate layout, so re-entering `/operate/*` remounts the provider and reloads periods:
+
+```
+src/app/operate/layout.tsx:8
+  return <OperateProvider>{children}</OperateProvider>;
+```
+
+Period-insert endpoints (complete enumeration): `/api/periods` (route.ts:136 `.insert(rows)` — used by both the calculate-page detect flow and `/configure/periods`) and `/api/periods/create-from-data` (route.ts:207 — no UI callers found: `grep -rn "create-from-data" src` returns no .tsx/.ts callers).
+
+**Current behavior (from code):** a period created in-page (Detect Periods panel) appears in the selector WITHOUT page exit via `await refreshPeriods()`. A period created on `/configure/periods` appears after navigating back into `/operate/*` (provider remount reloads periods); no page reload is required, but it is by definition a navigation. Adjacent observation: OperateContext exposes `refreshBatches`/`refreshPeriods` but no `refreshPlans`; the inline cadence editor (`handleCadenceChange` → PATCH `/api/rule-sets/update-cadence`, page.tsx:388-401) re-runs detection but the context's `plans[].cadence_config` (used by `filteredPeriods` via `selectedPlanCadence`) is not refreshed until provider remount.
+
+---
+
+## GAP TO DEMO BAR
+
+1. **Results staleness:** none on `/operate/calculate` (the demo calc surface) — post-calc refetch is wired end-to-end and lands on the latest batch. On `/operate/results`, a recalculation does not move the sessionStorage-pinned Run selection: the page keeps displaying the pre-recalc batch until the Run dropdown is changed manually, because (i) `loadBatches` does not filter `superseded_by` and (ii) the recalc path never sets `superseded_by` (DB: 0/15 set; 4 groups with 2 live PREVIEW batches). Recorded, not fixed.
+2. **Entity-count source:** none for results surfaces — counts derive from calculated entities (`calculation_results` rows). Nuance recorded: PlanCard's "N entities" is the `rule_set_assignments` count pre-calc and the calculated count post-calc, two sources under one label on the same page.
+3. **Period-selector refresh:** none for the in-page creation flow — `await refreshPeriods()` makes new periods appear without page exit. Adjacent gap recorded: no `refreshPlans` in OperateContext (stale `cadence_config` after inline cadence edit until remount).
+
+## EFFORT SHAPE
+
+- Read 1, `/operate/calculate`: **E0 — none.**
+- Read 1, `/operate/results` staleness (if addressed): **E3 COMPOSE** — wire batch supersession into the recalc path (`/api/calculation/run` calling existing `supersedeBatch` in `src/lib/supabase/calculation-service.ts`, or equivalent `superseded_by` update) plus auto-select adjustment in `OperateContext.loadBatches` (filter `superseded_by` / prefer newest over sessionStorage pin). No new tables; no new UI.
+- Read 2 (if the dual-source label is addressed): **E2 SURFACE** — label/source clarification in `PlanCard` stats row (existing `plan-readiness` payload already carries both semantics).
+- Read 3: **E0 — none** for the demo path; adjacent `refreshPlans` (if addressed): **E3 COMPOSE** — add a `loadPlans` refresh to `operate-context.tsx` and invoke after `/api/rule-sets/update-cadence`.
+
+Evidence tier: VERIFIED-CODE+DB. Script: `web/scripts/diag/diag063_d4_batch_accumulation_check.ts` (SELECT/head-count only).
 
 ## Module E — Engine-Path Confirmations
 
