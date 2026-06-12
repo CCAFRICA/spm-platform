@@ -34,10 +34,10 @@ interface ImportReadyStateProps {
 type Disposition = 'imported' | 'failed' | 'excluded' | 'resolved';
 interface CompletionRow { key: string; sheetName: string; disposition: Disposition; rows: number; classification?: AgentType; reason?: string | null; }
 
-function Conclusion({ label, value }: { label: string; value: string }) {
+function Conclusion({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="py-0.5">
-      <p className="text-sm text-zinc-200 tabular-nums">{value}</p>
+      <p className={cn('text-sm tabular-nums', accent ? 'text-emerald-300 font-medium' : 'text-zinc-200')}>{value}</p>
       <p className="text-[11px] text-zinc-500">{label}</p>
     </div>
   );
@@ -199,18 +199,33 @@ export function ImportReadyState({
           })}
         </div>
 
-        {/* D18 conclusion summary: the final telemetry persists on the screen — the platform's work, durable. */}
+        {/* 2.2 conclusion centerpiece: the Progressive-Performance story — what memory SAVED (first, the
+            payoff), what was LEARNED, what it COST. Durable telemetry, persisted on the screen. */}
         {telemetry && (
           <>
             <div className="h-px bg-zinc-800 my-6" />
-            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-3">What the platform did</p>
-            <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-3">
-              <Conclusion label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
-              <Conclusion label="Pulses" value={`${telemetry.pulses.committed} / ${telemetry.pulses.total}`} />
-              <Conclusion label="Atoms learned (novel)" value={telemetry.atoms.novelComprehended.toLocaleString()} />
-              <Conclusion label="Atoms from memory" value={telemetry.atoms.claimedFromMemory.toLocaleString()} />
-              <Conclusion label="LLM calls made / bypassed" value={`${telemetry.llm.made} / ${telemetry.llm.bypassedByMemory}`} />
-              <Conclusion label="Signals captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-3">What just happened</p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-400/80 mb-1.5">Memory saved</p>
+                  <Conclusion label="LLM calls bypassed" value={`${telemetry.llm.bypassedByMemory}`} accent={telemetry.llm.bypassedByMemory > 0} />
+                  <Conclusion label="Atoms recalled" value={telemetry.atoms.claimedFromMemory.toLocaleString()} />
+                  <Conclusion label="Bindings injected" value={`${telemetry.fieldBindingsInjected}`} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-sky-400/80 mb-1.5">Learned</p>
+                  <Conclusion label="Atoms (novel)" value={telemetry.atoms.novelComprehended.toLocaleString()} />
+                  <Conclusion label="Fingerprints stored" value={`${telemetry.fingerprints.storedNew}`} />
+                  <Conclusion label="Signals captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-400/80 mb-1.5">Cost</p>
+                  <Conclusion label="LLM calls made" value={`${telemetry.llm.made}`} />
+                  <Conclusion label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
+                  <Conclusion label="Pulses" value={`${telemetry.pulses.committed}`} />
+                </div>
+              </div>
             </div>
           </>
         )}
