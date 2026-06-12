@@ -41,11 +41,26 @@ const sortedPerUnit = (t: ImportTelemetry) =>
     .sort((a, b) => (a.sheetName ?? '').localeCompare(b.sheetName ?? ''))
     .map(u => ({ sheetName: u.sheetName, expectedRows: u.expectedRows, committed: u.committed }));
 
+// Key-order-insensitive canonicalization: jsonb returns object keys
+// alphabetized while in-process objects carry insertion order — equality is
+// about CONTENT (Decision 95), never key order.
+function canon(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canon);
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, val]) => [k, canon(val)]),
+    );
+  }
+  return v;
+}
+
 /** Field-by-field comparison; returns the names of diverging fields. */
 function compareTelemetry(scanned: ImportTelemetry, accumulated: ImportTelemetry): string[] {
   const fields: string[] = [];
   const eq = (name: string, a: unknown, b: unknown) => {
-    if (JSON.stringify(a) !== JSON.stringify(b)) fields.push(name);
+    if (JSON.stringify(canon(a)) !== JSON.stringify(canon(b))) fields.push(name);
   };
   eq('totalSignalsWritten', scanned.totalSignalsWritten, accumulated.totalSignalsWritten);
   eq('signalsPerType', scanned.signalsPerType, accumulated.signalsPerType);
