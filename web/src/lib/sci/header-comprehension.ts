@@ -274,6 +274,17 @@ export async function comprehendHeaders(
 // Atoms accumulate via writeAtoms only for succeeded units (hold a — failed runs don't seed the store).
 // ============================================================
 
+/**
+ * OB-203 Phase 5 — dev-only comprehension fault-injection gate (hard-gated; testable).
+ * TRUE only when ALL hold: not a production build, OB203_FAULT_SHEET is set, and it names this sheet.
+ * Used to force a genuine `failed_interpretation` through the production failure path for the CLT.
+ */
+export function ob203FaultInjected(sheetName: string): boolean {
+  return process.env.NODE_ENV !== 'production'
+    && !!process.env.OB203_FAULT_SHEET
+    && sheetName === process.env.OB203_FAULT_SHEET;
+}
+
 export async function runDecomposedComprehension(
   profiles: Map<string, ContentProfile>,
   sheets: Array<{ sheetName: string; columns: string[]; rows: Record<string, unknown>[]; rowCount: number }>,
@@ -297,6 +308,15 @@ export async function runDecomposedComprehension(
   let llmDispatches = 0;
   let totalLlmDuration = 0;
   const residue: ResidueComprehender = async (req) => {
+    // OB-203 Phase 5 — DEV-ONLY fault injection (hard-gated). When OB203_FAULT_SHEET names this
+    // sheet, short-circuit to a genuine comprehension failure BEFORE the LLM call, so the failure
+    // traverses the REAL Phase 1 path (decomposed dispatch → perSheetFailure → failed_interpretation
+    // → emitComprehensionFailureSignals). Inert without the env var; NEVER active in production
+    // builds (NODE_ENV guard). Durable test instrumentation for the observer/resolution CLT.
+    if (ob203FaultInjected(req.sheetName)) {
+      console.warn(`[OB-203][fault-injection] forcing comprehension failure for sheet=${req.sheetName} (OB203_FAULT_SHEET)`);
+      return { ok: false, failureClass: 'parse_failure' };
+    }
     let lastFailure: ComprehensionFailureClass = 'unclassified_failure';
     for (let attempt = 0; attempt < 2; attempt++) {
       llmDispatches++;

@@ -841,3 +841,31 @@ again or split the file" / "could not reach the server … check connection"). N
 ### HALT — none. No new table/channel; resolution actions write via the canonical surface; client failure surface is UI-only.
 
 **Awaiting architect CLT run (corrupt-analog import → observe → retry → assign → confirm) for the live witness, then PR.**
+
+### PHASE 5 — CLT v2: boundary fault-injection (architect 2026-06-11; data-corruption couldn't defeat the LLM)
+
+Data-level corruption comprehended anyway (Wimoxi: a role assigned to an empty column name). Replaced with
+**dev-only fault injection at the comprehension-response boundary** (`header-comprehension.ts`):
+- `ob203FaultInjected(sheetName)` — TRUE only when **not production** AND `OB203_FAULT_SHEET` is set AND it names
+  the sheet. The residue comprehender then returns `{ ok:false, failureClass:'parse_failure' }` BEFORE the LLM call,
+  so the failure traverses the **real Phase 1 path** (decomposed dispatch → `perSheetFailure` → `failed_interpretation`
+  state + `emitComprehensionFailureSignals`). **Hard-gated** (inert without the env var; NEVER in prod builds —
+  `NODE_ENV` guard). Durable test instrumentation, not a workaround. 3 gate tests.
+
+**Re-run recipe (which sheet fails):**
+1. Fresh witness (prior analog's fingerprints are warm): `web/clt-witness/ob203_clt_corrupt_5555.xlsx` —
+   sheets **Naroji, Gakudo, Viraqu, Rocece, Ziqufe** (all Tier-3 novel → all run comprehension).
+2. `OB203_FAULT_SHEET=Gakudo npm run dev` (faults the `Gakudo` unit; pick any sheet name).
+3. Import the seed-5555 file (sandbox 24103940). **Gakudo holds at `failed_interpretation`**; the others comprehend.
+4. Observer action set → **Assign** a classification → `resolved` + **`comprehension:resolution` (user_corrected)** live
+   (the deferred resolution witness). **Retry** while the env var is set re-fails (supersession witness); unset + retry
+   to witness retry-success. **Exclude** → `action_click`. **Confirm**.
+5. Verify: `npx tsx scripts/ob203-trace.ts <tenant> <session>` — `failed_interpretation`, then `comprehension:resolution`
+   + `interaction:import` rows.
+
+### REGISTRY OBSERVATION (recorded, NOT Phase 5 scope — architect disposition later)
+CLT run committed `Wimoxi` at `winner=target@31%` (and other sub-50% units): **low-confidence units proceed to commit
+through confirm without a distinct low-confidence HOLD state**. The state machine has `failed_interpretation` for
+comprehension failure but no "low-confidence / needs-review" hold distinct from a confident classification — a unit can
+commit at 31% with only the existing `requiresHumanReview` warning chip. Assess against the CLT registry + DS-027 (the
+`§4.4` action set could extend to a low-confidence hold); disposition deferred to the architect. Not in Phase 5 scope.
