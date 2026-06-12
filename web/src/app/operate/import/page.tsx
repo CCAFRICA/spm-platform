@@ -75,8 +75,11 @@ async function analyzeTabular(
           if (count > lastCount) {
             lastCount = count;
             lastProgressAt = Date.now();
-            const settled = view.units.filter(u => ['classified', 'bound', 'resolved', 'failed_interpretation'].includes(u.state)).length;
-            onProgress(settled, view.units.length);
+            // D14: count units that have reached comprehension (or beyond) — the streamed `comprehended`
+            // states ARE the mid-file progress. The prior filter counted only terminal states, so the
+            // strip sat at 0/N through the whole comprehension stretch even as states streamed.
+            const done = view.units.filter(u => ['comprehended', 'classified', 'bound', 'resolved', 'failed_interpretation'].includes(u.state)).length;
+            onProgress(done, view.units.length);
           }
         }
       } catch { /* transient poll failure — next tick retries */ }

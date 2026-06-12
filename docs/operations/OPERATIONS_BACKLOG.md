@@ -52,3 +52,18 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
 - **Cross-ref:** the D10-class placeholder-rendering fix ("None"/"—" suppressed when no data) is an **already-ratified
   pattern** (OB-203 Phase 5 D10) and may be cited here.
 - **Note:** NOT OB-203 scope.
+
+---
+
+## BL-005 — Import Progress as Innovation Telemetry
+
+- **Recorded:** 2026-06-12 (architect, D14 adjacent)
+- **Category:** Feature + Experience (import progress / Progressive Performance demonstration)
+- **Status:** Backlog — **Experience-First Gate required**
+- **Scope:** the import progress surface becomes a quantified demonstration of Progressive Performance, with
+  live counters sourced from the Phase 4 signal vocabulary: atoms recognized vs learned, LLM calls made vs
+  bypassed-by-memory, fingerprints matched/stored, signals emitted. The import is no longer a spinner — it is
+  a real-time telemetry of the platform's intelligence compounding.
+- **Design homes:** DS-013, DS-003, Addendum 9.
+- **Feeds:** BL-001 (Observatory atom-flywheel panel — same vocabulary/trace surface).
+- **Note:** distinct from the D14 progress-counter fix (mechanical); BL-005 is the telemetry experience.
