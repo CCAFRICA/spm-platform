@@ -20,6 +20,7 @@ import { emitUnitStates, type UnitStateSignalParams, type UnitComprehensionState
 import { fireSignal, buildTierResolutionSignal, buildCompositionSignal, buildSessionLifecycleSignal, buildWorkbookGraphSignal } from '@/lib/sci/comprehension-signal-vocabulary';
 // OB-203 Phase 6: workbook-graph synthesis (derived, flag-only).
 import { synthesizeWorkbookGraph, type SheetSummary, type GraphRole } from '@/lib/sci/workbook-graph';
+import { ob203Trace } from '@/lib/sci/ob203-verbose';
 import { computeAtomFingerprint } from '@/lib/sci/atom-fingerprint';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
@@ -262,6 +263,7 @@ export async function POST(req: NextRequest) {
       // cache hit reliably yields real roles here (no registry, no HF-236 divert). Legacy
       // pre-HF-254 cache rows that lack native columnRole self-heal on clean re-import
       // (§6A); the HF-247 read-surface column_roles-'unknown' gate remains the failure guard.
+      const injectedBindingsBySheet = new Map<string, number>();
       for (const sheet of file.sheets) {
         const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
         if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
@@ -298,7 +300,9 @@ export async function POST(req: NextRequest) {
           llmModel: 'flywheel-tier1',
           fromVocabularyBinding: false,
         };
+        injectedBindingsBySheet.set(sheet.sheetName, flywheelBindings.length);
         console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-254)`);
+        ob203Trace('binding', { sheet: sheet.sheetName, injected: flywheelBindings.length, source: 'flywheel-tier1' });
       }
 
       // OB-203 D13: the decomposed-dispatch sheets STREAMED their comprehended/failed state per unit
@@ -319,10 +323,13 @@ export async function POST(req: NextRequest) {
         const tier = sheetFlywheelResults.get(sheetName)?.tier ?? null;
         const prov = provenanceMap.get(sheetName);
         const unitId = unitIdBySheet.get(sheetName)!;
+        const resolver = prov?.llmCalled ? 'llm' as const : 'flywheel' as const;
         fireSignal(
-          buildTierResolutionSignal({ tenantId, unitId, sheetName, tier, resolver: prov?.llmCalled ? 'llm' : 'flywheel', importSessionId }),
+          buildTierResolutionSignal({ tenantId, unitId, sheetName, tier, resolver, injectedBindings: injectedBindingsBySheet.get(sheetName) ?? 0, importSessionId }),
           process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
+        ob203Trace('llm', { sheet: sheetName, tier, resolver, decision: resolver === 'llm' ? 'made' : 'bypassed-by-memory' });
+        ob203Trace('fingerprint', { sheet: sheetName, tier, recognized: resolver === 'flywheel' });
         if (prov) {
           // knownCount: columns NOT in the novel residue (clean, NaN-free approximation; the load-
           // bearing signal is compositionConfidence = recognizedFraction).

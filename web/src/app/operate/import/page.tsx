@@ -14,6 +14,7 @@ import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { ImportProgress } from '@/components/sci/ImportProgress';
+import { ImportTelemetryPanel } from '@/components/sci/ImportTelemetryPanel';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/client';
@@ -147,6 +148,7 @@ export default function OperateImportPage() {
   const [state, setState] = useState<ImportState>({ phase: 'upload' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const rawDataRef = useRef<ParsedFileData | null>(null);
+  const importSessionIdRef = useRef<string | null>(null); // OB-203 §2: shared analyze/execute session id
   const [postImportData, setPostImportData] = useState<PostImportData | null>(null);
   // OB-203 D12: live analyze progress (settled/total sheets) from the durable SessionStateView poll.
   const [analyzeProgress, setAnalyzeProgress] = useState<{ settled: number; total: number } | null>(null);
@@ -323,6 +325,7 @@ export default function OperateImportPage() {
         }));
         // OB-203 D12: state-observed, stall-based (never discards a progressing analysis).
         const importSessionId = crypto.randomUUID();
+        importSessionIdRef.current = importSessionId; // OB-203 §2: telemetry panel keys off the same session
         tabularProposal = await analyzeTabular(tenantId, importSessionId, analysisFiles, (settled, total) => {
           setAnalyzeProgress({ settled, total });
         });
@@ -591,6 +594,11 @@ export default function OperateImportPage() {
             </div>
           )}
 
+          {/* OB-203 §2: live platform telemetry (durable-spine-derived) during analyze. */}
+          {state.phase === 'analyzing' && importSessionIdRef.current && (
+            <ImportTelemetryPanel tenantId={tenantId} sessionId={importSessionIdRef.current} phase="analyzing" />
+          )}
+
           {/* ─── PROCESSING STATE ─── (OB-174: async job processing) */}
           {state.phase === 'processing' && (
             <ImportProgress
@@ -620,16 +628,20 @@ export default function OperateImportPage() {
           {/* ─── EXECUTING STATE ─── */}
           {/* OB-139: NO upload dropzone during execution */}
           {state.phase === 'executing' && (
-            <SCIExecution
-              proposal={state.proposal}
-              confirmedUnits={state.confirmedUnits}
-              tenantId={tenantId}
-              rawData={state.rawData}
-              storagePath={state.storagePath}
-              storagePaths={state.storagePaths}
-              onComplete={handleExecutionComplete}
-              onUploadMore={handleUploadMore}
-            />
+            <>
+              <SCIExecution
+                proposal={state.proposal}
+                confirmedUnits={state.confirmedUnits}
+                tenantId={tenantId}
+                rawData={state.rawData}
+                storagePath={state.storagePath}
+                storagePaths={state.storagePaths}
+                onComplete={handleExecutionComplete}
+                onUploadMore={handleUploadMore}
+              />
+              {/* OB-203 §2: live platform telemetry (durable-spine-derived) during execute — pulses landing. */}
+              <ImportTelemetryPanel tenantId={tenantId} sessionId={state.proposal.proposalId} phase="executing" />
+            </>
           )}
 
           {/* ─── COMPLETE STATE ─── */}

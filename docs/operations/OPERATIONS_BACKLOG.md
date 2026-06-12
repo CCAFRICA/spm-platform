@@ -59,7 +59,11 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
 
 - **Recorded:** 2026-06-12 (architect, D14 adjacent)
 - **Category:** Feature + Experience (import progress / Progressive Performance demonstration)
-- **Status:** Backlog — **Experience-First Gate required**
+- **Status:** ✅ **PROMOTED INTO OB-203 SCOPE & IMPLEMENTED (2026-06-12, §2)** — the witness operator must
+  observe the platform's real work live (four runs were adjudicated blind). Built: `deriveImportTelemetry`
+  (durable-spine-derived; no client tally), `ImportTelemetryPanel` (analyze + execute), `OB203_VERBOSE`
+  env-gated trace layer. Counters shaped to DS-020 `SynapticSurface.stats` (§3c). Remaining Observatory
+  panel (BL-001) still backlog.
 - **Scope:** the import progress surface becomes a quantified demonstration of Progressive Performance, with
   live counters sourced from the Phase 4 signal vocabulary: atoms recognized vs learned, LLM calls made vs
   bypassed-by-memory, fingerprints matched/stored, signals emitted. The import is no longer a spinner — it is
@@ -87,8 +91,15 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
   - **progress from durable session state** — the Phase-3 spine IS the job ledger (already the substrate
     the in-progress strip and completion screen read);
   - **retry / resume** per the "Persist, Release, Read Back" successor.
-- **Compute-tier upgrade:** recorded as HEADROOM only — explicitly **NOT the fix** (a bigger instance
-  moves the ceiling, it does not add load management).
+- **Governing litmus (DS-020, quoted verbatim):** *"Would this work for 150K entities in a single run? If
+  a synaptic operation requires per-entity AI calls, it fails. If it requires per-entity synchronous
+  writes, it fails. If it's pure data + batch I/O, it passes."* D16's pulsed writes are pure batch I/O
+  (no per-entity AI, no per-entity synchronous write) → they PASS the litmus; INF-001 is the machinery to
+  run that passing shape at scale, not a license to violate it.
+- **Compute-tier upgrade — SR-34 STANDING (confirmed 2026-06-12):** NO tier upgrade. No hardware bypass for
+  an inefficient write path; Small stands as the discipline canary. Recorded as HEADROOM only — explicitly
+  **NOT the fix** (a bigger instance moves the ceiling, it does not add load management). Tier decisions
+  live in this item at proof-of-scale, with measured numbers.
 - **Seeded by:** D16 (chunk-500 + 200ms pacing + unit-atomic rollback) — interim headroom under the
   current ceiling; INF-001 is the durable replacement.
 - **D16.1 closed the CORRECTNESS defect inside OB-203 (2026-06-12), NOT here:** the outage-mid-commit

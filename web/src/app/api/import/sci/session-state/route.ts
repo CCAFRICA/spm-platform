@@ -13,7 +13,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { rebuildSessionState } from '@/lib/sci/comprehension-state-service';
+import { rebuildSessionState, deriveImportTelemetry } from '@/lib/sci/comprehension-state-service';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -31,6 +31,19 @@ export async function GET(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
+    // OB-203 §2: attach import telemetry only when asked (?telemetry=1) — the witness panel polls with it;
+    // the lightweight stall/progress polls stay cheap. Telemetry failure must not break the state read.
+    if (searchParams.get('telemetry') === '1') {
+      try {
+        const telemetry = await deriveImportTelemetry(
+          tenantId, importSessionId,
+          process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+        return NextResponse.json({ ...view, telemetry });
+      } catch (telErr) {
+        console.warn('[session-state] telemetry derivation failed (non-blocking):', telErr instanceof Error ? telErr.message : telErr);
+      }
+    }
     return NextResponse.json(view);
   } catch (err) {
     return NextResponse.json(

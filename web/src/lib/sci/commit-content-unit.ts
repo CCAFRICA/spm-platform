@@ -29,6 +29,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { ob203Trace } from '@/lib/sci/ob203-verbose';
 import type {
   AgentType,
   SemanticBinding,
@@ -193,6 +194,10 @@ interface RouteProfile {
   pacingMs: number;      // D16: inter-chunk pause to keep instantaneous write load under the instance ceiling
 }
 
+// §3e (pulse-size asymmetry, justified): reads batch at 200 (the standing .in() rule — an IN-list
+// cardinality cap that bounds query-param size on LOOKUPS); writes pulse at 500 (INSERT payload
+// throughput under the Small-instance write ceiling). Different operations, different constraints — the
+// two numbers are not the same concept tuned differently, so they are not aligned.
 function profileFor(source: CommitContentUnitSource): RouteProfile {
   // D16 (run-4 ceiling): the prior 2000-row chunk overran a Small instance's write ceiling on the
   // ~162k-row Ventas sheet (502 at chunk 11/81, both runs). Drop sci-bulk to 500-row chunks with a
@@ -423,7 +428,9 @@ export async function commitContentUnit(
     if (chunkSuccess) {
       totalInserted += slice.length;
       chunksCompleted++;
-      // D16: inter-chunk pacing — give the instance breathing room between writes (only when more chunks
+      // OB-203 §2/§5: a write is a PULSE (DS-021 family; "nanobatch" stays reserved for DS-020 learning).
+      ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: chunksCompleted, ofTotal: totalChunks, rows: totalInserted });
+      // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
       // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
       if (profile.pacingMs > 0 && i + profile.chunkSize < insertRows.length) {
         await new Promise(r => setTimeout(r, profile.pacingMs));

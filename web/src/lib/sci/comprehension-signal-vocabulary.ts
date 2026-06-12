@@ -82,11 +82,14 @@ export type Resolver = 'flywheel' | 'llm' | 'deterministic' | 'human';
 export interface TierResolutionParams {
   tenantId: string; unitId: string; sheetName?: string | null; tier: number | null; resolver: Resolver;
   importSessionId?: string | null;
+  // OB-203 §2: warm-path witness — fieldBindings injected from the flywheel for this Tier-1 sheet (0 on
+  // the cold/LLM path). Recorded on the durable spine so the import-telemetry counter derives, never tallies.
+  injectedBindings?: number;
 }
 export function buildTierResolutionSignal(p: TierResolutionParams): CanonicalSignalInput {
   return {
     tenantId: p.tenantId, signalType: SIGNAL.tierResolution,
-    signalValue: { unitId: p.unitId, tier: p.tier, resolver: p.resolver },
+    signalValue: { unitId: p.unitId, tier: p.tier, resolver: p.resolver, injectedBindings: p.injectedBindings ?? 0 },
     sheetName: p.sheetName ?? null, scope: 'tenant', source: 'sci_agent',
     context: { ...CTX, importSessionId: p.importSessionId ?? null },
   };
