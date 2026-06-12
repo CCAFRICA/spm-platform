@@ -6,11 +6,14 @@
 // LOGICAL atomicity: a row only COUNTS for a consumer if its batch is durably complete — regardless of
 // whether the physical rollback ever ran.
 //
-// THE PREDICATE: a committed_data row is LIVE iff
+// THE PREDICATE (Phase 6B §2.3 — the SINGLE canonical visibility gate; subsumes supersession):
 //     import_batch_id IS NULL            (legacy / non-batched writes — ~88% of historical rows)
-//   OR its import_batch.status = 'completed'.
-// Rows in a `processing` or `failed` batch are invisible to every consumer (calc, aggregation, entity
-// resolution, period detection, dashboards).
+//   OR (import_batch.status = 'completed' AND import_batch.superseded_by IS NULL).
+// Rows in a `processing`/`failed` batch (partial) OR a SUPERSEDED batch (a prior generation that HF-213
+// replaced) are invisible to EVERY consumer. This retires the standalone HF-196 `fetchSupersededBatchIds`
+// filter into the gate: there is now ONE predicate, not two, so no consumer can read a private universe
+// (the F4 double-count: status stays 'completed' on a superseded batch, so a status-only gate left BOTH
+// generations of the fact table visible — 320,886 where 160,443 exist).
 //
 // NULL-tolerance is load-bearing: the overwhelming majority of existing rows (every proof tenant's data)
 // carry a NULL import_batch_id, so a strict `status='completed'` filter would hide them and collapse the
@@ -32,11 +35,14 @@ export async function hiddenBatchIdsForTenant(
   supabase: SupabaseClient,
   tenantId: string,
 ): Promise<string[]> {
+  // Phase 6B §2.2: hide a batch when it is non-completed (partial) OR superseded (a replaced prior
+  // generation). superseded_by IS NOT NULL is exactly what HF-213 sets and what the retired
+  // fetchSupersededBatchIds read — folded in here so the gate is the one canonical predicate.
   const { data, error } = await supabase
     .from('import_batches')
     .select('id')
     .eq('tenant_id', tenantId)
-    .neq('status', 'completed');
+    .or('status.neq.completed,superseded_by.not.is.null');
   if (error) {
     // Fail OPEN to current behavior (never hide live rows because the lookup hiccuped). The window is a
     // partial that briefly counts — strictly better than blanking a tenant's data on a transient error.
