@@ -927,6 +927,6 @@ check: import → click Retry → see Processing; exclude → see Excluded treat
 3. Same durable-read derivation (`SessionStateView`), no new surface.
 
 **D11 (recorded, NOT built):** full completion-screen redesign against Wayfinder / Health / IAP Action
-Proximity → **operations backlog BL-002** (design homes DS-013/DS-003). Out of Phase 5 scope.
+Proximity → **operations backlog BL-003** (design homes DS-013/DS-003). Out of Phase 5 scope.
 
 Build green; 79 tests pass; typecheck + lint clean.
