@@ -26,6 +26,8 @@
 // The sweeper (physical reclamation of orphaned rows) and full transactional writes are INF-001.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { batchLivenessMs } from './execute-resume';
+import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 
 /**
  * The import_batch_ids whose rows must be HIDDEN for a tenant — its `processing`/`failed` batches.
@@ -65,9 +67,8 @@ export function applyCommittedDataVisibility<Q extends { or(filter: string): Q }
   return query.or(`import_batch_id.is.null,import_batch_id.not.in.(${hiddenBatchIds.join(',')})`);
 }
 
-// A `processing` batch older than this cannot still be in-flight — Vercel's execute lifecycle caps at 300s,
-// so anything past the cap died mid-commit (the outage case). Buffered well beyond it.
-const BATCH_LIVENESS_MS = 6 * 60 * 1000;
+// OB-203 Phase B: the liveness window (the in-flight LEASE) lives in
+// execute-resume.ts and is env-configurable (default unchanged: 6 minutes).
 
 export interface ReconcileResult {
   reconciledProcessing: number; // stale 'processing' batches flipped to 'failed'
@@ -94,11 +95,11 @@ export async function reconcileStaleBatches(
   nowMs: number = Date.now(),
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { reconciledProcessing: 0, rowsReclaimed: 0, failedSwept: 0 };
-  const cutoffIso = new Date(nowMs - BATCH_LIVENESS_MS).toISOString();
+  const cutoffIso = new Date(nowMs - batchLivenessMs()).toISOString();
 
   const { data: batches, error } = await supabase
     .from('import_batches')
-    .select('id, status, created_at')
+    .select('id, status, created_at, metadata')
     .eq('tenant_id', tenantId)
     .neq('status', 'completed');
   if (error) {
@@ -106,7 +107,7 @@ export async function reconcileStaleBatches(
     return result;
   }
 
-  for (const b of (batches ?? []) as Array<{ id: string; status: string; created_at: string }>) {
+  for (const b of (batches ?? []) as Array<{ id: string; status: string; created_at: string; metadata: Record<string, unknown> | null }>) {
     const isStaleProcessing = b.status === 'processing' && b.created_at < cutoffIso;
     const isFailed = b.status === 'failed';
     // A 'processing' batch still inside its liveness window may be a CONCURRENT in-flight import — leave it.
@@ -139,6 +140,19 @@ export async function reconcileStaleBatches(
         })
         .eq('id', b.id);
       result.reconciledProcessing += 1;
+      // OB-203 Phase B (ADR riding decision 2): the unit's session record must
+      // reflect the physical reclamation — a truthful regress, not the D19
+      // lying regress. Failed-swept batches are NOT zeroed (a newer generation
+      // may own the record's numbers); stale-processing is by definition the
+      // unit's latest in-session activity.
+      const proposalId = (b.metadata?.proposalId as string) ?? '';
+      const contentUnitId = (b.metadata?.contentUnitId as string) ?? '';
+      if (proposalId && contentUnitId) {
+        await accumulateUnitCommitFields({
+          tenantId, importSessionId: proposalId, unitId: contentUnitId,
+          fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+        }, supabase);
+      }
     } else if (isFailed && orphanRows > 0) {
       result.failedSwept += 1;
     }

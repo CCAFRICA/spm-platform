@@ -389,18 +389,24 @@ export async function deriveImportTelemetry(
   const sheetByUnitId = new Map(view.units.map(u => [u.unitId, u.sheetName]));
 
   // 3. Execute counters — session batches (expected rows + per-unit) + committed_data count (actual).
+  // OB-203 Phase B: the auditor reads batches through the CANONICAL visibility
+  // semantics (Phase E §2.2: one predicate for every consumer — completed AND
+  // not superseded). A failed/swept batch (outage mid-commit, resumed) or a
+  // superseded prior generation is not expected work; counting it made the
+  // auditor disagree with both the gate and physical truth.
   const { data: batches } = await supabase
     .from('import_batches')
-    .select('id, row_count, status, metadata')
+    .select('id, row_count, status, superseded_by, metadata')
     .eq('tenant_id', tenantId)
     .eq('metadata->>proposalId', importSessionId);
   let rowsTotal = 0;
   const perUnit: ImportTelemetry['perUnit'] = [];
-  for (const b of (batches ?? []) as Array<{ id: string; row_count: number | null; status: string; metadata: Record<string, unknown> | null }>) {
+  for (const b of (batches ?? []) as Array<{ id: string; row_count: number | null; status: string; superseded_by: string | null; metadata: Record<string, unknown> | null }>) {
+    if (b.status !== 'completed' || b.superseded_by) continue;
     const expected = b.row_count ?? 0;
     rowsTotal += expected;
     const unitId = (b.metadata?.contentUnitId as string) ?? '';
-    perUnit.push({ sheetName: sheetByUnitId.get(unitId) ?? null, expectedRows: expected, committed: b.status === 'completed' });
+    perUnit.push({ sheetName: sheetByUnitId.get(unitId) ?? null, expectedRows: expected, committed: true });
   }
   const { count: rowsCommitted } = await supabase
     .from('committed_data')

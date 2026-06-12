@@ -156,7 +156,11 @@ export function SCIExecution({
   // HTTP response (Vercel's 300s cap fired mid-Ventas in run-5 while the server kept committing and FINISHED)
   // is a NON-EVENT. Per-unit committed rows come from telemetry; a failed unit carries its reason from the
   // spine. Bounded by a stall window that server-progress resets (same shape as the D13 analyze recovery).
-  const settleFromSurface = useCallback(async () => {
+  // OB-203 Phase B: returns TRUE when every tracked unit reached a terminal
+  // disposition, FALSE on a stall — the caller's resume loop re-POSTs
+  // execute-bulk (idempotent: the route skips spine-terminal and in-flight
+  // units) until truth settles or the attempt budget is spent.
+  const settleFromSurface = useCallback(async (): Promise<boolean> => {
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     const STALL_MS = 90_000;
     const trackedIds = confirmedUnits.map(u => u.contentUnitId);
@@ -184,11 +188,12 @@ export function SCIExecution({
             return su && ['bound', 'resolved', 'failed_interpretation'].includes(su.state);
           }).length;
           if (settledCount > lastSettled) { lastSettled = settledCount; lastProgressAt = Date.now(); }
-          if (settledCount >= trackedIds.length) return; // every tracked unit has a terminal disposition
+          if (settledCount >= trackedIds.length) return true; // every tracked unit has a terminal disposition
         }
       } catch { /* keep polling — the surface is the truth, a missed poll self-corrects */ }
       await sleep(2000);
     }
+    return false; // stalled with non-terminal units — the resume loop decides what's next
   }, [tenantId, proposal.proposalId, confirmedUnits]);
 
   // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
@@ -251,41 +256,53 @@ export function SCIExecution({
       };
     }).filter(Boolean);
 
-    try {
-      const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proposalId: proposal.proposalId,
-          tenantId,
-          storagePath: effectivePath,
-          contentUnits: bulkUnits,
-        }),
-      });
-
-      // D18: the response is a BONUS, not the truth. A non-OK / dead response is a NON-EVENT — the server
-      // may still be committing (run-5: Vercel's 300s cap fired mid-Ventas while the server finished). We
-      // log and fall through to read the durable data surface, which is authoritative.
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        console.warn(`[SCIExecution] execute-bulk responded ${res.status} (reading durable surface): ${errBody.slice(0, 160)}`);
-      } else {
-        // Optimistic fast-path: seed from the response, but the surface settle below is the final word.
-        try {
-          const bulkResult: SCIExecutionResult = await res.json();
-          for (const result of bulkResult.results) {
-            setUnits(prev => prev.map(u => u.contentUnitId === result.contentUnitId
-              ? { ...u, status: result.success ? 'complete' as const : 'error' as const, result, error: result.success ? undefined : result.error }
-              : u));
-          }
-        } catch { /* malformed body — the surface settle is authoritative anyway */ }
+    // OB-203 Phase B: the POST + settle pair runs in a bounded RESUME loop. The
+    // route is idempotent (it skips spine-terminal units and respects the
+    // in-flight lease), so a re-POST after a stall reprocesses exactly the
+    // units a dead response orphaned — response death at any point cannot
+    // orphan unprocessed units.
+    const MAX_EXECUTE_ATTEMPTS = 3;
+    let settled = false;
+    for (let attempt = 1; attempt <= MAX_EXECUTE_ATTEMPTS && !settled; attempt++) {
+      if (attempt > 1) {
+        console.warn(`[SCIExecution] Phase B resume: re-POST attempt ${attempt}/${MAX_EXECUTE_ATTEMPTS} (settle stalled with non-terminal units)`);
       }
-    } catch (err) {
-      // D18: timeout / network drop is also a non-event — do NOT mark units failed. Read the surface.
-      console.warn('[SCIExecution] execute-bulk response did not return (reading durable surface):', err instanceof Error ? err.message : err);
+      try {
+        const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proposalId: proposal.proposalId,
+            tenantId,
+            storagePath: effectivePath,
+            contentUnits: bulkUnits,
+          }),
+        });
+
+        // D18: the response is a BONUS, not the truth. A non-OK / dead response is a NON-EVENT — the server
+        // may still be committing (run-5: Vercel's 300s cap fired mid-Ventas while the server finished). We
+        // log and fall through to read the durable data surface, which is authoritative.
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          console.warn(`[SCIExecution] execute-bulk responded ${res.status} (reading durable surface): ${errBody.slice(0, 160)}`);
+        } else {
+          // Optimistic fast-path: seed from the response, but the surface settle below is the final word.
+          try {
+            const bulkResult: SCIExecutionResult = await res.json();
+            for (const result of bulkResult.results) {
+              setUnits(prev => prev.map(u => u.contentUnitId === result.contentUnitId
+                ? { ...u, status: result.success ? 'complete' as const : 'error' as const, result, error: result.success ? undefined : result.error }
+                : u));
+            }
+          } catch { /* malformed body — the surface settle is authoritative anyway */ }
+        }
+      } catch (err) {
+        // D18: timeout / network drop is also a non-event — do NOT mark units failed. Read the surface.
+        console.warn('[SCIExecution] execute-bulk response did not return (reading durable surface):', err instanceof Error ? err.message : err);
+      }
+      // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
+      settled = await settleFromSurface();
     }
-    // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
-    await settleFromSurface();
     // OB-203 Phase D: trigger the once-per-session settle audit (idempotent —
     // first audit wins; ImportReadyState also invokes it on mount as a backstop).
     // Fire-and-forget: the audit verdict surfaces on the completion screen.

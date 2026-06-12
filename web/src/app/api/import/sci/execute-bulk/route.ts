@@ -34,8 +34,11 @@ import { commitContentUnit } from '@/lib/sci/commit-content-unit';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
-import { accumulateUnitCommitFields } from '@/lib/sci/session-telemetry-accumulator';
+import { accumulateUnitCommitFields, fetchSessionTelemetryRecord, unflattenUnitStates } from '@/lib/sci/session-telemetry-accumulator';
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
+// OB-203 Phase B: idempotent resume — every invocation classifies each unit
+// against the durable spine; response death cannot orphan unprocessed units.
+import { classifyUnitForResume, batchLivenessMs } from '@/lib/sci/execute-resume';
 // OB-203 Phase 3 (R2): terminal `bound` state on the canonical surface.
 import { emitUnitStates } from '@/lib/sci/comprehension-state-service';
 // HF-239 Phase 0.1: plan interpretation extracted into a shared module.
@@ -369,8 +372,65 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // OB-203 Phase B: resume-disposition inputs — ONE single-row record read +
+    // ONE session-batches query, O(units) not O(rows) (Amendment 2 §4). On a
+    // first run nothing is terminal and nothing holds a lease, so every unit
+    // classifies 'process' and the path is behavior-identical.
+    const resumeRecord = await fetchSessionTelemetryRecord(tenantId, proposalId, supabase).catch(() => null);
+    const resumeSnaps = unflattenUnitStates(resumeRecord?.unit_states ?? null);
+    const latestBatchByUnit = new Map<string, { status: string; createdAt: string }>();
+    {
+      const { data: sessionBatches } = await supabase
+        .from('import_batches')
+        .select('status, created_at, metadata')
+        .eq('tenant_id', tenantId)
+        .eq('metadata->>proposalId', proposalId);
+      for (const b of (sessionBatches ?? []) as Array<{ status: string; created_at: string; metadata: Record<string, unknown> | null }>) {
+        const cuId = (b.metadata?.contentUnitId as string) ?? '';
+        if (!cuId) continue;
+        const prev = latestBatchByUnit.get(cuId);
+        if (!prev || b.created_at > prev.createdAt) {
+          latestBatchByUnit.set(cuId, { status: b.status, createdAt: b.created_at });
+        }
+      }
+    }
+
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
+
+      // OB-203 Phase B: skip units the durable spine already settled or a
+      // possibly-live owner holds (liveness window = the lease). The unit list
+      // walked here is the REQUEST's — a unit that never created a batch
+      // cannot hide (A3 closed operationally).
+      const snap = resumeSnaps.get(unit.contentUnitId);
+      const spineState = snap ? (snap.resolvedAt ? 'resolved' : ((snap.state as string) ?? null)) : null;
+      const dispo = classifyUnitForResume({
+        spineState,
+        latestBatch: latestBatchByUnit.get(unit.contentUnitId) ?? null,
+        livenessMs: batchLivenessMs(),
+        nowMs: Date.now(),
+      });
+      if (dispo !== 'process') {
+        console.log(`[SCI Bulk] Phase B resume: ${unit.contentUnitId} → ${dispo} (state=${spineState ?? 'none'})`);
+        if (dispo === 'skip_completed_batch') {
+          // The commit landed; only the bound emission died with the response.
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+                sheetName: unit.tabName ?? unit.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'bound' as const, seq: 5, classification: unit.confirmedClassification ?? null,
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (e) {
+            console.warn(`[SCI Bulk] resume bound re-emit failed (non-blocking) for ${unit.contentUnitId}:`, e instanceof Error ? e.message : e);
+          }
+        }
+        continue;
+      }
       try {
         // HF-256: resolve this unit's source file's parse (single-file => the one parse).
         const parse = resolveParse(unit);
