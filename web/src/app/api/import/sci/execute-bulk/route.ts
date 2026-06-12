@@ -341,13 +341,20 @@ export async function POST(req: NextRequest) {
         .filter(r => handledPlanUnitIds.has(r.contentUnitId))
         .map(r => {
           const cu = contentUnits.find(u => u.contentUnitId === r.contentUnitId);
+          // D15.2 (1b): a plan that interprets to ZERO components is not a failure — it was never a plan
+          // (a cover page misrouted here, D15.2 accepted). The atomicity guard already refuses to commit a
+          // broken plan; here we give it a GRACEFUL disposition (resolved / ignored — "not a plan, nothing
+          // committed") instead of a hard failure, so the witness sees an honest non-event, not an error.
+          const zeroComponents = !r.success && /no (usable )?components/i.test(r.error ?? '');
+          const state = r.success ? ('bound' as const)
+            : zeroComponents ? ('resolved' as const)
+            : ('failed_interpretation' as const);
           return {
             tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
             sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
             sourceFileName: cu?.sourceFile ?? null,
-            state: r.success ? ('bound' as const) : ('failed_interpretation' as const),
-            seq: 5, classification: 'plan' as const,
-            failureClass: r.success ? null : (r.error ?? 'plan interpretation failed'),
+            state, seq: 5, classification: 'plan' as const,
+            failureClass: r.success || zeroComponents ? null : (r.error ?? 'plan interpretation failed'),
           };
         });
       try {

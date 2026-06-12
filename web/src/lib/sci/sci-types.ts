@@ -14,6 +14,9 @@ export interface ContentProfile {
 
   structure: {
     rowCount: number;
+    sampleRowCount?: number;        // D15.2: rows the profiling sample saw — the SAME basis distinctCount
+                                    // used, so identifierRepeatRatio divides like-by-like (not full÷sample).
+                                    // Optional: absent → the ratio falls back to rowCount (pre-fix basis).
     columnCount: number;
     sparsity: number;               // 0-1, percentage of null/empty cells
     headerQuality: 'clean' | 'auto_generated' | 'missing';

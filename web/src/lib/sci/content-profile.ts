@@ -525,6 +525,7 @@ export function generateContentProfileStats(
     tabIndex,
     structure: {
       rowCount,
+      sampleRowCount: rows.length, // D15.2: the basis distinctCount was computed over (this same `rows`)
       columnCount,
       sparsity,
       headerQuality,
@@ -638,8 +639,13 @@ export function generateContentProfilePatterns(
     rowCount <= 500 ? 'moderate' :
     'transactional';
 
+  // D15.2 (1a): divide by the SAME sample basis the distinctCount came from. The prior `rowCount` (FULL)
+  // ÷ distinctCount (SAMPLE) inflated the ratio for any sampled sheet with a unique identifier — Empleados
+  // read 2.40 (120 full ÷ 50 sample) and was misclassified transaction, though it is a clean roster
+  // (true ratio 1.00). HC already selects the identifier column (idField); this fixes the row basis only.
+  const idRatioBasis = stats.structure.sampleRowCount || rowCount;
   const identifierRepeatRatio = idField && idField.distinctCount > 0
-    ? rowCount / idField.distinctCount
+    ? idRatioBasis / idField.distinctCount
     : 0;
 
   // Numeric field ratio

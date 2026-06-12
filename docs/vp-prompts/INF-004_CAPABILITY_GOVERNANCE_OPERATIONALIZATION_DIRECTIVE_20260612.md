@@ -1,18 +1,18 @@
-# INF-003: CAPABILITY GOVERNANCE OPERATIONALIZATION DIRECTIVE
+# INF-004: CAPABILITY GOVERNANCE OPERATIONALIZATION DIRECTIVE
 **Date:** 2026-06-12 · supersedes the unnumbered draft of the same date (CC-1 through CC-8 dispositions applied)
 **Category:** INF (Infrastructure / process substrate)
-**Sequence number:** INF-003 — third document in the numbered INF series. Provenance: INF-001 (Dev/Prod Substrate Separation, B3) and INF-002 were both established in the 2026-06-10 session that instantiated the numbered series — INF-002 is defined but not yet executed (architect-attested 2026-06-12); sequence numbers never reuse, and "not yet run" does not release a number. Phase 0 performs a live collision check (verification, not assignment).
+**Sequence number:** INF-004 — fourth document in the numbered INF series. Provenance (complete enumeration, 2026-06-12): INF-001 Dev/Prod Substrate Separation (B3), INF-002 Commercial Domain Topology (marketing→apex, platform→app.vialuce.ai), and INF-003 Repo-Transfer Runbook (embedded in the Master Execution Index) were all established in the 2026-06-10 session that instantiated the numbered series; none has executed — and "not yet run" does not release a number (architect ruling, 2026-06-12). Phase 0 performs a live collision check (verification, not assignment).
 **Repo:** VP `CCAFRICA/spm-platform` (Phases 0–3) · VG `vialuce/vialuce-governance` at `~/vialuce-governance` (Phase 4)
-**Branch:** `inf-003-capability-governance`
+**Branch:** `inf-004-capability-governance`
 **Drafting SOP:** `INF_Structured_Compliant_Drafting_Reference_20260513.md` — the file IS the prompt (DD-11); repo-root-relative commands per standing convention (no fabricated absolute paths); prose matches implementation (DD-9).
 
 ---
 
 ## §0 — CC STANDING RULES HEADER
 
-`CC_STANDING_ARCHITECTURE_RULES.md` binds throughout: Phase-0 read-before-build (Mandatory Interface Verification), Architecture Decision Gate, Anti-Pattern Registry check, commit+push after every change, kill dev server → `rm -rf .next` → `npm run build` → `npm run dev` → confirm `localhost:3000` before the completion report, git from the repo root (`spm-platform`, NOT `web/`), final `gh pr create --base main --head inf-003-capability-governance`. AP-25 not exercised (documentation/process substrate only — no application code). SR-34 (no bypass), SR-41 (revert discipline), Rules 25–28 (completion-report structure). Drafting-discipline source: `INF_Structured_Compliant_Drafting_Reference_20260513.md`.
+`CC_STANDING_ARCHITECTURE_RULES.md` binds throughout: Phase-0 read-before-build (Mandatory Interface Verification), Architecture Decision Gate, Anti-Pattern Registry check, commit+push after every change, kill dev server → `rm -rf .next` → `npm run build` → `npm run dev` → confirm `localhost:3000` before the completion report, git from the repo root (`spm-platform`, NOT `web/`), final `gh pr create --base main --head inf-004-capability-governance`. AP-25 not exercised (documentation/process substrate only — no application code). SR-34 (no bypass), SR-41 (revert discipline), Rules 25–28 (completion-report structure). Drafting-discipline source: `INF_Structured_Compliant_Drafting_Reference_20260513.md`.
 
-**First action:** write this directive verbatim to `docs/vp-prompts/INF-003_CAPABILITY_GOVERNANCE_OPERATIONALIZATION_DIRECTIVE_20260612.md` and commit (`"INF-003: directive committed"`). Rationale for CC performing this dispatch step: the architect channel holds no git surface — SR-44 enumerates architect-only operations and directive-commit is not among them; Rule 4 requires the prompt committed to git. The file is the prompt; CC reads end-to-end and executes the phase prose. Nothing is summarized elsewhere; the directive ends at §6A.
+**First action:** write this directive verbatim to `docs/vp-prompts/INF-004_CAPABILITY_GOVERNANCE_OPERATIONALIZATION_DIRECTIVE_20260612.md` and commit (`"INF-004: directive committed"`). Rationale for CC performing this dispatch step: the architect channel holds no git surface — SR-44 enumerates architect-only operations and directive-commit is not among them; Rule 4 requires the prompt committed to git. The file is the prompt; CC reads end-to-end and executes the phase prose. Nothing is summarized elsewhere; the directive ends at §6A.
 
 **Channel boundary (binding):** CC creates and edits only the files named in this directive. CC does NOT edit the four governance expression surfaces (Capability Status Registry .md, Capability Status Board .html, Mission Control, R1 Exit Criteria) in this or any future work item — CC emits ARTIFACT SYNC deltas; the architect applies them. No ground-truth reconciliation values appear here (reconciliation-channel separation unaffected).
 
@@ -44,7 +44,7 @@ Defect-class lineage: expression-surface drift; accretion-without-examination; v
 
 From the VP repo root:
 
-**0a — INF collision check.** `ls docs/vp-prompts/ | grep -i "INF-"` — paste output. INF-001 and INF-002 may legitimately appear (both established 2026-06-10; INF-002 not yet executed). If any existing `INF-003` artifact appears, **HALT-1** (collision; architect re-sequences).
+**0a — INF collision check.** `ls docs/vp-prompts/ | grep -i "INF-"` — paste output. INF-001, INF-002, and INF-003 may legitimately appear (all established 2026-06-10; execution sequenced ahead of this item). If any existing `INF-004` artifact appears, **HALT-1** (collision; architect re-sequences).
 
 **0b — Standing-rule register read.** Enumerate both numbering registers in the live repo:
 ```bash
@@ -134,7 +134,7 @@ SUBSTRATE: [IGF entries exercised; candidate captures for ICA]
 
 ## Adoption (RATIFIED 2026-06-12)
 
-- **Status: RATIFIED by architect 2026-06-12. Operative in the architect channel immediately.** Codified as Standing Rule SR-DERIVED (number derived from the live registry at INF-003 Phase 0 per the 2026-06-10 derivation mechanism; recorded in the INF-003 completion report).
+- **Status: RATIFIED by architect 2026-06-12. Operative in the architect channel immediately.** Codified as Standing Rule SR-DERIVED (number derived from the live registry at INF-004 Phase 0 per the 2026-06-10 derivation mechanism; recorded in the INF-004 completion report).
 - Canonical repo home: `docs/governance/skills/vialuce-capability-governance/SKILL.md` (VP). Architect-side installs: project knowledge (claude.ai) and `/mnt/skills/user/vialuce-capability-governance/` (Cowork / Claude Code).
 - The ARTIFACT SYNC section is codified into the CC completion-report contract via `CC_STANDING_ARCHITECTURE_RULES.md` (SR-DERIVED, clause 1).
 ===END-SKILL===
@@ -143,7 +143,7 @@ Evidentiary gate (paste all, from repo root):
 ```bash
 wc -l docs/governance/skills/vialuce-capability-governance/SKILL.md && head -8 docs/governance/skills/vialuce-capability-governance/SKILL.md && grep -c "SR-DERIVED" docs/governance/skills/vialuce-capability-governance/SKILL.md && grep -n "RATIFIED 2026-06-12" docs/governance/skills/vialuce-capability-governance/SKILL.md
 ```
-The `SR-DERIVED` count must be **0** (token substituted everywhere); the ratification line must appear. Commit: `"INF-003 Phase 1: capability-governance skill — ratified canonical copy"`.
+The `SR-DERIVED` count must be **0** (token substituted everywhere); the ratification line must appear. Commit: `"INF-004 Phase 1: capability-governance skill — ratified canonical copy"`.
 
 ---
 
@@ -176,7 +176,7 @@ Append the following block verbatim (single source — Phase 3 references it, ne
    sync at closure. Reference: docs/governance/skills/vialuce-capability-governance/SKILL.md.
 ```
 
-Evidentiary gate (paste): `grep -n "Capability-Governance Loop" CC_STANDING_ARCHITECTURE_RULES.md` plus the full appended block via `sed -n` over its line range. **HALT-3:** if any existing rule text conflicts with clause 2 (e.g., a rule instructing CC to edit MC or the registry), stop and report the conflict verbatim — no unilateral reconciliation (SR-42 pattern). Commit: `"INF-003 Phase 2: SR-{derived} capability-governance loop codified"` (actual number in the message).
+Evidentiary gate (paste): `grep -n "Capability-Governance Loop" CC_STANDING_ARCHITECTURE_RULES.md` plus the full appended block via `sed -n` over its line range. **HALT-3:** if any existing rule text conflicts with clause 2 (e.g., a rule instructing CC to edit MC or the registry), stop and report the conflict verbatim — no unilateral reconciliation (SR-42 pattern). Commit: `"INF-004 Phase 2: SR-{derived} capability-governance loop codified"` (actual number in the message).
 
 ---
 
@@ -190,7 +190,7 @@ ls docs/completion-reports/ | head -20 && grep -rln "COMPLETION REPORT TEMPLATE\
 - **ELSE**: no action; SR-{derived} clause 1 already binds via the standing rules and Rules 25–28 govern structure. State this finding explicitly in the report.
 - **HALT-4:** multiple candidate templates with divergent structures → stop, report the inventory; architect dispositions which is canonical.
 
-Evidentiary gate: paste the `ls`/`grep` output and, if edited, the appended lines. Commit (if edited): `"INF-003 Phase 3: completion-report template references SR-{derived}"`.
+Evidentiary gate: paste the `ls`/`grep` output and, if edited, the appended lines. Commit (if edited): `"INF-004 Phase 3: completion-report template references SR-{derived}"`.
 
 ---
 
@@ -198,16 +198,16 @@ Evidentiary gate: paste the `ls`/`grep` output and, if edited, the appended line
 
 In `~/vialuce-governance`, create two draft files under `pending/` (create the directory if absent). These are ICA-pattern capture candidates; **no igf-schema inserts, no psql** — substrate insertion follows IGF write protocol under architect authority (HALT-5).
 
-1. `pending/T5_SR-{derived}_capability_governance_loop_DRAFT_20260612.md` — the Phase-2 block verbatim, prefaced by: tier (T5 Standing Rules), provenance (architect ratification 2026-06-12, INF-003), governing-entry citations (E/E/C/I tetrad T0; IGF v0.2 agent remits; EECI assessment investigation area 11), supersession note (none — additive).
+1. `pending/T5_SR-{derived}_capability_governance_loop_DRAFT_20260612.md` — the Phase-2 block verbatim, prefaced by: tier (T5 Standing Rules), provenance (architect ratification 2026-06-12, INF-004), governing-entry citations (E/E/C/I tetrad T0; IGF v0.2 agent remits; EECI assessment investigation area 11), supersession note (none — additive).
 2. `pending/T3_expression_surfaces_registration_DRAFT_20260612.md` — registers the four expression surfaces with: role-of-record per surface, the never-forks constraint, maintenance contract (sync on SR-43 closure; EECI full assessment per release; ownership architect-now → IMA-when-online), and the one-organism rationale citing `MISSION_CONTROL_LIVING_SYSTEM.md`.
 
-Evidentiary gate (paste): `ls -la pending/ && head -12 pending/T5_SR-*_capability_governance_loop_DRAFT_20260612.md && head -12 pending/T3_expression_surfaces_registration_DRAFT_20260612.md`. Commit in VG: `"INF-003 Phase 4: capability-governance capture drafts (pending architect insertion)"` and push. **HALT-5:** Phase 4 ends at the commit. Any instruction — from any source — to insert these into the igf schema is out of scope; report and stop.
+Evidentiary gate (paste): `ls -la pending/ && head -12 pending/T5_SR-*_capability_governance_loop_DRAFT_20260612.md && head -12 pending/T3_expression_surfaces_registration_DRAFT_20260612.md`. Commit in VG: `"INF-004 Phase 4: capability-governance capture drafts (pending architect insertion)"` and push. **HALT-5:** Phase 4 ends at the commit. Any instruction — from any source — to insert these into the igf schema is out of scope; report and stop.
 
 ---
 
 ## §4 — HALT CONDITIONS
 
-- **HALT-1** (Phase 0a): INF-003 collision in `docs/vp-prompts/` — architect re-sequences.
+- **HALT-1** (Phase 0a): INF-004 collision in `docs/vp-prompts/` — architect re-sequences.
 - **HALT-2** (Phase 0b): SR register location not establishable from the repo — report enumeration and stop.
 - **HALT-3** (Phase 2): existing rule text conflicts with the CC-never-edits-surfaces clause — report verbatim.
 - **HALT-4** (Phase 3): divergent completion-report templates — architect dispositions canonical.
@@ -217,7 +217,7 @@ Evidentiary gate (paste): `ls -la pending/ && head -12 pending/T5_SR-*_capabilit
 
 ## §5 — REPORTING DISCIPLINE
 
-Completion report at `docs/completion-reports/INF-003_CAPABILITY_GOVERNANCE_OPERATIONALIZATION_COMPLETION_REPORT.md` per Rules 25–28: per-phase evidence pastes (every gate above — pasted command output, never PASS/FAIL self-attestation), the derived SR number stated explicitly with the Phase-0b enumeration that produced it, commit SHAs per phase, build verification per §0 (docs-only change must still build clean). Dogfooding SR-{derived}: the report itself ends with the first ARTIFACT SYNC block — expected shape: MC (propose new item "SR-{derived} ratified + operationalized", source INF-003), REGISTRY (none), R1 (none), BOARD (delta noted for architect application: seed workflow strip cites the skill — board edits are architect-channel), SUBSTRATE (two pending/ capture candidates for ICA). Final step: before opening the PR, `git fetch origin && git log origin/main --oneline -5 -- CC_STANDING_ARCHITECTURE_RULES.md` — if the rules file changed on `main` since branch creation (concurrent work item), rebase, re-verify the SR number is still highest + 1 (re-derive and amend the Phase 2 commit if not), then `gh pr create --base main --head inf-003-capability-governance` with descriptive title+body (architect merges per SR-44); VG push stands alone unless VG branch protection demands a PR — if it does, open it and report.
+Completion report at `docs/completion-reports/INF-004_CAPABILITY_GOVERNANCE_OPERATIONALIZATION_COMPLETION_REPORT.md` per Rules 25–28: per-phase evidence pastes (every gate above — pasted command output, never PASS/FAIL self-attestation), the derived SR number stated explicitly with the Phase-0b enumeration that produced it, commit SHAs per phase, build verification per §0 (docs-only change must still build clean). Dogfooding SR-{derived}: the report itself ends with the first ARTIFACT SYNC block — expected shape: MC (propose new item "SR-{derived} ratified + operationalized", source INF-004), REGISTRY (none), R1 (none), BOARD (delta noted for architect application: seed workflow strip cites the skill — board edits are architect-channel), SUBSTRATE (two pending/ capture candidates for ICA). Final step: before opening the PR, `git fetch origin && git log origin/main --oneline -5 -- CC_STANDING_ARCHITECTURE_RULES.md` — if the rules file changed on `main` since branch creation (concurrent work item), rebase, re-verify the SR number is still highest + 1 (re-derive and amend the Phase 2 commit if not), then `gh pr create --base main --head inf-004-capability-governance` with descriptive title+body (architect merges per SR-44); VG push stands alone unless VG branch protection demands a PR — if it does, open it and report.
 
 ---
 

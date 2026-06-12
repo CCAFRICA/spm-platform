@@ -109,3 +109,22 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
   INF-001 is ONLY the GENERALIZED background machinery: queued jobs off the request lifecycle, bounded
   cross-tenant concurrency, a scheduler/sweeper daemon, and full transactional writes. Correctness no
   longer waits on this item.
+
+---
+
+## BL-006 — Derived-detection strengthening (aggregation under partial vocabulary overlap)
+
+- **Recorded:** 2026-06-12 (architect, D15.2c — accepted-for-witness, named follow-up)
+- **Category:** Engine (workbook-graph role derivation / classification)
+- **Status:** Backlog — manual assign at proposal is the designed interim remedy.
+- **Problem:** pre-aggregated RECAP sheets (Resumen_Mensual, Resumen_Producto) are structurally identical
+  to raw per-period/per-entity transactions (repeated dimension + measures + temporal), so they classify
+  `transaction`. The workbook graph's `derived` role is the intended discriminator but does not fire: it
+  requires atom-hash overlap with a larger fact (Ventas) at >2× rows, and recaps carry AGGREGATE vocabulary
+  (`venta_neta`, `margen_pct`) that does not hash-match the raw fact's columns.
+- **STAKES:** a recap typed `transaction` is a **DOUBLE-COUNTING hazard** — if calc aggregates the recap
+  rows beside the raw Ventas fact, the same revenue is counted twice. The interim guard is the human
+  assigning `reference` at the proposal; this item makes the platform catch it.
+- **Direction:** strengthen derived-detection to recognize aggregation-of-a-fact under PARTIAL vocabulary
+  overlap (shared dimension columns + measure-name family + rowcount ratio), not atom-hash identity alone.
+  Structural, no enumerated recap names (Korean Test).
