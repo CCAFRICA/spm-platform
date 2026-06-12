@@ -68,3 +68,52 @@ only; no read path adjudicates on it. Flagged for the architect's awareness.
 Bindings were reset by design — the re-armed witness expects bindings RE-LEARNED through the normal
 flywheel write during the run, visible in telemetry; injection counts may be partial/zero,
 attributable to this documented reset and nothing else.
+
+---
+
+# ADDENDUM — Inner `classification_result.confidence` restored (architect addendum ruling, 9341ce73)
+
+**Script:** `web/scripts/diag/diag064-flywheel-repair-addendum.ts` · same scope guard (exactly 16
+voided-window rows or abort), same provenance (session `d8085364` durable signals, per-sheet
+confidence derived live). Only the inner `confidence` key written; no other key, row, or surface.
+
+## Pre-write paste (FP-49): the voided values, all 16
+
+The contamination is legible in the values themselves — the flat `0.85`s are the voided run's
+HC-pattern @85 outcomes; e.g. Empleados inner was `0.7809` (voided transaction@78) → morning `0.95`:
+
+```
+d984b141a017 Resumen_Menu      0.85   -> 0.6066 | afb789d55ae5 Menus            0.85   -> 0.6096
+2ac20a402576 Resumen_Categoria 0.8123 -> 0.95   | 4e920093ddd7 Resumen_Diario   0.3554 -> 0.6903
+b42ee218cb37 Portada           0.8104 -> 0.5812 | 78966ee2ad81 Resumen_Sucursal 0.85   -> 0.6332
+bc3da24d0055 Resumen_Empleado  0.85   -> 0.644  | a989a5e0517c Productos_SKU    0.2745 -> 0.557
+21743cb83fc7 Resumen_Turno     0.7656 -> 0.95   | 19e90c26c9d8 Resumen_Mensual  0.85   -> 0.7295
+ffb69592f7b7 Menu_Componentes  0.85   -> 0.7615 | 9ed65e0e2326 Resumen_DiaSemana 0.7712 -> 0.95
+7707e8553823 Empleados         0.7809 -> 0.95   | fc69dad00e10 Resumen_Producto 0.3026 -> 0.6202
+690ade75ed05 Sucursales        0.7412 -> 0.5998 | 97c615dedbf2 Ventas_Transacc. 0.8200 -> 0.95
+```
+
+## Verification re-read — ALL 16 rows, every verified field (GATE PASS)
+
+```
+hash         | stats    | inner  | classification | bindings | sheet
+d984b141a017 | 3/0.7500 | 0.6066 | entity         | 0        | Resumen_Menu          OK
+afb789d55ae5 | 3/0.7500 | 0.6096 | entity         | 0        | Menus                 OK
+2ac20a402576 | 3/0.7500 | 0.95   | reference      | 0        | Resumen_Categoria     OK
+4e920093ddd7 | 3/0.7500 | 0.6903 | reference      | 0        | Resumen_Diario        OK
+b42ee218cb37 | 3/0.7500 | 0.5812 | reference      | 0        | Portada               OK
+78966ee2ad81 | 3/0.7500 | 0.6332 | entity         | 0        | Resumen_Sucursal      OK
+bc3da24d0055 | 3/0.7500 | 0.644  | entity         | 0        | Resumen_Empleado      OK
+a989a5e0517c | 3/0.7500 | 0.557  | reference      | 0        | Productos_SKU         OK
+21743cb83fc7 | 3/0.7500 | 0.95   | reference      | 0        | Resumen_Turno         OK
+19e90c26c9d8 | 3/0.7500 | 0.7295 | transaction    | 0        | Resumen_Mensual       OK
+ffb69592f7b7 | 3/0.7500 | 0.7615 | transaction    | 0        | Menu_Componentes      OK
+9ed65e0e2326 | 3/0.7500 | 0.95   | reference      | 0        | Resumen_DiaSemana     OK
+7707e8553823 | 3/0.7500 | 0.95   | entity         | 0        | Empleados             OK
+fc69dad00e10 | 3/0.7500 | 0.6202 | entity         | 0        | Resumen_Producto      OK
+690ade75ed05 | 3/0.7500 | 0.5998 | entity         | 0        | Sucursales            OK
+97c615dedbf2 | 3/0.7500 | 0.95   | transaction    | 0        | Ventas_Transaccional  OK
+GATE PASS: all 16 rows match the morning truth map on every verified field.
+```
+
+No residue remains on the 16 rows. Atom store and morning Portada row untouched throughout.
