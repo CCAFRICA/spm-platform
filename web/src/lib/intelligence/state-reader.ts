@@ -124,6 +124,12 @@ export async function getStateReader(tenantId: string): Promise<TenantContext> {
   if (supersededIds.length > 0) {
     committedDataQuery = committedDataQuery.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
   }
+  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  {
+    const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+    const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+    committedDataQuery = applyCommittedDataVisibility(committedDataQuery, hiddenBatchIds);
+  }
 
   // Batch all queries in parallel
   const [

@@ -56,12 +56,17 @@ export async function resolveEntitiesAtCalcTime(
 ): Promise<CalcTimeEntityResolutionResult> {
   const startedAt = Date.now();
 
+  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows from the resolution
+  // telemetry (the resolution itself is gated in entity-resolution.ts). No-op when none are hidden.
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
   // Count rows with NULL entity_id before resolution
-  const beforeCountQ = await supabase
+  const beforeCountQ = await applyCommittedDataVisibility(supabase
     .from('committed_data')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
-    .is('entity_id', null);
+    .is('entity_id', null), hiddenBatchIds);
 
   if (beforeCountQ.error) {
     console.error(
@@ -104,11 +109,11 @@ export async function resolveEntitiesAtCalcTime(
   }
 
   // Count rows still with NULL entity_id after resolution
-  const afterCountQ = await supabase
+  const afterCountQ = await applyCommittedDataVisibility(supabase
     .from('committed_data')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
-    .is('entity_id', null);
+    .is('entity_id', null), hiddenBatchIds);
 
   if (afterCountQ.error) {
     console.error(

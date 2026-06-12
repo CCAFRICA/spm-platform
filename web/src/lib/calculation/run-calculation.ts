@@ -863,6 +863,14 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   // exclude these ids via NOT IN — operative-batch-only data per Rule 30.
   const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
   const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  // OB-203 D16.1 visibility gate: never count rows from a non-completed (processing/failed) batch — a
+  // partial left by an outage mid-commit. NULL-safe + no-op when no such batch exists (the proof-tenant
+  // and healthy state), so the engine reads are byte-identical until a real partial appears.
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+  if (hiddenBatchIds.length > 0) {
+    console.log(`[RunCalculation] D16.1: ${hiddenBatchIds.length} non-completed batch(es) hidden from engine reads`);
+  }
   if (supersededIds.length > 0) {
     console.log(`[RunCalculation] Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
   }
@@ -1000,6 +1008,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         .lte('source_date', period.end_date)
         .range(from, to);
       if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
 
       if (!page || page.length === 0) break;
@@ -1027,6 +1036,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         .eq('period_id', periodId)
         .range(from, to);
       if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
 
       if (!page || page.length === 0) break;
@@ -1108,6 +1118,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
           .lte('source_date', priorPeriodInfo.end_date)
           .range(from, to);
         if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
         const { data: page } = await q;
 
         if (!page || page.length === 0) break;
@@ -1132,6 +1143,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
           .eq('period_id', priorPeriodId)
           .range(from, to);
         if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
         const { data: page } = await q;
 
         if (!page || page.length === 0) break;
@@ -1288,6 +1300,7 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
       .not('import_batch_id', 'is', null)
       .limit(100);
     if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    bq = applyCommittedDataVisibility(bq, hiddenBatchIds);
     const { data: batchRows } = await bq;
 
     const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));

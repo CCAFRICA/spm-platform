@@ -91,11 +91,14 @@ export async function POST(request: NextRequest) {
     // ── Step 2: Normalize data_types ──
     // Get distinct prefixed data_types, then UPDATE directly by data_type (avoids row limit)
     console.log(`[Wire] Step 2: Normalizing data_types for tenant ${tenantId}`);
-    const { data: distinctTypes } = await supabase
+    // OB-203 D16.1: wiring reads must skip non-completed (processing/failed) batches' partial rows.
+    const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+    const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+    const { data: distinctTypes } = await applyCommittedDataVisibility(supabase
       .from('committed_data')
       .select('data_type')
       .eq('tenant_id', tenantId)
-      .like('data_type', 'component_data:%')
+      .like('data_type', 'component_data:%'), hiddenBatchIds)
       .limit(500);
 
     if (distinctTypes && distinctTypes.length > 0) {
@@ -146,11 +149,11 @@ export async function POST(request: NextRequest) {
 
     if (entitiesToEnrich.length > 0) {
       // Find roster-like data in committed_data
-      const { data: rosterRows } = await supabase
+      const { data: rosterRows } = await applyCommittedDataVisibility(supabase
         .from('committed_data')
         .select('row_data, data_type')
         .eq('tenant_id', tenantId)
-        .or('data_type.ilike.%roster%,data_type.ilike.%employee%,data_type.ilike.%rep%,data_type.ilike.%participant%')
+        .or('data_type.ilike.%roster%,data_type.ilike.%employee%,data_type.ilike.%rep%,data_type.ilike.%participant%'), hiddenBatchIds)
         .limit(5000);
 
       if (rosterRows && rosterRows.length > 0) {
@@ -343,11 +346,11 @@ export async function POST(request: NextRequest) {
     console.log(`[Wire] Step 5: Running convergence for tenant ${tenantId}`);
 
     const validDataTypes = new Set<string>();
-    const { data: dtRows } = await supabase
+    const { data: dtRows } = await applyCommittedDataVisibility(supabase
       .from('committed_data')
       .select('data_type')
       .eq('tenant_id', tenantId)
-      .not('data_type', 'is', null)
+      .not('data_type', 'is', null), hiddenBatchIds)
       .limit(5000);
     if (dtRows) {
       for (const r of dtRows) validDataTypes.add(r.data_type as string);

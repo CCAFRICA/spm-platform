@@ -91,3 +91,10 @@ One entry per item. Newest at top. An entry graduates to its own OB directive wh
   moves the ceiling, it does not add load management).
 - **Seeded by:** D16 (chunk-500 + 200ms pacing + unit-atomic rollback) — interim headroom under the
   current ceiling; INF-001 is the durable replacement.
+- **D16.1 closed the CORRECTNESS defect inside OB-203 (2026-06-12), NOT here:** the outage-mid-commit
+  class now self-heals — read-side visibility gate (consumers count only completed/NULL-batch rows),
+  batch-state reconciliation (stale `processing` → `failed`, no eternal lying state), and synchronous
+  orphan reclamation (a reconciled/failed batch's rows deleted when the host is healthy). What remains in
+  INF-001 is ONLY the GENERALIZED background machinery: queued jobs off the request lifecycle, bounded
+  cross-tenant concurrency, a scheduler/sweeper daemon, and full transactional writes. Correctness no
+  longer waits on this item.

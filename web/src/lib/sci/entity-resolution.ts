@@ -9,6 +9,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { hiddenBatchIdsForTenant, applyCommittedDataVisibility } from '@/lib/sci/committed-data-visibility';
 
 // HF-110: Guard against row index misidentification
 // If most values are sequential small integers (0,1,2... or 1,2,3...), it's likely row indices
@@ -43,15 +44,22 @@ export async function resolveEntitiesFromCommittedData(
 
   const seenBatches = new Set<string>();
 
+  // OB-203 D16.1: never discover/bind entities from a non-completed (processing/failed) batch's partial
+  // rows. Gating the tenant-wide discovery read keeps hidden batches out of batchIdentifiers entirely, so
+  // the per-batch reads + entity_id backfill below never touch them. No-op when none are hidden.
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
   // Scan committed_data metadata for identifier columns
   // Read one row per batch to get metadata (dedup by import_batch_id)
   let offset = 0;
   while (true) {
-    const { data: rows } = await supabase
+    let dq = supabase
       .from('committed_data')
       .select('import_batch_id, metadata, data_type')
       .eq('tenant_id', tenantId)
       .range(offset, offset + 999);
+    dq = applyCommittedDataVisibility(dq, hiddenBatchIds);
+    const { data: rows } = await dq;
 
     if (!rows || rows.length === 0) break;
 

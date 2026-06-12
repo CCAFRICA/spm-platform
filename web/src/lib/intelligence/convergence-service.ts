@@ -966,6 +966,9 @@ async function inventoryData(
   // HF-196 Phase 1E: filter out superseded batches per Rule 30.
   const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
   const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
+  // OB-203 D16.1: also exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
 
   // OB-162: Also read import_batch_id for convergence bindings
   let q = supabase
@@ -975,6 +978,7 @@ async function inventoryData(
     .not('data_type', 'is', null)
     .limit(500);
   if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  q = applyCommittedDataVisibility(q, hiddenBatchIds);
   const { data: rows } = await q;
 
   // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
@@ -986,6 +990,7 @@ async function inventoryData(
     .not('metadata->semantic_roles', 'is', null)
     .limit(50);
   if (supersededIds.length > 0) q2 = q2.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+  q2 = applyCommittedDataVisibility(q2, hiddenBatchIds);
   const { data: sciRows } = await q2;
 
   const allRows = [...(rows || [])];

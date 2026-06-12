@@ -93,12 +93,16 @@ async function fetchRawDataServer(tenantId: string): Promise<{ cheques: ChequeRe
   const cheques: ChequeRecord[] = [];
   let offset = 0;
 
+  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
   while (true) {
-    const { data, error } = await supabase
+    const { data, error } = await applyCommittedDataVisibility(supabase
       .from('committed_data')
       .select('entity_id, row_data')
       .eq('tenant_id', tenantId)
-      .eq('data_type', 'pos_cheque')
+      .eq('data_type', 'pos_cheque'), hiddenBatchIds)
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (error) throw error;

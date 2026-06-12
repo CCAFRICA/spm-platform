@@ -47,6 +47,8 @@ import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 // HF-239 Phase 0.4: store metadata population extracted from execute's
 // per-pipeline postCommitConstruction (OB-146 Step 1b block).
 import { populateStoreMetadata } from '@/lib/sci/store-metadata-population';
+// OB-203 D16.1: reconcile + reclaim any stale/partial batches from a prior outage BEFORE new data lands.
+import { reconcileStaleBatches } from '@/lib/sci/committed-data-visibility';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -145,6 +147,20 @@ export async function POST(req: NextRequest) {
     }
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
+
+    // ── OB-203 D16.1: reconcile stale/partial batches from a prior outage, BEFORE committing new data ──
+    // A batch stuck in `processing` past its liveness window (an outage killed the request mid-commit) is
+    // marked `failed` truthfully, and any orphan rows it left — here or in a `failed` batch whose
+    // host-killed rollback never ran — are deleted while the host is healthy. The platform self-heals at
+    // the next import; nothing partial survives into this import as live data.
+    try {
+      const recon = await reconcileStaleBatches(supabase, tenantId);
+      if (recon.reconciledProcessing || recon.rowsReclaimed || recon.failedSwept) {
+        console.log(`[SCI Bulk] D16.1 reconcile: processing→failed=${recon.reconciledProcessing} failedSwept=${recon.failedSwept} rowsReclaimed=${recon.rowsReclaimed}`);
+      }
+    } catch (reconErr) {
+      console.error('[SCI Bulk] D16.1 reconcile failed (non-blocking):', reconErr instanceof Error ? reconErr.message : reconErr);
+    }
 
     // ── Step 1+2 (HF-256, Decision 82 multi-file): per-file download + format-aware parse ──
     // Every file in the import is downloaded and parsed by its OWN format. The per-file

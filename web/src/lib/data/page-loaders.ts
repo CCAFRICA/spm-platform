@@ -398,7 +398,11 @@ export async function loadCalculatePageData(tenantId: string, periodKey?: string
     assignmentCount = assignRes.count ?? 0;
   }
   if (period?.id) {
-    const committedRes = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('period_id', period.id);
+    // OB-203 D16.1: don't count non-completed (processing/failed) batches' partial rows. No-op when none.
+    const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+    let committedQ = supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('period_id', period.id);
+    committedQ = applyCommittedDataVisibility(committedQ, await hiddenBatchIdsForTenant(supabase, tenantId));
+    const committedRes = await committedQ;
     committedDataCount = committedRes.count ?? 0;
   }
 
