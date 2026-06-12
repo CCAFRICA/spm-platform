@@ -2305,7 +2305,1584 @@ src/contexts/persona-context.tsx
 
 ## Module B — Surfacing-Effort Definition
 
-*(probe results pending)*
+# B1 — Five layers of proof, user accessibility
+
+**CURRENT STATE:** The admin side of the drill-down ladder is built and named "Five Layers of Proof": `/operate/results` and `/operate/calculate` render total → components → component-detail → metrics with per-entity expansion and "Full Trace" links into `/investigate/trace/[entityId]`. The single surface that exposes ALL four probe layers (total → components → inputs → source rows) is `/perform/statements`, which reads `calculation_results` (total + components JSONB) and `committed_data` (source rows) — but it is absent from the active navigation (ChromeSidebar/workspace-config), has no role scoping (entity picker over all entities for any authenticated user; RLS on these tables is tenant-scoped only), and its per-component "Details" inputs column is empty in live data (all 4 tenants' latest results persist `details: {}`). The rep's only nav-reachable surface is `/stream`, which shows total + component breakdown and stops. `calculation_traces` (the formula/steps layer) exists as schema with a reader and a writer function, but the writer has zero call sites and the table holds 0 rows; trace UI is fed instead from `calculation_results.metadata.intentTraces`.
+
+## EVIDENCE
+
+### 1. Mandated grep #1 — result-detail routes (complete hit list, 22 files)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rln "calculation" src/app --include="page.tsx"
+src/app/insights/page.tsx
+src/app/insights/my-team/page.tsx
+src/app/my-compensation/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/configure/periods/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/stream/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/briefing/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/app/data/operations/page.tsx
+src/app/perform/page.tsx
+src/app/data/import/enhanced/page.tsx
+```
+
+### 2. Mandated grep #2 — trace/drill/breakdown surfaces (complete hit list, 45 files)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "trace\|drill\|breakdown" src/ --include="*.tsx"
+src/app/insights/analytics/page.tsx
+src/app/insights/sales-finance/page.tsx
+src/app/insights/performance/page.tsx
+src/app/my-compensation/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/financial/summary/page.tsx
+src/app/insights/page.tsx
+src/app/insights/trends/page.tsx
+src/app/financial/products/page.tsx
+src/app/stream/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/components/reconciliation/ReconciliationTracePanel.tsx
+src/components/calculate/PlanCard.tsx
+src/components/calculate/PlanResults.tsx
+src/components/intelligence/RepTrajectory.tsx
+src/components/intelligence/ComponentBreakdownCard.tsx
+src/components/platform/PlatformObservatory.tsx
+src/components/platform/IngestionTab.tsx
+src/components/sci/SCIExecution.tsx
+src/components/forensics/ExecutionTraceView.tsx
+src/components/forensics/AggregateBar.tsx
+src/components/transactions/transaction-detail-modal.tsx
+src/components/forensics/EmployeeTrace.tsx
+src/components/compensation/CalculationBreakdown.tsx
+src/components/results/NarrativeSpine.tsx
+src/components/compensation/ComponentBreakdownCard.tsx
+src/components/canvas/panels/CpiVisualization.tsx
+src/components/briefing/AdminBriefing.tsx
+src/components/results/ResultsHero.tsx
+src/components/dashboards/RepDashboard.tsx
+src/components/briefing/IndividualBriefing.tsx
+src/components/approvals/impact-rating-badge.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/analytics/ExportDialog.tsx
+src/components/design-system/ImpactRatingBadge.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/design-system/ComponentStack.tsx
+```
+(45 files; file-level list complete.)
+
+### 3. Audience determination — middleware + page gates + active navigation
+
+Middleware gates by path prefix → capability (src/lib/auth/permissions.ts:295-316):
+
+```
+src/lib/auth/permissions.ts:295
+export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
+  '/admin': 'platform.system_config',
+  '/operate': 'data.import',
+  '/configure': 'tenant.edit_settings',
+  '/configuration': 'tenant.edit_settings',
+  '/govern': 'data.approve_results',
+  '/data': 'data.import',
+  '/financial': 'view.team_results',
+};
+export function canAccessWorkspace(role: string, pathname: string): boolean {
+  const matchedWorkspace = Object.keys(WORKSPACE_CAPABILITIES)
+    .filter(prefix => pathname.startsWith(prefix))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!matchedWorkspace) return true; // Unrestricted path
+  return hasCapability(role, WORKSPACE_CAPABILITIES[matchedWorkspace]);
+}
+```
+Member (sales_rep alias) capability set (src/lib/auth/permissions.ts:196-203): `view.own_results`, `view.intelligence_stream`, `dispute.submit`, `statement.view`. No `view.team_results`/`view.all_results`/`data.*`. So middleware blocks reps from /admin, /operate(+/operations via prefix match), /configure, /govern, /data, /financial. `/perform`, `/my-compensation`, `/insights`, `/investigate`, `/stream`, `/performance` are middleware-unrestricted ("Unrestricted path" branch).
+
+Page-level gates (complete enumeration):
+
+```
+$ grep -rn "RequireCapability" src/app --include="*.tsx" | grep -v "import"
+src/app/configure/users/page.tsx:321:    <RequireCapability capability="tenant.manage_users">
+src/app/configure/users/page.tsx:323:    </RequireCapability>
+src/app/configure/users/invite/page.tsx:301:    <RequireCapability capability="tenant.manage_users">
+src/app/configure/users/invite/page.tsx:303:    </RequireCapability>
+src/app/configure/people/page.tsx:293:    <RequireCapability capability="view.all_entities">
+src/app/configure/people/page.tsx:295:    </RequireCapability>
+src/app/admin/launch/calculate/page.tsx:1120:    <RequireCapability capability="data.calculate">
+src/app/admin/launch/calculate/page.tsx:1122:    </RequireCapability>
+src/app/operate/calculate/page.tsx:939:    <RequireCapability capability="data.calculate">
+src/app/operate/calculate/page.tsx:941:    </RequireCapability>
+src/app/operate/pay/page.tsx:338:    <RequireCapability capability="data.export">
+src/app/operate/pay/page.tsx:340:    </RequireCapability>
+src/app/operate/results/page.tsx:812:    <RequireCapability capability="view.all_results">
+src/app/operate/results/page.tsx:814:    </RequireCapability>
+src/app/govern/calculation-approvals/page.tsx:293:    <RequireCapability capability="data.approve_results">
+src/app/govern/calculation-approvals/page.tsx:295:    </RequireCapability>
+```
+`/perform/statements`, `/my-compensation`, `/investigate/trace/[entityId]` have NO RequireCapability gate.
+
+Active navigation: root layout → AuthShell → ChromeSidebar (src/components/layout/auth-shell.tsx:10,39) → `WORKSPACES` in src/lib/navigation/workspace-config.ts. The perform workspace contains exactly two routes:
+
+```
+src/lib/navigation/workspace-config.ts:36-52 (perform.sections)
+  { path: '/stream', ... roles: ['platform','admin','manager','sales_rep'], requiredCapability: 'view.intelligence_stream' },
+  { path: '/operate/results', ... roles: ['platform','admin','manager'], requiredCapability: 'view.all_results' },
+```
+`getWorkspaceRoutesForRole` (workspace-config.ts:234-247) filters on requiredCapability first — so manager (has view.team_results, not view.all_results) is also filtered out of the Results nav entry. Searches for statement routes in nav config:
+
+```
+$ grep -n "my-compensation\|statements\|perform/" src/lib/navigation/workspace-config.ts
+(no output)
+$ grep -rn "perform/statements" src/ --include="*.tsx" --include="*.ts"
+(no output — zero inbound links anywhere)
+$ grep -rn '"/perform"' src/ --include="*.tsx" --include="*.ts" | grep -v "perform/"
+(no output — zero inbound links to /perform)
+$ grep -rn "from.*navigation/Sidebar\|import.*{ *Sidebar" src/ --include="*.tsx" | grep -v ChromeSidebar
+(no output — legacy Sidebar.tsx, the only file linking /my-compensation, is mounted nowhere)
+```
+
+Inbound links to the trace surface (complete):
+
+```
+$ grep -rn "investigate/trace" src/ --include="*.tsx" --include="*.ts"
+src/app/investigate/trace/[entityId]/page.tsx:7: * Route: /investigate/trace/[entityId]
+src/app/admin/launch/calculate/page.tsx:903:  router.push(`/investigate/trace/${r.entity_id}?from=calculate`);
+src/app/operate/results/page.tsx:692:  router.push(`/investigate/trace/${row.entityId}?from=results`);
+src/components/calculate/PlanResults.tsx:364:  router.push(`/investigate/trace/${row.entityId}?from=calculate`);
+src/components/results/NarrativeSpine.tsx:287:  href={`/investigate/trace/${entity.entityId}?from=results`};
+```
+All four link sources are admin-gated surfaces.
+
+### 4. Surface inventory (one line per surface; layers: L1 total → L2 components → L3 inputs → L4 source rows)
+
+| Route | Audience (gate) | Layers exposed |
+|---|---|---|
+| /operate/results | admin/platform (page: view.all_results; middleware: data.import) | L1→L2→L3 (goal/actual/attainment/formula/rate from `details`, metrics JSONB) + Full Trace link; no L4 |
+| /operate/calculate | admin/platform (page: data.calculate) | DS-007 "Five Layers": Hero+Heatmap+PopulationHealth+EntityTable+NarrativeSpine; trace links; no L4 |
+| /admin/launch/calculate | platform (middleware: platform.system_config; page: data.calculate) | L1→L2 + per-entity intentTraces expansion + trace link |
+| /admin/launch/calculate/diagnostics | platform | prerequisites only (no result layers) |
+| /investigate/trace/[entityId] | ungated (no middleware prefix, no page gate); linked only from admin surfaces | L2→L3→steps from calculation_traces (live: 0 rows) + metadata.intentTraces (live: present) |
+| /operate/reconciliation | admin (data.reconcile nav / data.import middleware) | benchmark-vs-result comparison incl. ReconciliationTracePanel |
+| /govern/calculation-approvals | admin+manager (data.approve_results) | approval items with component breakdown (L1→L2) |
+| /operate/pay | admin (page: data.export) | aggregate payroll L1 only |
+| /operate, /operate/lifecycle, /operations/rollback, /data/operations, /data/import/enhanced, /configure/periods | admin | operational context, no statement drill-down |
+| /operate/briefing | — | redirect → /stream |
+| /stream | ALL roles incl. rep (nav-reachable; default landing) | rep persona: L1 personalEarnings + L2 componentBreakdown (intelligence-stream-loader.ts buildRepData); no L3/L4 |
+| /perform | all roles, URL-only (zero inbound links; workspace defaultRoute is /stream) | rep: L1 + L2 via RepDashboard (component values key-mismatched, see §7) |
+| /my-compensation | rep-targeted, URL-only (only link is in unmounted legacy Sidebar.tsx) | L1+L2 intended; own-entity match defective (see §7) |
+| /perform/statements | any authenticated user, URL-only (no nav entry, no page gate, no role scoping) | **L1+L2+L3(column, live-empty)+L4 source rows** — the only all-layer surface |
+| /insights, /insights/my-team, /financial/* | mixed (financial: manager+) | aggregate analytics / financial module, not statement drill-down |
+
+### 5. /perform/statements — the all-layers surface (and its scoping)
+
+```
+src/app/perform/statements/page.tsx:14-21 (header comment)
+ * Entity scoping:
+ *   Admin: entity picker (all entities)
+ *   Manager: team entities
+ *   Rep: own entity only (via profile link or URL param)
+```
+Code shows NO role branch — entity list is loaded unconditionally for every user and the first entity is auto-selected:
+
+```
+src/app/perform/statements/page.tsx:106-111,143-145
+    const [entitiesRes, periodsRes, batchesRes] = await Promise.all([
+      supabase.from('entities').select('id, external_id, display_name')
+        .eq('tenant_id', tenantId).order('external_id'),
+    ...
+    if (!selectedEntityId && entitiesRes.data?.length) {
+      setSelectedEntityId(entitiesRes.data[0].id);
+    }
+```
+Layers: L1 total (`calculation_results.total_payout`, line 183-188, 417-443), L2 component table reading `comp.payout` (lines 461-478), L3 "Details" column from `comp.details` via formatComponentDetail (lines 582-602), L4 source rows from committed_data (lines 230-245, rendered 532-570):
+
+```
+src/app/perform/statements/page.tsx:230-237
+    // Load source transactions
+    const { data: txns } = await supabase
+      .from('committed_data')
+      .select('data_type, source_date, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('entity_id', selectedEntityId)
+      .order('source_date', { ascending: false })
+      .limit(50);
+```
+(Note: source rows are entity-scoped but NOT period-scoped — last 50 rows regardless of selected period.)
+
+RLS on the read tables is tenant-scoped only (no entity/role predicate), so the unscoped picker works for any member of the tenant:
+
+```
+web/supabase/migrations/003_data_and_calculation.sql:169-172
+CREATE POLICY "calculation_results_select_tenant" ON calculation_results
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+web/supabase/migrations/003_data_and_calculation.sql:65-68
+CREATE POLICY "committed_data_select_tenant" ON committed_data
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+```
+(Later migrations 006 / 20260610180000 only add platform-role cross-tenant policies for these tables.)
+
+### 6. Trace layer — table exists, writer never called, UI reads metadata instead
+
+```
+$ grep -rn "writeCalculationTraces" src/ --include="*.ts" --include="*.tsx"
+src/lib/supabase/calculation-service.ts:423:export async function writeCalculationTraces(
+```
+One hit = definition only; zero call sites. Reader `getCalculationTraces` (calculation-service.ts:458-470) is called only by /investigate/trace/[entityId]/page.tsx:52. The intent-path orchestrator persists traces into result metadata instead:
+
+```
+src/app/api/calculation/run/route.ts:2530,2609,2710
+    const intentTraces: unknown[] = [];
+      intentTraces.push(intentResult.trace);
+        intentTraces,            // ← written into calculation_results.metadata
+```
+
+### 7. Rep-surface data-shape mismatches (code vs persisted shape)
+
+Engine persists components as `{componentId, componentName, componentType, payout, details}`:
+
+```
+src/lib/calculation/run-calculation.ts:1471-1477
+      components: componentResults.map(c => ({
+        componentId: c.componentId,
+        componentName: c.componentName,
+        componentType: c.componentType,
+        payout: c.payout,
+        details: c.details,
+      })) as unknown as Json,
+```
+/my-compensation reads keys that are not in that shape, and matches the rep by email-derived id against a uuid column:
+
+```
+src/app/my-compensation/page.tsx:63-69,112,144,168
+function extractEmployeeId(email: string | undefined): string | null {
+  ...  const match = email.match(/^(\d+)@/);  ...
+}
+    const entityId = extractEmployeeId(user.email);
+          const match = calcResults.find((r) => r.entity_id === entityId);   // entity_id is uuid (DB-verified below)
+                  outputValue: Number(comp.outputValue || comp.output_value || 0),  // persisted key is 'payout'
+```
+```
+src/components/compensation/ComponentBreakdownCard.tsx:104
+            const attainment = comp.inputs.attainment * 100;   // 'inputs' absent from persisted component shape
+```
+```
+src/lib/data/persona-queries.ts:484-490 (RepDashboard path)
+  return components.map((c) => {
+    ...
+      value: typeof comp.value === 'number' ? comp.value : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
+```
+/operate/results and /perform/statements and intelligence-stream-loader handle the `payout` key correctly (operate/results/page.tsx:155 `comp.outputValue || comp.output_value || comp.payout`; statements page reads `comp.payout`; stream loader uses `c.payout`).
+
+### 8. DB probe — layer data existence (script + verbatim output)
+
+Script: web/scripts/diag/diag063_b1_drilldown_layers.ts (read-only; counts/UUIDs/key-names only). Run:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b1_drilldown_layers.ts
+── table counts (global) ──
+calculation_batches: 15
+calculation_results: 943
+calculation_traces: 0
+committed_data: 416258
+entities: 22148
+
+── calculation_results sample (3 most recent; structure only) ──
+{
+  "result_id": "51e60d70-171a-414d-a6f9-6ac418639b31",
+  "tenant_id": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
+  "batch_id": "69d5614f-9784-42e4-b328-8418be6fbaed",
+  "entity_id": "0040a5e7-c821-4a89-933e-11845de6e9d2",
+  "entity_id_is_uuid": true,
+  "created_at": "2026-06-11T19:32:40.75149+00:00",
+  "components_count": 4,
+  "first_component_keys": ["componentId","componentName","componentType","details","payout"],
+  "first_component_details_keys": [],
+  "metrics_top_level_key_count": 10,
+  "metadata_keys": ["binding_snapshot","entityName","externalId","intentTotal","intentTraces","roundingTrace"],
+  "metadata_intentTraces_count": 4
+}
+(rows 2 and 3 identical in structure: entity_id_is_uuid true, same component keys, details keys [], 10 metric keys, 4 intentTraces)
+
+── drill-down availability for most recent result ──
+calculation_traces rows for result 51e60d70-171a-414d-a6f9-6ac418639b31: 0
+committed_data rows for entity 0040a5e7-c821-4a89-933e-11845de6e9d2 (source-row layer): 1
+{"entity_row_found":true,"entity_id":"0040a5e7-c821-4a89-933e-11845de6e9d2","external_id_is_numeric":false,"external_id_equals_entity_id":false}
+```
+
+Script: web/scripts/diag/diag063_b1_trace_shape.ts (keys only):
+
+```
+result_id: 51e60d70-171a-414d-a6f9-6ac418639b31
+component[0] details keys: []
+component[1] details keys: []
+component[2] details keys: []
+component[3] details keys: []
+intentTraces[0] keys: ["componentIndex","componentType","confidence","entityId","finalOutcome","inputs","modifiers"]
+  intentTraces[0].inputs keys: []
+  intentTraces[0].modifiers: array length 0
+```
+
+Script: web/scripts/diag/diag063_b1_details_by_tenant.ts (latest result per tenant):
+
+```
+distinct tenants with calculation_results: 4
+{"tenant_id":"03d28288-700b-43e3-a96b-49a4f849d2df","latest_result_id":"26b0f07a-5a8a-4001-bb52-c4a2312f1f6c","created_at":"2026-06-11T16:56:15.205294+00:00","components":5,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":5}
+{"tenant_id":"5035b1e8-0754-4527-b7ec-9f93f85e4c79","latest_result_id":"3366e422-269e-479c-94d0-079a3eeba4cf","created_at":"2026-06-10T00:36:32.686529+00:00","components":5,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":5}
+{"tenant_id":"b1c2d3e4-aaaa-bbbb-cccc-111111111111","latest_result_id":"51e60d70-171a-414d-a6f9-6ac418639b31","created_at":"2026-06-11T19:32:40.75149+00:00","components":4,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":4}
+{"tenant_id":"f7093bcc-e90b-4918-9680-69da7952dd65","latest_result_id":"e7d390d0-f549-4020-8f59-f81435a28b6d","created_at":"2026-06-03T06:03:04.391603+00:00","components":0,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":0}
+```
+Schema cross-check: SCHEMA_REFERENCE_LIVE.md lines 101-135 confirms calculation_results (12 cols incl. components/metrics/attainment/metadata JSONB) and calculation_traces (9 cols incl. formula/inputs/output/steps). Observed keys match; no divergence.
+
+### 9. Layer reachability — rep vs admin vs data-only (the gap statement)
+
+- **Rep, nav-reachable TODAY:** L1 total + L2 components, via /stream only (buildRepData: personalEarnings + componentBreakdown, correct `payout` key). The ladder STOPS at L2; no inputs, no source rows, no trace.
+- **Rep, URL-only TODAY:** /perform/statements gives L1+L2+L4 working (L3 column present but live `details` empty); /my-compensation and /perform exist but their result-matching/parsing does not align with the persisted shape (§7), so component amounts render empty/zero.
+- **Admin-only:** /operate/results (L1→L3 + trace link), /operate/calculate (five-layer DS-007), /admin/launch/calculate; all trace links into /investigate/trace originate from these.
+- **Data-only (no populated UI path):** calculation_traces formula/steps layer (0 rows, writer uncalled); components[].details (key persisted, empty across all 4 tenants' latest results); calculation_results.metrics (10 keys live; rendered only inside admin /operate/results L2 panel).
+
+## GAP TO DEMO BAR
+
+A rep can reach total and component breakdown from /stream today, but no navigation path exists from a rep's own statement to inputs or source rows: the one all-layer surface (/perform/statements) is unlinked from the active chrome, unscoped (any tenant member can open any entity's statement and source rows — UI and RLS both), and its inputs column is empty in live data. The dedicated rep statement page (/my-compensation) does not match results in the persisted shape (uuid entity_id vs email-derived id; `outputValue` vs `payout`). The formula-level trace layer exists as schema + reader + viewer components but has no writer call site and 0 rows; trace UI substance currently comes from metadata.intentTraces, whose `inputs` object is also empty in the sampled live row.
+
+## EFFORT SHAPE
+
+Split: **rep statement reachability E2-SURFACE / formula-inputs trace layer E3-COMPOSE.**
+- E2 (make L1/L2/L4 rep-reachable): add a perform-workspace route entry in `src/lib/navigation/workspace-config.ts` (e.g. "My Statement" → /perform/statements, requiredCapability `statement.view` — capability already defined and granted to member in src/lib/auth/permissions.ts); add own-entity scoping inside `src/app/perform/statements/page.tsx` composing the existing persona-context entity resolution (src/contexts/persona-context.tsx profiles → entities.profile_id linkage) and gating the all-entities picker behind `hasCapability('view.all_results'|'view.team_results')`. No new tables, no new services — tables calculation_results, committed_data, entities, periods already serve the page.
+- E3 (rep-visible inputs/trace layer): either wire the existing-but-uncalled `writeCalculationTraces` (src/lib/supabase/calculation-service.ts:423) into the run orchestrator (src/app/api/calculation/run/route.ts) so /investigate/trace's EmployeeTrace has rows, or compose the existing `ExecutionTraceView` (src/components/forensics/ExecutionTraceView.tsx) + metadata.intentTraces into the statement page — plus populating components[].details / intentTraces.inputs at write time (service-layer work in the calculation route).
+
+# B2 — Individual commission statements
+
+### B2 — Individual commission statements
+
+**CURRENT STATE:** A commission-statement page exists at route `/perform/statements` (`src/app/perform/statements/page.tsx`, 611 lines, OB-171 MC#1). It renders, per selected entity and period: a Total Payout card with lifecycle-state badge, a Component Breakdown table (component name, payout, % of total, details column), a multi-period trajectory strip, and a collapsible source-transactions table — all read client-side via the browser supabase client from `calculation_batches`, `calculation_results` (the `components` JSONB), `entities`, `periods`, and `committed_data`. Live DB holds 15 batches / 943 results whose `components` JSONB matches the page's expected shape exactly. However: the route is referenced nowhere in any navigation registry or sidebar (direct-URL only); the page implements no rep scoping despite its docstring claim (it loads ALL tenant entities and shows the picker unconditionally); and every live component entry is `componentType: "prime_dag"` with empty `details`, which the page's detail formatter renders as an explicit "not supported in statement display" label.
+
+**EVIDENCE:**
+
+#### 1. File sweep (complete list)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "statement" src/ --include="*.ts" --include="*.tsx" | sort
+src/app/financial/page.tsx
+src/app/financial/summary/page.tsx
+src/app/perform/statements/page.tsx
+src/components/compensation/QuickActionsCard.tsx
+src/lib/auth/permissions.ts
+src/lib/domain/domains/franchise.ts
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/rbac/rbac-service.ts
+src/lib/sci/proposal-intelligence.ts
+```
+
+Per-file hit counts (`grep -rnic`, zero-count files omitted):
+
+```
+src/app/financial/page.tsx:1
+src/app/financial/summary/page.tsx:1
+src/app/perform/statements/page.tsx:30
+src/components/compensation/QuickActionsCard.tsx:1
+src/lib/auth/permissions.ts:12
+src/lib/domain/domains/franchise.ts:1
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts:1
+src/lib/navigation/compensation-clock-service.ts:1
+src/lib/rbac/rbac-service.ts:1
+src/lib/sci/proposal-intelligence.ts:1
+```
+
+Line-level hits for all non-page files (complete):
+
+```
+src/lib/navigation/compensation-clock-service.ts:237:    case 'closed': return isSpanish ? 'Ver Estado de Cuenta' : 'View Statement';
+src/lib/rbac/rbac-service.ts:440:    compensation: ['plans', 'payouts', 'statements'],
+src/lib/auth/permissions.ts:55:  // Statement
+src/lib/auth/permissions.ts:56:  | 'statement.view'
+src/lib/auth/permissions.ts:133:    // Statement
+src/lib/auth/permissions.ts:134:    'statement.view',
+src/lib/auth/permissions.ts:167:    // Statement
+src/lib/auth/permissions.ts:168:    'statement.view',
+src/lib/auth/permissions.ts:188:    // Statement
+src/lib/auth/permissions.ts:189:    'statement.view',
+src/lib/auth/permissions.ts:200:    // Statement
+src/lib/auth/permissions.ts:201:    'statement.view',
+src/lib/auth/permissions.ts:208:    // Statement
+src/lib/auth/permissions.ts:209:    'statement.view',
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts:89:  // Search for import statements only (not comments referencing the prior file).
+src/components/compensation/QuickActionsCard.tsx:10:      label: 'Download Statement',
+src/lib/sci/proposal-intelligence.ts:38:// Discrete facts about the data structure. Each is a falsifiable statement.
+src/app/financial/page.tsx:176:      desc: isSpanish ? 'Estado de resultados consolidado del período' : 'Consolidated period income statement',
+src/app/financial/summary/page.tsx:226:          <CardTitle>Operating Statement</CardTitle>
+```
+
+Non-statement-surface hits classified: franchise.ts / financial pages / proposal-intelligence / adaptive-emergence test are "financial statement" / "income statement" / prose usages — not a rep commission-statement surface. The only statement surface is `src/app/perform/statements/page.tsx`.
+
+#### 2. Core statement page — intent docstring
+
+```
+src/app/perform/statements/page.tsx:3-21
+/**
+ * Commission Statement Page — Entity-scoped payout + component breakdown
+ *
+ * OB-171: MC#1 (Individual Commission Statements)
+ *
+ * Five Elements:
+ *   Value:      Total payout for entity in period
+ *   Context:    Component breakdown with metric details
+ *   Comparison: Lifecycle status, % of total per component
+ *   Action:     Switch period, view entity picker (admin)
+ *   Impact:     What advancing lifecycle produces
+ *
+ * Entity scoping:
+ *   Admin: entity picker (all entities)
+ *   Manager: team entities
+ *   Rep: own entity only (via profile link or URL param)
+ *
+ * Domain-agnostic: component names from rule_sets, entity names from entities.
+ */
+```
+
+#### 3. Core statement data fetch (browser supabase client; no API route, no service layer)
+
+```
+src/app/perform/statements/page.tsx:164-211 (trimmed to the two core queries)
+    const supabase = createClient();
+
+    // Get latest batch for this period
+    const { data: batches } = await supabase
+      .from('calculation_batches')
+      .select('id, lifecycle_state')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', selectedPeriodId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!batches?.length) {
+      setStatement(null);
+      return;
+    }
+
+    const batch = batches[0];
+
+    // Get calculation result for this entity in this batch
+    const { data: results } = await supabase
+      .from('calculation_results')
+      .select('total_payout, components, metrics, attainment')
+      .eq('batch_id', batch.id)
+      .eq('entity_id', selectedEntityId)
+      .limit(1);
+
+    if (!results?.length) {
+      setStatement(null);
+      return;
+    }
+
+    const result = results[0];
+    ...
+    // Parse components
+    const components = Array.isArray(result.components)
+      ? (result.components as unknown as ComponentResult[])
+      : [];
+```
+
+Entity loading is unconditional — all tenant entities, no role/profile filter; first entity auto-selected:
+
+```
+src/app/perform/statements/page.tsx:106-111, 142-145
+    const [entitiesRes, periodsRes, batchesRes] = await Promise.all([
+      supabase
+        .from('entities')
+        .select('id, external_id, display_name')
+        .eq('tenant_id', tenantId)
+        .order('external_id'),
+    ...
+    // Auto-select first entity if none specified
+    if (!selectedEntityId && entitiesRes.data?.length) {
+      setSelectedEntityId(entitiesRes.data[0].id);
+    }
+```
+
+The component imports no auth/role/profile hook (full file read: only `useTenant`, `useCurrency`, `useSearchParams`); rep restriction exists only as the docstring.
+
+#### 4. Component-detail formatter — explicit unsupported-type label
+
+```
+src/app/perform/statements/page.tsx:582-601
+function formatComponentDetail(comp: ComponentResult): string {
+  const d = comp.details;
+  if (!d) return '';
+
+  switch (comp.componentType) {
+    case 'bounded_lookup_2d':
+      return `Row: ${d.rowBand || '—'} (${Number(d.rowValue || 0).toFixed(1)}%), Col: ${d.colBand || '—'}`;
+    case 'bounded_lookup_1d':
+      return `${d.matchedTier || '—'} (${Number(d.metricValue || 0).toFixed(1)})`;
+    case 'scalar_multiply':
+      return `${d.baseAmount || 0} × ${d.rate || 0}`;
+    case 'conditional_gate':
+      return d.gateSemantics ? `${d.matchedCondition || 'Qualified'}` : `${d.matchedCondition || '—'}`;
+    default:
+      if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
+        return d.payout ? 'Qualified' : 'Not qualified';
+      }
+      // OB-196 Phase 3 (E4 / Q-A.5.4): graceful-with-explicit-label, never silent.
+      return `Component type ${comp.componentType ?? 'unknown'} not supported in statement display`;
+  }
+}
+```
+
+#### 5. Navigation: route is unlinked
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "perform/statements" src/ --include="*.ts" --include="*.tsx"
+(no output — zero hits)
+```
+
+The `perform` workspace nav registry contains only `/stream` and `/operate/results`:
+
+```
+src/lib/navigation/workspace-config.ts:25-52 (perform workspace, sections trimmed)
+  perform: {
+    id: 'perform',
+    ...
+    defaultRoute: '/stream',
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
+    sections: [
+      { id: 'intelligence', ... routes: [
+          { path: '/stream', label: 'Intelligence', ... requiredCapability: 'view.intelligence_stream' },
+      ]},
+      { id: 'results', ... routes: [
+          { path: '/operate/results', label: 'Results', ... roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
+      ]},
+    ],
+  },
+```
+
+Route-level role gate admits reps to /perform by direct URL:
+
+```
+src/lib/auth/role-permissions.ts:22
+  '/perform':       ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+```
+
+A `statement.view` capability is defined and granted to every role (platform, admin, manager, member, viewer — `src/lib/auth/permissions.ts:56,134,168,189,201,209`), but no nav route or page check references it for this page.
+
+Adjacent statement affordances that do NOT reach the page:
+
+```
+src/components/compensation/QuickActionsCard.tsx:8-15
+  const actions = [
+    {
+      label: 'Download Statement',
+      description: 'Export your earnings report',
+      icon: Download,
+      href: '#',
+      ...
+```
+
+```
+src/lib/navigation/compensation-clock-service.ts:234-240
+function getRepNextAction(phase: CyclePhase, isSpanish: boolean): string {
+  switch (phase) {
+    case 'pay':
+    case 'closed': return isSpanish ? 'Ver Estado de Cuenta' : 'View Statement';
+    default: return isSpanish ? 'Revisar Rendimiento' : 'Check Performance';
+  }
+}
+```
+
+(label string only — returns text, carries no route).
+
+#### 6. Schema authority (SCHEMA_REFERENCE_LIVE.md)
+
+`calculation_results` (12 columns) includes `total_payout numeric`, `components jsonb`, `metrics jsonb`, `attainment jsonb` — matches the page's select list. `profiles` (11 columns) has NO entity link column (id, tenant_id, auth_user_id, display_name, email, role, capabilities, locale, avatar_url, created_at, updated_at). `profile_scope` (9 columns) carries `visible_entity_ids uuid[]` — the only schema-level rep→entity scoping vehicle.
+
+#### 7. DB probe 1 — data source renders (script + output)
+
+Script: `web/scripts/diag/diag063_b2_statements_data.ts` (READ-ONLY; counts/UUIDs/statuses/JSON-key shapes only):
+
+```ts
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+async function main() {
+  const [batches, results, scopes] = await Promise.all([
+    supabase.from('calculation_batches').select('*', { count: 'exact', head: true }),
+    supabase.from('calculation_results').select('*', { count: 'exact', head: true }),
+    supabase.from('profile_scope').select('*', { count: 'exact', head: true }),
+  ]);
+  // ... logs counts; then latest batch -> one result -> components key shape; then profiles role distribution
+  const { data: latestBatches } = await supabase.from('calculation_batches')
+    .select('id, tenant_id, period_id, lifecycle_state, entity_count, created_at')
+    .order('created_at', { ascending: false }).limit(1);
+  const { data: oneResult } = await supabase.from('calculation_results')
+    .select('id, entity_id, components').eq('batch_id', latestBatches![0].id).limit(1);
+  // prints Object.keys of each components[] element + componentType; never payout values
+}
+```
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b2_statements_data.ts
+calculation_batches count: 15 
+calculation_results count: 943 
+profile_scope count: 0 
+latest batch: {"id":"69d5614f-9784-42e4-b328-8418be6fbaed","tenant_id":"b1c2d3e4-aaaa-bbbb-cccc-111111111111","period_id":"0fcd8fa0-c2f2-43c3-b8e6-234244914c16","lifecycle_state":"PREVIEW","entity_count":85,"created_at":"2026-06-11T19:32:31.342201+00:00"}
+one result: {"id":"51e60d70-171a-414d-a6f9-6ac418639b31","entity_id":"0040a5e7-c821-4a89-933e-11845de6e9d2","componentCount":4}
+component[0] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[1] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[2] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[3] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+profiles role distribution: {"platform":3,"tenant_admin":5,"admin":1,"manager":1,"sales_rep":1}
+```
+
+The `components` JSONB element shape (`componentId,componentName,componentType,details,payout`) matches the page's `ComponentResult` interface field-for-field — the per-component breakdown table (name, payout, % of total) renders from live data.
+
+#### 8. DB probe 2 — componentType distribution + details shape (script + output)
+
+Script: `web/scripts/diag/diag063_b2_statements_component_details.ts` (READ-ONLY; keys and type-name distribution only):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b2_statements_component_details.ts
+component[0] type=prime_dag details keys: 
+component[1] type=prime_dag details keys: 
+component[2] type=prime_dag details keys: 
+component[3] type=prime_dag details keys: 
+componentType distribution across all calculation_results: {"prime_dag":3905}
+```
+
+All 3,905 component entries platform-wide are `componentType: "prime_dag"` with empty `details` — none of the four types in `formatComponentDetail`'s switch exist in live data, so the Details column renders the explicit label "Component type prime_dag not supported in statement display" for every row of every current statement.
+
+#### 9. RLS — what the browser client can read
+
+```
+web/supabase/migrations/003_data_and_calculation.sql:169-172
+CREATE POLICY "calculation_results_select_tenant" ON calculation_results
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+```
+
+```
+web/supabase/migrations/20260610180000_hf283_rls_platform_predicate.sql:55-56
+DROP POLICY IF EXISTS "calculation_results_select_vl_admin" ON public.calculation_results;
+CREATE POLICY "calculation_results_select_vl_admin" ON public.calculation_results FOR SELECT USING (public.is_platform());
+```
+
+The tenant SELECT policy is tenant-scoped only — no entity-level predicate. Any authenticated tenant profile (including `sales_rep`) can read every entity's `calculation_results` rows; combined with §3 (all-entities picker, no role check) the page exposes any entity's statement to any tenant user who reaches the URL. `profile_scope` (the materialized scoping table) has 0 rows.
+
+**GAP TO DEMO BAR:** The per-component breakdown for an individual exists and renders from live data — but as an admin-shaped tool, not a rep-facing statement. Gaps vs. "a rep sees their own commission statement": (1) no navigation entry anywhere (`grep "perform/statements"` = zero hits) — reachable only by typed URL or `?entityId=&periodId=` params; (2) no rep self-scoping — the page loads all tenant entities, shows the picker unconditionally, auto-selects the FIRST entity (not the rep's own), and there is no profile→entity link to resolve "own entity" (no `profiles.entity_id` column; `profile_scope.visible_entity_ids` exists but is unpopulated and unreferenced by the page); RLS is tenant-wide, providing no backstop; (3) the Details column is an explicit "not supported" label for 100% of live data (all `prime_dag`, empty `details`) — component name, payout, and % of total still display; (4) the rep-adjacent affordances ("Download Statement" quick action href `#`; clock "View Statement" label with no route) do not connect to the page.
+
+**EFFORT SHAPE:** Split. Statement surface with per-component breakdown: **E1 VERIFY-ONLY** — route `/perform/statements` + `calculation_results.components` verified in code and DB; remaining proof is an architect browser visit. Rep-facing individual statement: **E3 COMPOSE** — add a nav route to the `perform` workspace in `src/lib/navigation/workspace-config.ts` gated by the already-defined `statement.view` capability (`src/lib/auth/permissions.ts:56`); add a rep→entity resolution + scoping branch in `src/app/perform/statements/page.tsx` (replace the all-entities load for member/viewer roles), backed by populating/reading `profile_scope.visible_entity_ids` (table exists, 0 rows) — service-layer assembly of existing pieces, no new schema. Detail column content for `prime_dag` would additionally need the calculation writer to populate `components[].details` (service-layer; out of statement-surface scope).
+
+# B3 — Payroll-ready export
+
+### B3 — Payroll-ready export
+**CURRENT STATE:** A payroll CSV export exists and works headlessly: `generatePayrollCSV()` (pure function, `src/lib/calculation/calculation-lifecycle-service.ts:490`) is wired to an Export button on `/admin/launch/calculate` via `LifecycleActionBar`, gated to lifecycle states APPROVED/POSTED/CLOSED/PAID/PUBLISHED, producing per-entity rows of Entity ID (internal UUID), Entity Name, per-component amounts, and Total Outcome, plus a summary footer (Tenant/Period/State/Total Entities/Total Outcome/Currency/Exported At). It was invoked once read-only through a new diag script against live data (16-line CSV from a PREVIEW-state batch of 85 entities). A second, richer formatter `exportToCSV()` (`src/lib/calculation/results-formatter.ts:323`) covers every demo-bar field including hierarchy (Store ID/Store Name) and per-row Period, but has zero call sites. A third, inline client-side CSV on `/operate/calculate` includes External ID/Name/Store/Attainment/components/Total Payout. There is no export API route (no `src/app/api/**/export` route exists).
+
+**EVIDENCE:**
+
+Probe grep (complete file-level list, 27 hits):
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "export.*csv\|csv.*export\|payroll" src/ --include="*.ts"
+src/types/shadow-payroll.ts
+src/types/user-import.ts
+src/types/hierarchy.ts
+src/types/reconciliation.ts
+src/types/payroll-period.ts
+src/components/design-system/index.ts
+src/lib/import-service.ts
+src/lib/audit-service.ts
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/shadow-payroll/index.ts
+src/lib/shadow-payroll/engine.ts
+src/lib/approval-routing/types.ts
+src/lib/auth/role-permissions.ts
+src/lib/navigation/cycle-service.ts
+src/lib/navigation/queue-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/calculation/lifecycle-utils.ts
+src/lib/payroll/period-management.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/payroll/jurisdictional-rules.ts
+src/lib/validation/ob02-validation.ts
+src/lib/help/help-service.ts
+src/lib/analytics/analytics-service.ts
+src/lib/calculation/results-formatter.ts
+src/lib/payroll/index.ts
+src/lib/rollback/cascade-analyzer.ts
+src/lib/payroll/period-processor.ts
+```
+
+Adjacent-arm sweep — all CSV-generation sites found via `grep -rni "generate.*csv\|toCsv\|csvContent\|join(','" src/ --include="*.ts" --include="*.tsx"` (file-level, payout-relevant and otherwise):
+```
+src/lib/calculation/calculation-lifecycle-service.ts:490  generatePayrollCSV (payroll export — WIRED)
+src/app/admin/launch/calculate/page.tsx:36,426            caller of generatePayrollCSV (browser Blob download)
+src/lib/calculation/results-formatter.ts:323,399          exportToCSV / exportLegacyCSV (NO call sites)
+src/app/operate/calculate/page.tsx:283-307                inline results CSV (client-side)
+src/app/operate/reconciliation/page.tsx:602-620           reconciliation delta CSV (client-side)
+src/app/operations/audits/page.tsx:339-377                audit-event CSV (non-payroll)
+src/app/operations/audits/logins/page.tsx:105-143         login-audit CSV (non-payroll)
+src/lib/analytics/analytics-service.ts:155,173            exportAnalytics() CSV builder (non-payroll analytics KPI export: Metric/Value/Previous/Change/Change % columns) — WIRED from src/app/insights/analytics/page.tsx:189
+src/components/analytics/ExportDialog.tsx                 analytics export dialog (format picker UI) — located by inspection, NOT a hit of the quoted grep (zero matches in that file); imported and rendered by src/app/insights/analytics/page.tsx, drives exportAnalytics()
+src/lib/import-service.ts:305                             sample CSV template (import, not export)
+```
+(The `exportAnalytics()` site is a non-payroll analytics KPI export; it does not change the payroll-export conclusions, demo-bar gap table, or effort shape below.)
+`grep -rn "exportToCSV" src/` (excluding the audit pages' local functions of the same name) returns only the definition — `src/lib/calculation/results-formatter.ts:323` — confirming zero callers. No export-named API route: `find src/app/api -type d -iname "*export*"` returns nothing. `src/lib/payroll/*` (period-processor, period-management, jurisdictional-rules) and `src/lib/shadow-payroll/engine.ts` contain no CSV/export functions (grep for `csv|CSV` in those files: no hits).
+
+The wired export service — `src/lib/calculation/calculation-lifecycle-service.ts:490`:
+```ts
+// src/lib/calculation/calculation-lifecycle-service.ts:490
+export function generatePayrollCSV(
+  results: Array<{
+    entityId: string;
+    entityName: string;
+    totalPayout: number;
+    components: Array<{ componentName: string; outputValue: number }>;
+  }>,
+  metadata: {
+    tenantName: string;
+    periodId: string;
+    batchState: string;
+    currency: string;
+    locale: string;
+  }
+): string {
+  if (results.length === 0) return '';
+  const componentNames = Array.from(
+    new Set(results.flatMap(r => r.components.map(c => c.componentName)))
+  ).sort();
+  // Header row
+  const headers = ['Entity ID', 'Entity Name', ...componentNames, 'Total Outcome'];
+  // Data rows
+  const dataRows = results.map(r => {
+    const componentValues = componentNames.map(name => {
+      const comp = r.components.find(c => c.componentName === name);
+      return comp ? String(comp.outputValue) : '0';
+    });
+    return [r.entityId, r.entityName, ...componentValues, String(r.totalPayout)];
+  });
+  // Summary rows
+  const summaryRows = [
+    [],
+    ['Summary'],
+    ['Tenant', metadata.tenantName],
+    ['Period', metadata.periodId],
+    ['State', metadata.batchState],
+    ['Total Entities', String(results.length)],
+    ['Total Outcome', String(results.reduce((sum, r) => sum + r.totalPayout, 0))],
+    ['Currency', metadata.currency],
+    ['Exported At', new Date().toISOString()],
+  ];
+```
+
+UI invocation — `src/app/admin/launch/calculate/page.tsx:405`:
+```ts
+// src/app/admin/launch/calculate/page.tsx:405
+  // Export payroll CSV using lifecycle service
+  const handleExportPayroll = () => {
+    if (!activeBatch || batchResults.length === 0) return;
+    const resultsForExport = batchResults.map(r => {
+      const comps = Array.isArray(r.components) ? r.components : [];
+      const meta = r.metadata as Record<string, unknown> | null;
+      return {
+        entityId: r.entity_id,
+        entityName: (meta?.entityName as string) || r.entity_id,
+        totalPayout: r.total_payout || 0,
+        components: comps.map((c: unknown) => { /* componentName/outputValue mapping */ }),
+      };
+    });
+    const csvContent = generatePayrollCSV(resultsForExport, {
+      tenantName: currentTenant?.name || currentTenant?.displayName || 'Tenant',
+      periodId: activeBatch.period_id,
+      batchState: activeBatch.lifecycle_state,
+      currency: currentTenant?.currency || 'USD',
+      locale: currentTenant?.locale || 'en-US',
+    });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // ... anchor click download: `${tenantName}_${activeBatch.period_id}_Results.csv`
+  };
+```
+
+Lifecycle gating of the Export button — `src/components/lifecycle/LifecycleActionBar.tsx:143`:
+```ts
+// src/components/lifecycle/LifecycleActionBar.tsx:143
+  const showExport = ['APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(cycle.state);
+  // ...
+  {showExport && onExport && (
+    <Button variant="outline" size="sm" onClick={onExport}>
+      <Download className="h-4 w-4 mr-1.5" />
+      Export
+    </Button>
+  )}
+```
+Wired at `src/app/admin/launch/calculate/page.tsx:715` (`onExport={handleExportPayroll}` on `LifecycleActionBar`).
+
+Uncalled richer formatter — `src/lib/calculation/results-formatter.ts:323`:
+```ts
+// src/lib/calculation/results-formatter.ts:323
+export function exportToCSV(
+  results: CalculationResult[],
+  options: ExportOptions = { format: 'csv', includeDetails: false }
+): string {
+  if (results.length === 0) return '';
+  if (options.format === 'legacy') {
+    return exportLegacyCSV(results);
+  }
+  const headers = [
+    'Employee ID',
+    'Employee Name',
+    'Role',
+    'Store ID',
+    'Store Name',
+    'Period',
+    'Plan Name',
+    'Total Incentive',
+    'Currency',
+    'Calculated At',
+  ];
+```
+
+Second UI surface (inline, client-side) — `src/app/operate/calculate/page.tsx:283`:
+```ts
+// src/app/operate/calculate/page.tsx:283
+    const headers = ['External ID', 'Name', 'Store', 'Attainment', ...compNames, 'Total Payout'];
+    const rows = resultsData.entities.map(e => {
+      // External ID, displayName, store, attainment, per-component payout.toFixed(2), totalPayout.toFixed(2)
+```
+
+Headless invocation (ONE run, read-only, service role) — script `web/scripts/diag/diag063_b3_payroll_export_headless.ts` imports the real `generatePayrollCSV` from `src/lib/calculation/calculation-lifecycle-service.ts`, SELECTs the most recent `calculation_batches` row with results (any tenant, UUID only), maps `calculation_results` rows identically to `handleExportPayroll()`, and passes the tenant UUID (never the name) as the `tenantName` metadata param. First attempt against tenant `f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd` returned `NO_BATCH_FOUND` (no `calculation_batches` rows with `entity_count > 0` for that tenant); script then re-targeted structurally.
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b3_payroll_export_headless.ts
+tenant_id: b1c2d3e4-aaaa-bbbb-cccc-111111111111
+batch_id: 69d5614f-9784-42e4-b328-8418be6fbaed
+period_id: 0fcd8fa0-c2f2-43c3-b8e6-234244914c16
+lifecycle_state: PREVIEW
+entity_count: 85
+created_at: 2026-06-11T19:32:31.342201+00:00
+results_fetched: 6
+csv_total_lines: 16
+--- first 5 lines (all digits redacted to #; entity UUID in col 1 restored) ---
+Entity ID,Entity Name,Captación de Depósitos,Colocación de Crédito,Cumplimiento Regulatorio,Productos Cruzados,Total Outcome
+0040a5e7-c821-4a89-933e-11845de6e9d2,[name-redacted],#,#,#,#,###
+0164e4ac-012c-44bf-b4c6-414fbc87c0b2,[name-redacted],#,#,#,#,###
+06aff2e7-b3fc-4f98-8ac1-3bf4b9caaf87,[name-redacted],#,#,#,#,###
+08b70c05-9427-4b85-b44b-bb08f81ed032,[name-redacted],#,#,#,#,###
+```
+(All numeric payout values redacted to `#` per channel-separation rule; entity UUIDs are identifiers and retained. Entity display-name values additionally redacted to `[name-redacted]` — the populated Entity Name column is the evidence; the source tenant is the seeded synthetic tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111, redacted as a precaution.)
+
+Hierarchy data availability for the delta (structural, keys + counts only) — script `web/scripts/diag/diag063_b3_hierarchy_data_availability.ts`:
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b3_hierarchy_data_availability.ts
+entity[0] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[0] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity[1] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[1] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity[2] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[2] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity_relationships rows for tenant: 0
+```
+
+Schema cross-check (SCHEMA_REFERENCE_LIVE.md): `calculation_results` (12 cols: `entity_id`, `total_payout`, `components` jsonb, `metadata` jsonb, `period_id`, `batch_id`, ...), `calculation_batches` (16 cols: `period_id`, `lifecycle_state`, `entity_count`, ...), `entities` (11 cols: `external_id`, `display_name`, `metadata` jsonb, ...) — all keys observed in live responses matched the reference; no divergence.
+
+**Demo bar field-by-field (against the WIRED export, `generatePayrollCSV`):**
+| Demo-bar field | Status | Where |
+|---|---|---|
+| entity id | PRESENT (as internal entity UUID) | `Entity ID` column = `calculation_results.entity_id`; the business `entities.external_id` is NOT in this export (it is in the `/operate/calculate` inline CSV as `External ID`) |
+| name | PRESENT | `Entity Name` column = `calculation_results.metadata.entityName` (falls back to UUID when absent) |
+| hierarchy | ABSENT | No store/region/parent column. Data exists: `entities.metadata` carries `region`/`role`/`cargo`/`nivel_cargo` keys for the probed tenant; `entity_relationships` has 0 rows for it. Uncalled `exportToCSV` has `Store ID`/`Store Name`; `/operate/calculate` CSV has `Store` |
+| period | PARTIAL | No per-row column; period UUID appears once in the summary footer (`Period` row) and in the download filename. Per-row `Period` exists only in the uncalled `exportToCSV` |
+| amount | PRESENT | Per-component columns + `Total Outcome` per row |
+
+**GAP TO DEMO BAR:** Two fields short on the wired export: (1) hierarchy — no per-row store/region column; (2) period — only in the summary footer, not per data row. Also note the identifier flavor: the wired export emits the internal entity UUID where a payroll system would typically expect the business `external_id`. Everything else (entity id, name, amount, per-component breakdown, lifecycle gating to APPROVED+) is present and proven live.
+
+**EFFORT SHAPE:** Split. Existing export: **E1 VERIFY-ONLY** — code+DB evidence green (headless run above); remaining proof is the architect clicking Export on `/admin/launch/calculate` for a batch in APPROVED+ state. Demo-bar delta (hierarchy + per-row period + external_id): **E3 COMPOSE** — extend `generatePayrollCSV()` in `src/lib/calculation/calculation-lifecycle-service.ts` with three columns, and in the caller `handleExportPayroll()` (`src/app/admin/launch/calculate/page.tsx:406`) join `entities` (`external_id`, `metadata.region`) by `calculation_results.entity_id` and pass `activeBatch.period_id` per row — all data already in existing tables (`entities`, `calculation_results`, `calculation_batches`); no new schema, route, or service. Alternative same-class shape: wire the already-complete `exportToCSV()` (`src/lib/calculation/results-formatter.ts:323`, currently uncalled) by composing its `CalculationResult` input from the same join.
+
+# B4 — Trajectory surfacing (DS-015-B)
+
+**CURRENT STATE:** Two trajectory engines exist and are wired into live UI. (1) Population-level: `computePopulationTrajectory` in `src/lib/intelligence/trajectory-service.ts` (OB-172) computes velocity (Decision 130: avg delta over last 3 periods), acceleration, trend classification, per-component trajectories, top accelerators/decliners, and a confidence basis; it is fed by `loadTrajectoryData` in `src/lib/intelligence/state-reader.ts` (reads `calculation_batches`, `periods`, `calculation_results`, `entities`) and rendered by `TrajectoryCard` on `/stream` when 2+ calculated periods exist. (2) Rep-level: `computeRepTrajectory` in `src/lib/intelligence/trajectory-engine.ts` (OB-98 P5 / OB-196 1.6.5) projects next-tier opportunity from `metadata.intent` foundational shapes and is rendered by `RepTrajectoryPanel` in `RepDashboard`. Trajectory output lands in NO table — `SCHEMA_REFERENCE_LIVE.md` has zero "trajector" matches; both engines are pure functions whose output lives only in React state, recomputed per page load. Live DB: 2 tenants currently pass the 2+ calculated-periods gate (6 and 3 distinct periods).
+
+**EVIDENCE:**
+
+Primary grep (probe-specified, `.ts`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "trajector" src/ --include="*.ts"
+src/components/intelligence/index.ts
+src/lib/design/tokens.ts
+src/lib/intelligence/next-action-engine.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/intelligence/insight-engine.ts
+src/lib/intelligence/trajectory-service.ts
+src/lib/calculation/intent-executor.ts
+src/lib/data/persona-queries.ts
+```
+
+Adjacent-arm sweep — `.tsx` (consuming components):
+
+```
+$ grep -rnil "trajector" src/ --include="*.tsx"
+src/app/financial/staff/page.tsx
+src/app/stream/page.tsx
+src/app/perform/statements/page.tsx
+src/components/intelligence/RepTrajectory.tsx
+src/components/intelligence/ActionRequiredCard.tsx
+src/components/intelligence/TrajectoryCard.tsx
+src/components/layout/PersonaLayout.tsx
+src/components/dashboards/ManagerDashboard.tsx
+src/components/dashboards/RepDashboard.tsx
+src/components/briefing/IndividualBriefing.tsx
+src/components/design-system/Sparkline.tsx
+```
+
+Complete file-level enumeration with per-file hit counts (20 files total, `.ts`+`.tsx`):
+
+```
+$ grep -rnic "trajector" src/ --include="*.ts" --include="*.tsx" | grep -v ":0$"
+src/app/financial/staff/page.tsx:1
+src/app/stream/page.tsx:17
+src/app/perform/statements/page.tsx:13
+src/components/intelligence/TrajectoryCard.tsx:14
+src/components/briefing/IndividualBriefing.tsx:1
+src/components/intelligence/RepTrajectory.tsx:14
+src/components/intelligence/ActionRequiredCard.tsx:2
+src/components/layout/PersonaLayout.tsx:1
+src/components/intelligence/index.ts:3
+src/components/dashboards/ManagerDashboard.tsx:1
+src/components/design-system/Sparkline.tsx:1
+src/components/dashboards/RepDashboard.tsx:7
+src/lib/design/tokens.ts:1
+src/lib/intelligence/next-action-engine.ts:1
+src/lib/intelligence/trajectory-engine.ts:25
+src/lib/intelligence/trajectory-service.ts:24
+src/lib/intelligence/insight-engine.ts:1
+src/lib/intelligence/state-reader.ts:5
+src/lib/calculation/intent-executor.ts:1
+src/lib/data/persona-queries.ts:1
+```
+
+Single-hit files are comment/copy mentions, not engine usage (verified per file):
+
+```
+src/lib/intelligence/next-action-engine.ts:165:  actionLabel: 'View Trajectory',
+src/lib/intelligence/insight-engine.ts:472:  body: `Strong momentum. Your payout increased from the previous period — keep this trajectory going.`,
+src/lib/data/persona-queries.ts:649:  recommendedAction: 'Investigate root cause of declining trajectory',
+src/lib/design/tokens.ts:45:    // Emerald/Lime — growth trajectory, progress, mastery
+src/lib/calculation/intent-executor.ts:88:// Boundary index helper — utility retained for trajectory-engine and
+src/components/layout/PersonaLayout.tsx:12: *   - rep (emerald): growth trajectory, progress, mastery
+src/components/dashboards/ManagerDashboard.tsx:15: *   5. Individual trajectory → Sparkline — monitoring
+src/components/briefing/IndividualBriefing.tsx:248:  return `${firstName}, your trajectory is pointing up. ...`
+src/app/financial/staff/page.tsx:196:  : `${declining.length} servers showing declining trajectory — review development.`
+src/components/design-system/Sparkline.tsx:3:/** @cognitiveFit monitoring — "What is the trajectory?" */
+src/components/intelligence/ActionRequiredCard.tsx:97:  ? `Calculating adds trajectory intelligence across ${nextCalcCount} periods.`
+```
+
+Core engine #1 — population trajectory math (`src/lib/intelligence/trajectory-service.ts:69-105`):
+
+```typescript
+export function computeVelocity(values: number[]): number | null {
+  if (values.length < 2) return null;
+
+  const recent = values.slice(-3);
+  const deltas: number[] = [];
+  for (let i = 1; i < recent.length; i++) {
+    deltas.push(recent[i] - recent[i - 1]);
+  }
+
+  if (deltas.length === 0) return null;
+  return deltas.reduce((a, b) => a + b, 0) / deltas.length;
+}
+
+export function computeAcceleration(values: number[]): number | null {
+  if (values.length < 4) return null;
+
+  const recent4 = values.slice(-4);
+  const v1 = (recent4[1] - recent4[0] + recent4[2] - recent4[1]) / 2;
+  const v2 = (recent4[2] - recent4[1] + recent4[3] - recent4[2]) / 2;
+  return v2 - v1;
+}
+
+export function classifyTrend(velocity: number | null, acceleration: number | null): TrajectoryTrend {
+  if (velocity === null) return 'insufficient_data';
+  if (acceleration !== null && acceleration > 0 && velocity > 0) return 'accelerating';
+  if (acceleration !== null && acceleration < 0 && velocity > 0) return 'decelerating';
+  if (velocity > 0) return 'accelerating';
+  if (velocity < 0) return 'decelerating';
+  return 'stable';
+}
+
+function classifyComponentTrend(velocity: number | null): ComponentTrajectory['trend'] {
+  if (velocity === null) return 'insufficient_data';
+  if (velocity > 100) return 'growing';
+  if (velocity < -100) return 'declining';
+  return 'stable';
+}
+```
+
+Core engine #1 header confirms pure computation, no persistence (`src/lib/intelligence/trajectory-service.ts:1-12`):
+
+```typescript
+/**
+ * Trajectory Computation Engine
+ *
+ * OB-172: Pure computation module — no UI, no Supabase calls.
+ * Takes calculation data and produces trajectory intelligence.
+ *
+ * Decision 130: velocity = avg delta over last 3 periods.
+ * Pace projection = gap / velocity. Negative velocity = "not on pace."
+ * No probability estimates until Hot tier (7+ periods).
+ *
+ * Domain-agnostic: works with any component names, entity names.
+ * Korean Test compliant: zero hardcoded labels.
+ */
+```
+
+Core engine #2 — rep next-tier projection entry point (`src/lib/intelligence/trajectory-engine.ts:213-235`):
+
+```typescript
+export function computeRepTrajectory(
+  entityId: string,
+  entityName: string,
+  totalPayout: number,
+  componentResults: ComponentResult[],
+  ruleSetConfig: AdditiveLookupConfig | WeightedKPIConfig | null,
+  attainments?: Record<string, number>
+): RepTrajectory {
+  const trajectories: TrajectoryCard[] = [];
+
+  if (!ruleSetConfig) {
+    return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
+  }
+
+  let planComponents: PlanComponent[] = [];
+
+  if ('type' in ruleSetConfig && ruleSetConfig.type === 'additive_lookup') {
+    const variants = (ruleSetConfig as AdditiveLookupConfig).variants || [];
+    for (const variant of variants) {
+      planComponents = planComponents.concat(variant.components || []);
+    }
+  } else if ('type' in ruleSetConfig && ruleSetConfig.type === 'weighted_kpi') {
+    return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
+  }
+```
+
+Where output lands — no landing table exists. Schema authority check:
+
+```
+$ grep -n "trajector" /Users/AndrewAfrica/spm-platform/SCHEMA_REFERENCE_LIVE.md
+(no output — zero matches across all 36 tables)
+```
+
+No DB writes anywhere in the trajectory path:
+
+```
+$ grep -n "\.insert\|\.upsert\|\.update\|\.delete" src/lib/intelligence/state-reader.ts src/lib/intelligence/trajectory-service.ts src/lib/intelligence/trajectory-engine.ts; echo "exit=$?"
+exit=1
+```
+
+What the code actually READS — `loadTrajectoryData` (`src/lib/intelligence/state-reader.ts:322-341`):
+
+```typescript
+export async function loadTrajectoryData(tenantId: string): Promise<{
+  snapshots: PeriodSnapshot[];
+  entityData: Map<string, { externalId: string; displayName: string; periods: EntityPeriodData[] }>;
+}> {
+  const supabase = createClient();
+
+  // Get ALL calculation batches with period info
+  const { data: batches } = await supabase
+    .from('calculation_batches')
+    .select('id, period_id, entity_count, summary')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+
+  // Deduplicate: keep latest batch per period
+  const latestBatchPerPeriod = new Map<string, typeof batches extends (infer T)[] | null ? T : never>();
+  for (const batch of batches || []) {
+    if (!latestBatchPerPeriod.has(batch.period_id)) {
+      latestBatchPerPeriod.set(batch.period_id, batch);
+    }
+  }
+```
+
+…continuing (`src/lib/intelligence/state-reader.ts:360-383`) — reads `calculation_results` and `entities` (plus `periods` at :350):
+
+```typescript
+  for (let i = 0; i < batchIds.length; i += 5) {
+    const chunk = batchIds.slice(i, i + 5);
+    const { data } = await supabase
+      .from('calculation_results')
+      .select('batch_id, entity_id, total_payout, components')
+      .eq('tenant_id', tenantId)
+      .in('batch_id', chunk);
+    if (data) {
+      for (const row of data) {
+        allResults.push(validateCalculationResultRow(row, row.batch_id ?? chunk.join(',')));
+      }
+    }
+  }
+
+  // Get entity details for all entities in results
+  const entityIds = Array.from(new Set(allResults.map(r => r.entity_id)));
+  const entityDetails = new Map<string, { externalId: string; displayName: string }>();
+
+  for (let i = 0; i < entityIds.length; i += 200) {
+    const chunk = entityIds.slice(i, i + 200);
+    const { data } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', chunk);
+```
+
+All four input tables exist in `SCHEMA_REFERENCE_LIVE.md` (`calculation_batches` 16 cols at line 80 incl. `period_id`, `entity_count`, `summary`; `calculation_results` 12 cols at line 101 incl. `batch_id`, `entity_id`, `total_payout`, `components`). Column names in code match the schema reference exactly.
+
+UI consumer 1 — `/stream` computes and stores in React state (`src/app/stream/page.tsx:102-113`):
+
+```typescript
+      // OB-172: Load trajectory data if 2+ calculated periods
+      if (ctx && ctx.calculatedPeriods.length >= 2) {
+        try {
+          const trajData = await loadTrajectoryData(tenantId);
+          if (trajData.snapshots.length >= 2) {
+            const trajectory = computePopulationTrajectory(trajData.snapshots, trajData.entityData);
+            setTrajectoryData(trajectory);
+          }
+        } catch (trajErr) {
+          console.warn('[IntelligenceStream] Trajectory load failed (non-blocking):', trajErr);
+        }
+      }
+```
+
+…and renders it (`src/app/stream/page.tsx:404-415`):
+
+```tsx
+      {/* OB-172: 4. Trajectory Intelligence — 2+ calculated periods */}
+      {trajectoryData && trajectoryData.periods.length >= 2 && (
+        <TrajectoryCard
+          accentColor={accentColor}
+          trajectory={trajectoryData}
+          formatCurrency={formatCurrency}
+          onViewEntities={() => {
+            onInteract('trajectory', 'act');
+            router.push('/operate/lifecycle');
+          }}
+        />
+      )}
+```
+
+`TrajectoryCard` renders velocity/period-delta, movers, confidence (`src/components/intelligence/TrajectoryCard.tsx:3-18`):
+
+```typescript
+/**
+ * TrajectoryCard — Population trajectory intelligence
+ *
+ * OB-172: Renders when 2+ calculated periods exist.
+ * 2 periods: period comparison with component deltas
+ * 3+ periods: full trajectory with velocity, acceleration, movers
+ *
+ * Five Elements:
+ *   Value:      Velocity or period delta
+ *   Context:    Period count, entity count, component count
+ *   Comparison: Period-over-period deltas, component growth/decline
+ *   Action:     "Compare Periods" expands inline, entity detail link
+ *   Impact:     Extrapolation with confidence disclosure
+ *
+ * DS-013 Section 7: Confidence disclosure mandatory.
+ */
+```
+
+UI consumer 2 — `/perform/statements` per-row trend (`src/app/perform/statements/page.tsx:28,498-499`):
+
+```
+28:import { computeVelocity, classifyTrend, type TrajectoryTrend } from '@/lib/intelligence/trajectory-service';
+498:              const vel = computeVelocity(values);
+499:              const trend: TrajectoryTrend = classifyTrend(vel, null);
+```
+
+UI consumer 3 — RepDashboard renders rep-level panel (`src/components/dashboards/RepDashboard.tsx:99-105,384-385`):
+
+```typescript
+    Promise.all([
+      getRepDashboardData(tenantId, entityId),
+      getActiveRuleSet(tenantId).catch(() => null),
+    ]).then(([result, ruleSet]) => {
+      if (!cancelled) {
+        setData(result);
+        setRuleSetConfig(ruleSet?.configuration ?? null);
+...
+      {data && ruleSetConfig ? (
+        <RepTrajectoryPanel data={data} ruleSetConfig={ruleSetConfig} />
+```
+
+`RepTrajectoryPanel` computes in-memory and renders null when no cards (`src/components/intelligence/RepTrajectory.tsx:48-67`):
+
+```typescript
+export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTrajectoryProps) {
+  const { format } = useCurrency();
+  const { activePeriodLabel } = usePeriod();
+
+  // Compute trajectory deterministically
+  const trajectory = useMemo(() => {
+    if (!data || !ruleSetConfig) return null;
+    return computeRepTrajectory(
+      'current-user',
+      data.components.length > 0 ? 'You' : '',
+      data.totalPayout,
+      data.components,
+      ruleSetConfig as Parameters<typeof computeRepTrajectory>[4],
+      attainments
+    );
+  }, [data, ruleSetConfig, attainments]);
+
+  if (!trajectory || trajectory.trajectories.length === 0) {
+    return null; // Empty state: don't render if no trajectory data
+  }
+```
+
+DB probe 1 — live input readiness (script `web/scripts/diag/diag063_b4_trajectory_inputs.ts`, full source in repo; reads `calculation_batches` tenant_id/period_id and a head count of `calculation_results`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b4_trajectory_inputs.ts
+calculation_batches rows fetched: 15
+calculation_results total rows (head count): 943
+Per-tenant trajectory input readiness (gate: distinct calculated periods >= 2):
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 batches=7 distinct_periods=6 trajectory_gate=PASS
+  tenant=03d28288-700b-43e3-a96b-49a4f849d2df batches=1 distinct_periods=1 trajectory_gate=FAIL
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 batches=6 distinct_periods=3 trajectory_gate=PASS
+  tenant=f7093bcc-e90b-4918-9680-69da7952dd65 batches=1 distinct_periods=1 trajectory_gate=FAIL
+```
+
+DB probe 2 — rep-level dependency check: does any active rule set for the gate-pass tenants carry `metadata.intent` (required by `computeRepTrajectory`)? (script `web/scripts/diag/diag063_b4_trajectory_ruleset_shape.ts`):
+
+```
+$ npx tsx scripts/diag/diag063_b4_trajectory_ruleset_shape.ts
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active config_type=object_no_type components=8 operations=[no_intent]
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active config_type=object_no_type components=10 operations=[no_intent]
+total rule_sets across gate-pass tenants: 2
+```
+
+`getActiveRuleSet` injects `configuration.type` regardless of stored shape (`src/lib/supabase/rule-set-service.ts:31,44-49`):
+
+```typescript
+    ruleSetType: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
+...
+    configuration: {
+      type: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
+      ...(components as Record<string, unknown>),
+      ...(cadenceConfig.cadence ? { cadence: cadenceConfig } : {}),
+      ...(outcomeConfig.outcome ? { outcome: outcomeConfig } : {}),
+    } as RuleSetConfig['configuration'],
+```
+
+**GAP TO DEMO BAR:** For ONE trend view: none at code or data level — the population trend view (`TrajectoryCard` on `/stream`) is fully built and two live tenants pass its 2+-calculated-periods gate (6 and 3 distinct periods). Remaining proof is browser observation only. Separately, the rep-level next-tier panel (`RepTrajectoryPanel` on RepDashboard) will render null for both gate-pass tenants because zero components in their active rule sets carry `metadata.intent`/`calculationIntent` (probe 2: `operations=[no_intent]`); surfacing that second view is a data-preparation gap (rule-set intent), not a code gap.
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY for the trend view. Structural shape: route `/stream` (`src/app/stream/page.tsx`) → component `TrajectoryCard` (`src/components/intelligence/TrajectoryCard.tsx`) → services `loadTrajectoryData` (`src/lib/intelligence/state-reader.ts`) + `computePopulationTrajectory` (`src/lib/intelligence/trajectory-service.ts`) → tables `calculation_batches`, `periods`, `calculation_results`, `entities`. Secondary trend surfaces already wired: `/perform/statements` (velocity/trend per row) and `RepDashboard` → `RepTrajectoryPanel` (the latter data-dependent on `metadata.intent` in `rule_sets.components`).
+
+# B5 — Results dashboard (admin)
+
+### B5 — Results dashboard (admin)
+
+**CURRENT STATE:** Three results-table surfaces exist. The current/primary admin dashboard is `/operate/results` (src/app/operate/results/page.tsx, "Results Proof View", OB-72/92/102) with dynamic per-component numeric columns, per-entity totals, search/store-filter/sort, expandable L3/L2 drill-down, and a shared Plan × Period × Run selector (OperateSelector → OperateContext). A second, newer surface `/operate/calculate` (OB-145/DS-007) composes ResultsHero + StoreHeatmap + PopulationHealth + EntityTable (src/components/results/EntityTable.tsx) with pagination and status filters. An older admin surface `/admin/launch/calculate` has a simpler inline table (Employee ID, Name, Total Payout, Components). The displayed entity count comes from two different sources: the page header uses `results.length` of an UNPAGINATED `.select('*')` (live-measured PostgREST max-rows ceiling = 1000), while the Run dropdown uses the `calculation_batches.entity_count` column — and a live batch was found where the two diverge (85 vs 0).
+
+**EVIDENCE:**
+
+Route discovery (results/calculation routes under src/app):
+
+```
+$ find src/app -type d \( -iname "*result*" -o -iname "*calculation*" -o -iname "*calc*" \)
+src/app/admin/launch/calculate
+src/app/api/calculation
+src/app/govern/calculation-approvals
+src/app/operate/calculate
+src/app/operate/results
+```
+
+Primary table — column definitions (dynamic per-component columns + Total):
+
+```tsx
+// src/app/operate/results/page.tsx:610-632
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead
+        className="cursor-pointer hover:bg-slate-800/50"
+        onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
+      >
+        Employee ID
+      </TableHead>
+      <TableHead>Name</TableHead>
+      <TableHead>Store</TableHead>
+      {componentTotals.map(cc => (
+        <TableHead key={cc.componentId} className="text-right">
+          <span className="text-xs">{cc.componentName}</span>
+        </TableHead>
+      ))}
+      <TableHead
+        className="text-right cursor-pointer hover:bg-slate-800/50"
+        onClick={() => { setSortField('total'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
+      >
+        Total
+      </TableHead>
+    </TableRow>
+  </TableHeader>
+```
+
+Per-entity total + per-component cells (calculation_results.total_payout; component cells looked up per row):
+
+```tsx
+// src/app/operate/results/page.tsx:655-665
+{componentTotals.map(cc => {
+  const comp = row.components.find(c => c.componentId === cc.componentId);
+  return (
+    <TableCell key={cc.componentId} className="text-right text-sm">
+      {comp ? formatCurrency(comp.outputValue) : '-'}
+    </TableCell>
+  );
+})}
+<TableCell className="text-right font-bold">
+  {formatCurrency(row.totalPayout)}
+</TableCell>
+```
+
+Render cap on the primary table (first 100 rows only, no pager):
+
+```tsx
+// src/app/operate/results/page.tsx:635 and 797-800
+{filteredResults.slice(0, 100).map(row => {
+...
+{filteredResults.length > 100 && (
+  <p className="text-sm text-slate-400 mt-2 text-center">
+    Showing 100 of {filteredResults.length} entities
+  </p>
+)}
+```
+
+Displayed entity count — source #1 (page header/hero = length of fetched rows):
+
+```tsx
+// src/app/operate/results/page.tsx:126, 346, 363-367
+const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+const entityCount = results.length;
+...
+<h1 className="text-2xl font-bold">Results Proof View</h1>
+<p className="text-slate-400 text-sm">
+  {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+</p>
+```
+
+The fetch behind it — UNPAGINATED select (no .range/.limit):
+
+```ts
+// src/lib/supabase/calculation-service.ts:379-392
+export async function getCalculationResults(
+  tenantId: string,
+  batchId: string
+): Promise<CalcResultRow[]> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+  if (error) throw error;
+  return (data || []) as CalcResultRow[];
+}
+```
+
+Displayed entity count — source #2 (Run dropdown = calculation_batches.entity_count column):
+
+```ts
+// src/contexts/operate-context.tsx:229-235, 255
+let query = supabase
+  .from('calculation_batches')
+  .select('id, period_id, rule_set_id, lifecycle_state, entity_count, summary, created_at')
+  .eq('tenant_id', tenantId)
+  .eq('period_id', selectedPeriodId)
+  .order('created_at', { ascending: false })
+  .limit(50);
+...
+entityCount: b.entity_count ?? 0,
+```
+
+```tsx
+// src/components/operate/OperateSelector.tsx:127-129 (dropdown line per run)
+<span className="truncate">
+  {b.lifecycleState} — {b.entityCount} ent — {formatCurrency(b.totalPayout)}
+</span>
+```
+
+Writer of entity_count (count of inserted result rows):
+
+```ts
+// src/lib/supabase/calculation-service.ts:367-371
+// Update batch entity count
+await supabase
+  .from('calculation_batches')
+  .update({ entity_count: inserted } as CalcBatchUpdate)
+  .eq('id', batchId);
+```
+
+Period selection — OperateSelector renders Plan / Period / Run dropdowns bound to OperateContext (src/components/operate/OperateSelector.tsx:43-49 `selectPlan, selectPeriod, selectBatch`); mounted at the top of /operate/results (page.tsx:354). On /operate/calculate the bar was removed in favor of a body period selector from the same context:
+
+```tsx
+// src/app/operate/calculate/page.tsx:454, 52-53
+{/* OB-192: OperateSelector removed — Calculate page uses body period selector as sole control.
+...
+selectedPeriodId,
+selectPeriod,
+```
+
+Second surface — EntityTable column definitions (single "Components" MiniBar column, not per-component numeric columns):
+
+```tsx
+// src/components/results/EntityTable.tsx:209-238 (headers, abridged to the column names)
+<tr className="border-b border-zinc-800/60">
+  <th className="w-8 py-2.5 px-2"></th>
+  <th className="text-left py-2.5 px-2 w-8 text-zinc-500">#</th>
+  <th ... onClick={() => handleSort('externalId')}>ID <SortIcon field="externalId" /></th>
+  <th ... onClick={() => handleSort('name')}>Name <SortIcon field="name" /></th>
+  <th className="text-left py-2.5 px-3 text-zinc-500">Store</th>
+  <th ... onClick={() => handleSort('attainment')}>Attainment <SortIcon field="attainment" /></th>
+  <th className="text-center py-2.5 px-3 text-zinc-500 min-w-[100px]">Components</th>
+  <th ... onClick={() => handleSort('payout')}>Payout <SortIcon field="payout" /></th>
+</tr>
+```
+
+EntityTable controls: search (ID/name/store), status filter (all/exceeds/on_track/below), store filter dropdown + badge, sortable headers, PAGE_SIZE=50 pagination (EntityTable.tsx:30, 118-122, 321-346), count readout `{filteredEntities.length} of {entities.length}` (line 200-202). Its count source is also fetched-row length — results-loader uses the same unpaginated shape:
+
+```ts
+// src/lib/data/results-loader.ts:147-154, 353
+const { data: results } = await supabase
+  .from('calculation_results')
+  .select('entity_id, total_payout, components, attainment, metadata, metrics')
+  .eq('tenant_id', tenantId)
+  .eq('batch_id', batch.id);
+
+if (!results || results.length === 0) return null;
+...
+resultCount: entities.length,
+```
+
+Older admin surface table:
+
+```tsx
+// src/app/admin/launch/calculate/page.tsx:836-842
+<TableRow>
+  <TableHead className="w-8"></TableHead>
+  <TableHead>Employee ID</TableHead>
+  <TableHead>Name</TableHead>
+  <TableHead className="text-right">Total Payout</TableHead>
+  <TableHead>Components</TableHead>
+</TableRow>
+```
+
+Adjacent-arm sweep — ALL files touching calculation_results / getCalculationResults (complete file-level list):
+
+```
+$ grep -rln "calculation_results\|getCalculationResults" src/app src/components src/lib --include="*.ts" --include="*.tsx" | sort
+src/app/admin/launch/calculate/page.tsx
+src/app/api/ai/assessment/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/reconciliation/analyze/route.ts
+src/app/api/reconciliation/compare/route.ts
+src/app/api/reconciliation/run/route.ts
+src/app/insights/page.tsx
+src/app/my-compensation/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/components/calculate/PlanResults.tsx
+src/lib/calculation/intent-types.ts
+src/lib/calculation/run-calculation.ts
+src/lib/data/briefing-loader.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/data/page-loaders.ts
+src/lib/data/persona-queries.ts
+src/lib/data/results-loader.ts
+src/lib/intelligence/state-reader.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/navigation/pulse-service.ts
+src/lib/supabase/calculation-service.ts
+src/lib/supabase/database.types.ts
+```
+
+Results-table surfaces among these: /operate/results (inline table), /operate/calculate (EntityTable via results-loader), /admin/launch/calculate (inline table). src/components/calculate/PlanResults.tsx has NO importers (orphan):
+
+```
+$ grep -rn "PlanResults" src --include="*.ts" --include="*.tsx"
+src/components/calculate/PlanResults.tsx:3:// PlanResults — Outcome summary + entity table + component drill-down for a single plan
+src/components/calculate/PlanResults.tsx:59:interface PlanResultsProps {
+src/components/calculate/PlanResults.tsx:104:export function PlanResults({
+src/components/calculate/PlanResults.tsx:111:}: PlanResultsProps) {
+```
+
+Schema authority check — SCHEMA_REFERENCE_LIVE.md:80 `calculation_batches (16 columns)` includes `entity_count integer NOT NULL default 0`; :101 `calculation_results (12 columns)` includes `total_payout numeric NOT NULL default 0`, `components/metrics/attainment/metadata jsonb`. Observed live keys matched (no divergence).
+
+DB probe #1 — entity_count vs exact results count vs unpaginated select length (script: web/scripts/diag/diag063_b5_results_entitycount.ts):
+
+```
+$ npx tsx scripts/diag/diag063_b5_results_entitycount.ts
+batch_id | tenant_id | lifecycle | batches.entity_count | exact_results_count | unpaginated_select_len
+f1924b7f-1ae0-4fda-84cc-e08b26c6ca48 | 03d28288-700b-43e3-a96b-49a4f849d2df | PREVIEW | 172 | 172 | 172
+883f7052-d180-4ae4-8150-bc4d2471b96e | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 0 | 0
+a67c876a-efb0-43af-a4a9-33132fe719e0 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+69d5614f-9784-42e4-b328-8418be6fbaed | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+90d0b62a-a54f-4446-bc07-30b049ddcb5b | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+333c0e34-4723-4d2a-b05b-60ccae84b820 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+16d8803f-3513-4d5b-a925-18325b691e70 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+6ca299f4-26f5-429c-afd9-72d4744e9f29 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+```
+
+DB probe #2 — server max-rows ceiling for unpaginated selects + the divergent batch (script: web/scripts/diag/diag063_b5_results_maxrows.ts):
+
+```
+$ npx tsx scripts/diag/diag063_b5_results_maxrows.ts
+committed_data exact count: 416258
+committed_data unpaginated select returned: 1000 rows
+divergent batch: {
+  "id": "883f7052-d180-4ae4-8150-bc4d2471b96e",
+  "tenant_id": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
+  "lifecycle_state": "PREVIEW",
+  "entity_count": 85,
+  "superseded_by": null,
+  "supersedes": null,
+  "started_at": "2026-06-09T22:33:51.86+00:00",
+  "completed_at": "2026-06-09T22:33:51.86+00:00",
+  "created_at": "2026-06-09T22:33:42.174091+00:00"
+}
+```
+
+Interpretation against the probe's four bars:
+1. Per-entity totals — PRESENT on all three surfaces (Total / Payout / Total Payout from calculation_results.total_payout).
+2. Per-component columns — PRESENT as dynamic numeric columns on /operate/results (one column per component); /operate/calculate uses a single MiniBar "Components" column with numeric per-component detail only in the expanded NarrativeSpine row; /admin/launch/calculate has one "Components" column.
+3. Period selection — PRESENT: OperateSelector (Plan/Period/Run) on /operate/results; body period selector from the same OperateContext on /operate/calculate.
+4. Entity count correctness — TWO sources that can disagree: page-header count = fetched-row length from an unpaginated select (server max-rows measured at 1000; largest live batch is 172, so the ceiling is latent, not currently manifest); Run-dropdown count = calculation_batches.entity_count (one live batch found where it reads 85 while actual results rows = 0). The page total payout is likewise summed from fetched rows (page.tsx:168), so it shares the 1000-row ceiling.
+
+**GAP TO DEMO BAR:** Per-entity totals, per-component columns, and period selection are all present on /operate/results — no gap for those bars. Entity-count correctness has two evidenced gaps: (a) the header count/total derive from an unpaginated `.select()` whose server ceiling is 1000 rows, so any batch larger than 1000 entities would display a truncated count/total (latent at current data scale, max live batch = 172); (b) `calculation_batches.entity_count` can diverge from actual `calculation_results` rows (live instance: 85 vs 0, batch 883f7052), so the Run dropdown can advertise entities for a run whose results page renders empty. Secondary: /operate/results renders only the first 100 rows with no pager (footer text only).
+
+**EFFORT SHAPE:** Dashboard capability: E1 VERIFY-ONLY — code+DB evidence green; remaining proof is the architect opening /operate/results with a populated run selected. Count-correctness gap: E3 COMPOSE — service-layer work in `getCalculationResults` (src/lib/supabase/calculation-service.ts) and `loadResultsPageData` (src/lib/data/results-loader.ts) to page through `.range()` windows (or source the displayed count from a head:true exact count / `calculation_batches.entity_count`), consumers unchanged; plus reconciling the `calculation_batches.entity_count` writer with result-row reality. Per-component numeric columns on /operate/calculate, if required for the demo: E2 SURFACE — extend src/components/results/EntityTable.tsx using componentDefinitions already passed in.
 
 ## Module C — Trust Loop (Disputes, Adjustments, Audit)
 
