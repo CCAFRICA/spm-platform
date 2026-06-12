@@ -11,7 +11,6 @@ import { useTenant } from '@/contexts/tenant-context';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/SCIUpload';
 import { SCIProposalView } from '@/components/sci/SCIProposal';
-import { SessionStateLive } from '@/components/sci/SessionStateLive';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { ImportProgress } from '@/components/sci/ImportProgress';
@@ -533,26 +532,17 @@ export default function OperateImportPage() {
           {/* ─── PROPOSAL STATE ─── */}
           {/* OB-175: Single file header in SCIProposalView — no duplicate collapsed SCIUpload */}
           {state.phase === 'proposal' && (
-            <>
-              <SCIProposalView
-                proposal={state.proposal}
-                fileName={state.fileName}
-                rawData={state.rawData}
-                onConfirmAll={handleConfirmAll}
-                onCancel={handleCancel}
-              />
-              {/* OB-203 Phase 3: live durable comprehension state + retry-without-reimport. */}
-              {state.proposal.importSessionId && (
-                <div className="mt-4">
-                  <SessionStateLive
-                    tenantId={tenantId}
-                    importSessionId={state.proposal.importSessionId}
-                    storagePaths={storagePathsRef.current}
-                    contentUnits={state.proposal.contentUnits}
-                  />
-                </div>
-              )}
-            </>
+            /* OB-203 Phase 5 (D7): ONE surface — unit state + the resolution action set live ON the
+               proposal cards (durable SessionStateView read). No separate state panel. */
+            <SCIProposalView
+              proposal={state.proposal}
+              fileName={state.fileName}
+              rawData={state.rawData}
+              tenantId={tenantId}
+              storagePaths={storagePathsRef.current}
+              onConfirmAll={handleConfirmAll}
+              onCancel={handleCancel}
+            />
           )}
 
           {/* ─── EXECUTING STATE ─── */}

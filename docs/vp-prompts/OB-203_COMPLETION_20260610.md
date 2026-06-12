@@ -869,3 +869,28 @@ through confirm without a distinct low-confidence HOLD state**. The state machin
 comprehension failure but no "low-confidence / needs-review" hold distinct from a confident classification — a unit can
 commit at 31% with only the existing `requiresHumanReview` warning chip. Assess against the CLT registry + DS-027 (the
 `§4.4` action set could extend to a low-confidence hold); disposition deferred to the architect. Not in Phase 5 scope.
+
+### PHASE 5 — CLT FAIL → D7/D8 FIXES (architect 2026-06-11; signal mechanics all green)
+
+CLT verdict was FAIL on two EXPERIENCE defects (signals all witnessed: fault fired, failed_interpretation
+emitted, retry re-ran real dispatch + re-failed, interaction 200, resolve-unit 200).
+
+**D7 (structural — two contradictory surfaces):** the proposal card ("Failed") and the separate
+SessionStateLive panel ("Resolved") showed the SAME unit in CONTRADICTORY states. Fix (reversal of the
+observer-path ratification — implemented the original alternative (b)): unit state + the four resolution
+actions are folded INTO each proposal card; card state derives from the SAME durable `SessionStateView`
+read (poll in `SCIProposalView`). The separate `SessionStateLive` panel is **deleted** — one surface, no
+parallel unit listing. A failed unit now HOLDS on its card with view-detail / retry / assign / exclude;
+assign flips THAT card (durable read → `resolved`).
+
+**D8 (interaction — import blocked):** "Import N rows" was disabled unless ALL units were selected, so a
+failed unit made import impossible (and execute-bulk never ran — D8 manifest). Fix: import proceeds with
+ANY non-empty selection; failed/excluded units simply don't commit; the button reflects the subset
+(`Import 76 rows · 3 of 5 units`). The confirmed subset flows through `handleConfirmAll` → execute-bulk.
+
+**Re-run recipe (seed-5555 now warm):** fresh witness `web/clt-witness/ob203_clt_corrupt_7777.xlsx`
+(sheets **Nacuxi, Lokudi, Pocilo, Madasi, Cepapi**). `OB203_FAULT_SHEET=Lokudi npm run dev`, import the
+file. **Acceptance:** failed unit (Lokudi) holds ON ITS CARD with four actions; assign flips THAT card;
+exclude Lokudi + import the REST → execute-bulk present in log; no second listing anywhere.
+
+Build green (clean rebuild); full SCI suite 79 pass; typecheck + lint clean.
