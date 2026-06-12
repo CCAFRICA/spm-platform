@@ -50,21 +50,59 @@ interface PostImportData {
 const ANALYSIS_SAMPLE_SIZE = 50;
 
 // OB-203 Phase 5 (D4 client-tier failure surface): the analyze fetch must never hang the UI into an
-// infinite spinner. AbortController enforces a perceptible deadline; on timeout/abort/network failure
-// the caller's catch lands the `error` phase with a perceptible cause + suggested action.
-const ANALYZE_TIMEOUT_MS = 120_000; // client deadline under the route's 300s server maxDuration
-async function fetchAnalyzeWithTimeout(url: string, init: RequestInit, label: string): Promise<Response> {
+// infinite spinner. OB-203 D12: the client OWNS the session id, kicks off analyze, and watches the
+// durable SessionStateView for progress. The timeout is STALL-based (no new unit-state for STALL_MS),
+// NEVER total-duration — a long-but-progressing analysis (the 16-sheet / 162,956-row holdout took
+// ~120s) is never discarded. If the response races a stall-abort or the network drops, the proposal
+// is RECOVERED from the session (analyze persists it; the session read is the source of truth).
+const ANALYZE_STALL_MS = 60_000;
+async function analyzeTabular(
+  tenantId: string,
+  importSessionId: string,
+  analysisFiles: unknown,
+  onProgress: (settled: number, total: number) => void,
+): Promise<SCIProposal> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+  let lastProgressAt = Date.now();
+  let lastCount = -1;
+  const poll = setInterval(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        if (r.ok) {
+          const view = await r.json() as { units: Array<{ history: unknown[]; state: string }> };
+          const count = view.units.reduce((s, u) => s + (u.history?.length ?? 0), 0);
+          if (count > lastCount) {
+            lastCount = count;
+            lastProgressAt = Date.now();
+            const settled = view.units.filter(u => ['classified', 'bound', 'resolved', 'failed_interpretation'].includes(u.state)).length;
+            onProgress(settled, view.units.length);
+          }
+        }
+      } catch { /* transient poll failure — next tick retries */ }
+      if (Date.now() - lastProgressAt > ANALYZE_STALL_MS) controller.abort();
+    })();
+  }, 2000);
+
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch('/api/import/sci/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+      body: JSON.stringify({ tenantId, importSessionId, files: analysisFiles }),
+    });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as { error?: string }).error || `Analysis failed (${res.status})`); }
+    return await res.json() as SCIProposal;
   } catch (e) {
+    // Response raced the stall-abort, or the network dropped — recover the persisted proposal.
+    try {
+      const rec = await fetch(`/api/import/sci/proposal?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+      if (rec.ok) return await rec.json() as SCIProposal;
+    } catch { /* fall through to the error below */ }
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error(`${label} timed out after ${ANALYZE_TIMEOUT_MS / 1000}s. The file may be large or the service is busy — try again, or split the file into smaller sheets.`);
+      throw new Error('Analysis stalled — no progress for 60 seconds. The service may be busy; please try again.');
     }
-    throw new Error(`${label} could not reach the server (network issue). Check your connection and try again.`);
+    throw e instanceof Error ? e : new Error('Analysis could not reach the server. Check your connection and try again.');
   } finally {
-    clearTimeout(timer);
+    clearInterval(poll);
   }
 }
 
@@ -89,6 +127,8 @@ export default function OperateImportPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const rawDataRef = useRef<ParsedFileData | null>(null);
   const [postImportData, setPostImportData] = useState<PostImportData | null>(null);
+  // OB-203 D12: live analyze progress (settled/total sheets) from the durable SessionStateView poll.
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ settled: number; total: number } | null>(null);
 
   const tenantId = currentTenant?.id || '';
   // HF-140: Track storage upload for ALL files (runs in parallel with analysis)
@@ -108,6 +148,7 @@ export default function OperateImportPage() {
       return;
     }
 
+    setAnalyzeProgress(null);
     setState({ phase: 'analyzing', files });
     setErrorMessage(null);
 
@@ -259,20 +300,15 @@ export default function OperateImportPage() {
             totalRowCount: s.totalRowCount,
           })),
         }));
-        const res = await fetchAnalyzeWithTimeout('/api/import/sci/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, files: analysisFiles }),
-        }, 'Analysis');
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
-          throw new Error(err.error || `Analysis failed (${res.status})`);
-        }
-        tabularProposal = await res.json();
+        // OB-203 D12: state-observed, stall-based (never discards a progressing analysis).
+        const importSessionId = crypto.randomUUID();
+        tabularProposal = await analyzeTabular(tenantId, importSessionId, analysisFiles, (settled, total) => {
+          setAnalyzeProgress({ settled, total });
+        });
       }
 
       const documentProposals = await Promise.all(documentFiles.map(async (f) => {
-        const res = await fetchAnalyzeWithTimeout('/api/import/sci/analyze-document', {
+        const res = await fetch('/api/import/sci/analyze-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -281,7 +317,7 @@ export default function OperateImportPage() {
             fileBase64: f.parsedData.documentBase64,
             mimeType: f.parsedData.documentMimeType,
           }),
-        }, 'Document analysis');
+        });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Document analysis failed' }));
           throw new Error(err.error || `Document analysis failed (${res.status})`);
@@ -519,6 +555,19 @@ export default function OperateImportPage() {
               onError={handleError}
               analyzing={state.phase === 'analyzing'}
             />
+          )}
+
+          {/* OB-203 D12: thin live progress strip during analysis (per-sheet states from SessionStateView). */}
+          {state.phase === 'analyzing' && analyzeProgress && analyzeProgress.total > 0 && (
+            <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-2">
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span>Comprehending sheets…</span>
+                <span className="tabular-nums">{analyzeProgress.settled} / {analyzeProgress.total}</span>
+              </div>
+              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+                <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${Math.round((analyzeProgress.settled / analyzeProgress.total) * 100)}%` }} />
+              </div>
+            </div>
           )}
 
           {/* ─── PROCESSING STATE ─── (OB-174: async job processing) */}

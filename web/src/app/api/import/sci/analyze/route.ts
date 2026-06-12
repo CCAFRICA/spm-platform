@@ -51,8 +51,9 @@ export async function POST(req: NextRequest) {
     );
 
     const body = await req.json();
-    const { tenantId, files } = body as {
+    const { tenantId, files, importSessionId: clientSessionId } = body as {
       tenantId: string;
+      importSessionId?: string;   // OB-203 D12: client owns the session id so it can observe/recover
       files: Array<{
         fileName: string;
         sheets: Array<{
@@ -81,7 +82,9 @@ export async function POST(req: NextRequest) {
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
 
-    const proposalId = crypto.randomUUID();
+    // OB-203 D12: prefer the CLIENT-provided session id so the client can poll live progress during
+    // analyze and recover the proposal if the response races a stall-abort. Falls back to a fresh id.
+    const proposalId = (clientSessionId && typeof clientSessionId === 'string') ? clientSessionId : crypto.randomUUID();
     // OB-203 Phase 3: importSessionId IS the comprehension-session identity — an alias of
     // proposalId (P2). Distinct from execute-side import_batch_id (HF-213). Stamped on every
     // unit-state signal so the import surface and Phase 5 poll one durable session.
@@ -897,6 +900,18 @@ export async function POST(req: NextRequest) {
       }
     } catch {
       // Signal capture failure must NEVER block import
+    }
+
+    // OB-203 D12: persist the proposal so the client can RECOVER it if the analyze response races a
+    // stall-abort (the session read is the source of truth). Best-effort — never blocks the response.
+    try {
+      await supabase.storage.from('ingestion-raw').upload(
+        `${tenantId}/proposals/${importSessionId}.json`,
+        new Blob([JSON.stringify(proposal)], { type: 'application/json' }),
+        { upsert: true, contentType: 'application/json' },
+      );
+    } catch (e) {
+      console.warn(`[SCI-PROPOSAL] persist failed (non-blocking): ${e instanceof Error ? e.message : String(e)}`);
     }
 
     return NextResponse.json(proposal);
