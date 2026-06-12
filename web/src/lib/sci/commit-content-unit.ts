@@ -392,7 +392,6 @@ export async function commitContentUnit(
 
   // Chunked insert — per-source profile (sci-bulk retries; sci does not).
   let totalInserted = 0;
-  let firstError: string | undefined;
   const totalChunks = Math.ceil(insertRows.length / profile.chunkSize);
   let chunksCompleted = 0;
 
@@ -408,8 +407,9 @@ export async function commitContentUnit(
       if (insertErr) {
         lastErr = insertErr.message;
         if (profile.retryAttempts > 1 && attempt < profile.retryAttempts - 1) {
-          // Linear backoff between retries — preserves sci-bulk behavior.
-          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          // D16: exponential backoff (capped) — gives a saturated/5xx-ing host room to recover between
+          // retries rather than hammering it on a fixed cadence (the run-3 502 was instance saturation).
+          await new Promise(r => setTimeout(r, Math.min(4000, 500 * 2 ** attempt)));
         }
       } else {
         chunkSuccess = true;
@@ -420,35 +420,47 @@ export async function commitContentUnit(
       totalInserted += slice.length;
       chunksCompleted++;
     } else {
-      // First chunk failure is fatal for the sci (no-retry) profile and gets
-      // recorded for sci-bulk callers that decide to surface partial failure.
-      if (!firstError) firstError = lastErr;
+      // D16 (unit-atomic execute): a unit that cannot fully commit retains NOTHING. Roll back every row
+      // already inserted under this batch, mark the batch failed/rolled_back, and return an atomic
+      // failure with totalInserted:0. This replaces BOTH the prior sci-bulk "continue / preserve prior
+      // chunks" (the run-3 partial-retention that left partial rows behind on the mid-bulk 502) and the
+      // sci short-circuit (which also kept its partial rows). The happy path — every chunk succeeds — is
+      // byte-identical and never enters here, so proof-tenant imports are unaffected.
       console.error(
-        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed: ${lastErr}`,
+        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed after ${profile.retryAttempts} attempt(s): ${lastErr}`,
       );
-      if (profile.retryAttempts === 1) {
-        // sci behavior: mark batch failed and short-circuit.
-        await supabase
-          .from('import_batches')
-          .update({
-            status: 'failed',
-            error_summary: { error: lastErr } as unknown as Json,
-          })
-          .eq('id', batchId);
-        return {
-          batchId,
-          totalInserted,
-          dataType,
-          entityIdField,
-          fieldIdentities,
-          earliestDate,
-          latestDate,
-          dateCount,
-          success: false,
-          error: lastErr,
-        };
-      }
-      // sci-bulk behavior: continue with next chunk (preserve prior chunks).
+      const { error: rbErr } = await supabase
+        .from('committed_data')
+        .delete()
+        .eq('import_batch_id', batchId);
+      await supabase
+        .from('import_batches')
+        .update({
+          status: 'failed',
+          error_summary: {
+            error: lastErr,
+            rolledBack: !rbErr,
+            rolledBackRows: totalInserted,
+            rollbackError: rbErr?.message ?? null,
+          } as unknown as Json,
+        })
+        .eq('id', batchId);
+      console.error(
+        `[commitContentUnit] UNIT-ATOMIC ROLLBACK batch=${batchId}: removed ${totalInserted} partial rows ` +
+          `(${rbErr ? 'ROLLBACK FAILED: ' + rbErr.message : 'ok'})`,
+      );
+      return {
+        batchId,
+        totalInserted: 0,
+        dataType,
+        entityIdField,
+        fieldIdentities,
+        earliestDate,
+        latestDate,
+        dateCount,
+        success: false,
+        error: `${lastErr} — unit rolled back (${totalInserted} partial rows removed)`,
+      };
     }
   }
 
@@ -477,6 +489,8 @@ export async function commitContentUnit(
     latestDate,
     dateCount,
     success: true,
-    error: firstError,
+    // D16: reaching here means every chunk committed — failures now roll back and return above, so a
+    // successful result carries no residual error.
+    error: undefined,
   };
 }

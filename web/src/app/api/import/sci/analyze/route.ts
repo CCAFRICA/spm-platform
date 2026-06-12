@@ -19,7 +19,7 @@ import { emitUnitStates, type UnitStateSignalParams, type UnitComprehensionState
 // OB-203 Phase 4 (R3): signal-spine vocabulary — fire-and-forget (DI-5 write-side; never blocks import).
 import { fireSignal, buildTierResolutionSignal, buildCompositionSignal, buildSessionLifecycleSignal, buildWorkbookGraphSignal } from '@/lib/sci/comprehension-signal-vocabulary';
 // OB-203 Phase 6: workbook-graph synthesis (derived, flag-only).
-import { synthesizeWorkbookGraph, type SheetSummary } from '@/lib/sci/workbook-graph';
+import { synthesizeWorkbookGraph, type SheetSummary, type GraphRole } from '@/lib/sci/workbook-graph';
 import { computeAtomFingerprint } from '@/lib/sci/atom-fingerprint';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
@@ -433,6 +433,75 @@ export async function POST(req: NextRequest) {
         console.warn(`[SCI-OVERLAP] Computation failed (non-blocking):`, overlapErr instanceof Error ? overlapErr.message : 'unknown');
       }
 
+      // ── OB-203 D15: synthesize the workbook graph BEFORE classification ──
+      // The graph's structural roles must INFORM the posteriors, not just annotate the proposal after the
+      // winner is chosen (the run-3 STOP-CLASS gap). Summaries are built from comprehended units'
+      // identifier/reference_key value-sets + repeat ratios — NO classification input; the role derivation
+      // is purely structural (DI-3). Failed units are excluded. The same `workbookGraph` is reused for the
+      // proposal annotation + D3 commit guard below — one synthesis per file.
+      const graphSummaries: SheetSummary[] = Array.from(state.contentUnits.entries())
+        .filter(([, profile]) => !perSheetFailure.has(profile.tabName))
+        .map(([unitId, profile]) => {
+          const rows = sheetRowsBySheet.get(profile.tabName) ?? [];
+          const interps = profile.headerComprehension?.interpretations;
+          const identifierColumns: Array<{ column: string; values: Set<string> }> = [];
+          const referenceKeyColumns: Array<{ column: string; values: Set<string> }> = [];
+          const atomHashes: string[] = [];
+          let hasMeasure = false;
+          if (interps) for (const [col, interp] of Array.from(interps.entries())) {
+            const values = new Set(rows.map(r => String(r[col] ?? '')).filter(v => v !== ''));
+            if (interp.columnRole === 'identifier') identifierColumns.push({ column: col, values });
+            else if (interp.columnRole === 'reference_key') referenceKeyColumns.push({ column: col, values });
+            else if (interp.columnRole === 'measure') hasMeasure = true;
+            atomHashes.push(computeAtomFingerprint(col, rows.map(r => r[col])).hash);
+          }
+          return {
+            unitId, sheetName: profile.tabName,
+            identifierColumns, referenceKeyColumns, atomHashes,
+            rowCount: profile.structure.rowCount ?? rows.length,
+            idRepeatRatio: profile.structure.identifierRepeatRatio ?? 1,
+            hasMeasure,
+          };
+        });
+      const workbookGraph = synthesizeWorkbookGraph(graphSummaries);
+      console.log(`[SCI-WORKBOOK-GRAPH] file=${file.fileName} roles=${JSON.stringify(workbookGraph.roles)} edges=${workbookGraph.edges.length} (pre-classification — informs posteriors)`);
+
+      // D15 prior mapping: structural graph role → classification prior. The prior INFORMS the posterior
+      // (a bounded additive boost on round2Scores) and NEVER vetoes: when it agrees with the Level-1 HC
+      // pattern (every correctly-typed sheet, including all proof-tenant sheets) nothing changes; only a
+      // disagreement — a measure-bearing roster the pattern mistook for target/transaction, a derived
+      // recap mistaken for target — lets the prior tip the RE-DERIVED winner. Phase-7 class-equality is
+      // the calibration gate: if any anchor moves, GRAPH_PRIOR_WEIGHT recalibrates, never the anchor.
+      const GRAPH_ROLE_TO_CLASS: Record<GraphRole, AgentType | null> = {
+        roster: 'entity', fact: 'transaction', derived: 'reference', reference: 'reference', unknown: null,
+      };
+      const GRAPH_PRIOR_WEIGHT = 0.5;
+      // resolution.decisionSource is a fixed union; the descriptive graph-informed provenance lives on the
+      // trace (free string) and in the round2Scores `workbook_graph:` signal. `resolutionSource` is the
+      // valid union member ('hc_pattern' when a pattern fired, 'heuristic' for a pure Level-2 flip).
+      const applyGraphWinner = (
+        uId: string,
+        winner: { agent: string; confidence: number },
+        resolutionSource: 'hc_pattern' | 'heuristic',
+        traceSource: string,
+      ) => {
+        const resolution = state.resolutions.get(uId);
+        if (resolution) {
+          resolution.classification = winner.agent as AgentType;
+          resolution.confidence = winner.confidence;
+          resolution.decisionSource = resolutionSource;
+          resolution.claimType = 'FULL';
+          resolution.requiresHumanReview = false;
+        }
+        const trace = state.traces.get(uId);
+        if (trace) {
+          trace.finalClassification = winner.agent;
+          trace.finalConfidence = winner.confidence;
+          trace.decisionSource = traceSource;
+          trace.requiresHumanReview = false;
+        }
+      };
+
       await resolveClassification(
         state,
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -445,45 +514,94 @@ export async function POST(req: NextRequest) {
       const level1Sheets = new Set<string>();
       for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
         const hcResult = classifyByHCPattern(profile);
+        // D15: the structural graph role for this unit and the classification prior it maps to.
+        const graphRole = workbookGraph.roles[unitId];
+        const priorClass = graphRole ? GRAPH_ROLE_TO_CLASS[graphRole] : null;
         if (hcResult) {
-          level1Sheets.add(profile.tabName);
-          // Override resolution
-          const resolution = state.resolutions.get(unitId);
-          if (resolution) {
-            resolution.classification = hcResult.classification;
-            resolution.confidence = hcResult.confidence;
-            resolution.decisionSource = 'hc_pattern';
-            resolution.claimType = 'FULL'; // HF-106: Level 1 never splits
-            resolution.requiresHumanReview = false;
+          // The graph only changes anything when it DISAGREES with the HC pattern. Agreement (and the
+          // no-prior case) runs the original Level-1 override byte-for-byte — proof-tenant sheets, whose
+          // graph roles agree with their correct HC class, are unaffected.
+          const graphDisagrees = priorClass != null && priorClass !== hcResult.classification;
+          if (!graphDisagrees) {
+            level1Sheets.add(profile.tabName);
+            // Override resolution
+            const resolution = state.resolutions.get(unitId);
+            if (resolution) {
+              resolution.classification = hcResult.classification;
+              resolution.confidence = hcResult.confidence;
+              resolution.decisionSource = 'hc_pattern';
+              resolution.claimType = 'FULL'; // HF-106: Level 1 never splits
+              resolution.requiresHumanReview = false;
+            }
+            // Override trace
+            const trace = state.traces.get(unitId);
+            if (trace) {
+              trace.finalClassification = hcResult.classification;
+              trace.finalConfidence = hcResult.confidence;
+              trace.decisionSource = 'hc_pattern';
+              trace.requiresHumanReview = false;
+            }
+            // Override round2Scores: set winner, cap all others to prevent split
+            const r2Scores = state.round2Scores.get(unitId);
+            if (r2Scores) {
+              for (const score of r2Scores) {
+                if (score.agent === hcResult.classification) {
+                  score.confidence = hcResult.confidence;
+                  score.signals.unshift({
+                    signal: `hc_pattern:${hcResult.patternName}`,
+                    weight: hcResult.confidence,
+                    evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}`,
+                  });
+                } else {
+                  // HF-106: Cap competing agents to prevent analyzeSplit from splitting
+                  score.confidence = Math.min(score.confidence, 0.10);
+                }
+              }
+              r2Scores.sort((a, b) => b.confidence - a.confidence);
+            }
+            console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} classification=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% pattern=${hcResult.patternName} conditions=[${hcResult.matchedConditions.join(', ')}]${priorClass ? ` graph=${graphRole}(agrees)` : ''}`);
+          } else {
+            // D15: graph DISAGREES with the HC pattern. Inform, never veto. The HC pattern keeps its
+            // confidence on ITS class (no hard cap on the others — the graph-preferred class must stay
+            // visible); the graph prior adds a bounded boost to its mapped class; the winner is RE-DERIVED
+            // from the combined scores. So a measure-bearing roster (HC: target@85%) that the graph reads
+            // as a roster gets entity boosted and can win — without the prior ever forcing it.
+            const r2Scores = state.round2Scores.get(unitId);
+            if (r2Scores) {
+              const hcScore = r2Scores.find(s => s.agent === hcResult.classification);
+              if (hcScore) {
+                hcScore.confidence = Math.max(hcScore.confidence, hcResult.confidence);
+                hcScore.signals.unshift({ signal: `hc_pattern:${hcResult.patternName}`, weight: hcResult.confidence, evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}` });
+              }
+              const pc = r2Scores.find(s => s.agent === priorClass);
+              if (pc) {
+                pc.confidence = Math.min(0.95, pc.confidence + GRAPH_PRIOR_WEIGHT);
+                pc.signals.unshift({ signal: `workbook_graph:${graphRole}`, weight: GRAPH_PRIOR_WEIGHT, evidence: `graph role ${graphRole} → ${priorClass} prior (informs, non-vetoing)` });
+              }
+              r2Scores.sort((a, b) => b.confidence - a.confidence);
+              const winner = r2Scores[0];
+              if (winner.agent === hcResult.classification) level1Sheets.add(profile.tabName);
+              applyGraphWinner(unitId, winner, 'hc_pattern', winner.agent === priorClass ? `graph_prior:${graphRole}` : `hc_pattern+graph_prior:${graphRole}`);
+              console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} hc=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (informed, non-veto)`);
+            }
           }
-          // Override trace
-          const trace = state.traces.get(unitId);
-          if (trace) {
-            trace.finalClassification = hcResult.classification;
-            trace.finalConfidence = hcResult.confidence;
-            trace.decisionSource = 'hc_pattern';
-            trace.requiresHumanReview = false;
-          }
-          // Override round2Scores: set winner, cap all others to prevent split
+        } else {
+          // Level-2 CRR retained (HC silent). Apply the graph prior; re-derive the winner if it flips.
           const r2Scores = state.round2Scores.get(unitId);
-          if (r2Scores) {
-            for (const score of r2Scores) {
-              if (score.agent === hcResult.classification) {
-                score.confidence = hcResult.confidence;
-                score.signals.unshift({
-                  signal: `hc_pattern:${hcResult.patternName}`,
-                  weight: hcResult.confidence,
-                  evidence: `Level 1 HC pattern: ${hcResult.matchedConditions.join(', ')}`,
-                });
-              } else {
-                // HF-106: Cap competing agents to prevent analyzeSplit from splitting
-                score.confidence = Math.min(score.confidence, 0.10);
+          if (priorClass && r2Scores && r2Scores.length > 0) {
+            const before = r2Scores.reduce((m, s) => (s.confidence > m.confidence ? s : m), r2Scores[0]).agent;
+            const pc = r2Scores.find(s => s.agent === priorClass);
+            if (pc) {
+              pc.confidence = Math.min(0.95, pc.confidence + GRAPH_PRIOR_WEIGHT);
+              pc.signals.unshift({ signal: `workbook_graph:${graphRole}`, weight: GRAPH_PRIOR_WEIGHT, evidence: `graph role ${graphRole} → ${priorClass} prior (informs, non-vetoing)` });
+              r2Scores.sort((a, b) => b.confidence - a.confidence);
+              const winner = r2Scores[0];
+              if (winner.agent !== before) {
+                applyGraphWinner(unitId, winner, 'heuristic', `crr+graph_prior:${graphRole}`);
+                console.log(`[SCI-GRAPH-PRIOR] sheet=${profile.tabName} crr=${before} graph=${graphRole}→${priorClass} winner=${winner.agent}@${(winner.confidence * 100).toFixed(0)}% (informed Level-2)`);
               }
             }
-            r2Scores.sort((a, b) => b.confidence - a.confidence);
           }
-          console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} classification=${hcResult.classification}@${(hcResult.confidence * 100).toFixed(0)}% pattern=${hcResult.patternName} conditions=[${hcResult.matchedConditions.join(', ')}]`);
-        } else {
           console.log(`[SCI-HC-PATTERN] sheet=${profile.tabName} NO_MATCH — Level 2 CRR Bayesian retained`);
         }
       }
@@ -668,49 +786,22 @@ export async function POST(req: NextRequest) {
         const prov = provenanceMap.get(cu.tabName);
         if (prov) cu.recognitionProvenance = prov;
       }
-      // OB-203 Phase 6: workbook-graph synthesis (DERIVED, FLAG-ONLY). Build compact per-sheet
-      // summaries from the comprehended units' identifier/reference_key value-sets + repeat ratios,
-      // derive inter-sheet relations, and ANNOTATE the proposal (role + reasoning + the D3
-      // non-FK reference_key list). Informs the proposal map + the commit-layer entity-association
-      // guard; never gates comprehension. Fire-and-forget signal.
+      // OB-203 Phase 6 / D15: ANNOTATE the proposal from the workbook graph synthesized PRE-classification
+      // (above). Its roles already informed the posteriors; here they surface on each unit (role +
+      // reasoning) and drive the D3 non-FK reference_key list for the commit-layer entity-association
+      // guard. DERIVED, FLAG-ONLY — never gates comprehension. Fire-and-forget signal.
       {
-        const summaries: SheetSummary[] = fileContentUnits
-          .filter(cu => !perSheetFailure.has(cu.tabName))
-          .map(cu => {
-            const profile = profileMap.get(cu.tabName);
-            const rows = sheetRowsBySheet.get(cu.tabName) ?? [];
-            const interps = profile?.headerComprehension?.interpretations;
-            const identifierColumns: Array<{ column: string; values: Set<string> }> = [];
-            const referenceKeyColumns: Array<{ column: string; values: Set<string> }> = [];
-            const atomHashes: string[] = [];
-            let hasMeasure = false;
-            if (interps) for (const [col, interp] of Array.from(interps.entries())) {
-              const values = new Set(rows.map(r => String(r[col] ?? '')).filter(v => v !== ''));
-              if (interp.columnRole === 'identifier') identifierColumns.push({ column: col, values });
-              else if (interp.columnRole === 'reference_key') referenceKeyColumns.push({ column: col, values });
-              else if (interp.columnRole === 'measure') hasMeasure = true;
-              atomHashes.push(computeAtomFingerprint(col, rows.map(r => r[col])).hash);
-            }
-            return {
-              unitId: cu.contentUnitId, sheetName: cu.tabName, classification: cu.classification,
-              identifierColumns, referenceKeyColumns, atomHashes,
-              rowCount: profile?.structure.rowCount ?? rows.length,
-              idRepeatRatio: profile?.structure.identifierRepeatRatio ?? 1,
-              hasMeasure,
-            };
-          });
-        const graph = synthesizeWorkbookGraph(summaries);
         let suppressed = 0;
         for (const cu of fileContentUnits) {
-          const role = graph.roles[cu.contentUnitId];
+          const role = workbookGraph.roles[cu.contentUnitId];
           if (!role) continue;
-          const nonFk = (graph.referenceKeyResolution[cu.contentUnitId] ?? []).filter(r => !r.referencesRoster).map(r => r.column);
+          const nonFk = (workbookGraph.referenceKeyResolution[cu.contentUnitId] ?? []).filter(r => !r.referencesRoster).map(r => r.column);
           suppressed += nonFk.length;
-          cu.graphEvidence = { role, reasoning: graph.reasoning[cu.contentUnitId] ?? '', nonFkReferenceKeys: nonFk };
+          cu.graphEvidence = { role, reasoning: workbookGraph.reasoning[cu.contentUnitId] ?? '', nonFkReferenceKeys: nonFk };
         }
-        console.log(`[SCI-WORKBOOK-GRAPH] file=${file.fileName} roles=${JSON.stringify(graph.roles)} edges=${graph.edges.length} nonFkRefKeys=${suppressed}`);
+        console.log(`[SCI-WORKBOOK-GRAPH] file=${file.fileName} annotated ${fileContentUnits.length} units, edges=${workbookGraph.edges.length} nonFkRefKeys=${suppressed}`);
         fireSignal(
-          buildWorkbookGraphSignal({ tenantId, importSessionId, roles: graph.roles, edgeCount: graph.edges.length, suppressedReferenceKeys: suppressed }),
+          buildWorkbookGraphSignal({ tenantId, importSessionId, roles: workbookGraph.roles, edgeCount: workbookGraph.edges.length, suppressedReferenceKeys: suppressed }),
           process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
         );
       }

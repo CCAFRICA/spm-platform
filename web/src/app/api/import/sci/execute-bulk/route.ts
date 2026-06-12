@@ -367,6 +367,29 @@ export async function POST(req: NextRequest) {
           parse.fileHash,
         );
         results.push(result);
+        // D16 truthful completion: emit this unit's terminal `bound` state AS it commits — durable
+        // per-unit, not batched at end-of-run. A mid-run infra failure (run-3's chunk-8/81 502 killed the
+        // request before the end-batch ran) then still leaves a truthful durable record for every unit
+        // that DID commit, so the completion screen reads the spine instead of inferring a false 0/16.
+        // State-spine emission STREAMS (durability); the heavy flywheel/learning signals stay deferred to
+        // post-commit below — no signal is dropped (DI-7), they are split by purpose, not discarded.
+        if (result.success) {
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: result.contentUnitId,
+                sheetName: unit.tabName ?? result.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'bound' as const, seq: 5, classification: unit.confirmedClassification ?? null,
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (stateErr) {
+            // A state-spine write failure must never re-mark a committed unit as failed.
+            console.warn(`[SCI Bulk] per-unit bound emit failed (non-blocking) for ${result.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+          }
+        }
       } catch (err) {
         results.push({
           contentUnitId: unit.contentUnitId,
@@ -516,6 +539,24 @@ function filterFieldsForPartialClaim(
     unit: { ...unit, confirmedBindings: filteredBindings },
     rows,
   };
+}
+
+// ── D16 unit-atomic rollback helper ──
+// Deletes the entities a single entity unit just created — by their exact new external_ids, batched.
+// Safe because every id in `newIds` was ABSENT from the tenant at fetch time (filtered against
+// existingMap), so this never removes a pre-existing or another unit's entity. Non-throwing: a rollback
+// failure is logged, never propagated (it must not convert one failure into an unhandled crash).
+async function rollbackNewEntities(supabase: SupabaseClient, tenantId: string, newIds: string[]): Promise<void> {
+  if (newIds.length === 0) return;
+  try {
+    for (let j = 0; j < newIds.length; j += 200) {
+      const slice = newIds.slice(j, j + 200);
+      const { error } = await supabase.from('entities').delete().eq('tenant_id', tenantId).in('external_id', slice);
+      if (error) console.error(`[SCI Bulk] entity rollback batch failed: ${error.message}`);
+    }
+  } catch (e) {
+    console.error('[SCI Bulk] entity rollback threw (non-blocking):', e instanceof Error ? e.message : e);
+  }
 }
 
 // ── Process a single content unit with server-parsed data ──
@@ -687,7 +728,10 @@ async function processEntityUnit(
       const slice = newEntities.slice(i, i + INSERT_BATCH);
       const { error: entErr } = await supabase.from('entities').insert(slice);
       if (entErr) {
-        return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: created, pipeline: 'entity', error: entErr.message };
+        // D16 unit-atomic: roll back every entity THIS unit created (all are new — pre-existing were
+        // filtered out via existingMap), so a partial entity insert retains nothing, then report truthfully.
+        await rollbackNewEntities(supabase, tenantId, newIds);
+        return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${entErr.message} — entity unit rolled back (${created} partial entities removed)` };
       }
       created += slice.length;
     }
@@ -763,7 +807,13 @@ async function processEntityUnit(
     source: 'sci-bulk',
     fileHashSha256,
   });
-  void commitResult;
+  // D16 unit-atomic + truthfulness: commitContentUnit rolls back its OWN partial rows on failure; if its
+  // committed_data write failed, roll back this unit's new entities too (all-or-nothing across both
+  // surfaces) and report the unit as failed rather than the prior silent success-regardless.
+  if (!commitResult.success) {
+    await rollbackNewEntities(supabase, tenantId, newIds);
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `${commitResult.error ?? 'committed_data write failed'} — entity unit rolled back (${created} entities removed)` };
+  }
 
   // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
   // The blanket wipe destroyed BCL's PASS-RECONCILED state (DIAG-052

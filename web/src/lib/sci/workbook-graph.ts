@@ -24,7 +24,9 @@ export type GraphRole = 'roster' | 'fact' | 'reference' | 'derived' | 'unknown';
 export interface SheetSummary {
   unitId: string;
   sheetName: string;
-  classification: AgentType;
+  // OB-203 D15: optional — the graph synthesizes BEFORE classification (its roles inform the posteriors),
+  // so no winner exists yet. Role derivation is purely structural and never reads this field.
+  classification?: AgentType;
   identifierColumns: Array<{ column: string; values: Set<string> }>;
   referenceKeyColumns: Array<{ column: string; values: Set<string> }>;
   atomHashes: string[];
