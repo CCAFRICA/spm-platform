@@ -784,3 +784,60 @@ mod4 = mod3 + `Notas_Turno` (novel column → `Datos_Rendimiento` Tier-3 → dec
 - D6 fixed: interaction authorized via canonical `resolveIdentity()` (platform-scope cross-tenant; tenant-scope confined) — HF-282 class.
 
 **Phase 4 PASS.** EPG-4.1/4.2/4.3 + SR-39 accepted; 5/7 vocabulary types live-witnessed, 2 condition-gated + test-proven.
+
+---
+
+## PHASE 5 — Observer Import Experience (D4 full) — CODE-COMPLETE (2026-06-11)
+
+Branch `OB-203-phase-5` off `main` @ `458b9fdb`. Full SCI suite **76 pass** (+4); typecheck 0.
+
+### Observer (DS-027 §4.4) — `SessionStateLive` as the unified state surface (architect path-a ratified)
+Polls `SessionStateView` (Phase 3) live; each unit renders its state; **`failed_interpretation` holds visibly**
+and carries the STANDING resolution action set. Recognition provenance (Phase 2 field, via `contentUnits`)
+renders on comprehended/classified/bound rows. `SCIProposal` keeps Decision-73 confirm/correct for comprehended units.
+
+### Resolution action set (HALT-6 RATIFIED — standing interpretation-failure pattern) + signal mapping
+| Action | Mechanism | Outcome signal(s) |
+|---|---|---|
+| view structural detail | expand read-only panel (tier / atoms known / novel residue / failure class) | `interaction action='expand'` |
+| retry comprehension | Phase 3 `retry-unit` (same decomposed dispatch) | `resolution` (failed→comprehended) + `action_click` |
+| manually assign classification | `resolve-unit` action=assign | `unit_state='resolved'` + `resolution` (`user_corrected`) + `interaction action='correction'` |
+| exclude unit | `resolve-unit` action=exclude | `interaction action_click control='exclude'` |
+
+**Manual assign is CLASSIFICATION-LEVEL only** (architect item 2). **BINDING-LEVEL correction → Phase 6**
+(interacts with convergence + the workbook graph), recorded here as the explicit boundary alongside contextual-role resolution.
+
+### Endpoint — `POST /api/import/sci/resolve-unit` (SR-39: 401 unauth; tenant via `resolveIdentity`)
+The action→signal mapping is the pure `resolveUnitSignals()` (`resolve-unit-signals.ts`); the route does nothing
+but emit what it returns — `assign` awaits the `resolved` state then fires `resolution` + `correction`; `exclude`
+fires the `action_click`. **EPG-5.2** holds by construction: an action's entire durable effect IS its returned signals.
+
+### Client-tier failure surface (absorbed scope) — `page.tsx`
+`fetchAnalyzeWithTimeout` wraps both analyze fetches in an `AbortController` + 120s deadline. On timeout/abort/network
+failure → the existing `error` phase with a **perceptible cause + suggested action** ("timed out after 120s … try
+again or split the file" / "could not reach the server … check connection"). No infinite spinner.
+
+### EPGs
+- **5.1 (every action emits a signal):** `resolveUnitSignals` test — assign → resolved+resolution+correction; exclude
+  → action_click; every action ≥1 signal. view/expand + retry capture via `captureImportInteraction`/`retry-unit`.
+- **5.2 (no mutation outside the signal path):** action effect = `{states, signals}` only; route emits, nothing else.
+
+### CLT (browser) — corrupt-analog + observer/action witness
+1. **Generate input:** `npx tsx scripts/ob203-clt-corrupt-analog.ts 4242 /tmp/ob203_clt.xlsx` — a seeded analog whose
+   FACT sheet is collapsed to one unintelligible noise column (boundary-corruption; the engineered-to-fail unit);
+   clean sheets comprehend normally → a MIX.
+2. **Import** `/tmp/ob203_clt.xlsx` via `/operate/import` (sandbox tenant). **Observe:** clean sheets progress to
+   classified; the corrupted unit holds at `failed_interpretation` with the action set rendered.
+3. **Retry** the failed unit → re-runs the same decomposed dispatch (lights `resolution` on success).
+4. **Assign** a classification on the failed unit → unit shows `resolved`; **lights `comprehension:resolution`
+   (`user_corrected`) live** (the deferred resolution witness).
+5. **Exclude** → `action_click control=exclude`. **Confirm** the proposal (excluded/failed units absent).
+6. **Verify:** `npx tsx scripts/ob203-trace.ts <tenant> <session>` — `failed_interpretation` present, then
+   `comprehension:resolution` + `interaction:import` (expand/correction/action_click) rows.
+
+### Tests (+4)
+`resolve-unit-signals`: assign signal set, exclude signal set, every-action-≥1-signal (5.1), tenant-scope (5.2).
+
+### HALT — none. No new table/channel; resolution actions write via the canonical surface; client failure surface is UI-only.
+
+**Awaiting architect CLT run (corrupt-analog import → observe → retry → assign → confirm) for the live witness, then PR.**
