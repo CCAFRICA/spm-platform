@@ -16,6 +16,8 @@ import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 // OB-203 Phase 3 (R2/DI-1): durable unit-state emission on the canonical surface.
 import { emitUnitStates, type UnitStateSignalParams, type UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
+// OB-203 Phase 4 (R3): signal-spine vocabulary — fire-and-forget (DI-5 write-side; never blocks import).
+import { fireSignal, buildTierResolutionSignal, buildCompositionSignal, buildSessionLifecycleSignal } from '@/lib/sci/comprehension-signal-vocabulary';
 import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 import { requiresHumanReview } from '@/lib/sci/agents';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
@@ -81,6 +83,11 @@ export async function POST(req: NextRequest) {
     // proposalId (P2). Distinct from execute-side import_batch_id (HF-213). Stamped on every
     // unit-state signal so the import surface and Phase 5 poll one durable session.
     const importSessionId = proposalId;
+    // OB-203 Phase 4 (R3): session lifecycle — `open` once per comprehension session.
+    fireSignal(
+      buildSessionLifecycleSignal({ tenantId, importSessionId, phase: 'open', unitCount: files.reduce((s, f) => s + f.sheets.length, 0) }),
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
     const contentUnits: ContentUnitProposal[] = [];
     const densityMap = new Map<string, ClassificationDensity>(); // OB-160K
     const fingerprintMap = new Map<string, StructuralFingerprint>(); // HF-094
@@ -289,6 +296,30 @@ export async function POST(req: NextRequest) {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
       );
+
+      // OB-203 Phase 4 (R3): tier-of-resolution + composition signals per comprehended unit
+      // (fire-and-forget; DI-5 write-side). resolver = flywheel when Tier-1 recognition skipped the
+      // LLM, else llm. composition confidence = the unit's atom recognized-fraction.
+      for (const sheetName of Array.from(profileMap.keys())) {
+        if (perSheetFailure.has(sheetName)) continue;
+        const tier = sheetFlywheelResults.get(sheetName)?.tier ?? null;
+        const prov = provenanceMap.get(sheetName);
+        const unitId = unitIdBySheet.get(sheetName)!;
+        fireSignal(
+          buildTierResolutionSignal({ tenantId, unitId, sheetName, tier, resolver: prov?.llmCalled ? 'llm' : 'flywheel', importSessionId }),
+          process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+        if (prov) {
+          // knownCount: columns NOT in the novel residue (clean, NaN-free approximation; the load-
+          // bearing signal is compositionConfidence = recognizedFraction).
+          const colCount = profileMap.get(sheetName)?.structure.columnCount ?? prov.novelCount;
+          const known = Math.max(0, colCount - prov.novelCount);
+          fireSignal(
+            buildCompositionSignal({ tenantId, unitId, sheetName, compositionConfidence: prov.recognizedFraction, knownCount: known, novelCount: prov.novelCount, importSessionId }),
+            process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+        }
+      }
 
       // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
       // HC has run (or been injected from Tier 1 flywheel); now compute patterns +
@@ -664,6 +695,13 @@ export async function POST(req: NextRequest) {
         executionMode: d.executionMode,
       };
     }
+
+    // OB-203 Phase 4 (R3): session `settled` — analyze produced the proposal (no completion gate on
+    // comprehension; `settled` marks the analyze pass done, units carry their own states).
+    fireSignal(
+      buildSessionLifecycleSignal({ tenantId, importSessionId, phase: 'settled', unitCount: contentUnits.length }),
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
 
     const proposal: SCIProposal = {
       proposalId,

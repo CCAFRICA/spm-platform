@@ -8,6 +8,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import type { SessionStateView, UnitStateView, UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
+// OB-203 Phase 4 (R3): interaction capture (no visible UI change; Phase 5 consumes the same hooks).
+import { setImportInteractionContext, captureImportInteraction, flushPendingImportInteractions } from '@/lib/sci/import-interaction-signals';
 
 const STATE_LABEL: Record<UnitComprehensionState, string> = {
   persisted: 'Persisted',
@@ -51,6 +53,14 @@ export function SessionStateLive({ tenantId, importSessionId, storagePaths, poll
     }
   }, [tenantId, importSessionId]);
 
+  // R3: bind the interaction session + flush captures on unmount.
+  useEffect(() => {
+    if (!tenantId || !importSessionId) return;
+    setImportInteractionContext(tenantId, importSessionId);
+    captureImportInteraction({ surface: 'session_state_live', action: 'view', dedupKey: `view:${importSessionId}` });
+    return () => flushPendingImportInteractions();
+  }, [tenantId, importSessionId]);
+
   useEffect(() => {
     if (!tenantId || !importSessionId) return;
     void poll();
@@ -69,6 +79,7 @@ export function SessionStateLive({ tenantId, importSessionId, storagePaths, poll
     const fileName = u.unitId.split('::')[0];
     const storagePath = storagePaths?.[fileName];
     if (!storagePath) return;
+    captureImportInteraction({ surface: 'session_state_live', action: 'action_click', unitId: u.unitId, metadata: { control: 'retry' } });
     setRetrying(u.unitId);
     try {
       await fetch('/api/import/sci/retry-unit', {

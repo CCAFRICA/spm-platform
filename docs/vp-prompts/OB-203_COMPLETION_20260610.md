@@ -711,3 +711,76 @@ All witnesses verified (service-role reads + architect browser):
 - Retry-click witness deferred to Phase 5 induced-failure CLT (architect ruling); retry stands test-proven.
 
 **Phase 3 PASS.** All EPGs green; live witnesses verified. Ready for merge.
+
+---
+
+## PHASE 4 — Signal Spine: Vocabulary, Trace, Observability (R3/DI-5/DI-7) — CODE-COMPLETE (2026-06-11)
+
+Branch `OB-203-phase-4` off `main` @ `cd5f0326`. Full SCI suite **72 pass** (+5 vocabulary); typecheck 0.
+
+### Vocabulary (Decision-30 extension; EPG-4.3 structural, zero domain literals)
+All on the ONE canonical surface via the ONE writer (`comprehension-signal-vocabulary.ts`):
+`comprehension:atom_recognition`, `comprehension:composition`, `comprehension:tier_resolution`,
+`comprehension:session_lifecycle`, `comprehension:resolution`, `comprehension:learning_write_blocked`,
+`interaction:import`. EPG-4.3 test asserts each matches `family:structural_term` and contains no domain word.
+
+### Emission points (all fire-and-forget — DI-7 redirect)
+- analyze: `session_lifecycle` (open/settled), `tier_resolution` + `composition` per comprehended unit.
+- decomposed dispatch (`header-comprehension.ts`): `atom_recognition` batch at atom write.
+- retry route: `resolution` on retry success.
+- **DI-7 — HF-247 gate now emits `learning_write_blocked` on BOTH** the fingerprint-write skip
+  (`fingerprint-flywheel.ts:182`) and the tier1-read demote (`:82`) — previously log-only. "Every blocked
+  write emits remediation" is now true.
+
+### EPG evidence
+- **EPG-4.1 (single surface):** `grep` for `.from('classification_signals').insert` in Phase 4 code → **NONE**; every write goes through `writeSignal`/`writeSignalBatch`.
+- **EPG-4.2 (zero write-gating / DI-5):** `grep density|executionMode` across `atom-flywheel`, `fingerprint-flywheel`, `comprehension-planner`, `decomposed-comprehension`, `comprehension-signal-vocabulary` → only a single hit, an explanatory **comment**, no gating code. Consumption-side `computeClassificationDensity` (`classification-signal-service.ts:520-575`) READS signals → computes `executionMode` → RETURNS it; it writes nothing and gates only which LLM tier is invoked at READ.
+- **EPG-4.3 (structural vocabulary):** test pins `family:structural_term` + no-domain-word.
+
+### Trace — `scripts/ob203-trace.ts` (BL-001 data contract; named query shapes)
+1. unit-state timeline (per session) · 2. failure classes · 3. comprehension cost (resolver mix + known/novel) ·
+4. tier distribution · **5. DI-7 remediation FAMILY — one rollup unifying `reinforcement_blocked` +
+`learning_write_blocked` + `atom_write_failed`** (architect condition: "every blocked write" answerable with
+one query, not a per-type checklist) · 6. interaction:import. Smoke-tested against live DB (query #1 returns the
+Phase-3 session timelines).
+
+### SR-39 GATE — interaction signals are behavioral data (documented BEFORE PR)
+`POST /api/import/sci/interaction`:
+- **Authentication (CC6.1 / NIST AC-3 / OWASP A01):** rejects unauthenticated with **401** (`auth.getUser()` on the
+  cookie session). No anonymous behavioral writes.
+- **Tenant authorization (CC6.6 least-privilege / NIST AC-4 information-flow / OWASP A01 broken-access-control /
+  A04 insecure-design):** the body `tenantId` is a routing hint, **never trusted** — authorized via the CANONICAL
+  identity reader `resolveIdentity()` (D6 / HF-282: a bespoke per-tenant `profiles` lookup wrongly 403s platform-scope
+  identities that hold no per-tenant row — the divergent-read defect HF-282 closed). Rule: a **platform-scope**
+  identity (`canonicalRole='platform'` or `manage_tenants`) is authorized cross-tenant; a **tenant-scope** identity is
+  authorized only for its own `tenantId`; otherwise **403**. No tenant-scoped caller can write to a tenant it does not
+  own (no IDOR / cross-tenant write).
+- **Scope (DS-014 / Decision 123):** every interaction write carries `scope:'tenant'` + the **validated** `tenant_id`.
+- **DI-10:** this path introduces **no cross-scope aggregation** — interaction signals are single-tenant-scoped.
+  The only cross-tenant read in the system (`lookupFoundationalPriors`) is untouched and remains anonymized by
+  structural-fingerprint construction (`tenant_id IS NULL`, zero tenant-identifiable info).
+- **CC6/OWASP/NIST mapping:** CC6.1 (logical access), CC6.6 (least privilege); OWASP A01 (Broken Access Control),
+  A04 (Insecure Design); NIST 800-53 AC-3 (Access Enforcement), AC-4 (Information Flow Enforcement), AC-6 (Least
+  Privilege). Tests assert every builder carries `scope:'tenant'` + `tenant_id`.
+
+### Tests (+5)
+vocabulary round-trip; EPG-4.3 structural; SR-39 tenant-isolation on every builder; DI-7 fire-and-forget
+(forced write failure → caller unaffected + loud log); learning_write_blocked DI-7 shape.
+
+### HALT-3 — NO halt
+No new table/channel (new `signal_type` values on the one surface/writer); no write-time density gating (DI-5
+preserved); no persistence conditioned on comprehension. The interaction POST writes to the same surface.
+
+**Awaiting architect EPG-4.1/4.2/4.3 review + SR-39 sign-off, then PR.**
+
+### PHASE 4 — LIVE WITNESS (architect-executed 2026-06-11/12, tenant 24103940, mod4, session bdbab5b9)
+
+mod4 = mod3 + `Notas_Turno` (novel column → `Datos_Rendimiento` Tier-3 → decomposed dispatch). Trace:
+- `unit_state` 18 (3 sheets × full spine) · `session_lifecycle` open→settled (unitCount=3) ·
+  `tier_resolution` 3 (mixed: 2 flywheel/tier_1 + 1 llm/tier_3) · `composition` 1 (known 17/novel 6, rf 0.74) ·
+  `atom_recognition` 23 (17 claimed + 6 novel; roles measure/attribute/name) · `interaction:import` 1 (view — **D6 closed**, POST 200).
+- `resolution` 0 + `learning_write_blocked` 0 — condition-gated (no retry, no unknown-role block in a clean import);
+  shape + DI-7 fire-and-forget proven by unit tests; the DI-7 rollup query (#5) verified (returns family structure, 0 events).
+- D6 fixed: interaction authorized via canonical `resolveIdentity()` (platform-scope cross-tenant; tenant-scope confined) — HF-282 class.
+
+**Phase 4 PASS.** EPG-4.1/4.2/4.3 + SR-39 accepted; 5/7 vocabulary types live-witnessed, 2 condition-gated + test-proven.
