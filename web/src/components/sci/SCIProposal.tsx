@@ -121,23 +121,31 @@ function ContentUnitCard({
           className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 flex-shrink-0 disabled:opacity-40"
         />
 
-        <span className="text-sm font-medium text-zinc-200 min-w-[140px] truncate">
+        <span className={cn('text-sm font-medium min-w-[140px] truncate', isExcluded ? 'text-zinc-500 line-through' : 'text-zinc-200')}>
           {isDocPlan ? unit.sourceFile : unit.tabName}
           {!isDocPlan && unit.sourceFile && unit.sourceFile !== unit.tabName && (
-            <span className="text-zinc-500 font-normal text-xs ml-1.5">{unit.sourceFile.replace(/^\d+_\d+_[a-f0-9]{8}_/, '')}</span>
+            <span className="text-zinc-500 font-normal text-xs ml-1.5 no-underline">{unit.sourceFile.replace(/^\d+_\d+_[a-f0-9]{8}_/, '')}</span>
           )}
         </span>
 
-        {/* Live state chip (durable read) for the states that matter here */}
-        {stateKey && STATE_CHIP[stateKey] && (
-          <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', STATE_CHIP[stateKey])}>
-            {STATE_LABEL[stateKey]}
+        {/* D9a: in-progress chip while an action reprocesses (busy until the durable read returns) */}
+        {busy ? (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+            <span className="h-2.5 w-2.5 animate-spin rounded-full border border-indigo-400 border-t-transparent" />
+            Processing…
           </span>
+        ) : isExcluded ? (
+          /* D9b: excluded units stay in the list with explicit excluded treatment */
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-600 bg-zinc-700/30 text-zinc-400">Excluded</span>
+        ) : (
+          <>
+            {stateKey && STATE_CHIP[stateKey] && (
+              <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', STATE_CHIP[stateKey])}>{STATE_LABEL[stateKey]}</span>
+            )}
+            {!isFailed && <VerdictBadge classification={unit.classification} />}
+            {!isFailed && isOverridden && <span className="text-[10px] text-amber-400/70 font-medium">(was {originalClassification})</span>}
+          </>
         )}
-
-        {/* Classification badge — suppressed while the unit is failed/unresolved */}
-        {!isFailed && <VerdictBadge classification={unit.classification} />}
-        {!isFailed && isOverridden && <span className="text-[10px] text-amber-400/70 font-medium">(was {originalClassification})</span>}
 
         {unit.recognitionProvenance && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-500/10 text-zinc-400 border border-zinc-500/20" title="Atom recognition provenance">

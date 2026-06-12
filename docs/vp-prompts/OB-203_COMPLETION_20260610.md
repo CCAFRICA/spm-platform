@@ -894,3 +894,20 @@ file. **Acceptance:** failed unit (Lokudi) holds ON ITS CARD with four actions; 
 exclude Lokudi + import the REST → execute-bulk present in log; no second listing anywhere.
 
 Build green (clean rebuild); full SCI suite 79 pass; typecheck + lint clean.
+
+### PHASE 5 — CLT v3 PASS ON SUBSTANCE + D9a/D9b polish (architect 2026-06-11)
+
+CLT v3 (seed-7777, OB203_FAULT_SHEET=Lokudi, session 125cf2d5): **all acceptance criteria met** — Lokudi
+held at `failed_interpretation` ON ITS CARD with the four actions; assign resolved THAT card; exclude +
+subset import → **execute-bulk ran (157 rows committed, 4 of 5 units)**; no second listing. Two card-level
+polish defects, same durable-read pattern:
+
+- **D9a (retry feedback):** Retry gave no visible in-progress indication. Fix: a `Processing…` chip (with
+  spinner) renders on THAT card while `busy` (the action's fetch + the durable-state re-poll), with the
+  action buttons disabled until the durable read returns the outcome.
+- **D9b (excluded representation):** an excluded unit now stays in the list with explicit excluded
+  treatment — dimmed card, **line-through** sheet name, **`Excluded`** chip, no action set — so the user
+  sees what was left out.
+
+Build green; 79 tests pass; typecheck + lint clean. No full CLT re-run required (architect 60-second visual
+check: import → click Retry → see Processing; exclude → see Excluded treatment), then the Phase 5 PR opens.
