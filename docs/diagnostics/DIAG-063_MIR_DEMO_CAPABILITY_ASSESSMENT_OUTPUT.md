@@ -1,0 +1,9310 @@
+# DIAG-063 — MIR DEMO CAPABILITY ASSESSMENT — OUTPUT
+**Anchor SHA:** `d38d63553bddc079fab2cfda6f1fa2d178a2704a` (main HEAD, merge of PR #485, 2026-06-11)
+**Date:** 2026-06-12 · **Branch:** `diag/063-mir-demo-capability-assessment`
+**Directive:** `docs/vp-prompts/DIAG-063_MIR_DEMO_CAPABILITY_ASSESSMENT_DIRECTIVE_20260612.md`
+**Path convention:** the application root is `web/`; all `src/...` references in this document are relative to `web/` (i.e., `src/foo.ts` = `web/src/foo.ts`). The directive's `scripts/diag/` is instantiated at `web/scripts/diag/` (the repository has no root `node_modules`; tsx module resolution requires scripts to live under `web/`).
+
+---
+
+## Phase 1 — Anchoring and Sequence Evidence
+
+### 1.1 Anchor
+
+```
+$ git rev-parse HEAD
+d38d63553bddc079fab2cfda6f1fa2d178a2704a
+$ git log -1 --format='%H %ad %s'
+d38d63553bddc079fab2cfda6f1fa2d178a2704a Thu Jun 11 19:23:11 2026 -0700 Merge pull request #485 from CCAFRICA/OB-203-phase-5
+$ git status --porcelain
+?? docs/diagnostics/DIAG-063_MIR_DEMO_CAPABILITY_ASSESSMENT_DIRECTIVE_20260612.md
+```
+
+The tree was clean except for one untracked file: a local copy of this very directive, dropped in `docs/diagnostics/` rather than the canonical `docs/vp-prompts/` path. `diff` against the directive as received: **IDENTICAL** (byte-for-byte). The stray copy was relocated to the canonical path (Phase 1.3) and the diagnostics copy removed. No tracked file was modified.
+
+### 1.2 Sequence verification
+
+```
+$ ls -1 docs/diagnostics/ | sort -V
+AUD-273_VARIANT_BINDING_INDEX_OUTPUT.md
+DIAG-020_FINDINGS.md
+DIAG-021_Fingerprint_Cache_Match_Mechanism_CC_PROBE.md
+DIAG-024_FINDINGS.md
+DIAG-025_TIPO_DRIFT_AUDIT_PROMPT_20260505.md
+DIAG-027_RECONCILED_CALC_MECHANISM_DIRECTIVE_20260505.md
+DIAG-028_HF200_PREREQUISITES_DIRECTIVE_20260505.md
+DIAG-029_BCL_DERIVATION_REGRESSION_DIRECTIVE_20260505.md
+DIAG-030_EMPTY_SEMANTIC_INTENT_DIRECTIVE_20260505.md
+DIAG-033_SHAPE_C_VERIFICATION_GATE_20260506.md
+DIAG-034_AUD-005_CALC_EXECUTION_LIVE_REFERENCE_20260506.md
+DIAG-035_c4_Magnitude_Probe_Directive.md
+DIAG-036_Metric_Population_Probe_Directive.md
+DIAG-037_Comprehension_Signal_Write_Probe_Directive.md
+DIAG-038_HF_214_Phase2_Audit_Directive.md
+DIAG-039_c4_import_to_result_trace.md
+DIAG-039_c4_import_to_result_trace_directive.md
+DIAG-039_consolidated.md
+DIAG-039_evidence
+DIAG-040_DIRECTIVE.md
+DIAG-040_post_hf216_traces.md
+DIAG-041_COMPREHENSIVE_CODE_AUDIT.md
+DIAG-041_COMPREHENSIVE_CODE_AUDIT_OUTPUT.md
+DIAG-042_LAYER_CONTRACTS_DOCUMENTATION.md
+DIAG-042_LAYER_CONTRACTS_DOCUMENTATION_OUTPUT.md
+DIAG-043_HF223_SURFACE_VERIFICATION.md
+DIAG-044_SCI_IMPORT_PATH_UNIFICATION.md
+DIAG-045_C5_CONVERGENCE_BINDING_FAILURE.md
+DIAG-045_C5_CONVERGENCE_BINDING_FAILURE_OUTPUT.md
+DIAG-046_CRP_PLAN1_CONVERGENCE_BINDING.md
+DIAG-046_CRP_PLAN1_CONVERGENCE_BINDING_OUTPUT.md
+DIAG-047_CRP_FILTER_PROVENANCE.md
+DIAG-047_CRP_FILTER_PROVENANCE_OUTPUT.md
+DIAG-048_CRP_PLANS_234_FAILURE_TRACE.md
+DIAG-048_CRP_PLANS_234_FAILURE_TRACE_OUTPUT.md
+DIAG-049_POST_HF234_CONVERGENCE_STATE.md
+DIAG-050_BINDING_LIFECYCLE_TRACE_OUTPUT.md
+DIAG-050_DIRECTIVE_20260518.md
+DIAG-050_DIRECTIVE_20260601.md
+DIAG-051_BCL_EJECUTIVO_CAPTACION_INSPECTION.md
+DIAG-051_CRP_PLAN2_PLAN4_DIRECTIVE_20260519.md
+DIAG-051_CRP_PLAN2_PLAN4_FAILURE_SURFACE_20260519.md
+DIAG-052_POST_HF238_REGRESSION_TRIAGE.md
+DIAG-052_POST_HF238_REGRESSION_TRIAGE_DIRECTIVE.md
+DIAG-053_PLAN_INTERPRETATION_REGRESSION_DIRECTIVE.md
+DIAG-054_DAG_PATHWAY_TRACE.md
+DIAG-054_DAG_PATHWAY_TRACE_DIRECTIVE.md
+DIAG-055_HF-245_DIRECTIVE.md
+DIAG-056_COMPLETION_REPORT_DIRECTIVE.md
+DIAG-056_DIRECTIVE.md
+DIAG-057_OUTPUT.md
+DIAG-057_PLAN_IMPORT_STORAGE_TRANSPORT.md
+DIAG-58_AGGREGATE_SCOPE_CAPABILITY_OUTPUT.md
+DIAG-058_DIRECTIVE_20260531.md
+DIAG-058_OUTPUT.md
+DIAG-059_FLEET_PROJECTION_EVIDENCE_CAPTURE_20260601.md
+DIAG-059_FLEET_PROJECTION_EVIDENCE_CAPTURE_DIRECTIVE_20260601.md
+DIAG-063_MIR_DEMO_CAPABILITY_ASSESSMENT_DIRECTIVE_20260612.md   ← untracked local copy of THIS directive (relocated; see 1.1)
+DIAG_DS021_Phase4_Comprehensive_Audit_Specification_20260430.md
+HF-283_PHASE1_INVENTORY.md
+HF-283_PHASE7_POSTAPPLY.md
+QD-SABOR-1_2_20260610.md
+```
+
+**Sequence reconciliation.** The `main` listing tops out at DIAG-059; DIAG-060/061/062 artifacts are not on `main`. Git history across all refs accounts for them:
+
+```
+$ git log --all --oneline -i --grep="DIAG-06"
+1deb1c0e OB-203 Phase 6B / DIAG-062: warm-witness post-mortem (A1-A5, read-only) — HALT-1 + HALT-2
+86ebbba8 DIAG-062 Phase 2: completion report
+b11ee5d9 DIAG-062 Phase 1: census evidence assembled (E1-E6)
+c16b24ea DIAG-062 Phase 0: directive committed; provenance
+4750db57 HF-283 Phase 0: directive committed; provenance + profile census
+a294f007 HF-282 Phase 1+2.3: canonical reader resolveIdentity + redirect observability
+
+$ git branch -a --contains 86ebbba8
+  remotes/origin/diag-062-sabor-profile-census
+
+$ git log -1 --format='%B' 4750db57 | grep -i "DIAG-06"   # HF-283 commit body
+Provenance: origin/main HEAD db07b9cd; the three DIAG-061 traced files UNCHANGED
+$ git log -1 --format='%B' a294f007 | grep -i "DIAG-06"   # HF-282 commit body
+4 divergent reads: middleware /+/login .maybeSingle() (the DIAG-060 row-count fork),
+Phase 2.3 — every DIAG-060 §6 redirect branch (13) now emits a named event before
+```
+
+DIAG-060 and DIAG-061 are referenced as completed work in HF-282/HF-283 commit bodies; DIAG-062 exists in full on `origin/diag-062-sabor-profile-census`. The highest assigned DIAG number is therefore **062**, matching the directive's premise. The only `DIAG-063*` file found anywhere (`find . -iname "*DIAG-06*"`) was the byte-identical untracked local copy of this directive itself. §4 HALT-1 (a *higher* number present, or a *pre-existing* 063) does not trigger: there is no collision and no self-assignment. The main-listing discrepancy is recorded as **Finding F-1**.
+
+### 1.4 Governing artifacts read-proof
+
+```
+$ find . -name "CC_STANDING_ARCHITECTURE_RULES.md" -not -path "./node_modules/*"
+./CC_STANDING_ARCHITECTURE_RULES.md
+$ find . -name "CC_DIAGNOSTIC_PROTOCOL.md" -not -path "./node_modules/*"
+(no output — file does not exist in the repository)
+$ find . -name "SCHEMA_REFERENCE_LIVE.md" -not -path "./node_modules/*"
+./SCHEMA_REFERENCE_LIVE.md
+$ wc -l CC_STANDING_ARCHITECTURE_RULES.md SCHEMA_REFERENCE_LIVE.md
+     309 CC_STANDING_ARCHITECTURE_RULES.md
+     601 SCHEMA_REFERENCE_LIVE.md
+```
+
+`CC_STANDING_ARCHITECTURE_RULES.md` (309 lines) and `SCHEMA_REFERENCE_LIVE.md` (601 lines) were read in full before any probe. `CC_DIAGNOSTIC_PROTOCOL.md` does not exist as a repository file (see Open Questions OQ-1); the directive's phase prose was executed as the authoritative executable per DD-11. Note: `SCHEMA_REFERENCE_LIVE.md` is dated *Generated: 2026-03-18*; where live response keys diverge from the March snapshot, probes report observed keys.
+
+### Access check (HALT-3 gate)
+
+```
+$ cd web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_access_check.ts
+import_batches reachable; row count: 115
+```
+
+---
+
+## Summary Matrix
+
+Every probe section below was adversarially verified by an independent agent re-running the quoted commands against the repository and live database; where a re-run diverged from pasted evidence, the evidence was corrected to the observed output before assembly (corrections were counts/enumerations/transcripts only; no conclusion or effort class changed). Probe refs §A1A2…§E6 point to the module sections in this document.
+
+| # | Capability | Evidence tier | Effort class | Probe | Architect-browser |
+|---|------------|---------------|--------------|-------|-------------------|
+| 1 | Scale anchor (~162k import) + multi-file single-batch | VERIFIED-CODE+DB | import E0 / calc E1 | §A1A2 | AB-1, AB-2, AB-3 |
+| 2 | Cross-file entity resolution | VERIFIED-CODE+DB | same-key resolution E0 / cross-key alias bridging E4 (only if MIR files key entities differently) | §A3 | AB-4, AB-5 |
+| 3 | Multi-tab XLSX ingestion | VERIFIED-CODE+DB | E0 | §A4 | AB-6, AB-7 |
+| 4 | Mapping confirmation gate (import wizard + reconciliation) | VERIFIED-CODE | E1 | §A5 | AB-8, AB-9, AB-10 |
+| 5 | Duplicate-execution guard | VERIFIED-CODE+DB | E0 | §A6 | AB-11 |
+| 6 | Persona switcher post-auth-rework identity-path trace | VERIFIED-CODE+DB | E1 | §A7 | AB-12 |
+| 7 | Five layers of proof — drill-down surface inventory and rep accessibility (total → components → inputs → source rows) | VERIFIED-CODE+DB | rep statement reachability E2 / formula-inputs trace layer E3 | §B1 | AB-13, AB-14, AB-15, AB-16 |
+| 8 | Individual commission statements | VERIFIED-CODE+DB | statement surface E1 / rep self-scoped statement E3 | §B2 | AB-17, AB-18, AB-19 |
+| 9 | Payroll-ready export | VERIFIED-CODE+DB | export E1 / demo-bar fields (hierarchy + per-row period + external_id) E3 | §B3 | AB-20, AB-21, AB-22 |
+| 10 | Trajectory surfacing (DS-015-B) | VERIFIED-CODE+DB | population trend E1 / rep next-tier E1 (code) + data gap (rule-set intent absent) | §B4 | AB-23, AB-24, AB-25 |
+| 11 | Results dashboard (admin) | VERIFIED-CODE+DB | dashboard E1 / count-correctness E3 / per-component columns on /operate/calculate E2 | §B5 | AB-26, AB-27, AB-28 |
+| 12 | Disputes foundation (Module C: flag transaction -> admin queue -> audited adjustment -> recalculation) | VERIFIED-CODE+DB | schema+service E4 / admin queue E2 / flag-transaction E3 / resolve+audit E3 / recalc linkage E3 / statement-open E1 | §C1 | AB-29, AB-30, AB-31 |
+| 13 | Adjustments / exception approval | VERIFIED-CODE+DB | queue UI E2 / statement-flag E3 / approve+audit E3 / dispute store E4 / recalc bridge E4 | §C2 | AB-32, AB-33, AB-34, AB-35 |
+| 14 | Audit trail coverage | VERIFIED-CODE+DB | login E0 / plan-import+calculate+approvals E1 / import+export+persona E3 (viewer surface E2) / dispute+adjustment E4 | §C3 | AB-36, AB-37, AB-38, AB-39 |
+| 15 | Company-wide dashboard adjacents (composition material inventory) | VERIFIED-CODE+DB | current-period company view E1 / period-view + grouping E3 | §D1 | AB-40, AB-41, AB-42 |
+| 16 | Currency formatting (PDR-01) — class analysis: single authority vs N independent sites | VERIFIED-CODE | E3 | §D2 | AB-43, AB-44, AB-45, AB-46 |
+| 17 | Demo-path language inventory (neutral) | VERIFIED-CODE | inventory E0 / es-MX demo path E3 | §D3 | AB-47, AB-48 |
+| 18 | Post-calc display integrity (results staleness, entity-count source, period-selector refresh) | VERIFIED-CODE+DB | calc-page refetch E0 / results-page batch pinning E3 / entity-count E0 (label nuance E2) / period-selector E0 | §D4 | AB-49, AB-50, AB-51 |
+| 19 | temporal_adjustment execution | VERIFIED-CODE+DB | E3 | §E1 | — |
+| 20 | Period-scoped plan assignment (effective_from/effective_to honoring in calculation) | VERIFIED-CODE+DB | schema E0 / calc honoring E3 | §E2 | AB-52 |
+| 21 | Plan variant mechanism (BCL-era flat variant matcher) | VERIFIED-CODE | E1 | §E3 | AB-53 |
+| 22 | Filtered metric derivation (sum + filters, count + filters) — MIR category-commission dependency | VERIFIED-CODE+DB | E1 | §E4 | AB-54, AB-55 |
+| 23 | Condition-subject constructor surface map (CRP Plan-3-arc / D-158 boundary map for route-around authoring) | VERIFIED-CODE+DB | E0 | §E5 | AB-56, AB-57 |
+| 24 | Multi-plan concurrency (one entity calculating under >=2 rule sets in the same period) | PARTIAL | assignments+results E1 / period-outcome aggregation E3 | §E6 | AB-58, AB-59, AB-60 |
+
+---
+
+## Module A — Believed-Working Evidence Banking
+
+### A1A2 — Scale anchor (~162k import) + multi-file single-batch
+
+**CURRENT STATE:** The ~162k scale anchor exists live: a single 15-file SCI bulk proposal (`proposalId b4c64b88-9ee9-4dd7-88fe-54a0d303651e`, tenant `3d354bfa-b298-48dd-88a0-9f8c5a00be4e`) committed **162,927** rows on 2026-06-12, with per-file declared==committed accounting on every file; its largest single file is 160,443 rows, written in a 396.0s window. Multi-file single-batch is represented as N `import_batches` rows (one per file/content unit) sharing `metadata.proposalId` — not via `processing_jobs.session_id` (table is empty) and not via per-row fan-in. 28 of 32 proposal groups contain >=3 files. No calculation has ever run against the anchor tenant: 0 periods, 0 calculation_batches, 0 calculation_results — **"Import proven at ~162k; calculation at volume: NOT YET EXECUTED"**. Code side: `commitContentUnit` is declared the sole committed_data write surface and is invoked only from the execute-bulk route (3 call sites), but two additional `committed_data` insert sites exist in the codebase.
+
+Anonymization note: file names are redacted to `[fname-redacted len=N]` + extension by the probe scripts (tenant UUIDs only; no tenant name/slug queried; no payout columns selected). No credentials appeared in any output.
+
+**EVIDENCE:**
+
+Schema authority (SCHEMA_REFERENCE_LIVE.md): `import_batches` (11 cols: id, tenant_id, file_name, file_type, row_count, status, error_summary, uploaded_by, created_at, completed_at, metadata), `committed_data` (10 cols incl. import_batch_id, period_id, entity_id), `calculation_batches` (16 cols incl. started_at/completed_at, entity_count), `calculation_results` (12 cols), `processing_jobs` (18 cols incl. session_id). Live responses matched these names; no key divergence observed.
+
+#### A1 — Top 10 import batches platform-wide by committed row count
+
+Script: `web/scripts/diag/diag063_a1a2_top_batches.ts`. Run:
+
+```
+cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a1a2_top_batches.ts
+```
+
+Output (verbatim; per-row committed_data sample block elided for length — it contains only field-role metadata, summarized below):
+
+```
+import_batches total rows fetched: 115
+committed_data total: 416258; sum across batches: 372383; import_batch_id IS NULL: 43875
+
+=== TOP 10 import_batches by committed_data rows ===
+{"batch_id":"e95be66e-6546-4fbe-896f-56f3a725f7d5","tenant_id":"3d354bfa-b298-48dd-88a0-9f8c5a00be4e","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":160443,"committed_rows":160443,"status":"completed","created_at":"2026-06-12T15:21:55.528213+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"11665e5a-b8be-48e5-a5be-8f4235936e90","tenant_id":"3d354bfa-b298-48dd-88a0-9f8c5a00be4e","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":160443,"committed_rows":160443,"status":"completed","created_at":"2026-06-12T16:24:40.892959+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"307a2928-ece4-4be2-89d7-2fc0dca9568a","tenant_id":"1b770e90-9ad9-44ba-b66b-152f71c40b9a","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":20677,"committed_rows":18000,"status":"processing","created_at":"2026-06-12T18:29:31.820176+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"114b1283-5563-40d4-8165-8a336e4f58ac","tenant_id":"098f4915-ec5a-47bc-a7c8-d76a59f0526f","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:12:35.758589+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"ec12a8f2-76f7-4f75-957d-0d87b6bf20cd","tenant_id":"1f4f0511-6371-4458-9013-125ebdf5f735","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:15:52.595454+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"6ac3e9f1-bdfc-4752-acfd-434b5a37fdff","tenant_id":"1f4f0511-6371-4458-9013-125ebdf5f735","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:20:53.665766+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"ff6b7257-e38d-4999-b6a9-c2e903fd9869","tenant_id":"1f4f0511-6371-4458-9013-125ebdf5f735","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:24:56.228587+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"6267c0cf-2a73-41f5-a268-2d90c4482892","tenant_id":"1f4f0511-6371-4458-9013-125ebdf5f735","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:32:39.79473+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"80f275dd-17b8-44a7-ae5b-9f6554d05517","tenant_id":"1f4f0511-6371-4458-9013-125ebdf5f735","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:34:38.757997+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+{"batch_id":"26e4f11f-d324-4fa2-bead-39a88bc4937c","tenant_id":"336af2a7-e9b3-445e-abea-85792afa893d","file_name":"[fname-redacted len=45]","file_type":"sci","declared_row_count":3200,"committed_rows":3200,"status":"completed","created_at":"2026-06-12T21:48:45.847614+00:00","completed_at":null,"wall_clock":"n/a (completed_at null)","metadata_keys":["source","proposalId","contentUnitId","classification"]}
+
+--- sanitized metadata, batch e95be66e-6546-4fbe-896f-56f3a725f7d5 ---
+{ "source": "sci-bulk", "proposalId": "b4c64b88-9ee9-4dd7-88fe-54a0d303651e", "contentUnitId": "[str-redacted len=59]", "classification": "transaction" }
+--- sanitized metadata, batch 11665e5a-b8be-48e5-a5be-8f4235936e90 ---
+{ "source": "sci-bulk", "proposalId": "d8085364-72b1-4c6f-9d9e-20606fb14831", "contentUnitId": "[str-redacted len=59]", "classification": "transaction" }
+--- sanitized metadata, batch 307a2928-ece4-4be2-89d7-2fc0dca9568a ---
+{ "source": "sci-bulk", "proposalId": "f3570e27-ab7b-4be5-a0e5-2ae2f0607f47", "contentUnitId": "[str-redacted len=37]", "classification": "entity" }
+
+--- committed_data sample (n=1000) for top batch e95be66e-6546-4fbe-896f-56f3a725f7d5 ---
+distinct metadata keys in sample: [ 'entity_id_field', 'field_identities', 'informational_label', 'proposalId', 'resolved_data_type', 'semantic_roles', 'source' ]
+data_type tally in sample: {"transaction":1000}
+
+processing_jobs total: 0
+sessions total: 0; sessions with >=2 jobs: 0
+
+import_batches.metadata key frequency across all batches: {"source":115,"proposalId":115,"contentUnitId":115,"classification":115}
+```
+
+Per-row committed_data metadata (elided block): each row carries `semantic_roles` and `field_identities` maps for 31 columns (role/structuralType/contextualIdentity/confidence per column), `entity_id_field: "location_id"`, `resolved_data_type: "transaction"`, `proposalId`, `source: "sci-bulk"`, and an `informational_label` (redacted, len=11). No per-row file key and no sheet key — file provenance lives at the `import_batches` row level (one row per content unit), so the per-file accounting IS the per-batch-row accounting.
+
+Multi-file representation verdict (all three hypotheses tested above):
+- `metadata.proposalId` grouping on import_batches: YES — 115/115 batches carry `proposalId` + `contentUnitId`.
+- `processing_jobs.session_id` grouping: NO — table has 0 rows.
+- `committed_data` per-row file fan-in: NO — no file/sheet key among per-row metadata keys.
+
+#### A1 — Identifying the ~162k anchor + per-file accounting (A2: >=3-file batches)
+
+Script: `web/scripts/diag/diag063_a1a2_multifile_and_calc.ts`. Run:
+
+```
+cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a1a2_multifile_and_calc.ts
+```
+
+Output part 1 — complete enumeration of all 28 proposal groups with >=3 files (verbatim header + the two anchor groups; the remaining 26 groups, all listed in the run, are summarized in the table below to keep this file readable — totals are exact):
+
+```
+proposalId groups: 32; groups with >=3 import_batches: 28; with exactly 2: 0
+
+proposalId b4c64b88-9ee9-4dd7-88fe-54a0d303651e — 15 files, tenant(s) 3d354bfa-b298-48dd-88a0-9f8c5a00be4e
+  batch 08d539cd-1317-492f-a35c-6eef8392c049 file=[fname-redacted len=45] declared=6 committed=6 status=completed created=2026-06-12T15:21:43.941371+00:00 classification=entity
+  batch 340e6a22-c738-409a-8d9c-b2355fc5633a file=[fname-redacted len=45] declared=30 committed=30 status=completed created=2026-06-12T15:21:45.20743+00:00 classification=entity
+  batch cb17207a-6346-47aa-877c-9cbe0dd918c3 file=[fname-redacted len=45] declared=6 committed=6 status=completed created=2026-06-12T15:21:47.827634+00:00 classification=entity
+  batch 761fff29-3b16-4588-ad32-fd632acc5988 file=[fname-redacted len=45] declared=30 committed=30 status=completed created=2026-06-12T15:21:48.652033+00:00 classification=entity
+  batch ac0258df-ec70-41f1-a05e-b861704d625a file=[fname-redacted len=45] declared=54 committed=54 status=completed created=2026-06-12T15:21:49.665773+00:00 classification=entity
+  batch 356c3b51-75b3-4944-afef-ea92104b1b31 file=[fname-redacted len=45] declared=110 committed=110 status=completed created=2026-06-12T15:21:50.605479+00:00 classification=transaction
+  batch 0f8ff242-0cda-43b7-8dc7-dae7d70842e5 file=[fname-redacted len=45] declared=120 committed=120 status=completed created=2026-06-12T15:21:51.505051+00:00 classification=transaction
+  batch dc570c2b-e6a9-4c72-adc5-7ee36f371f29 file=[fname-redacted len=45] declared=18 committed=18 status=completed created=2026-06-12T15:21:52.396408+00:00 classification=transaction
+  batch b9ad440a-586d-4db0-afcd-8dfc6d4a16a5 file=[fname-redacted len=45] declared=230 committed=230 status=completed created=2026-06-12T15:21:53.169096+00:00 classification=transaction
+  batch e95be66e-6546-4fbe-896f-56f3a725f7d5 file=[fname-redacted len=45] declared=160443 committed=160443 status=completed created=2026-06-12T15:21:55.528213+00:00 classification=transaction
+  batch e4d5f917-deb3-4480-af43-823d1660dff5 file=[fname-redacted len=45] declared=200 committed=200 status=completed created=2026-06-12T15:28:35.415242+00:00 classification=reference
+  batch 5bb38398-9e95-4ed8-96c8-9d167442a855 file=[fname-redacted len=45] declared=3 committed=3 status=completed created=2026-06-12T15:28:36.26022+00:00 classification=reference
+  batch 4e9cefb9-9020-4bd0-8374-d92fd6754b94 file=[fname-redacted len=45] declared=7 committed=7 status=completed created=2026-06-12T15:28:36.975366+00:00 classification=reference
+  batch 0176b0f3-1eea-46b6-a51d-f8bc9f5be409 file=[fname-redacted len=45] declared=14 committed=14 status=completed created=2026-06-12T15:28:37.626384+00:00 classification=reference
+  batch e750645a-0392-49ca-888c-4dfd2e926bf0 file=[fname-redacted len=45] declared=1656 committed=1656 status=completed created=2026-06-12T15:28:38.540934+00:00 classification=reference
+  GROUP TOTAL committed rows: 162927
+
+proposalId d8085364-72b1-4c6f-9d9e-20606fb14831 — 11 files, tenant(s) 3d354bfa-b298-48dd-88a0-9f8c5a00be4e
+  batch bb720913-5a27-4919-b98c-821cccc82ec7 ... declared=120 committed=120 status=completed ... classification=entity
+  batch adea41fd-d2a7-4de9-9a21-3758203e2218 ... declared=230 committed=230 status=completed ... classification=entity
+  batch 5d32f6bc-b4cc-417e-87eb-335556a0e230 ... declared=110 committed=110 status=completed ... classification=transaction
+  batch 28eddc5d-6851-44a8-ac51-73b471241c52 ... declared=18 committed=18 status=completed ... classification=transaction
+  batch 11665e5a-b8be-48e5-a5be-8f4235936e90 ... declared=160443 committed=160443 status=completed ... classification=transaction
+  batch e8d97f45-dbbb-4908-b5cd-6300733b7a1c ... declared=29 committed=29 status=completed ... classification=reference
+  batch d3ab73c0-c3a4-4d20-a0a6-fa646c9af4bc ... declared=200 committed=200 status=completed ... classification=reference
+  batch bc22be48-6d05-43a7-be0e-8fcc6752112b ... declared=3 committed=3 status=completed ... classification=reference
+  batch eb3d03c9-5adc-4b73-a2b2-31210d4bb641 ... declared=7 committed=7 status=completed ... classification=reference
+  batch ab2cb493-c03f-4a46-b770-72392fffc037 ... declared=14 committed=14 status=completed ... classification=reference
+  batch 426b962a-8286-4191-96a3-ee7f98e95d63 ... declared=1656 committed=1656 status=completed ... classification=reference
+  GROUP TOTAL committed rows: 162830
+```
+
+Remaining 26 groups (>=3 files each; complete file-level enumeration was produced by the run; exact group totals):
+
+| proposalId | files | tenant | group total | anomalies |
+|---|---|---|---|---|
+| 189b25f1 | 6 | b1c2d3e4-aaaa-... | 510 | none |
+| a28a92a3 | 5 | 24103940-... | 196 | none |
+| 125cf2d5 | 4 | 24103940-... | 157 | none |
+| d79ed433 | 4 | 336af2a7-... | 3244 | batch 96d0f8b4 declared=3200 committed=0 status=failed; retried 28s later as 26e4f11f committed=3200 completed |
+| 95a288c2 | 3 | 5035b1e8-... | 304 | none |
+| e7ab7495 | 3 | 5035b1e8-... | 304 | none |
+| 18e558b4 | 3 | dbe3b308-... | 304 | none |
+| 442ddd72 | 3 | 24103940-... | 304 | none |
+| 83a78c36 | 3 | 24103940-... | 304 | none |
+| aa5245c6 | 3 | 24103940-... | 103 | batch dab3377d declared=201 committed=0 status=completed (classification=target) |
+| 73349d11 | 3 | 24103940-... | 304 | none |
+| 117df273 | 3 | 24103940-... | 103 | batch 4254af27 declared=201 committed=0 status=completed (classification=target) |
+| da0aebfb | 3 | 24103940-... | 304 | none |
+| 220e5c6f | 3 | 24103940-... | 304 | none |
+| de78b5e1 | 3 | 24103940-... | 304 | none |
+| b97bb6da | 3 | 24103940-... | 304 | none |
+| a3f3769a | 3 | 24103940-... | 304 | none |
+| fc03f312 | 3 | 24103940-... | 304 | none |
+| d2c9de93 | 3 | 24103940-... | 304 | none |
+| bdbab5b9 | 3 | 24103940-... | 304 | none |
+| 98cca60d | 3 | 24103940-... | 152 | none |
+| c44f9d10 | 3 | 098f4915-... | 3244 | none |
+| 792e6a2b | 3 | 1f4f0511-... | 3244 | none |
+| 1674b037 | 3 | 1f4f0511-... | 3244 | none |
+| 57356020 | 3 | 1f4f0511-... | 3244 | none |
+| c71022c4 | 3 | 1f4f0511-... | 3244 | none |
+
+A2 bar met: proposal `b4c64b88` is a 15-file single session with per-file declared==committed accounting on all 15 files, completing at 162,927 total committed rows.
+
+Output part 2 — duplicate pair, ingest wall-clock, periods, calculation-at-volume (verbatim):
+
+```
+--- duplicate-pair structural comparison (values not printed) ---
+same tenant: true
+same file_name: false
+same declared row_count: true (160443)
+same metadata.contentUnitId: true
+same metadata.proposalId: false
+created_at gap: 62.8 minutes
+
+batch e95be66e-6546-4fbe-896f-56f3a725f7d5: first committed row 2026-06-12T15:21:58.261136+00:00, last 2026-06-12T15:28:34.287694+00:00, write window 396.0s
+batch 11665e5a-b8be-48e5-a5be-8f4235936e90: first committed row 2026-06-12T16:24:48.401359+00:00, last 2026-06-12T16:32:06.084776+00:00, write window 437.7s
+
+periods for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 0
+  period_id IS NULL rows in top batch: 160443
+
+calculation_batches for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 0
+calculation_results total for tenant: 0
+```
+
+**Import proven at ~162k; calculation at volume: NOT YET EXECUTED.**
+
+(Wall-clock note: `import_batches.completed_at` is null on all top-10 batches, so duration was computed from the committed_data write window: 160,443 rows in 396.0s for the anchor file; full 15-file session spans 15:21:43 -> 15:28:38, about 415s.)
+
+#### Calc-side gap shape
+
+Script: `web/scripts/diag/diag063_a1a2_calc_gap_shape.ts`. Output (verbatim):
+
+```
+top batch e95be66e-6546-4fbe-896f-56f3a725f7d5: entity_id NULL=160353, entity_id set=90
+entities rows for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 356
+rule_sets rows for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 1
+rule_set_assignments rows for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 0
+entity_period_outcomes rows for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e: 0
+```
+
+Existing calc-side machinery (no code gap found for these): `src/app/api/calculation/run/route.ts`, `src/lib/calculation/run-calculation.ts`, `src/app/api/periods/detect/route.ts`, `src/app/api/periods/create-from-data/route.ts`, `src/lib/sci/calc-time-entity-resolution.ts` (all present in the committed_data reader sweep below).
+
+#### NULL import_batch_id provenance sample
+
+Script: `web/scripts/diag/diag063_a1a2_null_batch_sample.ts`. Output (verbatim):
+
+```
+sample size: 1000 (most recent NULL-batch rows)
+by tenant_id: {"f7093bcc-e90b-4918-9680-69da7952dd65":1000}
+by data_type: {"pos_cheque":1000}
+by metadata.source: {"(null)":1000}
+created_at range in sample: 2026-06-03T05:59:14.26516+00:00 -> 2026-06-03T05:59:14.26516+00:00
+```
+
+#### A2 code side — commitContentUnit call sites (complete grep)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "commitContentUnit" src/ --include="*.ts" --include="*.tsx"
+src/app/api/import/sci/execute-bulk/route.ts:21:// data_type resolution all moved into commitContentUnit. Only the file-hash
+src/app/api/import/sci/execute-bulk/route.ts:23:// and threaded into commitContentUnit per content unit).
+src/app/api/import/sci/execute-bulk/route.ts:33:import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+src/app/api/import/sci/execute-bulk/route.ts:751:  // HF-231: Unified committed_data write via shared commitContentUnit.
+src/app/api/import/sci/execute-bulk/route.ts:755:  const commitResult = await commitContentUnit(supabase, {
+src/app/api/import/sci/execute-bulk/route.ts:796:  // HF-231: Unified committed_data write via shared commitContentUnit.
+src/app/api/import/sci/execute-bulk/route.ts:797:  const commitResult = await commitContentUnit(supabase, {
+src/app/api/import/sci/execute-bulk/route.ts:857:  // HF-231: Unified committed_data write via shared commitContentUnit.
+src/app/api/import/sci/execute-bulk/route.ts:858:  const commitResult = await commitContentUnit(supabase, {
+src/lib/sci/commit-content-unit.ts:16:// Side effects NOT owned by commitContentUnit (preserved at caller level):
+src/lib/sci/commit-content-unit.ts:114:// HF-231 collapsed all 8 import write paths through commitContentUnit but
+src/lib/sci/commit-content-unit.ts:205:// commitContentUnit — sole committed_data write surface
+src/lib/sci/commit-content-unit.ts:208:export async function commitContentUnit(
+src/lib/sci/commit-content-unit.ts:326:      console.error(`[commitContentUnit] HF-247 Phase 4 type-validation: ${reason}`);
+src/lib/sci/commit-content-unit.ts:427:        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed: ${lastErr}`,
+src/lib/sci/commit-content-unit.ts:465:    `[commitContentUnit] ${classification} (${source}): ${totalInserted} rows committed, ` +
+src/lib/sci/store-metadata-population.ts:7: * per-unit after commitContentUnit. After HF-239, execute-bulk's
+```
+
+Invocation call sites: exactly 3, all in `src/app/api/import/sci/execute-bulk/route.ts` (:755, :797, :858). Definition: `src/lib/sci/commit-content-unit.ts:208`.
+
+Adjacent-arm sweep — every committed_data INSERT site in src/ (E952):
+
+```
+$ grep -rn "from('committed_data')" src/ --include="*.ts" --include="*.tsx" | grep "insert\|upsert"
+src/lib/supabase/data-service.ts:167:    const { error } = await supabase.from('committed_data').insert(chunk);
+```
+
+plus (found by file-level sweep + per-file inspection):
+
+```
+src/lib/sci/commit-content-unit.ts:405-407:
+      const { error: insertErr } = await supabase
+        .from('committed_data')
+        .insert(slice as unknown as Json[]);
+
+src/app/api/import/commit/route.ts:853-855:
+        const { error: insertErr } = await supabase
+          .from('committed_data')
+          .insert(slice);
+```
+
+So there are THREE distinct committed_data insert sites, against the declared expectation of one:
+
+```
+src/lib/sci/commit-content-unit.ts:204-208
+// ============================================================
+// commitContentUnit — sole committed_data write surface
+// ============================================================
+
+export async function commitContentUnit(
+```
+
+Status of the two extra paths:
+- `src/app/api/import/commit/route.ts:853-855` — live route; `src/app/data/import/enhanced/page.tsx:69` comment: `// directCommitImportDataAsync removed — now uses server-side /api/import/commit`.
+- `src/lib/supabase/data-service.ts:167` (`writeCommittedData`, defined :139) — internal callers only: `importWithEntityResolution` (data-service.ts:349) and `directCommitImportDataAsync` (data-service.ts:768); grep found NO callers of either outside data-service.ts (dormant export).
+
+Complete file-level list of src/ files touching `from('committed_data')` (readers + writers, 23 files):
+
+```
+src/app/operate/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/perform/statements/page.tsx
+src/app/api/periods/detect/route.ts
+src/app/api/periods/create-from-data/route.ts
+src/app/api/financial/data/route.ts
+src/app/api/intelligence/wire/route.ts
+src/app/api/platform/observatory/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/import/commit/route.ts
+src/app/api/plan-readiness/route.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/financial/financial-data-service.ts
+src/lib/intelligence/state-reader.ts
+src/lib/sci/entity-resolution.ts
+src/lib/sci/tenant-context.ts
+src/lib/sci/commit-content-unit.ts
+src/lib/sci/calc-time-entity-resolution.ts
+src/lib/sci/post-commit-construction.ts
+src/lib/supabase/data-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/data/platform-queries.ts
+src/lib/data/page-loaders.ts
+```
+
+#### completed_at — why it is null on sci-bulk batches
+
+```
+src/lib/sci/commit-content-unit.ts:455-462
+  // Finalize batch.
+  await supabase
+    .from('import_batches')
+    .update({
+      status: 'completed',
+      row_count: totalInserted,
+    })
+    .eq('id', batchId);
+```
+
+`completed_at` IS set by the other two paths (`src/app/api/import/commit/route.ts:994`, `src/lib/supabase/data-service.ts:121`) but not by the sci-bulk finalize above — consistent with all top-10 batches (all `source: "sci-bulk"`) having `completed_at: null`.
+
+Duplicate-guard note: grep of execute-bulk/commit-content-unit for `duplicate|alreadyCommitted|fingerprint` shows the "duplicate" work (HF-257/AP-17) addresses duplicate plan-interpretation execution within a session; no commit guard keyed on `contentUnitId` was found, consistent with the observed cross-proposal double-commit of the same contentUnitId (proposals b4c64b88 @15:21 and d8085364 @16:24, gap 62.8 min, 160,443 rows each). Minor: comment block at `src/lib/sci/commit-content-unit.ts:14` references `execute/route.ts` pipelines; `src/app/api/import/sci/` contains no `execute/` directory (only execute-bulk and supporting routes).
+
+**GAP TO DEMO BAR:**
+- Import scale anchor: none — 15-file, 162,927-row single-session import is live with per-file declared==committed accounting and a 396.0s write window on the 160,443-row file.
+- Multi-file single-batch: none — 28 proposal groups with >=3 files; the data model is N import_batches rows sharing metadata.proposalId.
+- Calculation at volume: "Import proven at ~162k; calculation at volume: NOT YET EXECUTED." The anchor tenant (3d354bfa) has periods=0, rule_set_assignments=0, calculation_batches=0, calculation_results=0; committed rows have period_id NULL (160,443/160,443) and entity_id NULL (160,353/160,443). All required services/routes exist (periods detect/create-from-data, calc-time entity resolution, /api/calculation/run); what is missing is an executed run.
+- AP-17 one-projection-path: commitContentUnit is the declared sole write surface but two additional insert sites exist (one live route, one dormant library function).
+
+**EFFORT SHAPE:**
+- Import side: **E0 — none.** Routes/services proven live: `/api/import/sci/execute-bulk` -> `commitContentUnit` -> `import_batches` + `committed_data`.
+- Calculation side: **E1 VERIFY-ONLY** — remaining proof is an architect browser run against tenant 3d354bfa composing existing routes (`/api/periods/detect` or `/api/periods/create-from-data`, rule-set assignment for the tenant's 1 existing rule_set, `/api/calculation/run`), observed in `calculation_batches.started_at/completed_at` + `calculation_results` row count. Escalates toward E3 only if period/entity binding fails at this volume during that run.
+
+# A3 — Cross-file entity resolution
+
+**CURRENT STATE:** Cross-file entity resolution exists and is verified working in code and live DB. The mechanism is `resolveEntitiesFromCommittedData()` (`src/lib/sci/entity-resolution.ts:27`), invoked from both import endpoints via `executePostCommitConstruction()` (`src/lib/sci/post-commit-construction.ts`) and again at calculation time via `resolveEntitiesAtCalcTime()` (`src/lib/sci/calc-time-entity-resolution.ts`) — defense in depth, mutually idempotent. The identifier model is a SINGLE source key per entity: `entities.external_id` (text); cross-file resolution is exact-match (trimmed string) on that key across all import batches of a tenant, deduping against existing `entities` rows and back-linking `committed_data.entity_id` across ALL batches. There is no multi-identifier/alias storage for entities — `alias_registry` is reference-item-scoped (FK `reference_item_id`), not entity-scoped. Live DB for the most recent multi-file tenant (`336af2a7-e9b3-445e-abea-85792afa893d`, 4 batches): 44 entities, 44 distinct external_ids (zero duplicate entity rows per key), 40 of 44 entities span >=2 import batches, and 0 of 3,244 committed_data rows are unlinked.
+
+**EVIDENCE:**
+
+Grep file list (complete, 51 files) — run from `web/`:
+
+```
+$ grep -rni "dedup\|entity.*match\|resolveEntity\|entity_identifier" src/ --include="*.ts" -l
+src/types/convergence-bindings.ts
+src/types/user-import.ts
+src/types/compensation-plan.ts
+src/app/api/reconciliation/compare/route.ts
+src/app/api/reconciliation/run/route.ts
+src/app/api/periods/create-from-data/route.ts
+src/app/api/ingest/event/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/import/commit/route.ts
+src/app/api/import/sci/execute-bulk/route.ts
+src/app/api/import/sci/analyze/route.ts
+src/lib/reconciliation/report-engine.ts
+src/lib/reconciliation/benchmark-intelligence.ts
+src/lib/reconciliation/comparison-engine.ts
+src/lib/data-architecture/transform-pipeline.ts
+src/lib/reconciliation/comparison-depth-engine.ts
+src/lib/reconciliation/engine.ts
+src/lib/ingestion/validation-service.ts
+src/lib/data-architecture/types.ts
+src/lib/normalization/dictionary-seeder.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/auth/resolve-identity.ts
+src/lib/auth/auth-logger.ts
+src/lib/signals/stream-signals.ts
+src/lib/sci/source-date-extraction.ts
+src/lib/sci/negotiation.ts
+src/lib/sci/field-identities.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/plan-idempotency.ts
+src/lib/sci/weight-evolution.ts
+src/lib/sci/post-commit-construction.ts
+src/lib/sci/agents.ts
+src/lib/sci/import-interaction-signals.ts
+src/lib/sci/commit-content-unit.ts
+src/lib/sci/tenant-context.ts
+src/lib/sci/sci-types.ts
+src/lib/sci/entity-resolution.ts
+src/lib/sci/calc-time-entity-resolution.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/agents/reconciliation-agent.ts
+src/lib/supabase/calculation-service.ts
+src/lib/supabase/auth-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/supabase/rule-set-service.ts
+src/lib/import-pipeline/import-service.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/user-import/identity-resolution.ts
+src/lib/validation/ob02-validation.ts
+```
+
+Core resolution function — signature and identifier-column selection (the cross-file keying decision):
+
+```
+src/lib/sci/entity-resolution.ts:27-30
+export async function resolveEntitiesFromCommittedData(
+  supabase: SupabaseClient,
+  tenantId: string,
+): Promise<{ created: number; updated: number; linked: number }> {
+```
+
+```
+src/lib/sci/entity-resolution.ts:85-124
+      const recordedIdField = (meta.entity_id_field as string | null | undefined) ?? null;
+      if (recordedIdField && typeof recordedIdField === 'string' && recordedIdField.length > 0) {
+        idColumn = recordedIdField;
+      }
+
+      // Primary fallback: field_identities (DS-009)
+      const fieldIds = meta.field_identities as Record<string, {
+        structuralType?: string;
+        contextualIdentity?: string;
+      }> | undefined;
+
+      if (fieldIds && Object.keys(fieldIds).length > 0) {
+        // HF-263 (corrected): Korean Test — select by structuralType ONLY. The prior
+        // `contextualIdentity.toLowerCase().includes('person')` content-matching (on both the
+        // identifier and name selection) was a hardcoded-vocabulary violation and is removed.
+        // entity_id_field (above) remains the authoritative override; these are first-match
+        // structural fallbacks.
+        // Name: first name column
+        if (!nameColumn) {
+          for (const [colName, fi] of Object.entries(fieldIds)) {
+            if (fi.structuralType === 'name') {
+              nameColumn = colName;
+              break;
+            }
+          }
+        }
+        // Fallback within field_identities. HF-268 A2: an event unit (transaction/target) must
+        // discover entities from its reference_key (the entity pointer), NEVER its identifier (the
+        // event ID — keying on it created 170 phantom entities from CRP transaction_ids). When no
+        // reference_key is present, idColumn stays null → no entities (calc-time resolution, OB-183).
+        // Entity/reference units keep identifier-based discovery (the identifier IS the entity).
+        if (!idColumn) {
+          const fallbackType = isEventUnit ? 'reference_key' : 'identifier';
+          for (const [colName, fi] of Object.entries(fieldIds)) {
+            if (fi.structuralType === fallbackType) {
+              idColumn = colName;
+              break;
+            }
+          }
+        }
+      }
+```
+
+Cross-file dedup (Step 3) — exact-match on `external_id` against existing entities of the tenant:
+
+```
+src/lib/sci/entity-resolution.ts:262-278
+  // Step 3: Dedup against existing entities
+  const existingMap = new Map<string, string>();
+  const allExtIds = Array.from(allEntities.keys());
+  for (let i = 0; i < allExtIds.length; i += BATCH_SIZE) {
+    const slice = allExtIds.slice(i, i + BATCH_SIZE);
+    const { data: existing } = await supabase
+      .from('entities')
+      .select('id, external_id')
+      .eq('tenant_id', tenantId)
+      .in('external_id', slice);
+
+    if (existing) {
+      for (const e of existing) {
+        if (e.external_id) existingMap.set(e.external_id, e.id);
+      }
+    }
+  }
+```
+
+Cross-file back-link (Step 6) — links rows in ALL batches (including transaction/target files) to the one entity per key:
+
+```
+src/lib/sci/entity-resolution.ts:407-431
+  // Step 6: Backfill entity_id on ALL committed_data rows across ALL batches
+  // (not just discovery batches — transaction/target batches also need entity_id)
+  let linked = 0;
+  for (const [batchId, { idColumn }] of Array.from(batchIdentifiers.entries())) {
+    while (true) {
+      const { data: unlinkeds } = await supabase
+        .from('committed_data')
+        .select('id, row_data')
+        .eq('tenant_id', tenantId)
+        .eq('import_batch_id', batchId)
+        .is('entity_id', null)
+        .limit(500);
+
+      if (!unlinkeds || unlinkeds.length === 0) break;
+
+      const updatesByEntityUuid = new Map<string, string[]>();
+      for (const row of unlinkeds) {
+        const rd = row.row_data as Record<string, unknown>;
+        const extId = String(rd[idColumn] ?? '').trim();
+        const entityUuid = entityLookup.get(extId);
+        if (entityUuid) {
+          if (!updatesByEntityUuid.has(entityUuid)) updatesByEntityUuid.set(entityUuid, []);
+          updatesByEntityUuid.get(entityUuid)!.push(row.id);
+        }
+      }
+```
+
+Call sites (both import paths + calc time):
+
+```
+$ grep -rn "resolveEntitiesFromCommittedData\|resolveEntityAtCalcTime\|calc-time-entity-resolution\|entity-resolution" src/ --include="*.ts" | grep -v "^src/lib/sci/entity-resolution.ts\|^src/lib/sci/calc-time-entity-resolution.ts"
+src/app/api/calculation/run/route.ts:43:import { resolveEntitiesAtCalcTime } from '@/lib/sci/calc-time-entity-resolution';
+src/lib/sci/post-commit-construction.ts:15: *     resolveEntitiesFromCommittedData which uses structural identifiers
+src/lib/sci/post-commit-construction.ts:22: * Idempotent: safe to call repeatedly; resolveEntitiesFromCommittedData
+src/lib/sci/post-commit-construction.ts:27:import { resolveEntitiesFromCommittedData } from './entity-resolution';
+src/lib/sci/post-commit-construction.ts:59:    const result = await resolveEntitiesFromCommittedData(supabase, tenantId);
+src/lib/sci/post-commit-construction.ts:68:    // Runs AFTER resolveEntitiesFromCommittedData so both 'individual' (employee) and
+src/lib/sci/post-commit-construction.ts:74:    // resolveEntitiesFromCommittedData failed (non-blocking):
+src/lib/user-import/index.ts:8:export * from './identity-resolution';
+
+$ grep -rn "post-commit-construction\|runPostCommitConstruction" src/ --include="*.ts" | grep -v "^src/lib/sci/post-commit-construction.ts"
+src/app/api/import/sci/execute-bulk/route.ts:29:import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+src/app/api/import/sci/execute-bulk/route.ts:891:// `@/lib/sci/post-commit-construction`. It carried Korean-Test violations
+```
+
+Calc-time wrapper (idempotent second pass):
+
+```
+src/lib/sci/calc-time-entity-resolution.ts:53-57, 90-92
+export async function resolveEntitiesAtCalcTime(
+  tenantId: string,
+  supabase: SupabaseClient,
+): Promise<CalcTimeEntityResolutionResult> {
+  ...
+  // Delegate structural matching to existing library function (Korean Test compliant)
+  try {
+    await resolveEntitiesFromCommittedData(supabase, tenantId);
+```
+
+Identifier model per SCHEMA_REFERENCE_LIVE.md (generated 2026-03-18): `entities` carries ONE `external_id` (text, nullable); `alias_registry` maps `alias_text`/`alias_normalized` → `reference_item_id` (NOT an entity FK):
+
+```
+SCHEMA_REFERENCE_LIVE.md — entities (11 columns): id, tenant_id, entity_type, status,
+external_id (text, YES), display_name, profile_id, temporal_attributes, metadata,
+created_at, updated_at
+
+SCHEMA_REFERENCE_LIVE.md — alias_registry (12 columns): id, tenant_id,
+reference_item_id (uuid, NO), alias_text, alias_normalized, confidence,
+confirmation_count, source, scope, metadata, created_at, updated_at
+```
+
+DB probe script: `web/scripts/diag/diag063_a3_cross_file_entity_resolution.ts` (SELECT-only; tenant UUIDs only; no display_name/file_name/row_data values printed). Verbatim output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a3_cross_file_entity_resolution.ts
+tenant=336af2a7-e9b3-445e-abea-85792afa893d import_batches_in_window=4
+  batch=26e4f11f-d324-4fa2-bead-39a88bc4937c status=completed row_count=3200 created_at=2026-06-12T21:48:45.847614+00:00
+  batch=96d0f8b4-7b7a-4b1d-a484-a9095fb271ce status=failed row_count=3200 created_at=2026-06-12T21:48:17.052406+00:00
+  batch=087feca1-db26-41e4-a251-c703c4b78835 status=completed row_count=4 created_at=2026-06-12T21:48:15.957877+00:00
+  batch=87f70f5f-355e-4769-ab76-0e717d7e06e5 status=completed row_count=40 created_at=2026-06-12T21:48:14.103775+00:00
+entities_total=44
+entities_with_external_id=44 distinct_external_ids=44 external_ids_mapping_to_multiple_entity_rows=0 entities_null_or_empty_external_id=0
+entities_with_nonempty_metadata=40 metadata_keycount_histogram=[[1,40],[0,4]]
+committed_data_rows=3244 rows_linked_to_entity=3244 rows_entity_id_null=0
+entities_referenced_in_committed_data=44 entities_spanning_ge2_import_batches=40
+entity_batch_span_histogram=[[1,4],[2,40]]
+alias_registry_rows_for_tenant=0
+```
+
+Supplement script: `web/scripts/diag/diag063_a3_entity_type_distribution.ts`. Verbatim output:
+
+```
+$ npx tsx scripts/diag/diag063_a3_entity_type_distribution.ts
+tenant=336af2a7-e9b3-445e-abea-85792afa893d entity_type/status distribution:
+  individual/active=44
+```
+
+Reading of the DB result (counts requested by the probe):
+- Total entities: 44. Entities with >=2 distinct source keys AS STORED: 0 — the identifier model stores exactly one source key (`external_id`) per entity row, so multi-key storage is structurally impossible; 44/44 external_ids are distinct (perfect dedup, zero duplicate entity rows per key).
+- Cross-FILE resolution measured via linkage: 40 of 44 entities have committed_data rows spanning 2 distinct import batches (roster batch of 40 rows + transaction batch of 3,200 rows); 3,244/3,244 rows linked, 0 NULL `entity_id`.
+- Duplicate-execution adjacency: the failed batch `96d0f8b4` (row_count=3200) was retried 29s later as completed `26e4f11f` (row_count=3200); committed_data totals 3,244 = 3,200 + 40 + 4 — the failed attempt contributed zero committed rows and zero duplicate entities (consistent with the belief-register item "duplicate execution solved").
+
+The `metadata_keycount_histogram=[[1,40],[0,4]]` (40 entities with one metadata key) is explained by a separate enrichment writer, not a second identifier:
+
+```
+src/lib/sci/store-metadata-population.ts:13-15, 28-31
+ * Reads from the unit's parsed rows (server-side parse — the bulk
+ * transport model has rows by sheet, not by content unit). Updates
+ * entities.metadata with store_id, volume_tier, volume_key.
+...
+const STORE_FIELDS = ['storeId', 'num_tienda', 'No_Tienda', 'Tienda'];
+const TIER_FIELDS = ['store_volume_tier', 'Rango_Tienda', 'Rango de Tienda'];
+const VOLUME_KEY_FIELDS = ['LLave Tamaño de Tienda'];
+```
+
+Adjacent-arm sweep for an entity alias/crosswalk mechanism (different key systems per file):
+
+```
+$ grep -rni "crosswalk\|alias" src/ --include="*.ts" -l   (23 files; none implement an entity-keyed alias map)
+src/middleware.ts, src/app/api/lifecycle/transition/route.ts, src/app/api/import/sci/session-state/route.ts,
+src/app/api/import/sci/execute-bulk/route.ts, src/app/api/import/sci/analyze/route.ts, src/lib/financial/types.ts,
+src/lib/financial/articulos-parser.ts, src/lib/financial/cheque-parser.ts, src/lib/auth/server-auth.ts,
+src/lib/auth/resolve-identity.ts, src/lib/auth/permissions.ts, src/lib/auth/__tests__/resolve-identity.test.ts,
+src/lib/sci/comprehension-state-service.ts, src/lib/sci/sci-types.ts, src/lib/navigation/workspace-config.ts,
+src/lib/supabase/data-service.ts, src/lib/supabase/database.types.ts, src/lib/supabase/auth-service.ts,
+src/lib/supabase/calculation-service.ts, src/lib/compensation/ai-plan-interpreter.ts,
+src/lib/calculation/results-formatter.ts, src/lib/ai/providers/anthropic-adapter.ts,
+src/lib/import-pipeline/smart-mapper.ts
+```
+
+`alias_registry` is reference-item scoped (schema above) and holds 0 rows for the probed tenant. No entity-scoped alias/crosswalk table or service was located.
+
+**GAP TO DEMO BAR:** None for same-key cross-file resolution — the mechanism is located, called from both import endpoints and at calc time, and live DB shows 40/44 entities resolved across a 40-row entity file and a 3,200-row transaction file with zero duplicates and zero unlinked rows. Two boundary notes: (1) the model stores a single `external_id` per entity, so files that key the same person with DIFFERENT identifier systems (e.g., employee number in one file, a different code in another) have no located bridging mechanism (entity-scoped alias map does not exist; `alias_registry` is reference-item scoped); (2) matching is `String(...).trim()` exact-match — no case/format normalization of the key value.
+
+**EFFORT SHAPE:** E0 — none for same-key cross-file resolution (services: `entity-resolution.ts`, `post-commit-construction.ts`, `calc-time-entity-resolution.ts`; routes: `/api/import/sci/execute-bulk`, `/api/calculation/run`; tables: `entities`, `committed_data`, `import_batches`). IF the MIR demo dataset keys entities differently across files, cross-key bridging is E4 (net-new entity-identifier mapping table + resolver extension in `entity-resolution.ts` Steps 2-3) — verify the dataset's key consistency first.
+
+# A4 — Multi-tab XLSX
+
+**CURRENT STATE:** Multi-tab XLSX handling is implemented and live across every server-side ingestion path: the legacy commit route, the SCI worker, and the SCI bulk route each iterate `workbook.SheetNames` in full and parse every sheet via `sheet_to_json`. The SCI architecture decomposes a multi-tab file into one content unit per sheet, committing each as its own `import_batches` row (linked by `file_hash_sha256`), with the sheet recorded in `committed_data.row_data._sheetName`; the legacy commit path keeps all sheets in one batch and records `metadata.source_sheet`. DB evidence confirms live multi-tab imports: 24 of 39 (tenant, source_file) groups in `classification_signals` span >=2 distinct `sheet_name` values (max 34 sheets in one file), and the largest file-hash group yielded 16 distinct content units across 26 completed batches totaling 325,757 rows. The calculation engine consumes the per-sheet structure (sheet-aware metric grouping and roster detection), proving multi-sheet data flows end-to-end.
+
+**EVIDENCE:**
+
+## 1. Sheet iteration sites — file-level sweep (complete; E952)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rni "SheetNames\|worksheets\|sheet_to_json" src/ --include="*.ts" -l
+src/app/api/calculation/run/route.ts
+src/app/api/import/commit/route.ts
+src/app/api/import/sci/execute-bulk/route.ts
+src/app/api/import/sci/retry-unit/route.ts
+src/app/api/import/sci/process-job/route.ts
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/calculation/run-calculation.ts
+src/lib/import-pipeline/file-parser.ts
+```
+
+Per-file hit counts (49 line-level hits total):
+
+```
+$ grep -rni "SheetNames\|worksheets\|sheet_to_json" src/ --include="*.ts" -c | grep -v ":0$"
+src/app/api/calculation/run/route.ts:6
+src/app/api/import/commit/route.ts:2
+src/app/api/import/sci/execute-bulk/route.ts:2
+src/app/api/import/sci/retry-unit/route.ts:1
+src/app/api/import/sci/process-job/route.ts:2
+src/lib/reconciliation/smart-file-parser.ts:12
+src/lib/sci/plan-interpretation.ts:7
+src/lib/calculation/run-calculation.ts:6
+src/lib/import-pipeline/file-parser.ts:11
+```
+
+Arm classification (all 9 sites):
+- **Ingestion, iterates ALL sheets:** `api/import/commit/route.ts` (one batch, all sheets), `api/import/sci/process-job/route.ts` (SCI worker), `api/import/sci/execute-bulk/route.ts` (per-file sheet map), `lib/sci/plan-interpretation.ts` (all plan-workbook sheets, optionally filtered to plan-unit tabNames).
+- **Ingestion, single-sheet by design:** `api/import/sci/retry-unit/route.ts` (re-parses exactly the named sheet of one unit).
+- **Client-side parser:** `lib/import-pipeline/file-parser.ts` (enumerates all worksheets into `WorksheetInfo[]`, parses the selected or first sheet; exposes `getExcelWorksheets`).
+- **Reconciliation arm:** `lib/reconciliation/smart-file-parser.ts` (defaults `activeSheet = sheetNames[0]`; workbook retained "for sheet switching").
+- **Consumption (calc engine):** `lib/calculation/run-calculation.ts` and `api/calculation/run/route.ts` (sheet-aware metric grouping + multi-sheet roster detection).
+
+## 2. Handling excerpts
+
+`src/app/api/import/commit/route.ts:140` — legacy commit path: full SheetNames loop, one batch:
+
+```ts
+    const sheetData: SheetData[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+        defval: null,
+        raw: true,
+      });
+
+      if (rows.length === 0) continue;
+
+      // Apply field mappings from client metadata
+      const mappings = sheetMappings?.[sheetName];
+
+      // If no explicit mappings, auto-detect via raw column headers
+      if (!mappings || Object.keys(mappings).length === 0) {
+        const headers = Object.keys(rows[0]);
+        const autoMappings: Record<string, string> = {};
+        for (const h of headers) {
+          autoMappings[h] = h; // identity mapping — entity ID fields auto-detected below
+        }
+        sheetData.push({ sheetName, rows, mappings: autoMappings });
+      } else {
+        sheetData.push({ sheetName, rows, mappings });
+      }
+    }
+
+    console.log(`[ImportCommit] Parsed ${sheetData.length} sheets, ${sheetData.reduce((n, s) => n + s.rows.length, 0)} total rows`);
+```
+
+`src/app/api/import/sci/process-job/route.ts:105` — SCI worker: full SheetNames loop with per-sheet fingerprint/flywheel:
+
+```ts
+    for (const sheetName of workbook.SheetNames) {
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) continue;
+      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+      const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+      sheets.push({ sheetName, columns, rows: jsonData, totalRowCount: jsonData.length });
+    }
+
+    console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: Parsed ${sheets.reduce((s, sh) => s + sh.totalRowCount, 0)} rows across ${sheets.length} sheets`);
+
+    // HF-197B: per-sheet fingerprint computation (was: single H(sheets[0]) for entire job).
+    ...
+    // Per-sheet flywheel lookup (DIAG-021 H3 fix). Each sheet hashes its own columns/rows.
+    const sheetFlywheelResults = new Map<string, FlywheelLookupResult>();
+    for (const sheet of sheets) {
+```
+
+`src/app/api/import/sci/execute-bulk/route.ts:192` — SCI bulk: per-file sheet map (format-aware; documents skip workbook parse):
+
+```ts
+      if (isSpreadsheetPath(path)) {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        for (const sheetName of workbook.SheetNames) {
+          const ws = workbook.Sheets[sheetName];
+          if (!ws) continue;
+          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+          const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+          sheetDataMap.set(sheetName, { rows: jsonData, columns });
+        }
+      } else {
+        console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
+      }
+      const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+      console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+```
+
+`src/lib/sci/commit-content-unit.ts:246` — SCI commits ONE import_batch PER content unit (sheet/tab), file-linked by `file_hash_sha256`:
+
+```ts
+  const batchId = crypto.randomUUID();
+
+  await supabase.from('import_batches').insert({
+    id: batchId,
+    tenant_id: tenantId,
+    file_name: fileName,
+    file_type: 'sci',
+    status: 'processing',
+    row_count: rows.length,
+    // HF-196 Phase 1F — file-level hash retained for audit (supersedure trigger
+    // moved to content_unit_hash_sha256 at HF-213).
+    file_hash_sha256: fileHashSha256,
+    content_unit_hash_sha256: contentUnitHashSha256,
+    metadata: {
+      source,
+      proposalId,
+      contentUnitId: unit.contentUnitId,
+      classification,
+    } as unknown as Json,
+  });
+```
+
+`src/lib/sci/commit-content-unit.ts:373` — SCI records the tab in `row_data._sheetName` (metadata has no `source_sheet` key):
+
+```ts
+    return {
+      tenant_id: tenantId,
+      import_batch_id: batchId,
+      entity_id: null as string | null,
+      period_id: null as string | null,
+      source_date: sourceDate,
+      data_type: dataType,
+      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+      metadata: {
+        source,
+        proposalId,
+        semantic_roles: semanticRoles,
+        resolved_data_type: dataType,
+        entity_id_field: entityIdField,
+        informational_label: classification,
+        field_identities: fieldIdentities,
+      },
+    };
+```
+
+`src/app/api/import/commit/route.ts:838` — legacy path records `metadata.source_sheet` (second writer: `src/lib/supabase/data-service.ts:763`):
+
+```ts
+        return {
+          tenant_id: tenantId,
+          import_batch_id: batchId,
+          entity_id: entityId,
+          period_id: periodId,
+          data_type: resolveDataType(sheet.sheetName),
+          row_data: { ...content, _sheetName: sheet.sheetName, _rowIndex: i },
+          metadata: { source_sheet: sheet.sheetName, resolved_data_type: resolveDataType(sheet.sheetName) },
+        };
+```
+
+```
+$ grep -rn "source_sheet" src/ --include="*.ts"
+src/app/api/import/commit/route.ts:846:          metadata: { source_sheet: sheet.sheetName, resolved_data_type: resolveDataType(sheet.sheetName) },
+src/lib/supabase/data-service.ts:763:        metadata: { source_sheet: sheet.sheetName },
+```
+
+`src/lib/calculation/run-calculation.ts:1222` — consumption side: multi-sheet roster detection (parent-sheet `__` convention + keyword fallback):
+
+```ts
+  // OB-147: Enhanced roster identification — three-tier detection:
+  //   1. AI context: sheet classified as 'roster' or 'entity_data'
+  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
+  //   3. Keyword fallback: sheet name contains known roster terms
+  const allSheetNames = new Set<string>();
+  for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
+    for (const sheetName of Array.from(sheetMap.keys())) {
+      allSheetNames.add(sheetName);
+    }
+  }
+
+  let rosterSheetName: string | null = null;
+
+  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
+  // start with its name + "__". This is the import convention for multi-tab files.
+  if (!rosterSheetName && allSheetNames.size > 1) {
+    for (const candidate of Array.from(allSheetNames)) {
+      const prefix = candidate + '__';
+      const isParent = Array.from(allSheetNames).some(s => s.startsWith(prefix));
+      if (isParent) {
+        rosterSheetName = candidate;
+        ...
+```
+
+`src/lib/reconciliation/smart-file-parser.ts:117` — reconciliation arm: first sheet is the default active sheet (workbook retained for sheet switching):
+
+```ts
+  const sheetNames = workbook.SheetNames;
+  if (sheetNames.length === 0) {
+    ...
+  }
+
+  const activeSheet = sheetNames[0];
+  const { headers, rows } = extractSheetData(workbook, activeSheet);
+
+  // Attach workbook for sheet switching (not serialized)
+```
+
+## 3. DB evidence (read-only; counts, UUIDs, statuses, timestamps only)
+
+Script: `web/scripts/diag/diag063_a4_multisheet.ts` — Q1 groups `classification_signals` by (tenant_id, source_file_name) counting distinct `sheet_name`; Q2 inspects the 12 most recent `import_batches` for distinct `committed_data.metadata->>source_sheet` (distinct values discovered structurally via iterative `.neq` exclusion; sheet/file names never printed).
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a4_multisheet.ts
+[Q1] classification_signals rows with sheet_name NOT NULL: 1330
+[Q1] signals fetched for grouping: 1330 (cap 10000)
+[Q1] distinct (tenant, source_file) groups: 39
+[Q1] groups with >=2 distinct sheet_name values: 24
+[Q1]   multi_file_1: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c distinct_sheets=34 signals=77
+[Q1]   multi_file_2: tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e distinct_sheets=16 signals=411
+[Q1]   multi_file_3: tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e distinct_sheets=16 signals=80
+[Q1]   multi_file_4: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c distinct_sheets=16 signals=96
+[Q1]   multi_file_5: tenant=dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c distinct_sheets=16 signals=32
+[Q1]   multi_file_6: tenant=1b770e90-9ad9-44ba-b66b-152f71c40b9a distinct_sheets=6 signals=23
+[Q1]   multi_file_7: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c distinct_sheets=5 signals=75
+[Q1]   multi_file_8: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c distinct_sheets=5 signals=30
+[Q1]   multi_file_9: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c distinct_sheets=5 signals=40
+[Q1]   multi_file_10: tenant=336af2a7-e9b3-445e-abea-85792afa893d distinct_sheets=3 signals=22
+```
+
+Q2 (same run; 12 most recent batches): every batch returned `distinct_source_sheets=0` with `rows_without_source_sheet` equal to its committed row count (e.g. `batch=26e4f11f-d324-4fa2-bead-39a88bc4937c ... row_count=3200 ... distinct_source_sheets=0 rows_without_source_sheet=3200`) — consistent with the SCI writer recording the sheet in `row_data._sheetName` rather than `metadata.source_sheet` (code excerpts above). One inspected batch was `status=failed` with 0 committed rows (`96d0f8b4-7b7a-4b1d-a484-a9095fb271ce`, row_count=3200).
+
+Script: `web/scripts/diag/diag063_a4_multisheet_db2.ts` — Q3 groups recent `import_batches` by (tenant_id, file_hash_sha256); Q4 counts distinct `row_data->>_sheetName` per recent batch.
+
+```
+$ npx tsx scripts/diag/diag063_a4_multisheet_db2.ts   (env-sourced as above)
+[Q3] import_batches fetched: 115 (file_hash_sha256 column EXISTS — diverges from SCHEMA_REFERENCE_LIVE.md 11-column listing)
+[Q3] distinct (tenant, file_hash) groups with hash present: 23
+[Q3] groups with >1 batch (multi content-unit source files): 14
+[Q3] multi_unit_file_1: tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e file_hash=eeff4e108e77… batches=26 total_rows=325757 window=2026-06-12T15:21:43.941371+00:00 → 2026-06-12T16:32:13.09035+00:00
+[Q3] multi_unit_file_2: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c file_hash=6251cf3878fe… batches=12 total_rows=1216 window=2026-06-11T22:05:46.974782+00:00 → 2026-06-11T23:52:17.637755+00:00
+[Q3] multi_unit_file_3: tenant=1f4f0511-6371-4458-9013-125ebdf5f735 file_hash=3203eb8f23e2… batches=10 total_rows=12932 window=2026-06-12T21:15:50.208905+00:00 → 2026-06-12T21:32:39.79473+00:00
+[Q3] multi_unit_file_4: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c file_hash=d525bd57a989… batches=9 total_rows=912 ...
+[Q3] multi_unit_file_5: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c file_hash=a0212f4321b6… batches=9 total_rows=912 ...
+[Q3] multi_unit_file_6: tenant=24103940-ab33-4a21-b6fd-bd1042f4762c file_hash=bd489d9cc9d3… batches=7 total_rows=309 ...
+(per-group batch UUID lists in run output; e.g. multi_unit_file_1 includes batch=426b962a-8286-4191-96a3-ee7f98e95d63, batch=ab2cb493-c03f-4a46-b770-72392fffc037, batch=eb3d03c9-5adc-4b73-a2b2-31210d4bb641, ...)
+
+[Q4] recent batches inspected for row_data->>_sheetName: 8
+[Q4] batch=26e4f11f-d324-4fa2-bead-39a88bc4937c file_type=sci status=completed row_count=3200 distinct_sheetName_values=1 tab_1=3200
+[Q4] batch=96d0f8b4-7b7a-4b1d-a484-a9095fb271ce file_type=sci status=failed row_count=3200 distinct_sheetName_values=0
+[Q4] batch=087feca1-db26-41e4-a251-c703c4b78835 file_type=sci status=completed row_count=4 distinct_sheetName_values=1 tab_1=4
+[Q4] batch=87f70f5f-355e-4769-ab76-0e717d7e06e5 file_type=sci status=completed row_count=40 distinct_sheetName_values=1 tab_1=40
+[Q4] batch=80f275dd-17b8-44a7-ae5b-9f6554d05517 file_type=sci status=completed row_count=3200 distinct_sheetName_values=1 tab_1=3200
+[Q4] batch=f2c52778-8e1a-44f0-9db3-8275493a1bbd file_type=sci status=completed row_count=4 distinct_sheetName_values=1 tab_1=4
+[Q4] batch=dc816820-8419-4db4-850c-fb2a6fb4b534 file_type=sci status=completed row_count=40 distinct_sheetName_values=1 tab_1=40
+[Q4] batch=6267c0cf-2a73-41f5-a268-2d90c4482892 file_type=sci status=completed row_count=3200 distinct_sheetName_values=1 tab_1=3200
+```
+
+Q4 reads exactly as the code predicts: each SCI batch holds exactly ONE sheet (one content unit per batch); multi-tab files manifest as MULTIPLE batches sharing a file hash (Q3: 14 such groups). Q3's multi_unit_file_3 (10 batches in 3 waves of {40, 4, 3200} rows) corresponds to the Q2/Q4 recent-batch triplets — a 3-tab file imported repeatedly.
+
+Script: `web/scripts/diag/diag063_a4_multisheet_db3.ts` — Q5 distinguishes distinct content units from re-processing in the largest group.
+
+```
+$ npx tsx scripts/diag/diag063_a4_multisheet_db3.ts   (env-sourced as above)
+[Q5] largest group: tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e file_hash=eeff4e108e77…
+[Q5] batches=26 distinct_contentUnitIds=16
+[Q5] batch statuses: completed=26
+```
+
+16 distinct content units from one source file — matching Q1's `distinct_sheets=16` for the same tenant's classification_signals file groups (multi_file_2/multi_file_3). The 26-vs-16 difference is re-processing of some units (all completed; supersession on `content_unit_hash_sha256` per `commit-content-unit.ts` excerpt above).
+
+## 4. Reconciliation arm follow-up (sheet selection, not all-sheets)
+
+```
+$ grep -rn "activeSheet\|setActiveSheet\|switchSheet" src/ --include="*.ts" --include="*.tsx" -l
+src/app/operate/reconciliation/page.tsx
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/reconciliation/ai-column-mapper.ts
+```
+
+`src/app/operate/reconciliation/page.tsx:380` — multi-sheet ground-truth files auto-select the sheet matching the plan under reconciliation (default first sheet):
+
+```ts
+        // HF-182 Fix 12: Auto-select sheet matching the plan being reconciled
+        // For multi-sheet GT files (one sheet per plan), match by plan name similarity
+        let selectedSheet = workbook.SheetNames[0];
+        if (workbook.SheetNames.length > 1 && selectedBatch?.ruleSetName) {
+          const planNameLower = selectedBatch.ruleSetName.toLowerCase();
+          const matched = workbook.SheetNames.find(s =>
+            planNameLower.includes(s.toLowerCase()) || s.toLowerCase().includes(planNameLower.split(' ')[0]?.toLowerCase() ?? '')
+          );
+          if (matched) {
+            selectedSheet = matched;
+            console.log(`[Reconciliation] Sheet selection: matched "${matched}" to plan "${selectedBatch.ruleSetName}" (${workbook.SheetNames.length} sheets available)`);
+          }
+        }
+```
+
+## 5. Schema reference cross-check
+
+`SCHEMA_REFERENCE_LIVE.md:132` lists `classification_signals` (20 columns) including `source_file_name` (line 145) and `sheet_name` (line 146) — both confirmed live. `SCHEMA_REFERENCE_LIVE.md:157` lists `committed_data` (10 columns) including `metadata` jsonb — confirmed. `SCHEMA_REFERENCE_LIVE.md:273` lists `import_batches` with 11 columns; live selects additionally return `file_hash_sha256` and `content_unit_hash_sha256` (observed keys; reference generated 2026-03-18, predates HF-196/HF-213).
+
+**GAP TO DEMO BAR:** None for the capability itself — multi-tab XLSX parsing, per-sheet classification, per-sheet commit, and sheet-aware calculation are all live with banked DB evidence from multiple tenants (files with up to 34 classified sheets; a 16-unit file committing 325,757 rows). Two recording-shape notes for demo narration accuracy: (a) the active SCI path records the sheet in `row_data._sheetName` with one batch per sheet, while `metadata.source_sheet` is only written by the legacy commit path — queries keyed on `metadata.source_sheet` see nothing for SCI imports; (b) the reconciliation arm is selection-based, not all-sheets: multi-sheet ground-truth files auto-select the sheet matching the plan under reconciliation (HF-182 Fix 12, excerpt in section 4), defaulting to the first sheet.
+
+**EFFORT SHAPE:** E0 — none. Existing structures carry the capability end-to-end: routes `api/import/sci/execute-bulk`, `api/import/sci/process-job`, `api/import/commit`; services `lib/sci/commit-content-unit.ts`, `lib/sci/plan-interpretation.ts`, `lib/import-pipeline/file-parser.ts`; tables `import_batches` (file_hash_sha256 / content_unit_hash_sha256), `committed_data` (row_data._sheetName / metadata.source_sheet), `classification_signals` (sheet_name, source_file_name). Optional E1-style confirmation: architect uploads a multi-tab workbook in the demo tenant and observes one content unit per tab in the SCI surface.
+
+# A5 — Mapping confirmation gate
+
+**CURRENT STATE:** A mapping confirmation gate exists in the enhanced import wizard: the Map step's "Next" button is disabled by `canProceed()` until `entityId` is mapped on at least one sheet (HF-066 deliberately relaxed the gate from "all plan-required fields" to "entityId only"; plan-metric gaps surface as validate-step warnings, not blockers). A second, harder gate exists on the reconciliation surface: the run-comparison button is disabled until both Entity ID and Total columns are confirmed. The validate step does not block on error-severity issues (`validationComplete` is set unconditionally; `isValid` is computed but never read as a gate), and the commit handler plus the server-side `/api/import/commit` route perform no mapping re-validation — the server falls back to identity/AI auto-mapping when mappings are absent. A standalone `ColumnMapper` component with a "Missing required fields" warning exists but has no importers (orphaned).
+
+**EVIDENCE:**
+
+Stated search — complete file-level enumeration (13 files):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rni "unmapped\|unresolved.*mapping\|mapping.*confirm" src/ --include="*.ts" --include="*.tsx" -l
+src/app/operate/reconciliation/page.tsx
+src/app/api/analyze-workbook/route.ts
+src/app/data/import/enhanced/page.tsx
+src/components/forensics/ComparisonUpload.tsx
+src/lib/reconciliation/ai-column-mapper.ts
+src/components/import/column-mapper.tsx
+src/lib/reconciliation/benchmark-intelligence.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/ai/training-signal-service.ts
+src/lib/import-pipeline/import-service.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/ai/ai-service.ts
+```
+
+Per-file hit counts (same pattern, `-c`):
+
+```
+src/app/operate/reconciliation/page.tsx:3
+src/app/api/analyze-workbook/route.ts:1
+src/app/data/import/enhanced/page.tsx:14
+src/components/forensics/ComparisonUpload.tsx:6
+src/components/import/column-mapper.tsx:1
+src/lib/reconciliation/benchmark-intelligence.ts:1
+src/lib/reconciliation/ai-column-mapper.ts:3
+src/lib/intelligence/__tests__/binding-completeness.test.ts:2
+src/lib/intelligence/convergence-service.ts:1
+src/lib/forensics/ai-forensics.ts:1
+src/lib/ai/training-signal-service.ts:2
+src/lib/ai/ai-service.ts:1
+src/lib/import-pipeline/import-service.ts:1
+```
+
+### Gate 1 — import wizard Map step (the primary commit-path gate)
+
+src/app/data/import/enhanced/page.tsx:2378-2402 (`canProceed`):
+
+```tsx
+  const canProceed = (): boolean => {
+    switch (currentStep) {
+      case 'upload':
+        return false;
+      case 'analyze':
+        return !!analysis && analysis.sheets.length > 0;
+      case 'map': {
+        // HF-066 FIX: Only entityId is universally required at the mapping stage.
+        // Plan component metrics (matrixConfig, tierConfig, etc.) are checked in the
+        // validate step as warnings, NOT blockers here. The old check required every
+        // plan-derived isRequired field to be mapped — but uploaded files may not
+        // contain columns for all plan metrics, permanently blocking Next.
+        const allMapped = fieldMappings.flatMap(s => s.mappings.filter(m => m.targetField));
+        const mappedIds = new Set(allMapped.map(m => m.targetField));
+        // entityId must be mapped somewhere across all sheets
+        return mappedIds.has('entityId');
+      }
+      case 'validate':
+        return validationComplete;
+      case 'approve':
+        return true;
+      default:
+        return false;
+    }
+  };
+```
+
+Button wiring — src/app/data/import/enhanced/page.tsx:4285-4292:
+
+```tsx
+          {currentStep !== 'approve' && currentStep !== 'upload' && (
+            <Button onClick={goNext} disabled={!canProceed() || isProcessing}>
+              {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {currentStep === 'map' && currentMappingSheetIndex < mappableSheets.length - 1
+                ? (isSpanish ? 'Siguiente Hoja' : 'Next Sheet')
+                : (isSpanish ? 'Siguiente' : 'Next')}
+              {!isProcessing && <ArrowRight className="h-4 w-4 ml-2" />}
+            </Button>
+          )}
+```
+
+The stepper cannot bypass the gate — forward jumps are disabled. src/app/data/import/enhanced/page.tsx:2523-2531:
+
+```tsx
+          const isActive = step === currentStep;
+          const isPast = STEPS.indexOf(step) < STEPS.indexOf(currentStep);
+          const isClickable = isPast || (step === 'analyze' && currentStep === 'map');
+
+          return (
+            <div key={step} className="flex items-center">
+              <button
+                onClick={() => isClickable && goToStep(step)}
+                disabled={!isClickable && !isActive}
+```
+
+### Validate step — warnings, not blockers
+
+Missing plan-required fields penalize the score and add an error-severity issue but do not block. src/app/data/import/enhanced/page.tsx:1918-1942 (excerpt 1918-1933):
+
+```tsx
+      // OB-16 Phase 4: Plan-aware required field validation
+      // Check that ALL required fields from the plan are mapped at least once across all sheets
+      const allMappedFields = fieldMappings.flatMap(s => s.mappings.filter(m => m.targetField));
+      const mappedFieldIds = new Set(allMappedFields.map(m => m.targetField));
+      const requiredFields = targetFields.filter(f => f.isRequired);
+      const missingRequiredFields = requiredFields.filter(f => !mappedFieldIds.has(f.id));
+
+      if (missingRequiredFields.length > 0) {
+        // Penalize score for missing required fields
+        const missingPenalty = Math.min(30, missingRequiredFields.length * 10);
+        overallScore = Math.max(0, overallScore - missingPenalty);
+
+        // Add issue to first sheet (cross-sheet issue)
+        if (sheetScores.length > 0) {
+          const missingNames = missingRequiredFields.map(f => isSpanish ? f.labelEs : f.label).join(', ');
+          sheetScores[0].issues.push({
+```
+
+`validationComplete` is set unconditionally after the scoring pass; `isValid` is computed but never read as a gate. src/app/data/import/enhanced/page.tsx:1945-1958:
+
+```tsx
+      setValidationResult({
+        isValid: overallScore >= 70,
+        overallScore,
+        sheetScores,
+        periodInfo,
+        detectedPeriods: periodDetectionResult,
+        crossSheetValidation,
+        anomalies,
+        calculationPreview,
+      });
+
+      setIsValidating(false);
+      setValidationComplete(true);
+    }, 1500);
+```
+
+```
+$ grep -n "setValidationComplete" src/app/data/import/enhanced/page.tsx
+1122:  const [validationComplete, setValidationComplete] = useState(false);
+1957:      setValidationComplete(true);
+4224:                        setValidationComplete(false);
+
+$ grep -n "isValid" src/app/data/import/enhanced/page.tsx | head -20
+258:  isValid: boolean;
+1124:  const [isValidating, setIsValidating] = useState(false);
+1946:        isValid: overallScore >= 70,
+3434:              {isValidating && (
+3449:              {!isValidating && validationResult && (
+```
+
+### Commit — no mapping re-check client- or server-side
+
+Client commit handler guards only tenant/file/analysis. src/app/data/import/enhanced/page.tsx:1962-1970:
+
+```tsx
+  const handleSubmitImport = useCallback(async () => {
+    if (!tenantId) {
+      setError('No tenant selected');
+      return;
+    }
+    if (!uploadedFile || !analysis) {
+      setError('No file or analysis available');
+      return;
+    }
+```
+
+Approve & Import button (src/app/data/import/enhanced/page.tsx:4003-4008) is gated only on `isImporting`:
+
+```tsx
+                <Button
+                  size="lg"
+                  className="px-8"
+                  onClick={handleSubmitImport}
+                  disabled={isImporting}
+                >
+```
+
+Only confirmed mappings (those with `targetField`) are sent to commit; unmapped columns are preserved, not blocked. src/app/data/import/enhanced/page.tsx:2040-2047 and src/lib/import-pipeline/import-service.ts:202:
+
+```tsx
+              const confirmedMapping = fieldMappings.find(fm => fm.sheetName === `${prefix}${sheet.name}`);
+              const sheetFieldMappings = confirmedMapping
+                ? confirmedMapping.mappings
+                    .filter(m => m.targetField)
+                    .map(m => ({ sourceColumn: m.sourceColumn, semanticType: m.targetField!, confidence: m.confidence }))
+```
+
+```
+src/lib/import-pipeline/import-service.ts:202:        // Keep unmapped fields with original name
+```
+
+Server-side `/api/import/commit` validates only request shape and compensates for absent mappings with auto-detection rather than rejecting:
+
+```
+$ grep -n "entityId\|required\|400\|validate\|mapping" src/app/api/import/commit/route.ts | head -12
+6: * parses Excel server-side, applies field mappings, bulk inserts to DB.
+23:  mappings?: Record<string, string>;
+95:        { error: 'Missing required fields: tenantId, fileName, storagePath' },
+96:        { status: 400 }
+150:      // Apply field mappings from client metadata
+151:      const mappings = sheetMappings?.[sheetName];
+153:      // If no explicit mappings, auto-detect via raw column headers
+154:      if (!mappings || Object.keys(mappings).length === 0) {
+158:          autoMappings[h] = h; // identity mapping — entity ID fields auto-detected below
+160:        sheetData.push({ sheetName, rows, mappings: autoMappings });
+162:        sheetData.push({ sheetName, rows, mappings });
+171:        { status: 400 }
+```
+
+### Gate 2 — reconciliation mapping confirmation (adjacent arm)
+
+src/app/operate/reconciliation/page.tsx:476-477 (handler guard) and :1033-1035 (button gate):
+
+```tsx
+  const handleCompare = useCallback(async () => {
+    if (!parsedFile || !selectedBatchId || !tenantId || !entityIdCol || !totalPayoutCol) return;
+```
+
+```tsx
+              disabled={!entityIdCol || !totalPayoutCol || comparing}
+              className="w-full mt-6 px-4 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ backgroundColor: (!entityIdCol || !totalPayoutCol || comparing) ? '#3f3f46' : '#059669', boxShadow: (!entityIdCol || !totalPayoutCol || comparing) ? 'none' : '0 0 16px rgba(5, 150, 105, 0.3)' }}
+```
+
+(Reconciliation page hit at :973 is the section header `{/* Mapping confirmation + overrides */}`; :489-490 build user-confirmed mappings with `reasoning: 'User confirmed'`.)
+
+### Orphaned warning surface — ColumnMapper component
+
+src/components/import/column-mapper.tsx:214-235 renders a "Missing required fields" warning:
+
+```tsx
+      {/* Unmapped Required Fields Warning */}
+      {getMappedRequiredFields() < getRequiredFieldsCount() && (
+        <motion.div
+          ...
+          <p className="font-medium text-amber-800 dark:text-amber-200">
+            Missing required fields
+          </p>
+          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+            Please map the following required fields:{' '}
+            {targetFields
+              .filter((f) => f.required && !isFieldMapped(f.key))
+              .map((f) => f.label)
+              .join(', ')}
+```
+
+But the component has no consumers:
+
+```
+$ grep -n "export" src/components/import/column-mapper.tsx
+31:export function ColumnMapper({
+$ grep -rn "ColumnMapper" src/ --include="*.tsx" --include="*.ts" | grep -v "ai-column-mapper\|reconciliation"
+src/components/import/column-mapper.tsx:23:interface ColumnMapperProps {
+src/components/import/column-mapper.tsx:31:export function ColumnMapper({
+src/components/import/column-mapper.tsx:37:}: ColumnMapperProps) {
+```
+
+### Adjacent-arm sweep — remaining grep hits (none are commit gates)
+
+```
+src/app/api/analyze-workbook/route.ts:94: prior confirmed mappings injected into AI prompt (suggestion quality, not a gate)
+src/lib/reconciliation/ai-column-mapper.ts:126,300,305: 'unmapped' as a classification value in AI column mapping
+src/components/forensics/ComparisonUpload.tsx:48,59,131,251,267,328: 'unmapped' = "Preserved in raw data" option in forensics upload mapping UI (unmapped filtered out, not blocked)
+src/app/operate/reconciliation/page.tsx:489,490,973: Gate 2 above
+src/lib/intelligence/__tests__/binding-completeness.test.ts:10,88: HF-281 test — match_pass:'failed' marker counts as unmapped
+src/lib/forensics/ai-forensics.ts:63: fallback suggestedMapping:'unmapped' when no match
+src/lib/reconciliation/benchmark-intelligence.ts:187: metric detection from unmapped columns
+src/lib/ai/training-signal-service.ts:31,61: 'unmapped task types' (AI telemetry, unrelated to field mapping)
+src/lib/ai/ai-service.ts:209: second-pass classification "Called for unresolved fields after initial mapping"
+src/lib/intelligence/convergence-service.ts:2922: boundary matching fallback for unmapped requirements (HF-111)
+src/app/data/import/enhanced/page.tsx:885-893: second-pass AI classification of tier==='unresolved' fields (auto-resolution before the gate, not the gate itself)
+```
+
+**GAP TO DEMO BAR:** None for gate existence — the Map-step gate (entityId required, Next disabled) and the reconciliation gate (entity + total required, run button disabled) are both present in code with explicit disabled-button wiring. Remaining proof is browser observation of the disabled states. Noted divergences from a strict reading of "blocks commit on unresolved mappings": the gate fires at the Map step rather than at commit (commit itself has no mapping re-check, client or server; forward step-jumping is disabled so the gate cannot be bypassed), the gate covers only `entityId` (HF-066 comment documents this as intentional — plan-metric gaps are validate-step warnings), and the validate step never blocks (`validationComplete` set unconditionally; `isValid` computed but never gates).
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY — gate logic verified in code (`canProceed()` + Next button at src/app/data/import/enhanced/page.tsx:2378-2402/4286; reconciliation gate at src/app/operate/reconciliation/page.tsx:477/1033). Remaining proof: architect browser actions observing the disabled buttons. No routes, components, services, or tables required.
+
+### A6 — Duplicate-execution guard
+
+**CURRENT STATE:** A two-layer duplicate-execution guard exists for plan interpretation in `web/src/lib/sci/plan-idempotency.ts`, consumed by `web/src/lib/sci/plan-interpretation.ts`. Layer 1 (read-before-derive) returns a previously completed `rule_set_id` for the same SHA-256 content hash without re-executing; Layer 2 (single-flight) claims execution by inserting an `in_progress` row into `plan_interpretation_runs`, where `UNIQUE(tenant_id, content_hash)` makes a concurrent second claim fail with Postgres 23505. HF-264 added a 5-minute TTL reclaim for stranded claims plus a try/finally release on every non-completed exit. The guard was introduced by commit `2c534214` (HF-259 Phase 4+5) and hardened by `07a4d253` (HF-264 Phase 2); both are ancestors of the Phase-1 anchor `d38d6355`. Live DB shows the backing table populated (7 completed runs, 0 stranded in_progress, 0 failed). An adjacent in-flight-promise-sharing guard exists on the calculation read path (`calculation-service.ts:136`).
+
+**EVIDENCE:**
+
+Command 1 (from repo root) — full output:
+
+```
+$ git log --oneline --all -i --grep="duplicat"
+4750db57 HF-283 Phase 0: directive committed; provenance + profile census
+87df664f HF-282 migration amendment (HALT-2 disposition): delete tdelcarlo sandbox rows, defer constraint
+ff5b8008 HF-282 Phase 4: author single-profile-canon migration (architect-applied; HALT-2-guarded)
+0c3daca4 HF-267 P2: Carry-Everything safety net — tabular files never crash/hang in plan extraction
+18e055c7 HF-258: 1C content-channel unification (Q2) + transport retirement (Q5) (#446)
+2077b168 HF-257: Enforce single plan-interpretation pipeline (AP-17) (#445)
+82e5e4f5 HF-256: Restore universal file ingestion (Decision 82) — document plans, multi-file, mixed-format (#444)
+0c2da09d HF-255: Restore unified any-format plan import (document transport regressed by HF-239) (#443)
+9cd13fe3 HF-254: Ingestion flywheel — single skip authority, role-bearing caches, lexical prior (#442)
+2ca8b9a2 HF-253: Per-Variant Binding Scope + Distribution Signal in Column Mapping (#441)
+327d3da4 HF-252: Per-Variant Component Intent Emission + Fallback Removal (#440)
+5fde465c HF-251: Compositional Intent + Constructor — Decision 158 Implementation (#439)
+37a9f76d HF-250: Multi-call skeleton/chunk separation — complete HF-249 per IRA Option A specification (#438)
+ba4dce8e HF-249: Grammar-aware subtree decomposition — skeleton+chunk emission with deterministic assembler (#437)
+e478a2fa HF-248: Per-component plan interpretation with bounded retry, error class differentiation, reimport-resume (#436)
+809f3789 HF-247: Plan import integrity — cold-start, cache quality, silent fallback elimination, commit-stage validation (#435)
+1f041531 DIAG-056: Plan interpretation LLM response capture (diagnostic log + completion report) (#434)
+dabd78be DIAG-055/HF-245: Restore plan interpretation instructions lost in OB-200 prompt replacement (#433)
+03dddb8d HF-244: Scale mutual exclusion + validator exhaustive emission enforcement + plan supersession (#432)
+614a748d HF-243: DAG scale inference + variant binding coverage (#430)
+cf53f846 HF-243: DAG scale inference + variant binding coverage
+ad2f1038 HF-242: DAG-aware convergence — extract reference fields from PrimeNode trees (#428)
+288b00f0 HF-242: DAG-aware convergence — extract reference fields from PrimeNode trees
+7d11ea8b HF-241: Temporal-aware transaction classifier + plan supersession fix (#427)
+ce6eb634 AUD-013: Execute/Execute-Bulk behavioral equivalence + classifier/supersession fixes
+92d63b60 HF-240: Restore cold-start plan classification via workbook signature (#426)
+bf42691b HF-240: Restore cold-start plan classification via workbook signature
+c86b72c4 HF-231 Phases 2+3: wire all 7 sub-pipelines through commitContentUnit
+ff23c183 HF-228 Phase 1: SCI referential classification signal
+2eb56a0d HF-225 Phase 2: period diagnostic script and findings
+90887ee6 OB-197 Phase 4: completion report
+a0e8c116 HF-182 Fix 9: Import history shows SCI import events from import_batches
+7624aa3e HF-182 Fixes 7-8: Deduplicate plan cards by name
+3792df5c HF-151 Phase 4: MFA verify event dedup -- ref guard + sessionStorage
+e0098a79 HF-150 Phase 3: MFA verify UX -- loading state, double-submit guard
+4409ab55 HF-150 Phase 1: Fix logout logging -- capture user data before signOut
+7321ad6a OB-175 Phase 1: Import display -- clean file names, source file identity, no dev metadata
+817c026f HF-139: Multi-tab import content unit independence
+ba1b0231 HF-133 Phase 1-2: Remove plan already-exists early return + build verification
+692b2038 HF-133 Phase 0: Plan already-exists early return diagnostic
+16a10449 HF-126 Phase 1: Auto-create rule_set_assignments after entity resolution
+eceb73d9 Merge pull request #208 from CCAFRICA/dev
+47495ab9 HF-106 Phase 2: Duplicate CU elimination + PeriodProvider removal
+2f9139fd HF-106 Phase 0: Duplicate content unit + periods diagnostic prompt
+e335ce5a CLT-160 Diagnostic: Comprehensive pipeline state analysis after plan import
+1a9574e2 OB-156 Phase 3: Performance verification
+36b4589f OB-154 Phase 4: CC-UAT-07 forensic verification — all PASS
+81c38735 OB-153 Phase 4: Rendered result proof gate — metric resolution + source_date binding
+e8dbdbf2 HF-088 Phase 1: Cleanup executed
+52a4f48b OB-151 Phases 1-2: VL Admin profile fix + server idempotency + client dedup
+aac9e4ab HF-087 Phase 1: Client-side fetch timeout fix + recovery + progress
+f8404b27 HF-087 Phase 0: Client-side fetch diagnostic
+62d2c600 OB-142 Phase 2: Pipeline fixes — draft plans, route redirect
+5542acf3 OB-141 Phase 3: Committed data cleanup — removed 34 duplicate batches
+0d150948 OB-140 Phase 2: Architecture trace output — raw evidence
+4bba45af OB-136 Phase 5: Entity deduplication verified + assignment count fix
+c5e65229 OB-135 Phase 0: Diagnostic — signal capture infrastructure audit
+7e58e6d0 HF-079: Verification script — idempotency test 8/8 PASS
+02b1399a HF-078: Verification script — 8/8 proof gates PASS
+ce63ca55 HF-078: Fix calculation INSERT path for UNIQUE constraint compatibility
+1c933444 OB-121 Phase 6: Integrated test — 8/8 proof gates PASS
+ced5bf6b OB-121 Phase 1: Purge stale results + DELETE-before-INSERT + unique constraint
+1b382cae Merge pull request #125 from CCAFRICA/dev
+c875a983 OB-114 Phase 5: Archive duplicate MBC insurance referral plan
+52a6da19 CLT-113 Phase 3: Plan context trace — wrong plan source identified
+f0cca6a2 OB-112 Phase 1: Fix multi-file count aggregation + assignment display
+ccc846b6 OB-110 Phase 3: Post-AI confidence calibration — value validation + duplicate detection
+4e369499 OB-109 Phase 5-6: Sidebar cleanup + data nav consolidation
+673e577f OB-102 Phase 6: Page consolidation — eliminate duplicates and legacy stubs
+41d857bd HF-062 Phase 2: Fix profile query — handle multiple profiles per user
+473edfab OB-97 Phase 8: Cognitive fit — charts + reference frames
+be2ba237 OB-97 Phase 0: Platform UX diagnostic
+01a6a07e OB-93 Phase 3: Page loaders for adjustments + users
+fbfc41de OB-93 Phase 2: SessionContext + locale dedup
+858176e9 HF-058 Phase 4: Standing Rule 25 — one canonical location per surface
+538119a0 OB-89 Phase 0: Platform diagnostic — switcher state, stub inventory, console error sources
+c97f7652 CLT-72A: Complete platform page inventory and linkage map
+69f2ec93 HF-045 Phase 1: Server-side import commit API route
+4acc9e1c HF-045 Phase 0: Import commit architecture diagnostic
+c5d40de2 OB-53 Phase 2: Navigation consolidation — collapse single-child, all roles default to Perform
+02811e8e OB-50 Phase 9: Structural validation service with 8 checks
+b0eed115 HF-036 Phase 6: reduce duplicate Supabase queries
+c4355d83 OB-41-4: Deduplicate period objects with canonical YYYY-MM keys
+03f9e517 OB-41-1: Lifecycle-calculation coupling in orchestrator
+ec5a14a3 OB-41-0: Reconnaissance findings for lifecycle plumbing
+cffe216a OB-34 Phase 10: Module-aware import and AI anomaly detection
+16613568 OB-32: Platform chrome fixes — breadcrumbs, pulse metrics, branding, scripts
+76cfb9d7 OB-11 Phase 2: Fix handleSubmitImport to persist data
+3a0552ea OB-09 Phase 3: Tenant isolation, Queue and Cycle wired to real state
+847b320e OB-05 Phase 2: Remove Redundant Navbar Elements
+```
+
+Command 2 (from web/) — full output (12 files):
+
+```
+$ grep -rni "in.flight\|already.*running\|execution.*lock\|idempot" src/lib/ --include="*.ts" -l
+src/lib/sci/plan-idempotency.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/entity-resolution.ts
+src/lib/sci/assignment-creation.ts
+src/lib/sci/post-commit-construction.ts
+src/lib/sci/__tests__/comprehension-state.test.ts
+src/lib/sci/calc-time-entity-resolution.ts
+src/lib/sci/store-metadata-population.ts
+src/lib/supabase/auth-service.ts
+src/lib/supabase/calculation-service.ts
+src/lib/storage/storage-migration.ts
+src/lib/compensation/ai-plan-interpreter.ts
+```
+
+Adjacent-arm sweep — per-file hit counts (same pattern, `-c`, zero-hit files excluded):
+
+```
+$ grep -rni "in.flight\|already.*running\|execution.*lock\|idempot" src/lib/ --include="*.ts" -c | grep -v ":0"
+src/lib/sci/plan-interpretation.ts:7
+src/lib/sci/plan-idempotency.ts:3
+src/lib/sci/post-commit-construction.ts:1
+src/lib/sci/entity-resolution.ts:3
+src/lib/sci/assignment-creation.ts:1
+src/lib/supabase/calculation-service.ts:1
+src/lib/sci/calc-time-entity-resolution.ts:2
+src/lib/sci/store-metadata-population.ts:1
+src/lib/storage/storage-migration.ts:1
+src/lib/sci/__tests__/comprehension-state.test.ts:1
+src/lib/supabase/auth-service.ts:1
+src/lib/compensation/ai-plan-interpreter.ts:1
+```
+
+Characterization of every non-primary hit (line-level, complete):
+
+```
+$ grep -rni "in.flight\|already.*running\|execution.*lock\|idempot" src/lib/ --include="*.ts" | grep -v "plan-idempotency.ts"
+src/lib/sci/plan-interpretation.ts:25:// HF-259 Q3/Q6: idempotency (single-flight + fingerprint reuse) + lifecycle audit. Degrade-safe.
+src/lib/sci/plan-interpretation.ts:33:} from './plan-idempotency';
+src/lib/sci/plan-interpretation.ts:217:  // ── HF-259 Q3: idempotency guard (before the expensive 1+N orchestration) ──
+src/lib/sci/plan-interpretation.ts:225:    console.log(`[SCI plan-interp] HF-259 idempotent REUSE — content_hash matched completed rule_set ${reusedRuleSetId}; no re-execution`);
+src/lib/sci/plan-interpretation.ts:357:  // idempotent on plan name. Error checked.
+src/lib/sci/plan-interpretation.ts:383:    // HF-259 Q6: explicit audited supersession. With Q3 idempotency upstream, a duplicate import
+src/lib/sci/plan-interpretation.ts:493:    // idempotent delete of the in_progress row, so it is safe even where a failure path already
+src/lib/sci/post-commit-construction.ts:22: * Idempotent: safe to call repeatedly; resolveEntitiesFromCommittedData
+src/lib/sci/calc-time-entity-resolution.ts:17: *   data, prior tenant state, etc.). The two paths are mutually idempotent.
+src/lib/sci/calc-time-entity-resolution.ts:45: * Idempotent: safe to call repeatedly. A second call against an already-
+src/lib/sci/__tests__/comprehension-state.test.ts:41:  assert.equal(isForwardTransition('classified', 'classified'), true);   // idempotent ok
+src/lib/storage/storage-migration.ts:12: * This is idempotent -- safe to call multiple times.
+src/lib/supabase/calculation-service.ts:136:    if (cached.promise) return cached.promise; // In-flight — share it
+src/lib/compensation/ai-plan-interpreter.ts:51:// are still in flight for calc-side and UI consumers that depend on them.
+src/lib/sci/entity-resolution.ts:348:  // Idempotent merge: for each existing entity that has attribute values from
+src/lib/sci/entity-resolution.ts:350:  // (close prior records on value change; add new for unseen keys; idempotent
+src/lib/sci/entity-resolution.ts:370:      if (existingOpen && existingOpen.value === value) continue; // idempotent
+src/lib/sci/assignment-creation.ts:10: * Idempotent: existing assignments are skipped via a (entity_id, rule_set_id)
+src/lib/sci/store-metadata-population.ts:14: * entities.metadata with store_id, volume_tier, volume_key. Idempotent:
+src/lib/supabase/auth-service.ts:45:  // HF-151 F1: await ensures fetch completes before router.push cancels in-flight requests
+```
+
+Total: 22 line-level hits across 12 files. The execution guard proper is plan-idempotency.ts + its call site in plan-interpretation.ts; the sci/* "Idempotent: safe to call repeatedly" hits are idempotent-by-construction service contracts (re-run safety, not concurrency locks); calculation-service.ts:136 is an in-flight promise-sharing read cache; auth-service.ts:45 and ai-plan-interpreter.ts:51 are unrelated in-flight-request comments; the test hit is a state-machine idempotency assertion.
+
+Guard code — single-flight claim (web/src/lib/sci/plan-idempotency.ts:53-79):
+
+```typescript
+// src/lib/sci/plan-idempotency.ts:53
+// HF-264: a claim older than this is treated as abandoned (a prior execution crashed between
+// claim and complete/fail, stranding the in_progress row — pre-HF-264 there was no TTL, so it
+// blocked re-import forever). 5 min is ~10x the longest observed interpretation (~35s Meridian
+// Phase A+B). Numeric duration only (Korean Test — no domain/language value).
+const CLAIM_TTL_MS = 5 * 60 * 1000;
+
+export async function claimRun(
+  supabase: SupabaseClient, tenantId: string, contentHash: string, sourceFileName: string,
+): Promise<{ claimed: boolean }> {
+  try {
+    const { error } = await supabase.from('plan_interpretation_runs').insert({
+      tenant_id: tenantId,
+      content_hash: contentHash,
+      status: 'in_progress',
+      source_file_name: sourceFileName,
+    });
+    if (!error) return { claimed: true };
+    if ((error as { code?: string }).code === '23505') {
+      // A row already exists for (tenant, content_hash). HF-264: reclaim it only if it is a
+      // STALE in_progress claim; a completed/failed row or a fresh claim is respected.
+      return await reclaimIfStale(supabase, tenantId, contentHash, sourceFileName);
+    }
+    return { claimed: true }; // table-missing / other → degrade to execute (current behavior)
+  } catch {
+    return { claimed: true };
+  }
+}
+```
+
+Guard call site — both layers (web/src/lib/sci/plan-interpretation.ts:217-238):
+
+```typescript
+// src/lib/sci/plan-interpretation.ts:217
+  // ── HF-259 Q3: idempotency guard (before the expensive 1+N orchestration) ──
+  // content_hash = SHA-256 of the plan file bytes (format-invariant; the unified-content key).
+  const contentHash = computePlanContentHash(fileBuffer);
+  const sourceFileName = storagePath.split('/').pop()?.replace(/^\d+_/, '') || primaryContentUnitId;
+  // Layer 1 — read-before-derive / moat reuse: a completed run for this content → return its
+  // rule_set without re-executing (~zero cost). Degrade-safe (null when the table is unapplied).
+  const reusedRuleSetId = await findCompletedRuleSet(supabase, tenantId, contentHash);
+  if (reusedRuleSetId) {
+    console.log(`[SCI plan-interp] HF-259 idempotent REUSE — content_hash matched completed rule_set ${reusedRuleSetId}; no re-execution`);
+    return planUnits.map((u, i) => ({
+      contentUnitId: u.contentUnitId,
+      classification: 'plan' as const,
+      success: true,
+      rowsProcessed: 0,
+      pipeline: i === 0 ? 'plan-interpretation-reused' : 'plan-batch-included',
+    }));
+  }
+  // Layer 2 — single-flight: claim the execution. A concurrent second import of the same content
+  // loses the UNIQUE(tenant_id, content_hash) race → does NOT run a second interpretation.
+  let claim = await claimRun(supabase, tenantId, contentHash, sourceFileName);
+  if (!claim.claimed) {
+    const concurrent = await findCompletedRuleSet(supabase, tenantId, contentHash);
+```
+
+Claim release on non-completed exit (web/src/lib/sci/plan-interpretation.ts:490-500, HF-264 Phase 3):
+
+```typescript
+// src/lib/sci/plan-interpretation.ts:490
+  } finally {
+    // HF-264: release the in_progress claim on every non-completed exit — the three explicit
+    // failure returns above AND any uncaught throw between claim and completeRun. failRun is an
+    // idempotent delete of the in_progress row, so it is safe even where a failure path already
+    // released it. Only the success path (interpretationCompleted=true) skips release, because
+    // completeRun has already transitioned the row to 'completed'.
+    if (!interpretationCompleted) {
+      try {
+        await failRun(supabase, tenantId, contentHash);
+        console.log(`[SCI plan-interp] HF-264: released in_progress claim on non-completed exit (content_hash=${contentHash.substring(0, 12)})`);
+      } catch { /* best-effort */ }
+```
+
+Introducing commit — file history and symbol search:
+
+```
+$ git log --follow --oneline -- web/src/lib/sci/plan-idempotency.ts
+07a4d253 HF-264 Phase 2: TTL expiry on stale single-flight claims (5-minute threshold)
+c983db1c HF-259: relocate migration to web/supabase/migrations + timestamp scheme (20260531000000); drop stale repo-root 017
+2c534214 HF-259 Phase 4+5: idempotency (Q3) + audited supersession (Q6) + lifecycle UI
+
+$ git log -S "claimRun" --oneline --all
+11c08cc0 HF-272 Phase 2: remove interpretation-time field-resolution gate + requiredInputs anchor; restore unified recognition pathway (AUD-009 / Decision 158)
+3e76e785 HF-265: production resilience completion report (P1 investigation, P2/P3 diffs, HALT log)
+3c2c3ff5 HF-265 P2: orphaned-claim recovery, component retry (3 attempts), construction error surfacing
+8c01f18e HF-264: completion report (TTL + try/finally diffs, reclaim verification, HALT log)
+5b2c06fd HF-264 Phase 3: try/finally guard — claims always released on uncaught throws
+07a4d253 HF-264 Phase 2: TTL expiry on stale single-flight claims (5-minute threshold)
+d7497bf6 HF-260 Phase 1 (ADR / confirmation gate): HALT-1 — fetch failed + hang NOT caused by HF-258/259
+97fd2f36 HF-259 Phase 8: completion report + build verification
+2c534214 HF-259 Phase 4+5: idempotency (Q3) + audited supersession (Q6) + lifecycle UI
+```
+
+Introducing commit = `2c534214` (HF-259 Phase 4+5: idempotency (Q3) + audited supersession (Q6) + lifecycle UI). Hardening commits = `07a4d253` / `5b2c06fd` (HF-264).
+
+Anchor ancestry (exact command as specified):
+
+```
+$ git merge-base --is-ancestor 2c534214 d38d63553bddc079fab2cfda6f1fa2d178a2704a ; echo "exit: $?"
+exit: 0
+
+$ git merge-base --is-ancestor 07a4d253 d38d63553bddc079fab2cfda6f1fa2d178a2704a ; echo "exit: $?"
+exit: 0
+```
+
+DB-side constraint (migration source):
+
+```
+$ ls web/supabase/migrations/ | grep -i "hf259\|idempot"
+20260531000000_hf259_idempotency_lifecycle.sql
+
+$ grep -n "UNIQUE\|unique" web/supabase/migrations/20260531000000_hf259_idempotency_lifecycle.sql
+12:-- One row per (tenant, plan content hash). The UNIQUE constraint is the single-flight
+26:  UNIQUE (tenant_id, content_hash)               -- single-flight: one execution per content per tenant
+```
+
+Schema-reference divergence check:
+
+```
+$ grep -n "plan_interpretation_runs" /Users/AndrewAfrica/spm-platform/SCHEMA_REFERENCE_LIVE.md | head -5
+(no output — table absent from SCHEMA_REFERENCE_LIVE.md, generated 2026-03-18; migration is dated 2026-05-31)
+```
+
+Live DB verification — script source (web/scripts/diag/diag063_a6_dupe_guard_table.ts):
+
+```typescript
+// DIAG-063 / A6 — Duplicate-execution guard: live verification of plan_interpretation_runs
+// READ-ONLY: head:true counts only. No tenant names/slugs. No payout values.
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function count(label: string, status?: string) {
+  let q = supabase.from('plan_interpretation_runs').select('*', { count: 'exact', head: true });
+  if (status) q = q.eq('status', status);
+  const { count: c, error } = await q;
+  if (error) {
+    console.log(`${label}: ERROR ${error.code ?? ''} ${error.message}`);
+    return;
+  }
+  console.log(`${label}: ${c}`);
+}
+
+async function main() {
+  await count('plan_interpretation_runs total');
+  // status values are registry-derived from src/lib/sci/plan-idempotency.ts (claimRun/completeRun/failRun)
+  await count("status='completed'", 'completed');
+  await count("status='in_progress'", 'in_progress');
+  await count("status='failed'", 'failed');
+}
+
+main().catch((e) => { console.error('FATAL', e); process.exit(1); });
+```
+
+Script output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a6_dupe_guard_table.ts
+plan_interpretation_runs total: 7
+status='completed': 7
+status='in_progress': 0
+status='failed': 0
+```
+
+**GAP TO DEMO BAR:** None for plan-import duplicate execution. Guard located, introducing commit identified (`2c534214`), ancestry to the Phase-1 anchor confirmed (exit 0), DB-side UNIQUE constraint confirmed in migration source, and the live table verified populated with zero stranded `in_progress` claims. Remaining proof is browser-level: a second import of an identical plan file should log "HF-259 idempotent REUSE" and produce no second rule_set.
+
+**EFFORT SHAPE:** E0/E1 — no development effort. Code + DB evidence green (service `src/lib/sci/plan-idempotency.ts`, call site `src/lib/sci/plan-interpretation.ts`, table `plan_interpretation_runs` with UNIQUE(tenant_id, content_hash)); E1 residue is the architect browser action confirming the reuse path during the demo dry-run.
+
+# A7 — Persona switcher post-auth-rework trace
+
+**CURRENT STATE:** The persona switcher exists as a context-only impersonation bar (`src/components/persona/PersonaSwitcher.tsx`, OB-89), mounted by `src/components/layout/auth-shell.tsx` inside `PersonaProvider`, visible only to an authenticated VL Admin with a tenant selected. Switching calls `setPersonaOverride()` in `src/contexts/persona-context.tsx` — no signOut/signIn, no auth round-trip; override persists in `sessionStorage`. The chain's *login* identity input routes through the HF-282 canonical reader: `auth-context.tsx` → `fetchCurrentProfile()` (`src/lib/supabase/auth-service.ts:208`) → `resolveIdentity()` (`src/lib/auth/resolve-identity.ts:76`). However, the chain's *scope fetch* (triggered on every persona switch) reads `profiles` by `auth_user_id` directly with `.maybeSingle()` in `persona-context.tsx:163-168` — a divergent identity read outside `resolveIdentity()` — and passes `user.id` (which `mapProfileToUser` sets to `profiles.id`, not `auth_user_id`) as the filter value. Live DB shows 9 of 11 profiles rows have `id !== auth_user_id` (all tenant-role rows), and all 3 platform rows have `tenant_id` NULL while the read also filters `.eq('tenant_id', currentTenant.id)`; scope therefore resolves through the VL-Admin demo-sample fallback branches.
+
+**EVIDENCE:**
+
+## 1. Locating the switcher — stated search, full file list (99 files)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rni "persona\|demo.*switch\|switch.*user" src/ --include="*.ts" --include="*.tsx" -l
+src/types/alert.ts
+src/types/analytics.ts
+src/types/rbac.ts
+src/types/auth.ts
+src/types/permission.ts
+src/contexts/tenant-context.tsx
+src/types/cheques.ts
+src/contexts/persona-context.tsx
+src/contexts/navigation-context.tsx
+src/app/acceleration/page.tsx
+src/app/my-compensation/page.tsx
+src/app/test-ds/page.tsx
+src/app/financial/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/financial/summary/page.tsx
+src/app/configure/page.tsx
+src/app/configure/people/page.tsx
+src/app/stream/page.tsx
+src/app/workforce/permissions/page.tsx
+src/app/workforce/roles/page.tsx
+src/app/workforce/personnel/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/briefing/page.tsx
+src/app/perform/page.tsx
+src/app/api/insights/route.ts
+src/app/api/financial/data/route.ts
+src/app/api/intelligence/narrate/route.ts
+src/app/api/platform/agent-inbox/route.ts
+src/app/api/ai/assessment/route.ts
+src/app/performance/page.tsx
+src/app/approvals/page.tsx
+src/app/data/import/enhanced/page.tsx
+src/components/intelligence/index.ts
+src/components/layout/auth-shell.tsx
+src/components/intelligence/RepTrajectory.tsx
+src/components/intelligence/InsightPanel.tsx
+src/components/layout/TopBar.tsx
+src/components/intelligence/PersonalEarningsCard.tsx
+src/components/navigation/mission-control/UserIdentity.tsx
+src/components/navigation/ChromeSidebar.tsx
+src/components/navigation/mission-control/WorkspaceSwitcher.tsx
+src/components/permissions/UserPermissionCard.tsx
+src/components/layout/PersonaLayout.tsx
+src/components/navigation/Navbar.tsx
+src/components/navigation/mission-control/CycleIndicator.tsx
+src/components/agents/AgentInbox.tsx
+src/components/briefing/IndividualBriefing.tsx
+src/components/briefing/ManagerBriefing.tsx
+src/components/navigation/Sidebar.tsx
+src/components/briefing/AdminBriefing.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/navigation/mission-control/MissionControlRail.tsx
+src/components/dashboards/RepDashboard.tsx
+src/components/dashboards/ManagerDashboard.tsx
+src/components/persona/PersonaSwitcher.tsx
+src/components/design-system/AssessmentPanel.tsx
+src/components/design-system/index.ts
+src/lib/cheques-import-service.ts
+src/lib/financial/financial-data-service.ts
+src/lib/financial/cheque-import-service.ts
+src/lib/financial/financial-service.ts
+src/lib/financial/financial-constants.ts
+src/lib/intelligence/next-action-engine.ts
+src/hooks/useAgentInbox.ts
+src/lib/intelligence/insight-engine.ts
+src/lib/approval-routing/impact-calculator.ts
+src/lib/signals/stream-signals.ts
+src/lib/design/tokens.ts
+src/lib/intelligence/narration-service.ts
+src/lib/financial/types.ts
+src/lib/financial/cheque-parser.ts
+src/lib/intelligence/state-reader.ts
+src/lib/auth/mfa-route-guard.ts
+src/lib/training/milestones.ts
+src/lib/signals/briefing-signals.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/agents/types.ts
+src/lib/agents/runner.ts
+src/lib/navigation/navigation-signals.ts
+src/lib/navigation/workspace-config.ts
+src/lib/agents/registry.ts
+src/lib/permissions/role-templates.ts
+src/lib/navigation/role-workspaces.ts
+src/lib/agents/insight-agent.ts
+src/lib/compensation/pos-icm-bridge.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/ai/types.ts
+src/lib/data/persona-queries.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/ai/ai-service.ts
+src/lib/analytics/analytics-service.ts
+src/lib/design-system/tokens.ts
+```
+
+The single persona-switch entry point is proven by enumerating all `setPersonaOverride` call sites — only `PersonaSwitcher.tsx` invokes it:
+
+```
+$ grep -rn "setPersonaOverride" src/ --include="*.ts" --include="*.tsx"
+src/contexts/persona-context.tsx:37:  setPersonaOverride: (persona: PersonaKey | null) => void;
+src/contexts/persona-context.tsx:335:    setPersonaOverride: setOverride,
+src/components/persona/PersonaSwitcher.tsx:11: * - Clicking a persona chip calls setPersonaOverride() in persona-context
+src/components/persona/PersonaSwitcher.tsx:51:  const { persona, setPersonaOverride } = usePersona();
+src/components/persona/PersonaSwitcher.tsx:56:      setPersonaOverride(null);
+src/components/persona/PersonaSwitcher.tsx:58:      setPersonaOverride(key);
+src/components/persona/PersonaSwitcher.tsx:86:  }, [setPersonaOverride, router, pathname]);
+```
+
+## 2. Hop 0 — mount point
+
+```tsx
+// src/components/layout/auth-shell.tsx:205-227
+  // Authenticated user - show with or without shell based on route
+  if (!showShell) {
+    // OB-60: No PersonaSwitcher on Observatory (/select-tenant).
+    // The Observatory is exclusively for VL Platform Admin — persona
+    // switching only makes sense inside a tenant context on regular pages.
+    return <>{children}</>;
+  }
+
+  // HF-106: PeriodProvider removed from shell. Pages that need periods
+  // wrap themselves in <PeriodProvider> (e.g. /, /perform).
+  // Decision 92: Import surface has zero period API calls.
+  const shell = (
+    <NavigationProvider>
+      <AuthShellInner>{children}</AuthShellInner>
+      <PersonaSwitcher />
+    </NavigationProvider>
+  );
+
+  return (
+    <PersonaProvider>
+      {shell}
+    </PersonaProvider>
+  );
+}
+```
+
+## 3. Hop 1 — entry component + handler
+
+```tsx
+// src/components/persona/PersonaSwitcher.tsx:46-91
+export function PersonaSwitcher() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { currentTenant, isVLAdmin } = useTenant();
+  const { isAuthenticated } = useAuth();
+  const { persona, setPersonaOverride } = usePersona();
+
+  const handleSwitch = useCallback((key: PersonaKey) => {
+    // If clicking the derived default (admin for VL Admin), clear the override
+    if (key === 'admin') {
+      setPersonaOverride(null);
+    } else {
+      setPersonaOverride(key);
+    }
+
+    // OB-96: Workspace-aware navigation — stay in current workspace if accessible
+    const role = personaToRole(key);
+
+    // Detect current workspace from pathname
+    const currentWsId = Object.keys(WORKSPACES).find(wsId => {
+      const ws = WORKSPACES[wsId as WorkspaceId];
+      if (!ws?.sections) return false;
+      for (const section of ws.sections) {
+        for (const route of section.routes) {
+          if (pathname === route.path || pathname.startsWith(route.path + '/')) return true;
+        }
+      }
+      return false;
+    }) as WorkspaceId | undefined;
+
+    // If current workspace is accessible to new persona, stay on current page
+    if (currentWsId && canAccessWorkspace(role, currentWsId)) {
+      // Stay on current page — just re-render with persona-filtered data
+      return;
+    }
+
+    // Otherwise navigate to default workspace for this persona
+    const defaultWs = getDefaultWorkspace(role);
+    const ws = WORKSPACES[defaultWs];
+    router.push(ws.defaultRoute);
+  }, [setPersonaOverride, router, pathname]);
+
+  // Only visible to authenticated VL Admin with a tenant selected
+  if (!isAuthenticated || !isVLAdmin || !currentTenant) {
+    return null;
+  }
+```
+
+Component header confirms the architecture (no auth round-trip on switch):
+
+```tsx
+// src/components/persona/PersonaSwitcher.tsx:3-15
+/**
+ * Persona Switcher — Context-Only Impersonation (OB-89)
+ *
+ * Floating bar at the bottom of the screen for VL Admin to switch
+ * between persona views using context override ONLY.
+ *
+ * Architecture:
+ * - VL Admin is always the authenticated Supabase user (session unchanged)
+ * - Clicking a persona chip calls setPersonaOverride() in persona-context
+ * - Override changes: visual identity, intent framing, data scope perception
+ * - Override persists in sessionStorage across navigation
+ * - NO signOut/signIn. NO page reload. NO auth round-trip.
+ */
+```
+
+## 4. Hop 2 — handler target: override state in persona-context
+
+```tsx
+// src/contexts/persona-context.tsx:105-133
+export function PersonaProvider({ children }: { children: ReactNode }) {
+  const { user, capabilities } = useAuth();
+  const { currentTenant } = useTenant();
+
+  // OB-89: Persist persona override in sessionStorage so it survives navigation
+  const [override, setOverride] = useState<PersonaKey | null>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('vl_persona_override');
+      if (stored === 'admin' || stored === 'manager' || stored === 'rep') return stored;
+    }
+    return null;
+  });
+  const [scope, setScope] = useState<PersonaScope>({ entityIds: [], canSeeAll: false });
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [entityId, setEntityId] = useState<string | null>(null);
+
+  // OB-89: Sync override to sessionStorage
+  useEffect(() => {
+    if (override) {
+      sessionStorage.setItem('vl_persona_override', override);
+    } else {
+      sessionStorage.removeItem('vl_persona_override');
+    }
+  }, [override]);
+
+  // Derive persona from user profile
+  const derivedPersona = useMemo(() => derivePersona(user, capabilities), [user, capabilities]);
+  const persona = override ?? derivedPersona;
+  const tokens = PERSONA_TOKENS[persona];
+```
+
+## 5. Hop 3a — identity input `user`/`capabilities`: auth-context → fetchCurrentProfile
+
+```tsx
+// src/contexts/auth-context.tsx:199-217
+        // 3. Both session AND user confirmed — NOW fetch profile.
+        const profile = await fetchCurrentProfile();
+        if (profile && profile !== SESSION_ABSENT) {
+          setUser(mapProfileToUser(profile));
+          setCapabilities(profile.capabilities || []);
+          setProfileLocale(profile.locale);
+        }
+        // If profile is null (missing row) or SESSION_ABSENT, user stays null.
+        // AuthShellProtected will handle the redirect. Do NOT redirect here.
+
+        // 4. Set up auth listener for future sign-in/sign-out events
+        unsubscribe = onAuthStateChange(async (event) => {
+          if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            const p = await fetchCurrentProfile();
+            if (p && p !== SESSION_ABSENT) {
+              setUser(mapProfileToUser(p));
+              setCapabilities(p.capabilities || []);
+              setProfileLocale(p.locale);
+            }
+          } else if (event === 'SIGNED_OUT') {
+```
+
+## 6. Hop 3b — fetchCurrentProfile delegates to resolveIdentity (CANONICAL on this arm)
+
+```ts
+// src/lib/supabase/auth-service.ts:208-235
+export async function fetchCurrentProfile(): Promise<FetchProfileResult> {
+  try {
+    const supabase = createClient();
+
+    // HF-097: Use getUser() as the SOLE auth check.
+    // getSession() reads from cookies which may not be available immediately
+    // after signInWithPassword() — this caused "Account found but profile
+    // is missing" for VL Admin login. getUser() validates with the server
+    // and works reliably in all cases.
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      // HF-284: session absent at fetch time — distinct from a missing profile row.
+      // Emit on the client-capable path (logAuthEvent no-ops client-side) and return
+      // the typed sentinel so the login surface can say "session" not "profile."
+      void logAuthEventClient('identity.resolve.session_absent', { reason: userError?.message ?? 'no_user' });
+      return SESSION_ABSENT;
+    }
+
+    // HF-282: delegate to the canonical reader (resolveIdentity) — THE only
+    // sanctioned profiles-by-auth_user_id resolution. Array-tolerant, deterministic
+    // winner, alias-normalized, anomaly-logging. Public signature preserved (DD-7).
+    const identity = await resolveIdentity(supabase, user.id);
+    return classifyProfileFetch(user, identity);
+  } catch (err) {
+    console.error('[Auth] fetchCurrentProfile error:', err);
+    return null;
+  }
+}
+```
+
+## 7. Hop 3c — resolveIdentity (HF-282 canonical reader) and its contract
+
+```ts
+// src/lib/auth/resolve-identity.ts:1-20
+/**
+ * HF-282 Phase 1 — Canonical post-auth identity resolution.
+ *
+ * THE only sanctioned `profiles`-by-`auth_user_id` read. Architect disposition
+ * (2026-06-10): one auth user maps to exactly one profiles row; role inheritance
+ * is a presentation concern, never duplicate identity rows. SOC 2 CC6 (unique
+ * identification -> single authorization record).
+ *
+ * Contract:
+ *  - array-tolerant during the migration window (no `.single()` / `.maybeSingle()`
+ *    anywhere in this module — those ERROR on >1 row, which is the DIAG-060 defect);
+ *  - deterministic winner: first alias-normalized `platform` row, else first row
+ *    carrying the `manage_tenants` capability (retained for DD-7: existing
+ *    consumers fetchCurrentProfile/server-auth used this tiebreaker), else the
+ *    oldest row (created_at ascending);
+ *  - role compared via `resolveRole` (alias-normalized; NEVER raw literal equality
+ *    against `'vl_admin'`) — Korean Test / AP-25: zero account/email/tenant literals;
+ *  - loud on anomaly: query error / zero rows / duplicate rows each emit a named
+ *    `identity.resolve.*` event through the non-blocking logAuthEvent channel.
+ */
+```
+
+```ts
+// src/lib/auth/resolve-identity.ts:76-90
+export async function resolveIdentity(
+  client: SupabaseClient,
+  authUserId: string,
+): Promise<ResolvedIdentity | null> {
+  const { data: rows, error } = await client
+    .from('profiles')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .order('created_at', { ascending: true })
+    .limit(10);
+
+  if (error) {
+    // HF-284: emit via the client-capable path. resolveIdentity runs client-side on
+    // the login profile-fetch, where logAuthEvent no-ops (no service key) — which is
+    // why these two branches were silent on the browser path (DIAG-062 E6).
+```
+
+## 8. Hop 3d — visibility gate `isVLAdmin`: tenant-context → auth-context → types/auth
+
+```
+$ grep -n "isVLAdmin\|useAuth" src/contexts/tenant-context.tsx | head -5
+12:import { useAuth } from './auth-context';
+24:  isVLAdmin: boolean;
+119:  const { user, isVLAdmin: isAdmin, isLoading: authLoading } = useAuth();
+230:      isVLAdmin: isAdmin,
+```
+
+```tsx
+// src/contexts/auth-context.tsx:337
+  const isUserVLAdmin = user ? isVLAdmin(user) : false;
+```
+
+```ts
+// src/types/auth.ts:40-42
+export function isVLAdmin(user: User): user is VLAdminUser {
+  return user.role === 'platform';
+}
+```
+
+## 9. Hop 4 — scope fetch on switch: DIVERGENT identity read (recorded verbatim, not fixed)
+
+`fetchScope` runs in a `useEffect` keyed on `override` (the switch re-triggers it — HF-060 comment at persona-context.tsx:136). It reads `profiles` by `auth_user_id` directly, bypassing `resolveIdentity()`, using `.maybeSingle()` and an added `tenant_id` filter:
+
+```tsx
+// src/contexts/persona-context.tsx:159-184
+      try {
+        const supabase = createClient();
+
+        // Get the user's profile row to find profile_id
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_user_id', user!.id)
+          .eq('tenant_id', currentTenant!.id)
+          .maybeSingle();
+
+        let linkedEntityId: string | null = null;
+
+        if (profile) {
+          setProfileId(profile.id);
+
+          // Profile→entity linkage goes through entities.profile_id (not profiles.entity_id)
+          const { data: linkedEntity } = await supabase
+            .from('entities')
+            .select('id')
+            .eq('profile_id', profile.id)
+            .eq('tenant_id', currentTenant!.id)
+            .maybeSingle();
+
+          linkedEntityId = linkedEntity?.id ?? null;
+        }
+```
+
+Divergences from the HF-282 contract, verbatim:
+- `resolve-identity.ts:4` declares itself "THE only sanctioned `profiles`-by-`auth_user_id` read"; `persona-context.tsx:163-168` is a second `profiles`-by-`auth_user_id` read.
+- The contract states "no `.single()` / `.maybeSingle()` anywhere ... those ERROR on >1 row, which is the DIAG-060 defect" (`resolve-identity.ts:10-11`); the divergent read uses `.maybeSingle()` (`persona-context.tsx:168`).
+- The filter VALUE is `user!.id`, where `user` is built by `mapProfileToUser` with `id: profile.id` (profiles.id), not the auth user id:
+
+```tsx
+// src/contexts/auth-context.tsx:60-77
+function mapProfileToUser(profile: AuthProfile): User {
+  const capabilities = profile.capabilities || [];
+
+  // Platform admin: role is 'platform' or has manage_tenants capability
+  const isPlatformAdmin = profile.role === 'platform' || capabilities.includes('manage_tenants');
+
+  if (isPlatformAdmin) {
+    return {
+      id: profile.id,
+      email: profile.email,
+      name: profile.displayName,
+      role: 'platform',
+      tenantId: null,
+      accessLevel: capabilities.includes('manage_tenants') ? 'full' : 'readonly',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      avatar: profile.avatarUrl || undefined,
+    } as VLAdminUser;
+  }
+```
+
+```ts
+// src/lib/supabase/auth-service.ts:177-194 (AuthProfile.id = identity.id = profiles.id)
+export function classifyProfileFetch(
+  user: { id: string } | null | undefined,
+  identity: ResolvedIdentity | null,
+): FetchProfileResult {
+  if (!user) return SESSION_ABSENT;
+  if (!identity) return null;
+  return {
+    id: identity.id,
+    authUserId: identity.authUserId,
+    tenantId: identity.tenantId,
+    displayName: identity.displayName,
+    email: identity.email,
+    role: identity.role,
+    capabilities: identity.capabilities,
+    locale: identity.locale,
+    avatarUrl: identity.avatarUrl,
+  };
+}
+```
+
+So the query `profiles.auth_user_id = user.id` compares against a `profiles.id` value — a match occurs only on rows where `profiles.id === profiles.auth_user_id`.
+
+## 10. DB probe — id/auth_user_id alignment (SELECT-only, counts only)
+
+Schema authority check (`/Users/AndrewAfrica/spm-platform/SCHEMA_REFERENCE_LIVE.md:412-426`): `profiles` has `id` (uuid, default uuid_generate_v4()), `auth_user_id` (uuid NOT NULL), `tenant_id` (uuid nullable), `role` (text). Columns match the queries above.
+
+Script: `web/scripts/diag/diag063_a7_profiles_id_alignment.ts`
+
+```ts
+import { createClient } from '@supabase/supabase-js';
+
+async function main() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, auth_user_id, tenant_id, role');
+
+  if (error) {
+    console.error('query_error:', error.message);
+    process.exit(1);
+  }
+
+  const rows = data ?? [];
+  const eq = rows.filter((r) => r.id === r.auth_user_id).length;
+  const ne = rows.length - eq;
+
+  console.log('profiles total rows:', rows.length);
+  console.log('rows where id === auth_user_id:', eq);
+  console.log('rows where id !== auth_user_id:', ne);
+  console.log('rows with tenant_id IS NULL:', rows.filter((r) => r.tenant_id === null).length);
+
+  const byRole: Record<string, { id_eq_auth: number; id_ne_auth: number }> = {};
+  for (const r of rows) {
+    const k = String(r.role);
+    byRole[k] ??= { id_eq_auth: 0, id_ne_auth: 0 };
+    byRole[k][r.id === r.auth_user_id ? 'id_eq_auth' : 'id_ne_auth']++;
+  }
+  console.log('by role (id vs auth_user_id):', JSON.stringify(byRole, null, 2));
+}
+
+main();
+```
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_a7_profiles_id_alignment.ts
+profiles total rows: 11
+rows where id === auth_user_id: 2
+rows where id !== auth_user_id: 9
+rows with tenant_id IS NULL: 3
+by role (id vs auth_user_id): {
+  "platform": {
+    "id_eq_auth": 2,
+    "id_ne_auth": 1
+  },
+  "tenant_admin": {
+    "id_eq_auth": 0,
+    "id_ne_auth": 5
+  },
+  "admin": {
+    "id_eq_auth": 0,
+    "id_ne_auth": 1
+  },
+  "manager": {
+    "id_eq_auth": 0,
+    "id_ne_auth": 1
+  },
+  "sales_rep": {
+    "id_eq_auth": 0,
+    "id_ne_auth": 1
+  }
+}
+```
+
+Implications, stated structurally:
+- Every tenant-role row (tenant_admin/admin/manager/sales_rep: 8 rows) has `id !== auth_user_id`, so for those users the divergent lookup (`auth_user_id = profiles.id`) returns zero rows → `profileId`/`entityId` stay null.
+- The 2 rows with `id === auth_user_id` are `platform` rows; 3 rows have `tenant_id` NULL. The divergent read additionally filters `.eq('tenant_id', currentTenant.id)`, which excludes NULL-tenant platform rows — so for the VL Admin operating the switcher, the profile lookup also resolves null, and scope is produced by the explicit demo-override fallback branches (`persona-context.tsx:213-235` rep sample-individual; `persona-context.tsx:267-295` manager first-brand locations; `persona-context.tsx:187-193` admin canSeeAll). The switcher's persona/scope switching functions through these fallbacks; the profile-linkage arm of the scope fetch does not bind under current data.
+- Related code comment (different surface, recorded for context): `auth-service.ts:201-206` (HF-097) — "VL Admin has tenant_id = NULL ... DO NOT add tenant_id filters to the login profile fetch."
+
+## 11. Adjacent-arm sweep — every `profiles`-by-`auth_user_id` query site (E952)
+
+```
+$ grep -rn "eq('auth_user_id'" src/ --include="*.ts" --include="*.tsx" | grep -v "__tests__"
+src/contexts/persona-context.tsx:166:          .eq('auth_user_id', user!.id)
+src/contexts/locale-context.tsx:115:          .eq('auth_user_id', user.id);
+src/app/auth/callback/route.ts:55:    .eq('auth_user_id', session.user.id)
+src/app/api/auth/log-event/route.ts:64:            .eq('auth_user_id', user.id)
+src/app/api/ingest/classification/route.ts:26:      .eq('auth_user_id', user.id)
+src/app/api/ingest/setup/route.ts:39:      .eq('auth_user_id', user.id)
+src/app/api/ingest/event/route.ts:24:      .eq('auth_user_id', user.id)
+src/app/api/ingest/event/[eventId]/status/route.ts:29:      .eq('auth_user_id', user.id)
+src/app/api/platform/settings/route.ts:27:      .eq('auth_user_id', user.id)
+src/app/api/platform/settings/route.ts:63:      .eq('auth_user_id', user.id)
+src/app/api/platform/observatory/route.ts:49:      .eq('auth_user_id', user.id)
+src/app/api/platform/tenant-config/route.ts:31:      .eq('auth_user_id', user.id)
+src/app/api/platform/tenants/[tenantId]/modules/route.ts:27:      .eq('auth_user_id', user.id)
+src/app/api/platform/tenants/create/route.ts:25:      .eq('auth_user_id', user.id)
+src/app/api/platform/users/invite/route.ts:53:      .eq('auth_user_id', user.id)
+src/app/api/platform/users/invite/route.ts:172:        .eq('auth_user_id', authUserId)
+src/app/api/admin/tenants/create/route.ts:26:      .eq('auth_user_id', user.id)
+src/app/api/lifecycle/transition/route.ts:72:      .eq('auth_user_id', user.id)
+src/app/api/ai/metrics/route.ts:31:        .eq('auth_user_id', user.id)
+src/app/api/ai/calibration/route.ts:31:        .eq('auth_user_id', user.id)
+src/app/api/users/update-role/route.ts:37:      .eq('auth_user_id', user.id)
+src/app/api/approvals/route.ts:30:      .eq('auth_user_id', user.id)
+src/app/api/approvals/route.ts:115:      .eq('auth_user_id', user.id)
+src/app/api/approvals/[id]/route.ts:40:      .eq('auth_user_id', user.id)
+src/app/performance/adjustments/page.tsx:136:        .eq('auth_user_id', user.id)
+src/scripts/create-demo-users.ts:77:      .eq('auth_user_id', authUserId).eq('tenant_id', tenant.id).maybeSingle();
+src/lib/auth/resolve-identity.ts:83:    .eq('auth_user_id', authUserId)
+src/lib/supabase/auth-service.ts:88:    .eq('auth_user_id', user.id)
+```
+
+Total: 28 sites (excluding tests). 1 is the canonical reader itself (`resolve-identity.ts:83`); 27 are outside it. The site inside this probe's chain is `persona-context.tsx:166`. The others are adjacent arms (API route guards, locale fetch, auth callback, logout tenant resolution at `auth-service.ts:85-90`, a demo-users script) — enumerated here per E952; only the in-chain site is traced above. Note the API-route sites filter on the server-derived `user.id` from `supabase.auth.getUser()` (a true auth user id), unlike `persona-context.tsx:166` which passes the mapped client `user.id` (= profiles.id).
+
+## 12. Downstream consumers of the scope fetch outputs
+
+Files consuming `usePersona()` together with `profileId`/`entityId` tokens (file-level list):
+
+```
+$ grep -rn "profileId\|entityId" src/ --include="*.tsx" --include="*.ts" -l | xargs grep -ln "usePersona" | sort
+src/app/financial/leakage/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/summary/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/my-compensation/page.tsx
+src/app/stream/page.tsx
+src/components/dashboards/ManagerDashboard.tsx
+src/components/dashboards/RepDashboard.tsx
+src/contexts/persona-context.tsx
+```
+
+**GAP TO DEMO BAR:** The switcher mechanism (chip → `setPersonaOverride` → sessionStorage override → scope recalculation via demo-sample fallbacks → workspace-aware navigation) is fully present in code and mounted in the authenticated shell; the remaining proof for "persona switcher works" is a live browser persona-switch on production. Separately, the chain's scope-fetch identity read diverges from the HF-282 canonical reader (recorded as a finding, not repaired): direct `profiles`-by-`auth_user_id` read with `.maybeSingle()` at `persona-context.tsx:163-168`, filter value `user.id` = profiles.id, plus a `tenant_id` filter that excludes NULL-tenant platform rows — under current data (11 rows) this arm resolves null for every user and all scope comes from the fallback branches.
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY for the switcher capability — code and DB evidence green for the override mechanism (`PersonaSwitcher.tsx`, `persona-context.tsx`, `auth-shell.tsx`); remaining proof is an architect browser action (live persona-switch on production). The recorded divergent identity read, if remediation were later commissioned, has the structural shape of one context change (`src/contexts/persona-context.tsx` scope fetch keyed by `resolveIdentity()`-provided `authUserId`/`profileId` instead of a second direct `profiles` read) — recorded for completeness, not performed (HALT-2/no-fixes).
+
+## Module B — Surfacing-Effort Definition
+
+# B1 — Five layers of proof, user accessibility
+
+**CURRENT STATE:** The admin side of the drill-down ladder is built and named "Five Layers of Proof": `/operate/results` and `/operate/calculate` render total → components → component-detail → metrics with per-entity expansion and "Full Trace" links into `/investigate/trace/[entityId]`. The single surface that exposes ALL four probe layers (total → components → inputs → source rows) is `/perform/statements`, which reads `calculation_results` (total + components JSONB) and `committed_data` (source rows) — but it is absent from the active navigation (ChromeSidebar/workspace-config), has no role scoping (entity picker over all entities for any authenticated user; RLS on these tables is tenant-scoped only), and its per-component "Details" inputs column is empty in live data (all 4 tenants' latest results persist `details: {}`). The rep's only nav-reachable surface is `/stream`, which shows total + component breakdown and stops. `calculation_traces` (the formula/steps layer) exists as schema with a reader and a writer function, but the writer has zero call sites and the table holds 0 rows; trace UI is fed instead from `calculation_results.metadata.intentTraces`.
+
+## EVIDENCE
+
+### 1. Mandated grep #1 — result-detail routes (complete hit list, 22 files)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rln "calculation" src/app --include="page.tsx"
+src/app/insights/page.tsx
+src/app/insights/my-team/page.tsx
+src/app/my-compensation/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/configure/periods/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/stream/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/briefing/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/app/data/operations/page.tsx
+src/app/perform/page.tsx
+src/app/data/import/enhanced/page.tsx
+```
+
+### 2. Mandated grep #2 — trace/drill/breakdown surfaces (complete hit list, 45 files)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "trace\|drill\|breakdown" src/ --include="*.tsx"
+src/app/insights/analytics/page.tsx
+src/app/insights/sales-finance/page.tsx
+src/app/insights/performance/page.tsx
+src/app/my-compensation/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/financial/summary/page.tsx
+src/app/insights/page.tsx
+src/app/insights/trends/page.tsx
+src/app/financial/products/page.tsx
+src/app/stream/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/components/reconciliation/ReconciliationTracePanel.tsx
+src/components/calculate/PlanCard.tsx
+src/components/calculate/PlanResults.tsx
+src/components/intelligence/RepTrajectory.tsx
+src/components/intelligence/ComponentBreakdownCard.tsx
+src/components/platform/PlatformObservatory.tsx
+src/components/platform/IngestionTab.tsx
+src/components/sci/SCIExecution.tsx
+src/components/forensics/ExecutionTraceView.tsx
+src/components/forensics/AggregateBar.tsx
+src/components/transactions/transaction-detail-modal.tsx
+src/components/forensics/EmployeeTrace.tsx
+src/components/compensation/CalculationBreakdown.tsx
+src/components/results/NarrativeSpine.tsx
+src/components/compensation/ComponentBreakdownCard.tsx
+src/components/canvas/panels/CpiVisualization.tsx
+src/components/briefing/AdminBriefing.tsx
+src/components/results/ResultsHero.tsx
+src/components/dashboards/RepDashboard.tsx
+src/components/briefing/IndividualBriefing.tsx
+src/components/approvals/impact-rating-badge.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/analytics/ExportDialog.tsx
+src/components/design-system/ImpactRatingBadge.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/design-system/ComponentStack.tsx
+```
+(45 files; file-level list complete.)
+
+### 3. Audience determination — middleware + page gates + active navigation
+
+Middleware gates by path prefix → capability (src/lib/auth/permissions.ts:295-316):
+
+```
+src/lib/auth/permissions.ts:295
+export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
+  '/admin': 'platform.system_config',
+  '/operate': 'data.import',
+  '/configure': 'tenant.edit_settings',
+  '/configuration': 'tenant.edit_settings',
+  '/govern': 'data.approve_results',
+  '/data': 'data.import',
+  '/financial': 'view.team_results',
+};
+export function canAccessWorkspace(role: string, pathname: string): boolean {
+  const matchedWorkspace = Object.keys(WORKSPACE_CAPABILITIES)
+    .filter(prefix => pathname.startsWith(prefix))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!matchedWorkspace) return true; // Unrestricted path
+  return hasCapability(role, WORKSPACE_CAPABILITIES[matchedWorkspace]);
+}
+```
+Member (sales_rep alias) capability set (src/lib/auth/permissions.ts:196-203): `view.own_results`, `view.intelligence_stream`, `dispute.submit`, `statement.view`. No `view.team_results`/`view.all_results`/`data.*`. So middleware blocks reps from /admin, /operate(+/operations via prefix match), /configure, /govern, /data, /financial. `/perform`, `/my-compensation`, `/insights`, `/investigate`, `/stream`, `/performance` are middleware-unrestricted ("Unrestricted path" branch).
+
+Page-level gates (complete enumeration):
+
+```
+$ grep -rn "RequireCapability" src/app --include="*.tsx" | grep -v "import"
+src/app/configure/users/page.tsx:321:    <RequireCapability capability="tenant.manage_users">
+src/app/configure/users/page.tsx:323:    </RequireCapability>
+src/app/configure/users/invite/page.tsx:301:    <RequireCapability capability="tenant.manage_users">
+src/app/configure/users/invite/page.tsx:303:    </RequireCapability>
+src/app/configure/people/page.tsx:293:    <RequireCapability capability="view.all_entities">
+src/app/configure/people/page.tsx:295:    </RequireCapability>
+src/app/admin/launch/calculate/page.tsx:1120:    <RequireCapability capability="data.calculate">
+src/app/admin/launch/calculate/page.tsx:1122:    </RequireCapability>
+src/app/operate/calculate/page.tsx:939:    <RequireCapability capability="data.calculate">
+src/app/operate/calculate/page.tsx:941:    </RequireCapability>
+src/app/operate/pay/page.tsx:338:    <RequireCapability capability="data.export">
+src/app/operate/pay/page.tsx:340:    </RequireCapability>
+src/app/operate/results/page.tsx:812:    <RequireCapability capability="view.all_results">
+src/app/operate/results/page.tsx:814:    </RequireCapability>
+src/app/govern/calculation-approvals/page.tsx:293:    <RequireCapability capability="data.approve_results">
+src/app/govern/calculation-approvals/page.tsx:295:    </RequireCapability>
+```
+`/perform/statements`, `/my-compensation`, `/investigate/trace/[entityId]` have NO RequireCapability gate.
+
+Active navigation: root layout → AuthShell → ChromeSidebar (src/components/layout/auth-shell.tsx:10,39) → `WORKSPACES` in src/lib/navigation/workspace-config.ts. The perform workspace contains exactly two routes:
+
+```
+src/lib/navigation/workspace-config.ts:36-52 (perform.sections)
+  { path: '/stream', ... roles: ['platform','admin','manager','sales_rep'], requiredCapability: 'view.intelligence_stream' },
+  { path: '/operate/results', ... roles: ['platform','admin','manager'], requiredCapability: 'view.all_results' },
+```
+`getWorkspaceRoutesForRole` (workspace-config.ts:234-247) filters on requiredCapability first — so manager (has view.team_results, not view.all_results) is also filtered out of the Results nav entry. Searches for statement routes in nav config:
+
+```
+$ grep -n "my-compensation\|statements\|perform/" src/lib/navigation/workspace-config.ts
+(no output)
+$ grep -rn "perform/statements" src/ --include="*.tsx" --include="*.ts"
+(no output — zero inbound links anywhere)
+$ grep -rn '"/perform"' src/ --include="*.tsx" --include="*.ts" | grep -v "perform/"
+(no output — zero inbound links to /perform)
+$ grep -rn "from.*navigation/Sidebar\|import.*{ *Sidebar" src/ --include="*.tsx" | grep -v ChromeSidebar
+(no output — legacy Sidebar.tsx, the only file linking /my-compensation, is mounted nowhere)
+```
+
+Inbound links to the trace surface (complete):
+
+```
+$ grep -rn "investigate/trace" src/ --include="*.tsx" --include="*.ts"
+src/app/investigate/trace/[entityId]/page.tsx:7: * Route: /investigate/trace/[entityId]
+src/app/admin/launch/calculate/page.tsx:903:  router.push(`/investigate/trace/${r.entity_id}?from=calculate`);
+src/app/operate/results/page.tsx:692:  router.push(`/investigate/trace/${row.entityId}?from=results`);
+src/components/calculate/PlanResults.tsx:364:  router.push(`/investigate/trace/${row.entityId}?from=calculate`);
+src/components/results/NarrativeSpine.tsx:287:  href={`/investigate/trace/${entity.entityId}?from=results`};
+```
+All four link sources are admin-gated surfaces.
+
+### 4. Surface inventory (one line per surface; layers: L1 total → L2 components → L3 inputs → L4 source rows)
+
+| Route | Audience (gate) | Layers exposed |
+|---|---|---|
+| /operate/results | admin/platform (page: view.all_results; middleware: data.import) | L1→L2→L3 (goal/actual/attainment/formula/rate from `details`, metrics JSONB) + Full Trace link; no L4 |
+| /operate/calculate | admin/platform (page: data.calculate) | DS-007 "Five Layers": Hero+Heatmap+PopulationHealth+EntityTable+NarrativeSpine; trace links; no L4 |
+| /admin/launch/calculate | platform (middleware: platform.system_config; page: data.calculate) | L1→L2 + per-entity intentTraces expansion + trace link |
+| /admin/launch/calculate/diagnostics | platform | prerequisites only (no result layers) |
+| /investigate/trace/[entityId] | ungated (no middleware prefix, no page gate); linked only from admin surfaces | L2→L3→steps from calculation_traces (live: 0 rows) + metadata.intentTraces (live: present) |
+| /operate/reconciliation | admin (data.reconcile nav / data.import middleware) | benchmark-vs-result comparison incl. ReconciliationTracePanel |
+| /govern/calculation-approvals | admin+manager (data.approve_results) | approval items with component breakdown (L1→L2) |
+| /operate/pay | admin (page: data.export) | aggregate payroll L1 only |
+| /operate, /operate/lifecycle, /operations/rollback, /data/operations, /data/import/enhanced, /configure/periods | admin | operational context, no statement drill-down |
+| /operate/briefing | — | redirect → /stream |
+| /stream | ALL roles incl. rep (nav-reachable; default landing) | rep persona: L1 personalEarnings + L2 componentBreakdown (intelligence-stream-loader.ts buildRepData); no L3/L4 |
+| /perform | all roles, URL-only (zero inbound links; workspace defaultRoute is /stream) | rep: L1 + L2 via RepDashboard (component values key-mismatched, see §7) |
+| /my-compensation | rep-targeted, URL-only (only link is in unmounted legacy Sidebar.tsx) | L1+L2 intended; own-entity match defective (see §7) |
+| /perform/statements | any authenticated user, URL-only (no nav entry, no page gate, no role scoping) | **L1+L2+L3(column, live-empty)+L4 source rows** — the only all-layer surface |
+| /insights, /insights/my-team, /financial/* | mixed (financial: manager+) | aggregate analytics / financial module, not statement drill-down |
+
+### 5. /perform/statements — the all-layers surface (and its scoping)
+
+```
+src/app/perform/statements/page.tsx:14-21 (header comment)
+ * Entity scoping:
+ *   Admin: entity picker (all entities)
+ *   Manager: team entities
+ *   Rep: own entity only (via profile link or URL param)
+```
+Code shows NO role branch — entity list is loaded unconditionally for every user and the first entity is auto-selected:
+
+```
+src/app/perform/statements/page.tsx:106-111,143-145
+    const [entitiesRes, periodsRes, batchesRes] = await Promise.all([
+      supabase.from('entities').select('id, external_id, display_name')
+        .eq('tenant_id', tenantId).order('external_id'),
+    ...
+    if (!selectedEntityId && entitiesRes.data?.length) {
+      setSelectedEntityId(entitiesRes.data[0].id);
+    }
+```
+Layers: L1 total (`calculation_results.total_payout`, line 183-188, 417-443), L2 component table reading `comp.payout` (lines 461-478), L3 "Details" column from `comp.details` via formatComponentDetail (lines 582-602), L4 source rows from committed_data (lines 230-245, rendered 532-570):
+
+```
+src/app/perform/statements/page.tsx:230-237
+    // Load source transactions
+    const { data: txns } = await supabase
+      .from('committed_data')
+      .select('data_type, source_date, row_data')
+      .eq('tenant_id', tenantId)
+      .eq('entity_id', selectedEntityId)
+      .order('source_date', { ascending: false })
+      .limit(50);
+```
+(Note: source rows are entity-scoped but NOT period-scoped — last 50 rows regardless of selected period.)
+
+RLS on the read tables is tenant-scoped only (no entity/role predicate), so the unscoped picker works for any member of the tenant:
+
+```
+web/supabase/migrations/003_data_and_calculation.sql:169-172
+CREATE POLICY "calculation_results_select_tenant" ON calculation_results
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+web/supabase/migrations/003_data_and_calculation.sql:65-68
+CREATE POLICY "committed_data_select_tenant" ON committed_data
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+```
+(Later migrations 006 / 20260610180000 only add platform-role cross-tenant policies for these tables.)
+
+### 6. Trace layer — table exists, writer never called, UI reads metadata instead
+
+```
+$ grep -rn "writeCalculationTraces" src/ --include="*.ts" --include="*.tsx"
+src/lib/supabase/calculation-service.ts:423:export async function writeCalculationTraces(
+```
+One hit = definition only; zero call sites. Reader `getCalculationTraces` (calculation-service.ts:458-470) is called only by /investigate/trace/[entityId]/page.tsx:52. The intent-path orchestrator persists traces into result metadata instead:
+
+```
+src/app/api/calculation/run/route.ts:2530,2609,2710
+    const intentTraces: unknown[] = [];
+      intentTraces.push(intentResult.trace);
+        intentTraces,            // ← written into calculation_results.metadata
+```
+
+### 7. Rep-surface data-shape mismatches (code vs persisted shape)
+
+Engine persists components as `{componentId, componentName, componentType, payout, details}`:
+
+```
+src/lib/calculation/run-calculation.ts:1471-1477
+      components: componentResults.map(c => ({
+        componentId: c.componentId,
+        componentName: c.componentName,
+        componentType: c.componentType,
+        payout: c.payout,
+        details: c.details,
+      })) as unknown as Json,
+```
+/my-compensation reads keys that are not in that shape, and matches the rep by email-derived id against a uuid column:
+
+```
+src/app/my-compensation/page.tsx:63-69,112,144,168
+function extractEmployeeId(email: string | undefined): string | null {
+  ...  const match = email.match(/^(\d+)@/);  ...
+}
+    const entityId = extractEmployeeId(user.email);
+          const match = calcResults.find((r) => r.entity_id === entityId);   // entity_id is uuid (DB-verified below)
+                  outputValue: Number(comp.outputValue || comp.output_value || 0),  // persisted key is 'payout'
+```
+```
+src/components/compensation/ComponentBreakdownCard.tsx:104
+            const attainment = comp.inputs.attainment * 100;   // 'inputs' absent from persisted component shape
+```
+```
+src/lib/data/persona-queries.ts:484-490 (RepDashboard path)
+  return components.map((c) => {
+    ...
+      value: typeof comp.value === 'number' ? comp.value : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
+```
+/operate/results and /perform/statements and intelligence-stream-loader handle the `payout` key correctly (operate/results/page.tsx:155 `comp.outputValue || comp.output_value || comp.payout`; statements page reads `comp.payout`; stream loader uses `c.payout`).
+
+### 8. DB probe — layer data existence (script + verbatim output)
+
+Script: web/scripts/diag/diag063_b1_drilldown_layers.ts (read-only; counts/UUIDs/key-names only). Run:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b1_drilldown_layers.ts
+── table counts (global) ──
+calculation_batches: 15
+calculation_results: 943
+calculation_traces: 0
+committed_data: 416258
+entities: 22148
+
+── calculation_results sample (3 most recent; structure only) ──
+{
+  "result_id": "51e60d70-171a-414d-a6f9-6ac418639b31",
+  "tenant_id": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
+  "batch_id": "69d5614f-9784-42e4-b328-8418be6fbaed",
+  "entity_id": "0040a5e7-c821-4a89-933e-11845de6e9d2",
+  "entity_id_is_uuid": true,
+  "created_at": "2026-06-11T19:32:40.75149+00:00",
+  "components_count": 4,
+  "first_component_keys": ["componentId","componentName","componentType","details","payout"],
+  "first_component_details_keys": [],
+  "metrics_top_level_key_count": 10,
+  "metadata_keys": ["binding_snapshot","entityName","externalId","intentTotal","intentTraces","roundingTrace"],
+  "metadata_intentTraces_count": 4
+}
+(rows 2 and 3 identical in structure: entity_id_is_uuid true, same component keys, details keys [], 10 metric keys, 4 intentTraces)
+
+── drill-down availability for most recent result ──
+calculation_traces rows for result 51e60d70-171a-414d-a6f9-6ac418639b31: 0
+committed_data rows for entity 0040a5e7-c821-4a89-933e-11845de6e9d2 (source-row layer): 1
+{"entity_row_found":true,"entity_id":"0040a5e7-c821-4a89-933e-11845de6e9d2","external_id_is_numeric":false,"external_id_equals_entity_id":false}
+```
+
+Script: web/scripts/diag/diag063_b1_trace_shape.ts (keys only):
+
+```
+result_id: 51e60d70-171a-414d-a6f9-6ac418639b31
+component[0] details keys: []
+component[1] details keys: []
+component[2] details keys: []
+component[3] details keys: []
+intentTraces[0] keys: ["componentIndex","componentType","confidence","entityId","finalOutcome","inputs","modifiers"]
+  intentTraces[0].inputs keys: []
+  intentTraces[0].modifiers: array length 0
+```
+
+Script: web/scripts/diag/diag063_b1_details_by_tenant.ts (latest result per tenant):
+
+```
+distinct tenants with calculation_results: 4
+{"tenant_id":"03d28288-700b-43e3-a96b-49a4f849d2df","latest_result_id":"26b0f07a-5a8a-4001-bb52-c4a2312f1f6c","created_at":"2026-06-11T16:56:15.205294+00:00","components":5,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":5}
+{"tenant_id":"5035b1e8-0754-4527-b7ec-9f93f85e4c79","latest_result_id":"3366e422-269e-479c-94d0-079a3eeba4cf","created_at":"2026-06-10T00:36:32.686529+00:00","components":5,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":5}
+{"tenant_id":"b1c2d3e4-aaaa-bbbb-cccc-111111111111","latest_result_id":"51e60d70-171a-414d-a6f9-6ac418639b31","created_at":"2026-06-11T19:32:40.75149+00:00","components":4,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":4}
+{"tenant_id":"f7093bcc-e90b-4918-9680-69da7952dd65","latest_result_id":"e7d390d0-f549-4020-8f59-f81435a28b6d","created_at":"2026-06-03T06:03:04.391603+00:00","components":0,"components_with_nonempty_details":0,"sample_details_keys":[],"intentTraces_count":0}
+```
+Schema cross-check: SCHEMA_REFERENCE_LIVE.md lines 101-135 confirms calculation_results (12 cols incl. components/metrics/attainment/metadata JSONB) and calculation_traces (9 cols incl. formula/inputs/output/steps). Observed keys match; no divergence.
+
+### 9. Layer reachability — rep vs admin vs data-only (the gap statement)
+
+- **Rep, nav-reachable TODAY:** L1 total + L2 components, via /stream only (buildRepData: personalEarnings + componentBreakdown, correct `payout` key). The ladder STOPS at L2; no inputs, no source rows, no trace.
+- **Rep, URL-only TODAY:** /perform/statements gives L1+L2+L4 working (L3 column present but live `details` empty); /my-compensation and /perform exist but their result-matching/parsing does not align with the persisted shape (§7), so component amounts render empty/zero.
+- **Admin-only:** /operate/results (L1→L3 + trace link), /operate/calculate (five-layer DS-007), /admin/launch/calculate; all trace links into /investigate/trace originate from these.
+- **Data-only (no populated UI path):** calculation_traces formula/steps layer (0 rows, writer uncalled); components[].details (key persisted, empty across all 4 tenants' latest results); calculation_results.metrics (10 keys live; rendered only inside admin /operate/results L2 panel).
+
+## GAP TO DEMO BAR
+
+A rep can reach total and component breakdown from /stream today, but no navigation path exists from a rep's own statement to inputs or source rows: the one all-layer surface (/perform/statements) is unlinked from the active chrome, unscoped (any tenant member can open any entity's statement and source rows — UI and RLS both), and its inputs column is empty in live data. The dedicated rep statement page (/my-compensation) does not match results in the persisted shape (uuid entity_id vs email-derived id; `outputValue` vs `payout`). The formula-level trace layer exists as schema + reader + viewer components but has no writer call site and 0 rows; trace UI substance currently comes from metadata.intentTraces, whose `inputs` object is also empty in the sampled live row.
+
+## EFFORT SHAPE
+
+Split: **rep statement reachability E2-SURFACE / formula-inputs trace layer E3-COMPOSE.**
+- E2 (make L1/L2/L4 rep-reachable): add a perform-workspace route entry in `src/lib/navigation/workspace-config.ts` (e.g. "My Statement" → /perform/statements, requiredCapability `statement.view` — capability already defined and granted to member in src/lib/auth/permissions.ts); add own-entity scoping inside `src/app/perform/statements/page.tsx` composing the existing persona-context entity resolution (src/contexts/persona-context.tsx profiles → entities.profile_id linkage) and gating the all-entities picker behind `hasCapability('view.all_results'|'view.team_results')`. No new tables, no new services — tables calculation_results, committed_data, entities, periods already serve the page.
+- E3 (rep-visible inputs/trace layer): either wire the existing-but-uncalled `writeCalculationTraces` (src/lib/supabase/calculation-service.ts:423) into the run orchestrator (src/app/api/calculation/run/route.ts) so /investigate/trace's EmployeeTrace has rows, or compose the existing `ExecutionTraceView` (src/components/forensics/ExecutionTraceView.tsx) + metadata.intentTraces into the statement page — plus populating components[].details / intentTraces.inputs at write time (service-layer work in the calculation route).
+
+# B2 — Individual commission statements
+
+### B2 — Individual commission statements
+
+**CURRENT STATE:** A commission-statement page exists at route `/perform/statements` (`src/app/perform/statements/page.tsx`, 611 lines, OB-171 MC#1). It renders, per selected entity and period: a Total Payout card with lifecycle-state badge, a Component Breakdown table (component name, payout, % of total, details column), a multi-period trajectory strip, and a collapsible source-transactions table — all read client-side via the browser supabase client from `calculation_batches`, `calculation_results` (the `components` JSONB), `entities`, `periods`, and `committed_data`. Live DB holds 15 batches / 943 results whose `components` JSONB matches the page's expected shape exactly. However: the route is referenced nowhere in any navigation registry or sidebar (direct-URL only); the page implements no rep scoping despite its docstring claim (it loads ALL tenant entities and shows the picker unconditionally); and every live component entry is `componentType: "prime_dag"` with empty `details`, which the page's detail formatter renders as an explicit "not supported in statement display" label.
+
+**EVIDENCE:**
+
+#### 1. File sweep (complete list)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "statement" src/ --include="*.ts" --include="*.tsx" | sort
+src/app/financial/page.tsx
+src/app/financial/summary/page.tsx
+src/app/perform/statements/page.tsx
+src/components/compensation/QuickActionsCard.tsx
+src/lib/auth/permissions.ts
+src/lib/domain/domains/franchise.ts
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/rbac/rbac-service.ts
+src/lib/sci/proposal-intelligence.ts
+```
+
+Per-file hit counts (`grep -rnic`, zero-count files omitted):
+
+```
+src/app/financial/page.tsx:1
+src/app/financial/summary/page.tsx:1
+src/app/perform/statements/page.tsx:30
+src/components/compensation/QuickActionsCard.tsx:1
+src/lib/auth/permissions.ts:12
+src/lib/domain/domains/franchise.ts:1
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts:1
+src/lib/navigation/compensation-clock-service.ts:1
+src/lib/rbac/rbac-service.ts:1
+src/lib/sci/proposal-intelligence.ts:1
+```
+
+Line-level hits for all non-page files (complete):
+
+```
+src/lib/navigation/compensation-clock-service.ts:237:    case 'closed': return isSpanish ? 'Ver Estado de Cuenta' : 'View Statement';
+src/lib/rbac/rbac-service.ts:440:    compensation: ['plans', 'payouts', 'statements'],
+src/lib/auth/permissions.ts:55:  // Statement
+src/lib/auth/permissions.ts:56:  | 'statement.view'
+src/lib/auth/permissions.ts:133:    // Statement
+src/lib/auth/permissions.ts:134:    'statement.view',
+src/lib/auth/permissions.ts:167:    // Statement
+src/lib/auth/permissions.ts:168:    'statement.view',
+src/lib/auth/permissions.ts:188:    // Statement
+src/lib/auth/permissions.ts:189:    'statement.view',
+src/lib/auth/permissions.ts:200:    // Statement
+src/lib/auth/permissions.ts:201:    'statement.view',
+src/lib/auth/permissions.ts:208:    // Statement
+src/lib/auth/permissions.ts:209:    'statement.view',
+src/lib/intelligence/__tests__/adaptive-emergence.test.ts:89:  // Search for import statements only (not comments referencing the prior file).
+src/components/compensation/QuickActionsCard.tsx:10:      label: 'Download Statement',
+src/lib/sci/proposal-intelligence.ts:38:// Discrete facts about the data structure. Each is a falsifiable statement.
+src/app/financial/page.tsx:176:      desc: isSpanish ? 'Estado de resultados consolidado del período' : 'Consolidated period income statement',
+src/app/financial/summary/page.tsx:226:          <CardTitle>Operating Statement</CardTitle>
+```
+
+Non-statement-surface hits classified: franchise.ts / financial pages / proposal-intelligence / adaptive-emergence test are "financial statement" / "income statement" / prose usages — not a rep commission-statement surface. The only statement surface is `src/app/perform/statements/page.tsx`.
+
+#### 2. Core statement page — intent docstring
+
+```
+src/app/perform/statements/page.tsx:3-21
+/**
+ * Commission Statement Page — Entity-scoped payout + component breakdown
+ *
+ * OB-171: MC#1 (Individual Commission Statements)
+ *
+ * Five Elements:
+ *   Value:      Total payout for entity in period
+ *   Context:    Component breakdown with metric details
+ *   Comparison: Lifecycle status, % of total per component
+ *   Action:     Switch period, view entity picker (admin)
+ *   Impact:     What advancing lifecycle produces
+ *
+ * Entity scoping:
+ *   Admin: entity picker (all entities)
+ *   Manager: team entities
+ *   Rep: own entity only (via profile link or URL param)
+ *
+ * Domain-agnostic: component names from rule_sets, entity names from entities.
+ */
+```
+
+#### 3. Core statement data fetch (browser supabase client; no API route, no service layer)
+
+```
+src/app/perform/statements/page.tsx:164-211 (trimmed to the two core queries)
+    const supabase = createClient();
+
+    // Get latest batch for this period
+    const { data: batches } = await supabase
+      .from('calculation_batches')
+      .select('id, lifecycle_state')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', selectedPeriodId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!batches?.length) {
+      setStatement(null);
+      return;
+    }
+
+    const batch = batches[0];
+
+    // Get calculation result for this entity in this batch
+    const { data: results } = await supabase
+      .from('calculation_results')
+      .select('total_payout, components, metrics, attainment')
+      .eq('batch_id', batch.id)
+      .eq('entity_id', selectedEntityId)
+      .limit(1);
+
+    if (!results?.length) {
+      setStatement(null);
+      return;
+    }
+
+    const result = results[0];
+    ...
+    // Parse components
+    const components = Array.isArray(result.components)
+      ? (result.components as unknown as ComponentResult[])
+      : [];
+```
+
+Entity loading is unconditional — all tenant entities, no role/profile filter; first entity auto-selected:
+
+```
+src/app/perform/statements/page.tsx:106-111, 142-145
+    const [entitiesRes, periodsRes, batchesRes] = await Promise.all([
+      supabase
+        .from('entities')
+        .select('id, external_id, display_name')
+        .eq('tenant_id', tenantId)
+        .order('external_id'),
+    ...
+    // Auto-select first entity if none specified
+    if (!selectedEntityId && entitiesRes.data?.length) {
+      setSelectedEntityId(entitiesRes.data[0].id);
+    }
+```
+
+The component imports no auth/role/profile hook (full file read: only `useTenant`, `useCurrency`, `useSearchParams`); rep restriction exists only as the docstring.
+
+#### 4. Component-detail formatter — explicit unsupported-type label
+
+```
+src/app/perform/statements/page.tsx:582-601
+function formatComponentDetail(comp: ComponentResult): string {
+  const d = comp.details;
+  if (!d) return '';
+
+  switch (comp.componentType) {
+    case 'bounded_lookup_2d':
+      return `Row: ${d.rowBand || '—'} (${Number(d.rowValue || 0).toFixed(1)}%), Col: ${d.colBand || '—'}`;
+    case 'bounded_lookup_1d':
+      return `${d.matchedTier || '—'} (${Number(d.metricValue || 0).toFixed(1)})`;
+    case 'scalar_multiply':
+      return `${d.baseAmount || 0} × ${d.rate || 0}`;
+    case 'conditional_gate':
+      return d.gateSemantics ? `${d.matchedCondition || 'Qualified'}` : `${d.matchedCondition || '—'}`;
+    default:
+      if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
+        return d.payout ? 'Qualified' : 'Not qualified';
+      }
+      // OB-196 Phase 3 (E4 / Q-A.5.4): graceful-with-explicit-label, never silent.
+      return `Component type ${comp.componentType ?? 'unknown'} not supported in statement display`;
+  }
+}
+```
+
+#### 5. Navigation: route is unlinked
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "perform/statements" src/ --include="*.ts" --include="*.tsx"
+(no output — zero hits)
+```
+
+The `perform` workspace nav registry contains only `/stream` and `/operate/results`:
+
+```
+src/lib/navigation/workspace-config.ts:25-52 (perform workspace, sections trimmed)
+  perform: {
+    id: 'perform',
+    ...
+    defaultRoute: '/stream',
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
+    sections: [
+      { id: 'intelligence', ... routes: [
+          { path: '/stream', label: 'Intelligence', ... requiredCapability: 'view.intelligence_stream' },
+      ]},
+      { id: 'results', ... routes: [
+          { path: '/operate/results', label: 'Results', ... roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
+      ]},
+    ],
+  },
+```
+
+Route-level role gate admits reps to /perform by direct URL:
+
+```
+src/lib/auth/role-permissions.ts:22
+  '/perform':       ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'],
+```
+
+A `statement.view` capability is defined and granted to every role (platform, admin, manager, member, viewer — `src/lib/auth/permissions.ts:56,134,168,189,201,209`), but no nav route or page check references it for this page.
+
+Adjacent statement affordances that do NOT reach the page:
+
+```
+src/components/compensation/QuickActionsCard.tsx:8-15
+  const actions = [
+    {
+      label: 'Download Statement',
+      description: 'Export your earnings report',
+      icon: Download,
+      href: '#',
+      ...
+```
+
+```
+src/lib/navigation/compensation-clock-service.ts:234-240
+function getRepNextAction(phase: CyclePhase, isSpanish: boolean): string {
+  switch (phase) {
+    case 'pay':
+    case 'closed': return isSpanish ? 'Ver Estado de Cuenta' : 'View Statement';
+    default: return isSpanish ? 'Revisar Rendimiento' : 'Check Performance';
+  }
+}
+```
+
+(label string only — returns text, carries no route).
+
+#### 6. Schema authority (SCHEMA_REFERENCE_LIVE.md)
+
+`calculation_results` (12 columns) includes `total_payout numeric`, `components jsonb`, `metrics jsonb`, `attainment jsonb` — matches the page's select list. `profiles` (11 columns) has NO entity link column (id, tenant_id, auth_user_id, display_name, email, role, capabilities, locale, avatar_url, created_at, updated_at). `profile_scope` (9 columns) carries `visible_entity_ids uuid[]` — the only schema-level rep→entity scoping vehicle.
+
+#### 7. DB probe 1 — data source renders (script + output)
+
+Script: `web/scripts/diag/diag063_b2_statements_data.ts` (READ-ONLY; counts/UUIDs/statuses/JSON-key shapes only):
+
+```ts
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+async function main() {
+  const [batches, results, scopes] = await Promise.all([
+    supabase.from('calculation_batches').select('*', { count: 'exact', head: true }),
+    supabase.from('calculation_results').select('*', { count: 'exact', head: true }),
+    supabase.from('profile_scope').select('*', { count: 'exact', head: true }),
+  ]);
+  // ... logs counts; then latest batch -> one result -> components key shape; then profiles role distribution
+  const { data: latestBatches } = await supabase.from('calculation_batches')
+    .select('id, tenant_id, period_id, lifecycle_state, entity_count, created_at')
+    .order('created_at', { ascending: false }).limit(1);
+  const { data: oneResult } = await supabase.from('calculation_results')
+    .select('id, entity_id, components').eq('batch_id', latestBatches![0].id).limit(1);
+  // prints Object.keys of each components[] element + componentType; never payout values
+}
+```
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b2_statements_data.ts
+calculation_batches count: 15 
+calculation_results count: 943 
+profile_scope count: 0 
+latest batch: {"id":"69d5614f-9784-42e4-b328-8418be6fbaed","tenant_id":"b1c2d3e4-aaaa-bbbb-cccc-111111111111","period_id":"0fcd8fa0-c2f2-43c3-b8e6-234244914c16","lifecycle_state":"PREVIEW","entity_count":85,"created_at":"2026-06-11T19:32:31.342201+00:00"}
+one result: {"id":"51e60d70-171a-414d-a6f9-6ac418639b31","entity_id":"0040a5e7-c821-4a89-933e-11845de6e9d2","componentCount":4}
+component[0] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[1] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[2] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+component[3] keys: componentId,componentName,componentType,details,payout | componentType: prime_dag | has componentName: true | has payout: true
+profiles role distribution: {"platform":3,"tenant_admin":5,"admin":1,"manager":1,"sales_rep":1}
+```
+
+The `components` JSONB element shape (`componentId,componentName,componentType,details,payout`) matches the page's `ComponentResult` interface field-for-field — the per-component breakdown table (name, payout, % of total) renders from live data.
+
+#### 8. DB probe 2 — componentType distribution + details shape (script + output)
+
+Script: `web/scripts/diag/diag063_b2_statements_component_details.ts` (READ-ONLY; keys and type-name distribution only):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b2_statements_component_details.ts
+component[0] type=prime_dag details keys: 
+component[1] type=prime_dag details keys: 
+component[2] type=prime_dag details keys: 
+component[3] type=prime_dag details keys: 
+componentType distribution across all calculation_results: {"prime_dag":3905}
+```
+
+All 3,905 component entries platform-wide are `componentType: "prime_dag"` with empty `details` — none of the four types in `formatComponentDetail`'s switch exist in live data, so the Details column renders the explicit label "Component type prime_dag not supported in statement display" for every row of every current statement.
+
+#### 9. RLS — what the browser client can read
+
+```
+web/supabase/migrations/003_data_and_calculation.sql:169-172
+CREATE POLICY "calculation_results_select_tenant" ON calculation_results
+  FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM profiles WHERE auth_user_id = auth.uid())
+  );
+```
+
+```
+web/supabase/migrations/20260610180000_hf283_rls_platform_predicate.sql:55-56
+DROP POLICY IF EXISTS "calculation_results_select_vl_admin" ON public.calculation_results;
+CREATE POLICY "calculation_results_select_vl_admin" ON public.calculation_results FOR SELECT USING (public.is_platform());
+```
+
+The tenant SELECT policy is tenant-scoped only — no entity-level predicate. Any authenticated tenant profile (including `sales_rep`) can read every entity's `calculation_results` rows; combined with §3 (all-entities picker, no role check) the page exposes any entity's statement to any tenant user who reaches the URL. `profile_scope` (the materialized scoping table) has 0 rows.
+
+**GAP TO DEMO BAR:** The per-component breakdown for an individual exists and renders from live data — but as an admin-shaped tool, not a rep-facing statement. Gaps vs. "a rep sees their own commission statement": (1) no navigation entry anywhere (`grep "perform/statements"` = zero hits) — reachable only by typed URL or `?entityId=&periodId=` params; (2) no rep self-scoping — the page loads all tenant entities, shows the picker unconditionally, auto-selects the FIRST entity (not the rep's own), and there is no profile→entity link to resolve "own entity" (no `profiles.entity_id` column; `profile_scope.visible_entity_ids` exists but is unpopulated and unreferenced by the page); RLS is tenant-wide, providing no backstop; (3) the Details column is an explicit "not supported" label for 100% of live data (all `prime_dag`, empty `details`) — component name, payout, and % of total still display; (4) the rep-adjacent affordances ("Download Statement" quick action href `#`; clock "View Statement" label with no route) do not connect to the page.
+
+**EFFORT SHAPE:** Split. Statement surface with per-component breakdown: **E1 VERIFY-ONLY** — route `/perform/statements` + `calculation_results.components` verified in code and DB; remaining proof is an architect browser visit. Rep-facing individual statement: **E3 COMPOSE** — add a nav route to the `perform` workspace in `src/lib/navigation/workspace-config.ts` gated by the already-defined `statement.view` capability (`src/lib/auth/permissions.ts:56`); add a rep→entity resolution + scoping branch in `src/app/perform/statements/page.tsx` (replace the all-entities load for member/viewer roles), backed by populating/reading `profile_scope.visible_entity_ids` (table exists, 0 rows) — service-layer assembly of existing pieces, no new schema. Detail column content for `prime_dag` would additionally need the calculation writer to populate `components[].details` (service-layer; out of statement-surface scope).
+
+# B3 — Payroll-ready export
+
+### B3 — Payroll-ready export
+**CURRENT STATE:** A payroll CSV export exists and works headlessly: `generatePayrollCSV()` (pure function, `src/lib/calculation/calculation-lifecycle-service.ts:490`) is wired to an Export button on `/admin/launch/calculate` via `LifecycleActionBar`, gated to lifecycle states APPROVED/POSTED/CLOSED/PAID/PUBLISHED, producing per-entity rows of Entity ID (internal UUID), Entity Name, per-component amounts, and Total Outcome, plus a summary footer (Tenant/Period/State/Total Entities/Total Outcome/Currency/Exported At). It was invoked once read-only through a new diag script against live data (16-line CSV from a PREVIEW-state batch of 85 entities). A second, richer formatter `exportToCSV()` (`src/lib/calculation/results-formatter.ts:323`) covers every demo-bar field including hierarchy (Store ID/Store Name) and per-row Period, but has zero call sites. A third, inline client-side CSV on `/operate/calculate` includes External ID/Name/Store/Attainment/components/Total Payout. There is no export API route (no `src/app/api/**/export` route exists).
+
+**EVIDENCE:**
+
+Probe grep (complete file-level list, 27 hits):
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "export.*csv\|csv.*export\|payroll" src/ --include="*.ts"
+src/types/shadow-payroll.ts
+src/types/user-import.ts
+src/types/hierarchy.ts
+src/types/reconciliation.ts
+src/types/payroll-period.ts
+src/components/design-system/index.ts
+src/lib/import-service.ts
+src/lib/audit-service.ts
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/shadow-payroll/index.ts
+src/lib/shadow-payroll/engine.ts
+src/lib/approval-routing/types.ts
+src/lib/auth/role-permissions.ts
+src/lib/navigation/cycle-service.ts
+src/lib/navigation/queue-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/calculation/lifecycle-utils.ts
+src/lib/payroll/period-management.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/payroll/jurisdictional-rules.ts
+src/lib/validation/ob02-validation.ts
+src/lib/help/help-service.ts
+src/lib/analytics/analytics-service.ts
+src/lib/calculation/results-formatter.ts
+src/lib/payroll/index.ts
+src/lib/rollback/cascade-analyzer.ts
+src/lib/payroll/period-processor.ts
+```
+
+Adjacent-arm sweep — all CSV-generation sites found via `grep -rni "generate.*csv\|toCsv\|csvContent\|join(','" src/ --include="*.ts" --include="*.tsx"` (file-level, payout-relevant and otherwise):
+```
+src/lib/calculation/calculation-lifecycle-service.ts:490  generatePayrollCSV (payroll export — WIRED)
+src/app/admin/launch/calculate/page.tsx:36,426            caller of generatePayrollCSV (browser Blob download)
+src/lib/calculation/results-formatter.ts:323,399          exportToCSV / exportLegacyCSV (NO call sites)
+src/app/operate/calculate/page.tsx:283-307                inline results CSV (client-side)
+src/app/operate/reconciliation/page.tsx:602-620           reconciliation delta CSV (client-side)
+src/app/operations/audits/page.tsx:339-377                audit-event CSV (non-payroll)
+src/app/operations/audits/logins/page.tsx:105-143         login-audit CSV (non-payroll)
+src/lib/analytics/analytics-service.ts:155,173            exportAnalytics() CSV builder (non-payroll analytics KPI export: Metric/Value/Previous/Change/Change % columns) — WIRED from src/app/insights/analytics/page.tsx:189
+src/components/analytics/ExportDialog.tsx                 analytics export dialog (format picker UI) — located by inspection, NOT a hit of the quoted grep (zero matches in that file); imported and rendered by src/app/insights/analytics/page.tsx, drives exportAnalytics()
+src/lib/import-service.ts:305                             sample CSV template (import, not export)
+```
+(The `exportAnalytics()` site is a non-payroll analytics KPI export; it does not change the payroll-export conclusions, demo-bar gap table, or effort shape below.)
+`grep -rn "exportToCSV" src/` (excluding the audit pages' local functions of the same name) returns only the definition — `src/lib/calculation/results-formatter.ts:323` — confirming zero callers. No export-named API route: `find src/app/api -type d -iname "*export*"` returns nothing. `src/lib/payroll/*` (period-processor, period-management, jurisdictional-rules) and `src/lib/shadow-payroll/engine.ts` contain no CSV/export functions (grep for `csv|CSV` in those files: no hits).
+
+The wired export service — `src/lib/calculation/calculation-lifecycle-service.ts:490`:
+```ts
+// src/lib/calculation/calculation-lifecycle-service.ts:490
+export function generatePayrollCSV(
+  results: Array<{
+    entityId: string;
+    entityName: string;
+    totalPayout: number;
+    components: Array<{ componentName: string; outputValue: number }>;
+  }>,
+  metadata: {
+    tenantName: string;
+    periodId: string;
+    batchState: string;
+    currency: string;
+    locale: string;
+  }
+): string {
+  if (results.length === 0) return '';
+  const componentNames = Array.from(
+    new Set(results.flatMap(r => r.components.map(c => c.componentName)))
+  ).sort();
+  // Header row
+  const headers = ['Entity ID', 'Entity Name', ...componentNames, 'Total Outcome'];
+  // Data rows
+  const dataRows = results.map(r => {
+    const componentValues = componentNames.map(name => {
+      const comp = r.components.find(c => c.componentName === name);
+      return comp ? String(comp.outputValue) : '0';
+    });
+    return [r.entityId, r.entityName, ...componentValues, String(r.totalPayout)];
+  });
+  // Summary rows
+  const summaryRows = [
+    [],
+    ['Summary'],
+    ['Tenant', metadata.tenantName],
+    ['Period', metadata.periodId],
+    ['State', metadata.batchState],
+    ['Total Entities', String(results.length)],
+    ['Total Outcome', String(results.reduce((sum, r) => sum + r.totalPayout, 0))],
+    ['Currency', metadata.currency],
+    ['Exported At', new Date().toISOString()],
+  ];
+```
+
+UI invocation — `src/app/admin/launch/calculate/page.tsx:405`:
+```ts
+// src/app/admin/launch/calculate/page.tsx:405
+  // Export payroll CSV using lifecycle service
+  const handleExportPayroll = () => {
+    if (!activeBatch || batchResults.length === 0) return;
+    const resultsForExport = batchResults.map(r => {
+      const comps = Array.isArray(r.components) ? r.components : [];
+      const meta = r.metadata as Record<string, unknown> | null;
+      return {
+        entityId: r.entity_id,
+        entityName: (meta?.entityName as string) || r.entity_id,
+        totalPayout: r.total_payout || 0,
+        components: comps.map((c: unknown) => { /* componentName/outputValue mapping */ }),
+      };
+    });
+    const csvContent = generatePayrollCSV(resultsForExport, {
+      tenantName: currentTenant?.name || currentTenant?.displayName || 'Tenant',
+      periodId: activeBatch.period_id,
+      batchState: activeBatch.lifecycle_state,
+      currency: currentTenant?.currency || 'USD',
+      locale: currentTenant?.locale || 'en-US',
+    });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // ... anchor click download: `${tenantName}_${activeBatch.period_id}_Results.csv`
+  };
+```
+
+Lifecycle gating of the Export button — `src/components/lifecycle/LifecycleActionBar.tsx:143`:
+```ts
+// src/components/lifecycle/LifecycleActionBar.tsx:143
+  const showExport = ['APPROVED', 'POSTED', 'CLOSED', 'PAID', 'PUBLISHED'].includes(cycle.state);
+  // ...
+  {showExport && onExport && (
+    <Button variant="outline" size="sm" onClick={onExport}>
+      <Download className="h-4 w-4 mr-1.5" />
+      Export
+    </Button>
+  )}
+```
+Wired at `src/app/admin/launch/calculate/page.tsx:715` (`onExport={handleExportPayroll}` on `LifecycleActionBar`).
+
+Uncalled richer formatter — `src/lib/calculation/results-formatter.ts:323`:
+```ts
+// src/lib/calculation/results-formatter.ts:323
+export function exportToCSV(
+  results: CalculationResult[],
+  options: ExportOptions = { format: 'csv', includeDetails: false }
+): string {
+  if (results.length === 0) return '';
+  if (options.format === 'legacy') {
+    return exportLegacyCSV(results);
+  }
+  const headers = [
+    'Employee ID',
+    'Employee Name',
+    'Role',
+    'Store ID',
+    'Store Name',
+    'Period',
+    'Plan Name',
+    'Total Incentive',
+    'Currency',
+    'Calculated At',
+  ];
+```
+
+Second UI surface (inline, client-side) — `src/app/operate/calculate/page.tsx:283`:
+```ts
+// src/app/operate/calculate/page.tsx:283
+    const headers = ['External ID', 'Name', 'Store', 'Attainment', ...compNames, 'Total Payout'];
+    const rows = resultsData.entities.map(e => {
+      // External ID, displayName, store, attainment, per-component payout.toFixed(2), totalPayout.toFixed(2)
+```
+
+Headless invocation (ONE run, read-only, service role) — script `web/scripts/diag/diag063_b3_payroll_export_headless.ts` imports the real `generatePayrollCSV` from `src/lib/calculation/calculation-lifecycle-service.ts`, SELECTs the most recent `calculation_batches` row with results (any tenant, UUID only), maps `calculation_results` rows identically to `handleExportPayroll()`, and passes the tenant UUID (never the name) as the `tenantName` metadata param. First attempt against tenant `f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd` returned `NO_BATCH_FOUND` (no `calculation_batches` rows with `entity_count > 0` for that tenant); script then re-targeted structurally.
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b3_payroll_export_headless.ts
+tenant_id: b1c2d3e4-aaaa-bbbb-cccc-111111111111
+batch_id: 69d5614f-9784-42e4-b328-8418be6fbaed
+period_id: 0fcd8fa0-c2f2-43c3-b8e6-234244914c16
+lifecycle_state: PREVIEW
+entity_count: 85
+created_at: 2026-06-11T19:32:31.342201+00:00
+results_fetched: 6
+csv_total_lines: 16
+--- first 5 lines (all digits redacted to #; entity UUID in col 1 restored) ---
+Entity ID,Entity Name,Captación de Depósitos,Colocación de Crédito,Cumplimiento Regulatorio,Productos Cruzados,Total Outcome
+0040a5e7-c821-4a89-933e-11845de6e9d2,[name-redacted],#,#,#,#,###
+0164e4ac-012c-44bf-b4c6-414fbc87c0b2,[name-redacted],#,#,#,#,###
+06aff2e7-b3fc-4f98-8ac1-3bf4b9caaf87,[name-redacted],#,#,#,#,###
+08b70c05-9427-4b85-b44b-bb08f81ed032,[name-redacted],#,#,#,#,###
+```
+(All numeric payout values redacted to `#` per channel-separation rule; entity UUIDs are identifiers and retained. Entity display-name values additionally redacted to `[name-redacted]` — the populated Entity Name column is the evidence; the source tenant is the seeded synthetic tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111, redacted as a precaution.)
+
+Hierarchy data availability for the delta (structural, keys + counts only) — script `web/scripts/diag/diag063_b3_hierarchy_data_availability.ts`:
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b3_hierarchy_data_availability.ts
+entity[0] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[0] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity[1] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[1] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity[2] metadata keys: role, cargo, region, nivel_cargo, fecha_ingreso
+entity[2] temporal_attributes keys: 0, 1, 2, 3, 4, 5, 6
+entity_relationships rows for tenant: 0
+```
+
+Schema cross-check (SCHEMA_REFERENCE_LIVE.md): `calculation_results` (12 cols: `entity_id`, `total_payout`, `components` jsonb, `metadata` jsonb, `period_id`, `batch_id`, ...), `calculation_batches` (16 cols: `period_id`, `lifecycle_state`, `entity_count`, ...), `entities` (11 cols: `external_id`, `display_name`, `metadata` jsonb, ...) — all keys observed in live responses matched the reference; no divergence.
+
+**Demo bar field-by-field (against the WIRED export, `generatePayrollCSV`):**
+| Demo-bar field | Status | Where |
+|---|---|---|
+| entity id | PRESENT (as internal entity UUID) | `Entity ID` column = `calculation_results.entity_id`; the business `entities.external_id` is NOT in this export (it is in the `/operate/calculate` inline CSV as `External ID`) |
+| name | PRESENT | `Entity Name` column = `calculation_results.metadata.entityName` (falls back to UUID when absent) |
+| hierarchy | ABSENT | No store/region/parent column. Data exists: `entities.metadata` carries `region`/`role`/`cargo`/`nivel_cargo` keys for the probed tenant; `entity_relationships` has 0 rows for it. Uncalled `exportToCSV` has `Store ID`/`Store Name`; `/operate/calculate` CSV has `Store` |
+| period | PARTIAL | No per-row column; period UUID appears once in the summary footer (`Period` row) and in the download filename. Per-row `Period` exists only in the uncalled `exportToCSV` |
+| amount | PRESENT | Per-component columns + `Total Outcome` per row |
+
+**GAP TO DEMO BAR:** Two fields short on the wired export: (1) hierarchy — no per-row store/region column; (2) period — only in the summary footer, not per data row. Also note the identifier flavor: the wired export emits the internal entity UUID where a payroll system would typically expect the business `external_id`. Everything else (entity id, name, amount, per-component breakdown, lifecycle gating to APPROVED+) is present and proven live.
+
+**EFFORT SHAPE:** Split. Existing export: **E1 VERIFY-ONLY** — code+DB evidence green (headless run above); remaining proof is the architect clicking Export on `/admin/launch/calculate` for a batch in APPROVED+ state. Demo-bar delta (hierarchy + per-row period + external_id): **E3 COMPOSE** — extend `generatePayrollCSV()` in `src/lib/calculation/calculation-lifecycle-service.ts` with three columns, and in the caller `handleExportPayroll()` (`src/app/admin/launch/calculate/page.tsx:406`) join `entities` (`external_id`, `metadata.region`) by `calculation_results.entity_id` and pass `activeBatch.period_id` per row — all data already in existing tables (`entities`, `calculation_results`, `calculation_batches`); no new schema, route, or service. Alternative same-class shape: wire the already-complete `exportToCSV()` (`src/lib/calculation/results-formatter.ts:323`, currently uncalled) by composing its `CalculationResult` input from the same join.
+
+# B4 — Trajectory surfacing (DS-015-B)
+
+**CURRENT STATE:** Two trajectory engines exist and are wired into live UI. (1) Population-level: `computePopulationTrajectory` in `src/lib/intelligence/trajectory-service.ts` (OB-172) computes velocity (Decision 130: avg delta over last 3 periods), acceleration, trend classification, per-component trajectories, top accelerators/decliners, and a confidence basis; it is fed by `loadTrajectoryData` in `src/lib/intelligence/state-reader.ts` (reads `calculation_batches`, `periods`, `calculation_results`, `entities`) and rendered by `TrajectoryCard` on `/stream` when 2+ calculated periods exist. (2) Rep-level: `computeRepTrajectory` in `src/lib/intelligence/trajectory-engine.ts` (OB-98 P5 / OB-196 1.6.5) projects next-tier opportunity from `metadata.intent` foundational shapes and is rendered by `RepTrajectoryPanel` in `RepDashboard`. Trajectory output lands in NO table — `SCHEMA_REFERENCE_LIVE.md` has zero "trajector" matches; both engines are pure functions whose output lives only in React state, recomputed per page load. Live DB: 2 tenants currently pass the 2+ calculated-periods gate (6 and 3 distinct periods).
+
+**EVIDENCE:**
+
+Primary grep (probe-specified, `.ts`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "trajector" src/ --include="*.ts"
+src/components/intelligence/index.ts
+src/lib/design/tokens.ts
+src/lib/intelligence/next-action-engine.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/intelligence/insight-engine.ts
+src/lib/intelligence/trajectory-service.ts
+src/lib/calculation/intent-executor.ts
+src/lib/data/persona-queries.ts
+```
+
+Adjacent-arm sweep — `.tsx` (consuming components):
+
+```
+$ grep -rnil "trajector" src/ --include="*.tsx"
+src/app/financial/staff/page.tsx
+src/app/stream/page.tsx
+src/app/perform/statements/page.tsx
+src/components/intelligence/RepTrajectory.tsx
+src/components/intelligence/ActionRequiredCard.tsx
+src/components/intelligence/TrajectoryCard.tsx
+src/components/layout/PersonaLayout.tsx
+src/components/dashboards/ManagerDashboard.tsx
+src/components/dashboards/RepDashboard.tsx
+src/components/briefing/IndividualBriefing.tsx
+src/components/design-system/Sparkline.tsx
+```
+
+Complete file-level enumeration with per-file hit counts (20 files total, `.ts`+`.tsx`):
+
+```
+$ grep -rnic "trajector" src/ --include="*.ts" --include="*.tsx" | grep -v ":0$"
+src/app/financial/staff/page.tsx:1
+src/app/stream/page.tsx:17
+src/app/perform/statements/page.tsx:13
+src/components/intelligence/TrajectoryCard.tsx:14
+src/components/briefing/IndividualBriefing.tsx:1
+src/components/intelligence/RepTrajectory.tsx:14
+src/components/intelligence/ActionRequiredCard.tsx:2
+src/components/layout/PersonaLayout.tsx:1
+src/components/intelligence/index.ts:3
+src/components/dashboards/ManagerDashboard.tsx:1
+src/components/design-system/Sparkline.tsx:1
+src/components/dashboards/RepDashboard.tsx:7
+src/lib/design/tokens.ts:1
+src/lib/intelligence/next-action-engine.ts:1
+src/lib/intelligence/trajectory-engine.ts:25
+src/lib/intelligence/trajectory-service.ts:24
+src/lib/intelligence/insight-engine.ts:1
+src/lib/intelligence/state-reader.ts:5
+src/lib/calculation/intent-executor.ts:1
+src/lib/data/persona-queries.ts:1
+```
+
+Single-hit files are comment/copy mentions, not engine usage (verified per file):
+
+```
+src/lib/intelligence/next-action-engine.ts:165:  actionLabel: 'View Trajectory',
+src/lib/intelligence/insight-engine.ts:472:  body: `Strong momentum. Your payout increased from the previous period — keep this trajectory going.`,
+src/lib/data/persona-queries.ts:649:  recommendedAction: 'Investigate root cause of declining trajectory',
+src/lib/design/tokens.ts:45:    // Emerald/Lime — growth trajectory, progress, mastery
+src/lib/calculation/intent-executor.ts:88:// Boundary index helper — utility retained for trajectory-engine and
+src/components/layout/PersonaLayout.tsx:12: *   - rep (emerald): growth trajectory, progress, mastery
+src/components/dashboards/ManagerDashboard.tsx:15: *   5. Individual trajectory → Sparkline — monitoring
+src/components/briefing/IndividualBriefing.tsx:248:  return `${firstName}, your trajectory is pointing up. ...`
+src/app/financial/staff/page.tsx:196:  : `${declining.length} servers showing declining trajectory — review development.`
+src/components/design-system/Sparkline.tsx:3:/** @cognitiveFit monitoring — "What is the trajectory?" */
+src/components/intelligence/ActionRequiredCard.tsx:97:  ? `Calculating adds trajectory intelligence across ${nextCalcCount} periods.`
+```
+
+Core engine #1 — population trajectory math (`src/lib/intelligence/trajectory-service.ts:69-105`):
+
+```typescript
+export function computeVelocity(values: number[]): number | null {
+  if (values.length < 2) return null;
+
+  const recent = values.slice(-3);
+  const deltas: number[] = [];
+  for (let i = 1; i < recent.length; i++) {
+    deltas.push(recent[i] - recent[i - 1]);
+  }
+
+  if (deltas.length === 0) return null;
+  return deltas.reduce((a, b) => a + b, 0) / deltas.length;
+}
+
+export function computeAcceleration(values: number[]): number | null {
+  if (values.length < 4) return null;
+
+  const recent4 = values.slice(-4);
+  const v1 = (recent4[1] - recent4[0] + recent4[2] - recent4[1]) / 2;
+  const v2 = (recent4[2] - recent4[1] + recent4[3] - recent4[2]) / 2;
+  return v2 - v1;
+}
+
+export function classifyTrend(velocity: number | null, acceleration: number | null): TrajectoryTrend {
+  if (velocity === null) return 'insufficient_data';
+  if (acceleration !== null && acceleration > 0 && velocity > 0) return 'accelerating';
+  if (acceleration !== null && acceleration < 0 && velocity > 0) return 'decelerating';
+  if (velocity > 0) return 'accelerating';
+  if (velocity < 0) return 'decelerating';
+  return 'stable';
+}
+
+function classifyComponentTrend(velocity: number | null): ComponentTrajectory['trend'] {
+  if (velocity === null) return 'insufficient_data';
+  if (velocity > 100) return 'growing';
+  if (velocity < -100) return 'declining';
+  return 'stable';
+}
+```
+
+Core engine #1 header confirms pure computation, no persistence (`src/lib/intelligence/trajectory-service.ts:1-12`):
+
+```typescript
+/**
+ * Trajectory Computation Engine
+ *
+ * OB-172: Pure computation module — no UI, no Supabase calls.
+ * Takes calculation data and produces trajectory intelligence.
+ *
+ * Decision 130: velocity = avg delta over last 3 periods.
+ * Pace projection = gap / velocity. Negative velocity = "not on pace."
+ * No probability estimates until Hot tier (7+ periods).
+ *
+ * Domain-agnostic: works with any component names, entity names.
+ * Korean Test compliant: zero hardcoded labels.
+ */
+```
+
+Core engine #2 — rep next-tier projection entry point (`src/lib/intelligence/trajectory-engine.ts:213-235`):
+
+```typescript
+export function computeRepTrajectory(
+  entityId: string,
+  entityName: string,
+  totalPayout: number,
+  componentResults: ComponentResult[],
+  ruleSetConfig: AdditiveLookupConfig | WeightedKPIConfig | null,
+  attainments?: Record<string, number>
+): RepTrajectory {
+  const trajectories: TrajectoryCard[] = [];
+
+  if (!ruleSetConfig) {
+    return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
+  }
+
+  let planComponents: PlanComponent[] = [];
+
+  if ('type' in ruleSetConfig && ruleSetConfig.type === 'additive_lookup') {
+    const variants = (ruleSetConfig as AdditiveLookupConfig).variants || [];
+    for (const variant of variants) {
+      planComponents = planComponents.concat(variant.components || []);
+    }
+  } else if ('type' in ruleSetConfig && ruleSetConfig.type === 'weighted_kpi') {
+    return { entityId, entityName, totalPayout, trajectories, bestOpportunity: null, totalPotential: 0 };
+  }
+```
+
+Where output lands — no landing table exists. Schema authority check:
+
+```
+$ grep -n "trajector" /Users/AndrewAfrica/spm-platform/SCHEMA_REFERENCE_LIVE.md
+(no output — zero matches across all 36 tables)
+```
+
+No DB writes anywhere in the trajectory path:
+
+```
+$ grep -n "\.insert\|\.upsert\|\.update\|\.delete" src/lib/intelligence/state-reader.ts src/lib/intelligence/trajectory-service.ts src/lib/intelligence/trajectory-engine.ts; echo "exit=$?"
+exit=1
+```
+
+What the code actually READS — `loadTrajectoryData` (`src/lib/intelligence/state-reader.ts:322-341`):
+
+```typescript
+export async function loadTrajectoryData(tenantId: string): Promise<{
+  snapshots: PeriodSnapshot[];
+  entityData: Map<string, { externalId: string; displayName: string; periods: EntityPeriodData[] }>;
+}> {
+  const supabase = createClient();
+
+  // Get ALL calculation batches with period info
+  const { data: batches } = await supabase
+    .from('calculation_batches')
+    .select('id, period_id, entity_count, summary')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+
+  // Deduplicate: keep latest batch per period
+  const latestBatchPerPeriod = new Map<string, typeof batches extends (infer T)[] | null ? T : never>();
+  for (const batch of batches || []) {
+    if (!latestBatchPerPeriod.has(batch.period_id)) {
+      latestBatchPerPeriod.set(batch.period_id, batch);
+    }
+  }
+```
+
+…continuing (`src/lib/intelligence/state-reader.ts:360-383`) — reads `calculation_results` and `entities` (plus `periods` at :350):
+
+```typescript
+  for (let i = 0; i < batchIds.length; i += 5) {
+    const chunk = batchIds.slice(i, i + 5);
+    const { data } = await supabase
+      .from('calculation_results')
+      .select('batch_id, entity_id, total_payout, components')
+      .eq('tenant_id', tenantId)
+      .in('batch_id', chunk);
+    if (data) {
+      for (const row of data) {
+        allResults.push(validateCalculationResultRow(row, row.batch_id ?? chunk.join(',')));
+      }
+    }
+  }
+
+  // Get entity details for all entities in results
+  const entityIds = Array.from(new Set(allResults.map(r => r.entity_id)));
+  const entityDetails = new Map<string, { externalId: string; displayName: string }>();
+
+  for (let i = 0; i < entityIds.length; i += 200) {
+    const chunk = entityIds.slice(i, i + 200);
+    const { data } = await supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .in('id', chunk);
+```
+
+All four input tables exist in `SCHEMA_REFERENCE_LIVE.md` (`calculation_batches` 16 cols at line 80 incl. `period_id`, `entity_count`, `summary`; `calculation_results` 12 cols at line 101 incl. `batch_id`, `entity_id`, `total_payout`, `components`). Column names in code match the schema reference exactly.
+
+UI consumer 1 — `/stream` computes and stores in React state (`src/app/stream/page.tsx:102-113`):
+
+```typescript
+      // OB-172: Load trajectory data if 2+ calculated periods
+      if (ctx && ctx.calculatedPeriods.length >= 2) {
+        try {
+          const trajData = await loadTrajectoryData(tenantId);
+          if (trajData.snapshots.length >= 2) {
+            const trajectory = computePopulationTrajectory(trajData.snapshots, trajData.entityData);
+            setTrajectoryData(trajectory);
+          }
+        } catch (trajErr) {
+          console.warn('[IntelligenceStream] Trajectory load failed (non-blocking):', trajErr);
+        }
+      }
+```
+
+…and renders it (`src/app/stream/page.tsx:404-415`):
+
+```tsx
+      {/* OB-172: 4. Trajectory Intelligence — 2+ calculated periods */}
+      {trajectoryData && trajectoryData.periods.length >= 2 && (
+        <TrajectoryCard
+          accentColor={accentColor}
+          trajectory={trajectoryData}
+          formatCurrency={formatCurrency}
+          onViewEntities={() => {
+            onInteract('trajectory', 'act');
+            router.push('/operate/lifecycle');
+          }}
+        />
+      )}
+```
+
+`TrajectoryCard` renders velocity/period-delta, movers, confidence (`src/components/intelligence/TrajectoryCard.tsx:3-18`):
+
+```typescript
+/**
+ * TrajectoryCard — Population trajectory intelligence
+ *
+ * OB-172: Renders when 2+ calculated periods exist.
+ * 2 periods: period comparison with component deltas
+ * 3+ periods: full trajectory with velocity, acceleration, movers
+ *
+ * Five Elements:
+ *   Value:      Velocity or period delta
+ *   Context:    Period count, entity count, component count
+ *   Comparison: Period-over-period deltas, component growth/decline
+ *   Action:     "Compare Periods" expands inline, entity detail link
+ *   Impact:     Extrapolation with confidence disclosure
+ *
+ * DS-013 Section 7: Confidence disclosure mandatory.
+ */
+```
+
+UI consumer 2 — `/perform/statements` per-row trend (`src/app/perform/statements/page.tsx:28,498-499`):
+
+```
+28:import { computeVelocity, classifyTrend, type TrajectoryTrend } from '@/lib/intelligence/trajectory-service';
+498:              const vel = computeVelocity(values);
+499:              const trend: TrajectoryTrend = classifyTrend(vel, null);
+```
+
+UI consumer 3 — RepDashboard renders rep-level panel (`src/components/dashboards/RepDashboard.tsx:99-105,384-385`):
+
+```typescript
+    Promise.all([
+      getRepDashboardData(tenantId, entityId),
+      getActiveRuleSet(tenantId).catch(() => null),
+    ]).then(([result, ruleSet]) => {
+      if (!cancelled) {
+        setData(result);
+        setRuleSetConfig(ruleSet?.configuration ?? null);
+...
+      {data && ruleSetConfig ? (
+        <RepTrajectoryPanel data={data} ruleSetConfig={ruleSetConfig} />
+```
+
+`RepTrajectoryPanel` computes in-memory and renders null when no cards (`src/components/intelligence/RepTrajectory.tsx:48-67`):
+
+```typescript
+export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTrajectoryProps) {
+  const { format } = useCurrency();
+  const { activePeriodLabel } = usePeriod();
+
+  // Compute trajectory deterministically
+  const trajectory = useMemo(() => {
+    if (!data || !ruleSetConfig) return null;
+    return computeRepTrajectory(
+      'current-user',
+      data.components.length > 0 ? 'You' : '',
+      data.totalPayout,
+      data.components,
+      ruleSetConfig as Parameters<typeof computeRepTrajectory>[4],
+      attainments
+    );
+  }, [data, ruleSetConfig, attainments]);
+
+  if (!trajectory || trajectory.trajectories.length === 0) {
+    return null; // Empty state: don't render if no trajectory data
+  }
+```
+
+DB probe 1 — live input readiness (script `web/scripts/diag/diag063_b4_trajectory_inputs.ts`, full source in repo; reads `calculation_batches` tenant_id/period_id and a head count of `calculation_results`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_b4_trajectory_inputs.ts
+calculation_batches rows fetched: 15
+calculation_results total rows (head count): 943
+Per-tenant trajectory input readiness (gate: distinct calculated periods >= 2):
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 batches=7 distinct_periods=6 trajectory_gate=PASS
+  tenant=03d28288-700b-43e3-a96b-49a4f849d2df batches=1 distinct_periods=1 trajectory_gate=FAIL
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 batches=6 distinct_periods=3 trajectory_gate=PASS
+  tenant=f7093bcc-e90b-4918-9680-69da7952dd65 batches=1 distinct_periods=1 trajectory_gate=FAIL
+```
+
+DB probe 2 — rep-level dependency check: does any active rule set for the gate-pass tenants carry `metadata.intent` (required by `computeRepTrajectory`)? (script `web/scripts/diag/diag063_b4_trajectory_ruleset_shape.ts`):
+
+```
+$ npx tsx scripts/diag/diag063_b4_trajectory_ruleset_shape.ts
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active config_type=object_no_type components=8 operations=[no_intent]
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active config_type=object_no_type components=10 operations=[no_intent]
+total rule_sets across gate-pass tenants: 2
+```
+
+`getActiveRuleSet` injects `configuration.type` regardless of stored shape (`src/lib/supabase/rule-set-service.ts:31,44-49`):
+
+```typescript
+    ruleSetType: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
+...
+    configuration: {
+      type: (metadata.plan_type as string) === 'weighted_kpi' ? 'weighted_kpi' : 'additive_lookup',
+      ...(components as Record<string, unknown>),
+      ...(cadenceConfig.cadence ? { cadence: cadenceConfig } : {}),
+      ...(outcomeConfig.outcome ? { outcome: outcomeConfig } : {}),
+    } as RuleSetConfig['configuration'],
+```
+
+**GAP TO DEMO BAR:** For ONE trend view: none at code or data level — the population trend view (`TrajectoryCard` on `/stream`) is fully built and two live tenants pass its 2+-calculated-periods gate (6 and 3 distinct periods). Remaining proof is browser observation only. Separately, the rep-level next-tier panel (`RepTrajectoryPanel` on RepDashboard) will render null for both gate-pass tenants because zero components in their active rule sets carry `metadata.intent`/`calculationIntent` (probe 2: `operations=[no_intent]`); surfacing that second view is a data-preparation gap (rule-set intent), not a code gap.
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY for the trend view. Structural shape: route `/stream` (`src/app/stream/page.tsx`) → component `TrajectoryCard` (`src/components/intelligence/TrajectoryCard.tsx`) → services `loadTrajectoryData` (`src/lib/intelligence/state-reader.ts`) + `computePopulationTrajectory` (`src/lib/intelligence/trajectory-service.ts`) → tables `calculation_batches`, `periods`, `calculation_results`, `entities`. Secondary trend surfaces already wired: `/perform/statements` (velocity/trend per row) and `RepDashboard` → `RepTrajectoryPanel` (the latter data-dependent on `metadata.intent` in `rule_sets.components`).
+
+# B5 — Results dashboard (admin)
+
+### B5 — Results dashboard (admin)
+
+**CURRENT STATE:** Three results-table surfaces exist. The current/primary admin dashboard is `/operate/results` (src/app/operate/results/page.tsx, "Results Proof View", OB-72/92/102) with dynamic per-component numeric columns, per-entity totals, search/store-filter/sort, expandable L3/L2 drill-down, and a shared Plan × Period × Run selector (OperateSelector → OperateContext). A second, newer surface `/operate/calculate` (OB-145/DS-007) composes ResultsHero + StoreHeatmap + PopulationHealth + EntityTable (src/components/results/EntityTable.tsx) with pagination and status filters. An older admin surface `/admin/launch/calculate` has a simpler inline table (Employee ID, Name, Total Payout, Components). The displayed entity count comes from two different sources: the page header uses `results.length` of an UNPAGINATED `.select('*')` (live-measured PostgREST max-rows ceiling = 1000), while the Run dropdown uses the `calculation_batches.entity_count` column — and a live batch was found where the two diverge (85 vs 0).
+
+**EVIDENCE:**
+
+Route discovery (results/calculation routes under src/app):
+
+```
+$ find src/app -type d \( -iname "*result*" -o -iname "*calculation*" -o -iname "*calc*" \)
+src/app/admin/launch/calculate
+src/app/api/calculation
+src/app/govern/calculation-approvals
+src/app/operate/calculate
+src/app/operate/results
+```
+
+Primary table — column definitions (dynamic per-component columns + Total):
+
+```tsx
+// src/app/operate/results/page.tsx:610-632
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead
+        className="cursor-pointer hover:bg-slate-800/50"
+        onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
+      >
+        Employee ID
+      </TableHead>
+      <TableHead>Name</TableHead>
+      <TableHead>Store</TableHead>
+      {componentTotals.map(cc => (
+        <TableHead key={cc.componentId} className="text-right">
+          <span className="text-xs">{cc.componentName}</span>
+        </TableHead>
+      ))}
+      <TableHead
+        className="text-right cursor-pointer hover:bg-slate-800/50"
+        onClick={() => { setSortField('total'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}
+      >
+        Total
+      </TableHead>
+    </TableRow>
+  </TableHeader>
+```
+
+Per-entity total + per-component cells (calculation_results.total_payout; component cells looked up per row):
+
+```tsx
+// src/app/operate/results/page.tsx:655-665
+{componentTotals.map(cc => {
+  const comp = row.components.find(c => c.componentId === cc.componentId);
+  return (
+    <TableCell key={cc.componentId} className="text-right text-sm">
+      {comp ? formatCurrency(comp.outputValue) : '-'}
+    </TableCell>
+  );
+})}
+<TableCell className="text-right font-bold">
+  {formatCurrency(row.totalPayout)}
+</TableCell>
+```
+
+Render cap on the primary table (first 100 rows only, no pager):
+
+```tsx
+// src/app/operate/results/page.tsx:635 and 797-800
+{filteredResults.slice(0, 100).map(row => {
+...
+{filteredResults.length > 100 && (
+  <p className="text-sm text-slate-400 mt-2 text-center">
+    Showing 100 of {filteredResults.length} entities
+  </p>
+)}
+```
+
+Displayed entity count — source #1 (page header/hero = length of fetched rows):
+
+```tsx
+// src/app/operate/results/page.tsx:126, 346, 363-367
+const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+const entityCount = results.length;
+...
+<h1 className="text-2xl font-bold">Results Proof View</h1>
+<p className="text-slate-400 text-sm">
+  {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+</p>
+```
+
+The fetch behind it — UNPAGINATED select (no .range/.limit):
+
+```ts
+// src/lib/supabase/calculation-service.ts:379-392
+export async function getCalculationResults(
+  tenantId: string,
+  batchId: string
+): Promise<CalcResultRow[]> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+  if (error) throw error;
+  return (data || []) as CalcResultRow[];
+}
+```
+
+Displayed entity count — source #2 (Run dropdown = calculation_batches.entity_count column):
+
+```ts
+// src/contexts/operate-context.tsx:229-235, 255
+let query = supabase
+  .from('calculation_batches')
+  .select('id, period_id, rule_set_id, lifecycle_state, entity_count, summary, created_at')
+  .eq('tenant_id', tenantId)
+  .eq('period_id', selectedPeriodId)
+  .order('created_at', { ascending: false })
+  .limit(50);
+...
+entityCount: b.entity_count ?? 0,
+```
+
+```tsx
+// src/components/operate/OperateSelector.tsx:127-129 (dropdown line per run)
+<span className="truncate">
+  {b.lifecycleState} — {b.entityCount} ent — {formatCurrency(b.totalPayout)}
+</span>
+```
+
+Writer of entity_count (count of inserted result rows):
+
+```ts
+// src/lib/supabase/calculation-service.ts:367-371
+// Update batch entity count
+await supabase
+  .from('calculation_batches')
+  .update({ entity_count: inserted } as CalcBatchUpdate)
+  .eq('id', batchId);
+```
+
+Period selection — OperateSelector renders Plan / Period / Run dropdowns bound to OperateContext (src/components/operate/OperateSelector.tsx:43-49 `selectPlan, selectPeriod, selectBatch`); mounted at the top of /operate/results (page.tsx:354). On /operate/calculate the bar was removed in favor of a body period selector from the same context:
+
+```tsx
+// src/app/operate/calculate/page.tsx:454, 52-53
+{/* OB-192: OperateSelector removed — Calculate page uses body period selector as sole control.
+...
+selectedPeriodId,
+selectPeriod,
+```
+
+Second surface — EntityTable column definitions (single "Components" MiniBar column, not per-component numeric columns):
+
+```tsx
+// src/components/results/EntityTable.tsx:209-238 (headers, abridged to the column names)
+<tr className="border-b border-zinc-800/60">
+  <th className="w-8 py-2.5 px-2"></th>
+  <th className="text-left py-2.5 px-2 w-8 text-zinc-500">#</th>
+  <th ... onClick={() => handleSort('externalId')}>ID <SortIcon field="externalId" /></th>
+  <th ... onClick={() => handleSort('name')}>Name <SortIcon field="name" /></th>
+  <th className="text-left py-2.5 px-3 text-zinc-500">Store</th>
+  <th ... onClick={() => handleSort('attainment')}>Attainment <SortIcon field="attainment" /></th>
+  <th className="text-center py-2.5 px-3 text-zinc-500 min-w-[100px]">Components</th>
+  <th ... onClick={() => handleSort('payout')}>Payout <SortIcon field="payout" /></th>
+</tr>
+```
+
+EntityTable controls: search (ID/name/store), status filter (all/exceeds/on_track/below), store filter dropdown + badge, sortable headers, PAGE_SIZE=50 pagination (EntityTable.tsx:30, 118-122, 321-346), count readout `{filteredEntities.length} of {entities.length}` (line 200-202). Its count source is also fetched-row length — results-loader uses the same unpaginated shape:
+
+```ts
+// src/lib/data/results-loader.ts:147-154, 353
+const { data: results } = await supabase
+  .from('calculation_results')
+  .select('entity_id, total_payout, components, attainment, metadata, metrics')
+  .eq('tenant_id', tenantId)
+  .eq('batch_id', batch.id);
+
+if (!results || results.length === 0) return null;
+...
+resultCount: entities.length,
+```
+
+Older admin surface table:
+
+```tsx
+// src/app/admin/launch/calculate/page.tsx:836-842
+<TableRow>
+  <TableHead className="w-8"></TableHead>
+  <TableHead>Employee ID</TableHead>
+  <TableHead>Name</TableHead>
+  <TableHead className="text-right">Total Payout</TableHead>
+  <TableHead>Components</TableHead>
+</TableRow>
+```
+
+Adjacent-arm sweep — ALL files touching calculation_results / getCalculationResults (complete file-level list):
+
+```
+$ grep -rln "calculation_results\|getCalculationResults" src/app src/components src/lib --include="*.ts" --include="*.tsx" | sort
+src/app/admin/launch/calculate/page.tsx
+src/app/api/ai/assessment/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/reconciliation/analyze/route.ts
+src/app/api/reconciliation/compare/route.ts
+src/app/api/reconciliation/run/route.ts
+src/app/insights/page.tsx
+src/app/my-compensation/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/results/page.tsx
+src/app/perform/statements/page.tsx
+src/components/calculate/PlanResults.tsx
+src/lib/calculation/intent-types.ts
+src/lib/calculation/run-calculation.ts
+src/lib/data/briefing-loader.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/data/page-loaders.ts
+src/lib/data/persona-queries.ts
+src/lib/data/results-loader.ts
+src/lib/intelligence/state-reader.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/navigation/pulse-service.ts
+src/lib/supabase/calculation-service.ts
+src/lib/supabase/database.types.ts
+```
+
+Results-table surfaces among these: /operate/results (inline table), /operate/calculate (EntityTable via results-loader), /admin/launch/calculate (inline table). src/components/calculate/PlanResults.tsx has NO importers (orphan):
+
+```
+$ grep -rn "PlanResults" src --include="*.ts" --include="*.tsx"
+src/components/calculate/PlanResults.tsx:3:// PlanResults — Outcome summary + entity table + component drill-down for a single plan
+src/components/calculate/PlanResults.tsx:59:interface PlanResultsProps {
+src/components/calculate/PlanResults.tsx:104:export function PlanResults({
+src/components/calculate/PlanResults.tsx:111:}: PlanResultsProps) {
+```
+
+Schema authority check — SCHEMA_REFERENCE_LIVE.md:80 `calculation_batches (16 columns)` includes `entity_count integer NOT NULL default 0`; :101 `calculation_results (12 columns)` includes `total_payout numeric NOT NULL default 0`, `components/metrics/attainment/metadata jsonb`. Observed live keys matched (no divergence).
+
+DB probe #1 — entity_count vs exact results count vs unpaginated select length (script: web/scripts/diag/diag063_b5_results_entitycount.ts):
+
+```
+$ npx tsx scripts/diag/diag063_b5_results_entitycount.ts
+batch_id | tenant_id | lifecycle | batches.entity_count | exact_results_count | unpaginated_select_len
+f1924b7f-1ae0-4fda-84cc-e08b26c6ca48 | 03d28288-700b-43e3-a96b-49a4f849d2df | PREVIEW | 172 | 172 | 172
+883f7052-d180-4ae4-8150-bc4d2471b96e | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 0 | 0
+a67c876a-efb0-43af-a4a9-33132fe719e0 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+69d5614f-9784-42e4-b328-8418be6fbaed | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+90d0b62a-a54f-4446-bc07-30b049ddcb5b | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+333c0e34-4723-4d2a-b05b-60ccae84b820 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+16d8803f-3513-4d5b-a925-18325b691e70 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+6ca299f4-26f5-429c-afd9-72d4744e9f29 | b1c2d3e4-aaaa-bbbb-cccc-111111111111 | PREVIEW | 85 | 85 | 85
+```
+
+DB probe #2 — server max-rows ceiling for unpaginated selects + the divergent batch (script: web/scripts/diag/diag063_b5_results_maxrows.ts):
+
+```
+$ npx tsx scripts/diag/diag063_b5_results_maxrows.ts
+committed_data exact count: 416258
+committed_data unpaginated select returned: 1000 rows
+divergent batch: {
+  "id": "883f7052-d180-4ae4-8150-bc4d2471b96e",
+  "tenant_id": "b1c2d3e4-aaaa-bbbb-cccc-111111111111",
+  "lifecycle_state": "PREVIEW",
+  "entity_count": 85,
+  "superseded_by": null,
+  "supersedes": null,
+  "started_at": "2026-06-09T22:33:51.86+00:00",
+  "completed_at": "2026-06-09T22:33:51.86+00:00",
+  "created_at": "2026-06-09T22:33:42.174091+00:00"
+}
+```
+
+Interpretation against the probe's four bars:
+1. Per-entity totals — PRESENT on all three surfaces (Total / Payout / Total Payout from calculation_results.total_payout).
+2. Per-component columns — PRESENT as dynamic numeric columns on /operate/results (one column per component); /operate/calculate uses a single MiniBar "Components" column with numeric per-component detail only in the expanded NarrativeSpine row; /admin/launch/calculate has one "Components" column.
+3. Period selection — PRESENT: OperateSelector (Plan/Period/Run) on /operate/results; body period selector from the same OperateContext on /operate/calculate.
+4. Entity count correctness — TWO sources that can disagree: page-header count = fetched-row length from an unpaginated select (server max-rows measured at 1000; largest live batch is 172, so the ceiling is latent, not currently manifest); Run-dropdown count = calculation_batches.entity_count (one live batch found where it reads 85 while actual results rows = 0). The page total payout is likewise summed from fetched rows (page.tsx:168), so it shares the 1000-row ceiling.
+
+**GAP TO DEMO BAR:** Per-entity totals, per-component columns, and period selection are all present on /operate/results — no gap for those bars. Entity-count correctness has two evidenced gaps: (a) the header count/total derive from an unpaginated `.select()` whose server ceiling is 1000 rows, so any batch larger than 1000 entities would display a truncated count/total (latent at current data scale, max live batch = 172); (b) `calculation_batches.entity_count` can diverge from actual `calculation_results` rows (live instance: 85 vs 0, batch 883f7052), so the Run dropdown can advertise entities for a run whose results page renders empty. Secondary: /operate/results renders only the first 100 rows with no pager (footer text only).
+
+**EFFORT SHAPE:** Dashboard capability: E1 VERIFY-ONLY — code+DB evidence green; remaining proof is the architect opening /operate/results with a populated run selected. Count-correctness gap: E3 COMPOSE — service-layer work in `getCalculationResults` (src/lib/supabase/calculation-service.ts) and `loadResultsPageData` (src/lib/data/results-loader.ts) to page through `.range()` windows (or source the displayed count from a head:true exact count / `calculation_batches.entity_count`), consumers unchanged; plus reconciling the `calculation_batches.entity_count` writer with result-row reality. Per-component numeric columns on /operate/calculate, if required for the demo: E2 SURFACE — extend src/components/results/EntityTable.tsx using componentDefinitions already passed in.
+
+## Module C — Trust Loop (Disputes, Adjustments, Audit)
+
+# C1 — Disputes foundation inventory
+
+### C1 — Disputes foundation inventory
+**CURRENT STATE:** SCHEMA_REFERENCE_LIVE.md (2026-03-18) lists a 16-column `disputes` table, but the live database no longer has it: migration `web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql` dropped it on 2026-04-28 (AUD-004 / OB-196 Phase 1.6.5, 0 rows, zero FK fan-in) with the stated intent that the feature "reconstructs on engine foundation as roadmap item ('structured dispute workflow')". A live read-only probe confirms PGRST205 (table not in schema cache). No API route under `src/app/api` mentions "dispute" (zero grep hits). UI artifacts remain: `src/app/performance/adjustments/page.tsx` is a full initiate/approve/reject queue page still wired to `.from('disputes')` (reads via `loadAdjustmentsPageData` in `src/lib/data/page-loaders.ts`, plus direct client-side insert/update), an unmounted `AttributionDetails` component carries a "Report a Problem" dispute affordance, and `Sidebar.tsx` links `/insights/disputes` for which no route directory exists. Supporting primitives exist independently: `audit_logs` table + `writeAuditLog` service, dispute event names in `src/lib/events/emitter.ts`, dispute notification template, and the calculation orchestrator at `src/app/api/calculation/run/route.ts` — but nothing links dispute resolution to recalculation.
+
+**EVIDENCE:**
+
+#### Layer 1 — Schema
+
+SCHEMA_REFERENCE_LIVE.md lines 172–192 (16 columns, matches probe statement):
+
+```
+### disputes (16 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | YES | |
+| batch_id | uuid | YES | |
+| status | text | NO | open |
+| category | text | YES | |
+| description | text | NO | |
+| resolution | text | YES | |
+| amount_disputed | numeric | YES | |
+| amount_resolved | numeric | YES | |
+| filed_by | uuid | YES | |
+| resolved_by | uuid | YES | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+| resolved_at | timestamp with time zone | YES | |
+```
+
+Live existence probe — script `web/scripts/diag/diag063_c1_disputes.ts` (NEW, read-only):
+
+```ts
+// web/scripts/diag/diag063_c1_disputes.ts (excerpt)
+const { count, error: countError } = await supabase
+  .from('disputes')
+  .select('*', { count: 'exact', head: true })
+// ...
+const { data, error: rowError } = await supabase
+  .from('disputes')
+  .select('*')
+  .limit(1)
+// prints Object.keys(data[0]) only — no content values
+```
+
+Command and verbatim output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c1_disputes.ts
+disputes row count: null
+ROW ERROR: PGRST205 Could not find the table 'public.disputes' in the schema cache
+```
+
+Explanation found in migrations — the table was deliberately dropped AFTER the schema reference was generated:
+
+```
+$ grep -rln -i "disputes" --include="*.sql" .   # from repo root, node_modules excluded
+web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql
+web/supabase/seed.sql
+web/supabase/migrations/006_vl_admin_cross_tenant_read.sql
+web/supabase/migrations/009_vl_admin_write_access.sql
+web/supabase/migrations/003_data_and_calculation.sql
+web/supabase/migrations/020_hf090_drop_audit_fk_constraints.sql
+```
+
+```sql
+-- web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql:1 (entire file)
+-- AUD-004 / OB-196 Phase 1.6.5: drop disputes table per architect direction
+-- Disputes feature reconstructs on engine foundation as roadmap item ("structured dispute workflow");
+-- current table contaminated by demo-era coupling (calculation-engine.ts, GuidedDisputeFlow,
+-- SystemAnalyzer, dispute-service.ts demo arms). Future feature builds on fresh schema design.
+--
+-- Pre-migration verification (CC service-role query 2026-04-28):
+--   disputes_row_count = 0
+--   audit_log dispute_rows = null (no orphan-data risk)
+--   FK fan-in: zero (verified via grep web/supabase/migrations: zero hits for REFERENCES disputes / dispute_id)
+--
+-- Architect applies via Supabase SQL Editor (Standing Rule 7).
+-- Post-application verification:
+--   SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'disputes';  -- expected 0
+
+DROP TABLE IF EXISTS disputes CASCADE;
+```
+
+Generated DB types still carry the dropped table (stale alongside SCHEMA_REFERENCE_LIVE.md):
+
+```
+$ grep -n "disputes" src/lib/supabase/database.types.ts | head
+22: * 14. disputes                   - Entity dispute records
+665:      // TABLE 14: disputes
+667:      disputes: {
+1252:export type Dispute = Tables<'disputes'>;
+```
+
+#### Layer 2 — API
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "dispute" src/app/api
+exit:1   (zero hits — no API route references disputes)
+```
+
+No route excerpts possible: there are no dispute API routes. The audit logger documents an intended (non-existent) dispute API consumer:
+
+```ts
+// src/lib/audit/audit-logger.ts:1
+/**
+ * Centralized Audit Logger
+ *
+ * Writes to the audit_logs table (SCHEMA_REFERENCE.md verified).
+ * Columns: id, tenant_id, profile_id, action, resource_type, resource_id, changes, metadata, ip_address, created_at
+ *
+ * Used by: dispute API, approval API, lifecycle transitions.
+ */
+// ...
+export interface AuditEntry {
+  tenant_id: string;
+  profile_id: string | null;
+  action: string;          // e.g. 'dispute.created', 'approval.requested', 'lifecycle.transition'
+  resource_type: string;   // e.g. 'dispute', 'approval_request', 'calculation_batch'
+  resource_id: string;
+  changes: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+```
+
+(`audit_logs` is live in SCHEMA_REFERENCE_LIVE.md line 65: "### audit_logs (10 columns)".)
+
+#### Layer 3 — Services / UI
+
+Stated search, complete file-level hit list:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "dispute" src/ --include="*.tsx"
+src/app/my-compensation/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/notifications/page.tsx
+src/components/bulk/BulkSelectionBar.tsx
+src/components/navigation/mission-control/QueuePanel.tsx
+src/components/navigation/Sidebar.tsx
+src/components/compensation/AttributionDetails.tsx
+src/components/approvals/PayoutBatchCard.tsx
+src/components/approvals/PayoutEmployeeTable.tsx
+```
+
+Adjacent-arm sweep (supplementary, `--include="*.ts"`, complete file-level list, 29 files):
+
+```
+$ grep -ril "dispute" src/ --include="*.ts"
+src/types/alert.ts                      src/types/navigation.ts
+src/types/bulk-operations.ts            src/types/search.ts
+src/types/permission.ts                 src/types/notification.ts
+src/scripts/clear-tenant.ts             src/lib/payout-service.ts
+src/lib/rbac/rbac-service.ts            src/lib/auth/permissions.ts
+src/lib/auth/role-permissions.ts        src/lib/training/milestones.ts
+src/lib/navigation/command-registry.ts  src/lib/permissions/role-templates.ts
+src/lib/supabase/database.types.ts      src/lib/agents/registry.ts
+src/lib/alerts/alert-service.ts         src/lib/events/emitter.ts
+src/lib/audit/audit-logger.ts           src/lib/domain/domain-registry.ts
+src/lib/notifications/notification-service.ts  src/lib/help/help-service.ts
+src/lib/data/page-loaders.ts            src/lib/domain/negotiation-protocol.ts
+src/lib/domain/domain-viability.ts      src/lib/domain/domains/rebate.ts
+src/lib/domain/domains/franchise.ts     src/lib/domain/domains/icm.ts
+src/lib/stripe/config.ts
+```
+
+Key UI sites:
+
+```ts
+// src/app/performance/adjustments/page.tsx:6 — admin queue page, wired to the DROPPED table
+ * OB-73 Mission 5 / F-31, F-32: Wired to Supabase disputes table.
+// line 83-91 (handleApprove)
+    const { error } = await supabase
+      .from('disputes')
+      .update({
+        status: 'resolved',
+        resolution: 'Approved',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+// line 151-175 (handleNewAdjustment)
+    // Get first entity as placeholder (user should pick in a real form)
+    const { data: entity } = await supabase
+      .from('entities').select('id').eq('tenant_id', tenantId).limit(1).maybeSingle();
+    // ...
+    const { error } = await supabase
+      .from('disputes')
+      .insert({
+        tenant_id: tenantId,
+        entity_id: entity.id,
+        period_id: period?.id || null,
+        category: 'adjustment',
+        status: 'open',
+        description: newDescription.trim(),
+        amount_disputed: parseFloat(newAmount) || 0,
+        filed_by: profileId,
+      });
+```
+
+```
+$ grep -rn "audit" src/app/performance/adjustments/page.tsx
+exit:1   (resolve path writes no audit entry)
+```
+
+```ts
+// src/lib/data/page-loaders.ts:510 — reader for the adjustments page; dropped table fails silently to empty
+export async function loadAdjustmentsPageData(tenantId: string): Promise<AdjustmentsPageData> {
+  const supabase = createClient();
+  const { data: disputes, error } = await supabase
+    .from('disputes')
+    .select(`
+      id, entity_id, period_id, category, status,
+      description, resolution, amount_disputed, amount_resolved,
+      filed_by, resolved_by, created_at, updated_at, resolved_at
+    `)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false });
+  if (error || !disputes) {
+    return { adjustments: [] };
+  }
+```
+
+```ts
+// src/app/my-compensation/page.tsx:6 — vendedor statement page; dispute UI deliberately removed
+ * OB-34 Phase 7 / OB-196 Phase 1.6.5: Lifecycle visibility gate + AI personal
+ * performance narrative. Dispute UI removed pending future structured-dispute
+ * workflow build on engine foundation.
+```
+
+```ts
+// src/components/compensation/AttributionDetails.tsx:176 — flag-transaction affordance, UNMOUNTED
+        {(hasAttributionError || isMissingCredit || disputeEligible) && (
+          <div className="pt-2 border-t">
+            {hasDispute ? (
+              <Badge variant="secondary" className="flex items-center gap-1 w-fit">
+                <HelpCircle className="h-3 w-3" />
+                Dispute In Progress
+              </Badge>
+            ) : (
+              <Button ... onClick={onReportProblem}>
+                <AlertTriangle className="h-4 w-4" />
+                {hasAttributionError || isMissingCredit
+                  ? 'Report Attribution Error'
+                  : 'Report a Problem'}
+```
+
+```
+$ grep -rln "AttributionDetails" src/
+src/components/compensation/AttributionDetails.tsx
+src/components/compensation/index.ts
+(only the component itself and its barrel export — no page mounts it)
+```
+
+```ts
+// src/components/navigation/Sidebar.tsx:136 — nav item to a route that does not exist
+        { name: isSpanish ? "Análisis de Disputas" : "Dispute Analytics", href: "/insights/disputes", module: "insights" },
+```
+
+```
+$ ls src/app/insights/
+analytics  compensation  my-team  page.tsx  performance  sales-finance  trends
+$ ls src/app/insights/disputes
+exit:1   (no /insights/disputes route directory)
+```
+
+```ts
+// src/types/navigation.ts:95 — queue item type includes 'dispute'
+export type QueueItemType = 'approval' | 'data_quality' | 'dispute' | 'alert' | 'notification' | 'exception' | 'reconciliation';
+```
+
+```
+$ grep -rn "dispute" src/lib/navigation/queue-service.ts src/lib/navigation/compensation-clock-service.ts
+(zero hits — queue services never source dispute items; QueuePanel 'dispute' is an icon-map entry only)
+```
+
+Supporting primitives (events, notifications, demo-arm removal confirmed):
+
+```ts
+// src/lib/events/emitter.ts:46
+  // Dispute
+  | 'dispute.submitted'
+  | 'dispute.resolved'
+// src/lib/notifications/notification-service.ts:153 — DISPUTE-SPECIFIC NOTIFICATIONS
+// notifyAdjustmentApplied(...) -> createFromTemplate('adjustment_applied', ..., '/my-compensation', ...)
+```
+
+```
+$ grep -rn "GuidedDisputeFlow" src/   -> exit 1 (removed)
+$ grep -rn "dispute-service" src/     -> exit 1 (removed)
+```
+
+Roadmap confirmation that the workflow is a planned (sold) module, not an implementation:
+
+```
+// src/lib/stripe/config.ts:190
+    description: 'Structured dispute workflow, pre-screening, audit trail',
+```
+
+#### Functional-bar table (six rows)
+
+| # | Functional-bar step | Status | Evidence ref |
+|---|---|---|---|
+| 1 | Statement-open (vendedor opens own statement) | EXISTS | `src/app/my-compensation/page.tsx` (lifecycle-gated personal dashboard); nav `Sidebar.tsx:113` (`/my-compensation`) |
+| 2 | Flag a specific transaction | MISSING | Affordance exists only in unmounted `AttributionDetails.tsx:176` (`onReportProblem` callback, no consumer); `my-compensation/page.tsx:7` states dispute UI removed |
+| 3 | Structured reason + data reference | MISSING | Table dropped (`20260428_aud_004` + live PGRST205); even the dropped 16-col schema had no per-transaction reference (closest: `batch_id`/`period_id`/`entity_id`; no `committed_data` row ref) |
+| 4 | Admin queue | MISSING (UI shell exists, dead data layer) | `src/app/performance/adjustments/page.tsx` + `page-loaders.ts:510` read `.from('disputes')` (dropped — loader returns `{ adjustments: [] }` silently); `/insights/disputes` nav target has no route; queue services source no disputes |
+| 5 | Adjustment-resolve, approved + audited | MISSING | `handleApprove`/`handleReject` (page.tsx:80/102) update the dropped table client-side; no audit write (`grep audit` in page = exit 1); `writeAuditLog` + live `audit_logs` table exist unused for disputes; no dispute API route |
+| 6 | Recalculation reflects delta on statement | MISSING | No code path links dispute/adjustment resolution to `src/app/api/calculation/run/route.ts`; recalc grep hits (`rollback-service.ts`, `period-processor.ts`, `impact-calculator.ts`, etc.) contain no dispute linkage |
+
+**GAP TO DEMO BAR:** Five of six functional-bar steps are missing. The single biggest gap is the data layer: the `disputes` table was dropped 2026-04-28 with the explicit note that the future feature "builds on fresh schema design," so every surviving UI wire (`/performance/adjustments`, `loadAdjustmentsPageData`) targets a non-existent table — insert/update fail and reads silently render an empty queue. There is no dispute API route, no transaction-level data reference in any past or present schema, no audit write on resolve, and no resolution-to-recalculation linkage. Raw materials exist: statement page, unmounted flag-transaction component, admin queue page shell, `audit_logs` + `writeAuditLog`, `dispute.submitted`/`dispute.resolved` event names, dispute notification template, calculation orchestrator.
+
+**EFFORT SHAPE:** Split — schema/service **E4**; admin queue **E2**; flag-transaction **E3**; recalc linkage **E3**.
+- Step 2 (flag-transaction): E3 — mount/extend existing `AttributionDetails` (or successor) on `/my-compensation`; new `POST /api/disputes` route; writes new disputes table; emits `dispute.submitted` (emitter.ts type already declared).
+- Step 3 (structured reason + data ref): E4 — net-new `disputes` schema (per AUD-004 directive) adding a data-reference column set (e.g. `committed_data` row id and/or `calculation_results` id) absent from the dropped design; net-new dispute service (`dispute-service` was removed).
+- Step 4 (admin queue): E2 — `/performance/adjustments` page shell + `loadAdjustmentsPageData` loader exist; rewire to the new table/service; add dispute sourcing to `queue-service.ts` (QueueItemType `'dispute'` already declared); either create `/insights/disputes` route or remove the dead `Sidebar.tsx:136` nav item.
+- Step 5 (resolve approved + audited): E3 — new `PATCH /api/disputes/[id]` (or service call) composing existing `writeAuditLog` -> `audit_logs`; replaces direct client-side table updates.
+- Step 6 (recalc reflects): E3 — service-layer linkage from dispute resolution to the existing calculation orchestrator (`src/app/api/calculation/run/route.ts`); statement re-read on `/my-compensation`.
+- Step 1 (statement-open): E1 — page exists; remaining proof is an architect browser action.
+
+# C2 — Adjustments / exception approval
+
+### C2 — Adjustments / exception approval
+**CURRENT STATE:** An adjustments UI exists at `/performance/adjustments` (re-exported at `/investigate/adjustments`) with working New Adjustment / Approve / Reject handlers wired to a `disputes` table — but that table was deliberately dropped from the live DB by migration `20260428_aud_004_drop_disputes_table.sql` (AUD-004 / OB-196 Phase 1.6.5, "future feature builds on fresh schema design"), so the entire surface targets a nonexistent table. DB-backed approval machinery exists only for calculation batches (`approval_requests` table + `/api/approvals` routes + audit logging + lifecycle transition); it has 0 rows live. The dispute/adjustment path emits no audit events, has no approval_requests linkage, no separation-of-duties check, and no recalculation trigger; the vendedor statement page renders source transactions display-only with no flag affordance, and `my-compensation` carries a comment that the dispute UI was removed pending a "structured-dispute workflow build on engine foundation." The `manual_adjustment` approval domain is declared in the in-memory approval-routing module but has no producer. Live audit_logs table contains 0 rows total.
+
+**EVIDENCE:**
+
+#### 1. Stated search (file-level enumeration, complete)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "adjust\|exception\|approv" src/ --include="*.ts" --include="*.tsx"
+src/types/alert.ts
+src/types/data-quality.ts
+src/types/bulk-operations.ts
+src/types/navigation.ts
+src/types/demo.ts
+src/types/scenario.ts
+src/types/rbac.ts
+src/types/user-import.ts
+src/types/plan-approval.ts
+src/types/shadow-payroll.ts
+src/types/notification.ts
+src/types/calculation-engine.ts
+src/types/audit.ts
+src/types/permission.ts
+src/types/reconciliation.ts
+src/types/payroll-period.ts
+src/types/compensation-plan.ts
+src/contexts/persona-context.tsx
+src/contexts/auth-context.tsx
+src/app/test-ds/page.tsx
+src/app/my-compensation/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/spm/alerts/page.tsx
+src/app/configure/periods/page.tsx
+src/app/investigate/adjustments/page.tsx
+src/app/stream/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx
+src/app/admin/audit/page.tsx
+src/app/admin/access-control/page.tsx
+src/app/admin/launch/calculate/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/approve/page.tsx
+src/app/operate/import/page.tsx
+src/app/api/plan/import/route.ts
+src/app/perform/statements/page.tsx
+src/app/api/signals/route.ts
+src/app/api/platform/users/invite/route.ts
+src/app/api/lifecycle/transition/route.ts
+src/app/api/platform/observatory/route.ts
+src/app/api/admin/tenants/create/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/auth/signup/route.ts
+src/app/api/analyze-workbook/route.ts
+src/app/api/users/update-role/route.ts
+src/app/api/approvals/[id]/route.ts
+src/app/api/approvals/route.ts
+src/app/api/calculation/density/route.ts
+src/app/govern/approvals/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/performance/page.tsx
+src/app/performance/approvals/plans/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/performance/approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/app/approvals/page.tsx
+src/app/performance/approvals/payouts/page.tsx
+src/app/notifications/page.tsx
+src/app/data/quality/page.tsx
+src/app/data/import/enhanced/page.tsx
+src/components/intelligence/SystemHealthCard.tsx
+src/components/intelligence/LifecycleCard.tsx
+src/components/platform/ObservatoryTab.tsx
+src/components/data-quality/QuarantineTable.tsx
+src/components/sci/SCIExecution.tsx
+src/components/lifecycle/LifecycleActionBar.tsx
+src/components/plan-approval/SubmitForApprovalDialog.tsx
+src/components/navigation/Sidebar.tsx
+src/components/navigation/mission-control/QueuePanel.tsx
+src/components/navigation/mission-control/CycleIndicator.tsx
+src/components/plan-approval/ApprovalWorkflowTimeline.tsx
+src/components/plan-approval/ReviewerActionsPanel.tsx
+src/components/forensics/ComparisonUpload.tsx
+src/components/operate/OperateSelector.tsx
+src/components/results/NarrativeSpine.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/approvals/PayoutBatchCard.tsx
+src/components/approvals/impact-rating-badge.tsx
+src/components/approvals/PayoutEmployeeTable.tsx
+src/components/approvals/approval-card.tsx
+src/components/approvals/approval-request-card.tsx
+src/components/design-system/PayrollSummary.tsx
+src/components/design-system/ImpactRatingBadge.tsx
+src/components/design-system/ConfidenceRing.tsx
+src/components/user-import/HierarchyReviewPanel.tsx
+src/hooks/use-permissions.ts
+src/hooks/useCapability.ts
+src/scripts/clear-tenant.ts
+src/lib/payout-service.ts
+src/lib/access-control.ts
+src/lib/approval-service.ts
+src/lib/types.ts
+src/lib/rbac/rbac-service.ts
+src/lib/data-architecture/types.ts
+src/lib/data-architecture/transform-pipeline.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/shadow-payroll/engine.ts
+src/lib/approval-routing/types.ts
+src/lib/approval-routing/index.ts
+src/lib/intelligence/next-action-engine.ts
+src/lib/financial/cheque-import-service.ts
+src/lib/approval-routing/impact-calculator.ts
+src/lib/approval-routing/approval-service.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/insight-engine.ts
+src/lib/auth/permissions.ts
+src/lib/auth/role-permissions.ts
+src/lib/data-quality/quarantine-service.ts
+src/lib/training/milestones.ts
+src/lib/sci/synaptic-ingestion-state.ts
+src/lib/sci/sci-signal-types.ts
+src/lib/sci/seed-priors.ts
+src/lib/sci/header-comprehension.ts
+src/lib/sci/weight-evolution.ts
+src/lib/sci/resolver.ts
+src/lib/sci/agents.ts
+src/lib/sci/fingerprint-flywheel.ts
+src/lib/sci/classification-signal-service.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/sci/tenant-context.ts
+src/lib/navigation/acceleration-hints.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/navigation/queue-service.ts
+src/lib/navigation/page-status.ts
+src/lib/navigation/command-registry.ts
+src/lib/lifecycle/lifecycle-pipeline.ts
+src/lib/permissions/role-templates.ts
+src/lib/plan-approval/plan-approval-service.ts
+src/lib/agents/registry.ts
+src/lib/navigation/cycle-service.ts
+src/lib/agents/insight-agent.ts
+src/lib/agents/reconciliation-agent.ts
+src/lib/supabase/calculation-service.ts
+src/lib/forensics/types.ts
+src/lib/compensation/plan-comprehension-emitter.ts
+src/lib/supabase/database.types.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/search/search-service.ts
+src/lib/supabase/rule-set-service.ts
+src/lib/calculation/synaptic-density.ts
+src/lib/calculation/lifecycle-utils.ts
+src/lib/alerts/alert-service.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/engine.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/ai/signal-reader.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/payroll/period-management.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/events/emitter.ts
+src/lib/calculation/intent-types.ts
+src/lib/import-pipeline/import-service.ts
+src/lib/rollback/rollback-service.ts
+src/lib/audit/audit-logger.ts
+src/lib/import-pipeline/smart-mapper.ts
+src/lib/data/persona-queries.ts
+src/lib/governance/approval-service.ts
+src/lib/domain/domains/icm.ts
+src/lib/design-system/interaction-patterns.ts
+src/lib/rollback/cascade-analyzer.ts
+src/lib/user-import/hierarchy-detection.ts
+src/lib/payroll/period-processor.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/stripe/config.ts
+src/lib/data/platform-queries.ts
+src/lib/data/page-loaders.ts
+src/lib/design-system/tokens.ts
+src/lib/help/help-service.ts
+src/lib/validation/ob02-validation.ts
+src/lib/notifications/notification-service.ts
+```
+
+Line-level totals (line listings exceed ~400 lines combined, so per-file counts are pasted; complete file-level enumeration above): `adjust` (case-insensitive) = 238 hits across 53 files; `approv` = 1303 hits across 137 files; `exception` = 131 hits across 26 files.
+
+#### 2. Classification of hits
+
+**(A) Adjustment machinery — disputes-backed (the C2 target).** `src/app/performance/adjustments/page.tsx` (37 adjust-hits, the working surface), `src/app/investigate/adjustments/page.tsx` (re-export), `src/lib/data/page-loaders.ts` (`loadAdjustmentsPageData`, reads `disputes`), `src/lib/payout-service.ts` (display-only numeric `adjustments`/`disputes` fields on `PayoutEmployee`).
+
+```
+src/app/investigate/adjustments/page.tsx:1
+// Re-export adjustments page
+export { default } from '@/app/performance/adjustments/page';
+```
+
+```
+src/app/performance/adjustments/page.tsx:3
+/**
+ * Adjustments Page — Manage outcome adjustments, credits, and corrections
+ *
+ * OB-73 Mission 5 / F-31, F-32: Wired to Supabase disputes table.
+ * Approve/Reject/New Adjustment buttons are fully functional.
+ */
+```
+
+Approve handler — direct client-side write, no audit, no approval_requests, no recalculation:
+
+```
+src/app/performance/adjustments/page.tsx:79-99
+  // OB-73 Mission 5 / F-32: Wire Approve button
+  const handleApprove = async (id: string) => {
+    setProcessing(id);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('disputes')
+      .update({
+        status: 'resolved',
+        resolution: 'Approved',
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('tenant_id', tenantId);
+
+    if (!error) {
+      setAdjustments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'resolved', resolution: 'Approved', resolvedAt: new Date().toISOString() } : a
+      ));
+    }
+    setProcessing(null);
+  };
+```
+
+New Adjustment handler — placeholder entity, no transaction/data reference:
+
+```
+src/app/performance/adjustments/page.tsx:151-175
+    // Get first entity as placeholder (user should pick in a real form)
+    const { data: entity } = await supabase
+      .from('entities')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!entity?.id) {
+      setProcessing(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('disputes')
+      .insert({
+        tenant_id: tenantId,
+        entity_id: entity.id,
+        period_id: period?.id || null,
+        category: 'adjustment',
+        status: 'open',
+        description: newDescription.trim(),
+        amount_disputed: parseFloat(newAmount) || 0,
+        filed_by: profileId,
+      });
+```
+
+**(B) Calculation-batch approval machinery — DB-backed (`approval_requests`).** `src/app/api/approvals/route.ts` (POST inserts `approval_requests` with `request_type` default `'calculation_approval'` + writes audit log), `src/app/api/approvals/[id]/route.ts` (PATCH: role gate, updates `approval_requests`, validates and applies `calculation_batches.lifecycle_state` transition, writes TWO audit entries + canonical signal), `src/lib/governance/approval-service.ts` (lists approval items derived from `calculation_batches`; separation-of-duties enforced in `resolveApproval`), `src/app/govern/calculation-approvals/page.tsx` (UI), plus lifecycle plumbing (`lifecycle-pipeline.ts`, `calculation-lifecycle-service.ts`, `lifecycle-utils.ts`, `api/lifecycle/transition/route.ts`, `LifecycleActionBar.tsx`, `operate/approve`, `operate/pay`).
+
+```
+src/app/api/approvals/route.ts:52-62
+      const { data: approval, error: insertError } = await (supabase as any)
+        .from('approval_requests')
+        .insert({
+          tenant_id: profile.tenant_id,
+          batch_id,
+          period_id: period_id || null,
+          request_type: request_type || 'calculation_approval',
+          status: 'pending',
+          requested_by: profile.id,
+          requested_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+```
+
+```
+src/app/api/approvals/[id]/route.ts:135-149
+    // 5. Write audit logs
+    // Approval decision audit
+    await writeAuditLog(supabase, {
+      tenant_id: profile.tenant_id,
+      profile_id: profile.id,
+      action: status === 'approved' ? 'approval.approved' : 'approval.rejected',
+      resource_type: 'approval_request',
+      resource_id: approvalId,
+      changes: {
+        batch_id,
+        before_status: 'pending',
+        after_status: status,
+        decision_notes: decision_notes || null,
+      },
+    });
+```
+
+```
+src/lib/governance/approval-service.ts:84-96 (separation of duties — calculation approvals only)
+export function resolveApproval(
+  item: ApprovalItem,
+  resolvedBy: string,
+  action: 'approved' | 'rejected',
+  comments: string
+): ApprovalItem {
+  if (resolvedBy === item.submittedBy) {
+    throw new Error('Approval requires a different user than the submitter (separation of duties).');
+  }
+```
+
+**(C) Plan approval machinery — in-memory defaults.** `src/lib/plan-approval/plan-approval-service.ts` (`getAllApprovalRequests()` returns `getDefaultApprovalRequests()`; `STORAGE_KEY` unused), `src/types/plan-approval.ts`, `src/components/plan-approval/*` (SubmitForApprovalDialog, ApprovalWorkflowTimeline, ReviewerActionsPanel), `src/app/performance/approvals/plans/page.tsx`. Not DB-backed; distinct from adjustments.
+
+**(D) Universal approval-routing — in-memory; declares `manual_adjustment` but nothing produces it.**
+
+```
+src/lib/approval-routing/types.ts:8-16
+export type ApprovalDomain =
+  | 'import_batch'
+  | 'rollback'
+  | 'compensation_plan'
+  | 'period_operation'
+  | 'hierarchy_change'
+  | 'manual_adjustment'
+  | 'personnel_change'
+  | 'configuration_change';
+```
+
+Complete producer/consumer enumeration (E952):
+
+```
+$ grep -rn "createApprovalRequest\|approval-routing/" src/ --include="*.ts" --include="*.tsx" | grep -v "^src/lib/approval-routing/"
+src/app/approvals/page.tsx:41:} from '@/lib/approval-routing/approval-service';
+src/app/approvals/page.tsx:42:import type { ApprovalRequest, ApprovalDomain, ApprovalStatus } from '@/lib/approval-routing/types';
+src/components/approvals/impact-rating-badge.tsx:16:import type { ImpactRating } from '@/lib/approval-routing/types';
+src/components/approvals/approval-request-card.tsx:46:import type { ApprovalRequest, ApprovalDomain } from '@/lib/approval-routing/types';
+src/lib/import-pipeline/import-service.ts:30:import { createApprovalRequest } from '../approval-routing/approval-service';
+src/lib/import-pipeline/import-service.ts:31:import type { ApprovalContext } from '../approval-routing/types';
+src/lib/import-pipeline/import-service.ts:122:    const approval = createApprovalRequest(approvalContext);
+src/lib/rollback/rollback-service.ts:22:import { createApprovalRequest } from '../approval-routing/approval-service';
+src/lib/rollback/rollback-service.ts:23:import type { ApprovalContext } from '../approval-routing/types';
+src/lib/rollback/rollback-service.ts:174:    const approval = createApprovalRequest(approvalContext);
+```
+
+Only producers: import-service (domain `import_batch`) and rollback-service (domain `rollback`). `manual_adjustment` has zero producers (its only other appearances are display labels):
+
+```
+$ grep -rn "manual_adjustment" src/ --include="*.ts" --include="*.tsx"
+src/app/approvals/page.tsx:53:  manual_adjustment: { en: 'Manual Adjustment', es: 'Ajuste Manual' },
+src/lib/approval-routing/types.ts:14:  | 'manual_adjustment'
+src/components/approvals/approval-request-card.tsx:64:  manual_adjustment: FileText,
+```
+
+Store is in-memory only:
+
+```
+src/lib/approval-routing/approval-service.ts:38-45
+function loadFromStorage<T>(_key: string): Map<string, T> {
+  return new Map();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveToStorage<T>(_key: string, _map: Map<string, T>): void {
+  // No-op: localStorage removed
+}
+```
+
+**(E) Payout approval surfaces.** `src/lib/payout-service.ts` (`PayoutStatus` includes `pending_approval`; `initialize()` is "no-op: localStorage removed"), `src/app/performance/approvals/payouts/*`, `src/components/approvals/PayoutBatchCard.tsx`, `PayoutEmployeeTable.tsx`. Display layer over batch approval; not adjustment approval.
+
+**(F) `exception` hits — none are an approval workflow.** Dominant sites: `src/app/api/calculation/run/route.ts` (32 hits — engine structural exceptions: `structural_exception` refuse-to-calculate, `[CalcRecon-T3] EXCEPTION` observability lines), `src/components/dashboards/AdminDashboard.tsx` (18 — exceptions triage list display), `src/lib/data/persona-queries.ts` (11 — `deriveExceptions` from outcomes), `src/components/results/NarrativeSpine.tsx` (17), `src/lib/intelligence/insight-engine.ts` (9), remainder are alert/insight phrasing and try/catch prose. Sample:
+
+```
+src/app/api/calculation/run/route.ts:2142-2144
+        // HF-218 Component 2: structural exception — binding cannot be verified; refuse to calculate.
+        addLog(`[CalcRecon-T3] EXCEPTION entity=${entityInfo?.external_id ?? entityId} component=${compIdx} type=structural_exception reason="${bindingExceptionReason}"`);
+```
+
+#### 3. Schema layer
+
+SCHEMA_REFERENCE_LIVE.md lists both tables:
+
+```
+SCHEMA_REFERENCE_LIVE.md:47 — approval_requests (13 columns): id, tenant_id, batch_id, period_id,
+  request_type (default 'calculation_approval'), status (default 'pending'), requested_by, decided_by,
+  decision_notes, requested_at, decided_at, created_at, updated_at
+SCHEMA_REFERENCE_LIVE.md:172 — disputes (16 columns): id, tenant_id, entity_id, period_id, batch_id,
+  status (default 'open'), category, description, resolution, amount_disputed, amount_resolved,
+  filed_by, resolved_by, created_at, updated_at, resolved_at
+```
+
+Note: the `disputes` schema has NO source-transaction/data reference column (closest are `period_id`/`batch_id`); the bar's "data reference" has no home even in the historical schema.
+
+Migration record — `disputes` was deliberately dropped AFTER the schema reference was generated (2026-03-18):
+
+```
+web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql:1-15
+-- AUD-004 / OB-196 Phase 1.6.5: drop disputes table per architect direction
+-- Disputes feature reconstructs on engine foundation as roadmap item ("structured dispute workflow");
+-- current table contaminated by demo-era coupling (calculation-engine.ts, GuidedDisputeFlow,
+-- SystemAnalyzer, dispute-service.ts demo arms). Future feature builds on fresh schema design.
+--
+-- Pre-migration verification (CC service-role query 2026-04-28):
+--   disputes_row_count = 0
+--   audit_log dispute_rows = null (no orphan-data risk)
+--   FK fan-in: zero (verified via grep web/supabase/migrations: zero hits for REFERENCES disputes / dispute_id)
+--
+-- Architect applies via Supabase SQL Editor (Standing Rule 7).
+-- Post-application verification:
+--   SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'disputes';  -- expected 0
+
+DROP TABLE IF EXISTS disputes CASCADE;
+```
+
+`approval_requests` provenance:
+
+```
+web/supabase/migrations/013_approval_requests.sql:20-27 (excerpt)
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  batch_id         UUID NOT NULL REFERENCES calculation_batches(id) ON DELETE CASCADE,
+  period_id        UUID NOT NULL REFERENCES periods(id),
+  request_type     TEXT NOT NULL DEFAULT 'calculation_approval',
+  status           TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'recalled')),
+```
+
+Generated types still include the dropped table: `src/lib/supabase/database.types.ts:667` (`disputes:` table def), `:1252` (`export type Dispute = Tables<'disputes'>;`).
+
+#### 4. Live DB layer
+
+Script: `web/scripts/diag/diag063_c2_adjustments_approvals.ts` (source in repo; SELECT/head-count only). Output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c2_adjustments_approvals.ts
+disputes ERROR: Could not find the table 'public.disputes' in the schema cache
+approval_requests total count: 0
+approval_requests by request_type: {}
+approval_requests by status: {}
+audit_logs approval.* actions pattern="approval.%" count=0
+audit_logs actions containing dispute pattern="%dispute%" count=0
+audit_logs actions containing adjust pattern="%adjust%" count=0
+```
+
+(First run printed `like '0ispute%'` for the dispute probe — a console.log printf `%d` format-specifier artifact in the script's own log line, not a DB result; logging was corrected and re-run. Both runs returned identical DB results.)
+
+Env sanity — this is the populated platform DB, not an empty environment (`web/scripts/diag/diag063_c2_env_sanity.ts`):
+
+```
+entities head count: 22148
+calculation_batches head count: 15
+audit_logs head count: 0
+periods head count: 16
+approval_requests head count: 0
+```
+
+#### 5. Bar-step mapping
+
+**Step 1 — vendedor opens own statement:** EXISTS. `/perform/statements` renders source transactions, display-only:
+
+```
+src/app/perform/statements/page.tsx:556-563 (source-data table rows — no action column)
+                        {transactions.map((txn, i) => (
+                          <tr key={i} className="border-t border-zinc-800">
+                            <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{txn.dataType}</td>
+                            <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{txn.sourceDate || '—'}</td>
+                            <td className="px-3 py-2 text-zinc-500">
+                              {formatRowData(txn.rowData)}
+                            </td>
+                          </tr>
+                        ))}
+```
+
+**Step 2 — flag transaction with structured reason + data reference:** MISSING. No flag/dispute affordance on statements (`grep -n -i "dispute\|flag" src/app/perform/statements/page.tsx` → 0 hits); the prior dispute entry point was removed:
+
+```
+src/app/my-compensation/page.tsx:3-8
+/**
+ * My Compensation - Personal Performance Dashboard
+ *
+ * OB-34 Phase 7 / OB-196 Phase 1.6.5: Lifecycle visibility gate + AI personal
+ * performance narrative. Dispute UI removed pending future structured-dispute
+ * workflow build on engine foundation.
+```
+
+No dispute/adjustment API route exists: `find src/app/api -iname "*dispute*" -o -iname "*adjust*"` → no results. The audit-logger header still claims a dispute API consumer (stale): `src/lib/audit/audit-logger.ts:7` `* Used by: dispute API, approval API, lifecycle transitions.`
+
+**Step 3 — dispute enters admin queue:** UI EXISTS (`/performance/adjustments` with status filters open/resolved/rejected and pending stats) but its backing `disputes` table is absent live (Section 4), so the queue cannot hold rows.
+
+**Step 4 — admin resolves via adjustment, approved + audited:** PARTIAL-NEGATIVE. Approve/Reject handlers exist (Section 2A) but: write directly from the browser client; emit no audit event (`grep -rn -i "action: *['\"].*\(dispute\|adjust\)" src/` → 0 hits; live `audit_logs` total = 0); create no `approval_requests` row; have no submitter≠approver check (unlike calculation approvals, Section 2B).
+
+**Step 5 — recalculation reflects the delta:** MISSING. Neither handler triggers recalculation; `amount_resolved` is never written anywhere in src (only read in `page-loaders.ts:518`); the only recalculation entry points are `src/lib/payroll/period-processor.ts:419` (`recalculate()`, whose `runPeriodCalculation` is a stub taking `_tenantId` underscore params) and the `/api/calculation/run` orchestrator — neither consumes dispute/adjustment rows, and the engine reads `committed_data`, which has no adjustment input path.
+
+**GAP TO DEMO BAR:** Every step of the bar except "vendedor opens own statement" has a gap. (1) The dispute store itself does not exist live — dropped by AUD-004 with the stated intent to rebuild on a fresh schema; the historical schema also lacked a source-transaction data-reference column, so the bar's "structured reason + data reference" needs net-new schema. (2) No initiation affordance exists on the statement surface (removed per OB-196 Phase 1.6.5). (3) The admin queue UI exists but points at the dropped table. (4) Resolution is unaudited, unapproved (no approval_requests linkage), unprotected (no separation of duties), and client-side. (5) No path applies an approved adjustment to calculation results — no recalculation trigger, no delta application, `amount_resolved` write-side absent. The DB-backed approval+audit+lifecycle pattern needed for step 4 already exists end-to-end for calculation batches (`/api/approvals` + `approval_requests` + `writeAuditLog` + lifecycle transition) and is directly reusable as the template.
+
+**EFFORT SHAPE:**
+- Dispute store (steps 2/3 substrate): **E4** — net-new table (successor to dropped `disputes`) with entity_id, period_id, structured category/reason, and a source data reference (e.g., committed_data row id); plus regenerated `database.types.ts`.
+- Statement flag affordance (step 2): **E3** — new action column on the existing `/perform/statements` source-data table (`src/app/perform/statements/page.tsx`) posting to a new server route, composing the existing profile-resolution pattern.
+- Admin queue (step 3): **E2** — `/performance/adjustments` page already implements queue/filters/stats; rewire `loadAdjustmentsPageData` (`src/lib/data/page-loaders.ts`) to the new store.
+- Approved + audited resolution (step 4): **E3** — new server route modeled directly on `src/app/api/approvals/[id]/route.ts` (role gate + `approval_requests` row with a dispute/adjustment `request_type` + `writeAuditLog` calls + separation-of-duties check from `src/lib/governance/approval-service.ts`).
+- Recalculation delta (step 5): **E4** — net-new service bridge from approved adjustment to `calculation_results`/`entity_period_outcomes` (or an adjustment input the `/api/calculation/run` orchestrator consumes); no existing component performs this.
+
+### C3 — Audit trail coverage
+
+**CURRENT STATE:** Two audit sinks exist. `platform_events` is live with 1,656 rows across 22 distinct event types — almost entirely auth/session/tenant-entry telemetry (HF-150-series), written via `logAuthEvent`/`logAuthEventClient` -> `POST /api/auth/log-event`, plus a server-side `emitEvent()` emitter (`src/lib/events/emitter.ts`) that defines 25+ business event types (data, plan, calculation, lifecycle, dispute, billing, agent) but has only 4 call sites (signup, plan import, billing webhook, agent runner) — and zero rows for any of those business types except auth/tenant/identity. `audit_logs` has 8 code emit sites covering approvals, calculation batch creation, and lifecycle transitions, but the table contains **0 rows**. Of the eight demo-path action classes, only login is DB-verified instrumented; plan import is code-instrumented with no observed rows; calculate has audit_logs emit sites on the live path with no observed rows; import, export, adjustment, dispute, and persona switch are not instrumented. A third, in-memory-only `audit-service` backs the `/admin/audit` UI (no persistence; flush is a no-op).
+
+**EVIDENCE:**
+
+Schema authority (`SCHEMA_REFERENCE_LIVE.md`):
+
+```
+### platform_events (8 columns)
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | |
+| event_type | text | NO | |
+| actor_id | uuid | YES | |
+| entity_id | uuid | YES | |
+| payload | jsonb | YES | |
+| processed_by | jsonb | YES | |
+| created_at | timestamp with time zone | NO | now() |
+
+### audit_logs (10 columns)
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| profile_id | uuid | YES | |
+| action | text | NO | |
+| resource_type | text | NO | |
+| resource_id | uuid | YES | |
+| changes | jsonb | NO | |
+| metadata | jsonb | NO | |
+| ip_address | inet | YES | |
+| created_at | timestamp with time zone | NO | now() |
+```
+
+#### DB probe — script `web/scripts/diag/diag063_c3_events.ts` (SELECT-only; head:true counts, then pages ONLY the needed columns in 1000-row pages and aggregates client-side, since PostgREST has no GROUP BY)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_c3_events.ts
+platform_events total rows (head:true count): 1656
+method: paging event_type column only, 1000-row pages, client-side aggregation
+
+platform_events.event_type (22 distinct):
+  auth.login.success  -> 309
+  auth.session.bookkeeping_reset  -> 306
+  auth.mfa.verify.success  -> 229
+  auth.redirect.unauth_protected  -> 214
+  auth.session.expired.idle  -> 189
+  auth.redirect.unauth_root  -> 80
+  auth.redirect.mfa_verify  -> 65
+  tenant.entered  -> 63
+  auth.redirect.tenant_select  -> 61
+  auth.login.failure  -> 48
+  auth.logout  -> 25
+  auth.mfa.verify.failure  -> 13
+  auth.shell.unauth_redirect  -> 11
+  auth.shell.hydration_timeout  -> 11
+  auth.redirect.tenant_cookie_present  -> 10
+  auth.session.expired.absolute  -> 8
+  identity.resolve.duplicate_rows  -> 8
+  auth.mfa.enroll  -> 2
+  auth.shell.tenant_gate  -> 1
+  tenant.cleared  -> 1
+  auth.shell.loop_break  -> 1
+  data.import_telemetry_audit_divergence  -> 1
+
+audit_logs total rows (head:true count): 0
+```
+
+#### Code sweep — probe-specified grep (full file-level list, complete)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rln "platform_events\|recordEvent\|logEvent" src/ --include="*.ts"
+src/app/api/auth/log-event/route.ts
+src/app/api/platform/events/route.ts
+src/lib/auth/auth-logger.ts
+src/lib/agents/runner.ts
+src/lib/events/emitter.ts
+```
+
+Adjacent-arm: same grep over `--include="*.tsx"` returned **zero files**. Line-level hits for the 5 .ts files:
+
+```
+$ grep -rn "platform_events\|recordEvent\|logEvent" src/ --include="*.ts"
+src/app/api/auth/log-event/route.ts:7: * INSERT into platform_events (bypasses RLS).
+src/app/api/auth/log-event/route.ts:79:    await supabase.from('platform_events').insert({
+src/app/api/platform/events/route.ts:28:    // platform_events table created via SQL migration — not yet in generated types
+src/app/api/platform/events/route.ts:31:      .from('platform_events')          [GET reader]
+src/app/api/platform/events/route.ts:69:  // platform_events table created via SQL migration — not yet in generated types
+src/app/api/platform/events/route.ts:72:    .from('platform_events')          [POST insert]
+src/lib/auth/auth-logger.ts:4: * Provider-agnostic auth event logging to platform_events table.
+src/lib/auth/auth-logger.ts:68:    await supabase.from('platform_events').insert({
+src/lib/agents/runner.ts:35:      .from('platform_events')          [SELECT: agent loop reads last-24h events]
+src/lib/events/emitter.ts:5: * Events are written to platform_events table and consumed by agents.
+src/lib/events/emitter.ts:77:    // platform_events table created via SQL migration — not yet in generated types
+src/lib/events/emitter.ts:80:      .from('platform_events')          [emitEvent insert]
+```
+
+`emitEvent`/`emitEventClient` call sites outside the emitter/API route (complete):
+
+```
+$ grep -rn "emitEvent\|emitEventClient" src/ --include="*.ts" --include="*.tsx" | grep -v "src/lib/events/emitter.ts" | grep -v "src/app/api/platform/events/route.ts"
+src/app/api/auth/signup/route.ts:164:    emitEvent({            -> 'user.signed_up'
+src/app/api/plan/import/route.ts:149:    emitEvent({            -> 'plan.imported'
+src/app/api/billing/webhook/route.ts:76:  emitEvent({            -> 'billing.subscription_activated'
+src/lib/agents/runner.ts:112:      emitEvent({                  -> 'agent.recommendation'
+```
+
+`logAuthEvent`/`logAuthEventClient` call sites: 43 line hits across 10 files (complete file list):
+
+```
+src/middleware.ts
+src/contexts/tenant-context.tsx
+src/app/auth/mfa/enroll/page.tsx
+src/app/auth/mfa/verify/page.tsx
+src/components/layout/auth-shell.tsx
+src/components/platform/ObservatoryTab.tsx
+src/components/session/SessionExpiryWarning.tsx
+src/lib/auth/resolve-identity.ts
+src/lib/auth/auth-logger.ts
+src/lib/supabase/auth-service.ts
+```
+
+#### audit_logs writers — complete sweep
+
+```
+$ grep -rln "audit_logs" src/ --include="*.ts" --include="*.tsx"
+src/app/api/lifecycle/transition/route.ts        (direct insert :227, action `lifecycle_<state>`)
+src/app/api/approvals/route.ts                   (via writeAuditLog :76, 'approval.requested')
+src/app/api/approvals/[id]/route.ts              (via writeAuditLog :137 'approval.approved|rejected', :152 'lifecycle.transition')
+src/lib/lifecycle/lifecycle-service.ts           (direct insert :277, 'lifecycle_transition')
+src/lib/supabase/database.types.ts               (generated types only)
+src/lib/audit/audit-logger.ts                    (writeAuditLog definition)
+src/lib/supabase/data-service.ts                 (:448 second writeAuditLog definition — zero callers found)
+src/lib/calculation/calculation-lifecycle-service.ts  (direct insert :206 'lifecycle_transition:<from>-><to>'; :238 audit-trail READER)
+
+$ grep -rn "writeAuditLog" src/ --include="*.ts" --include="*.tsx"
+src/app/api/approvals/route.ts:16,76
+src/app/api/approvals/[id]/route.ts:17,137,152
+src/lib/supabase/calculation-service.ts:9,85,246   ('batch.created'; 'lifecycle.<from>_to_<to>')
+src/lib/supabase/data-service.ts:448                (definition; no callers)
+src/lib/audit/audit-logger.ts:27                    (definition)
+```
+
+`createCalculationBatch` (which emits 'batch.created' to audit_logs) IS on the live calculation path:
+
+```
+src/lib/calculation/run-calculation.ts:1318
+  const batch = await createCalculationBatch(tenantId, {
+src/app/api/calculation/run/route.ts:29
+  } from '@/lib/calculation/run-calculation';
+```
+
+```
+src/lib/supabase/calculation-service.ts:85
+  writeAuditLog(supabase, {
+    tenant_id: tenantId,
+    profile_id: params.createdBy || null,
+    action: 'batch.created',
+    resource_type: 'calculation_batch',
+    ...
+  }).catch(() => {});
+```
+
+Yet `audit_logs` head:true count = 0 (script output above). All audit writes are fire-and-forget with errors swallowed (`.catch(() => {})`, try/catch, or unchecked insert result).
+
+`src/lib/lifecycle/lifecycle-service.ts:277` insert omits `metadata` — a NOT NULL column with no default per SCHEMA_REFERENCE_LIVE.md — and does not check the insert result:
+
+```
+src/lib/lifecycle/lifecycle-service.ts:276-289
+  try {
+    await supabase.from('audit_logs').insert({
+      tenant_id: tenantId,
+      action: 'lifecycle_transition',
+      resource_type: 'calculation_batch',
+      resource_id: batch.id,
+      changes: { from: currentDashboardState, to: newState, period_id: periodId },
+    });
+  } catch {
+    // Audit log failure should not block the transition
+  }
+```
+
+#### Demo-path action instrumentation checks
+
+```
+$ grep -n "emitEvent\|writeAuditLog\|audit_logs\|platform_events" src/app/api/import/commit/route.ts src/app/api/calculation/run/route.ts
+exit=1   (zero hits in both files)
+
+$ grep -rn "logAuthEventClient\|logAuthEvent\|emitEventClient\|emitEvent" src/contexts/persona-context.tsx
+exit=1   (zero hits; persona switch fn = setPersonaOverride, persona-context.tsx:37)
+
+$ find src/app/api -type d | grep -i "disput\|adjust"
+(no output — no dispute or adjustment API routes)
+
+$ grep -rln "Content-Disposition\|text/csv" src/app --include="*.ts" --include="*.tsx"
+src/app/admin/launch/calculate/page.tsx
+src/app/admin/audit/page.tsx
+src/app/operations/audits/page.tsx
+src/app/operations/audits/logins/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/api/ingest/setup/route.ts
+src/app/api/import/prepare/route.ts
+(none of these 8 emit any event/audit on export — verified by the platform_events/audit_logs sweeps above, which contain none of these files)
+```
+
+Login emit sites (DB-verified type):
+
+```
+src/lib/supabase/auth-service.ts:41   await logAuthEventClient('auth.login.failure', { email, reason: error.message });
+src/lib/supabase/auth-service.ts:46   await logAuthEventClient('auth.login.success', { email, userId: data.user?.id });
+  -> POST /api/auth/log-event -> src/app/api/auth/log-event/route.ts:79 platform_events insert (service role)
+```
+
+Dispute/data/calculation event types are DEFINED but never emitted — `src/lib/events/emitter.ts:19-50` `PlatformEventType` union includes `'data.imported' | 'data.committed' | 'plan.imported' | 'calculation.started' | 'calculation.completed' | 'lifecycle.advanced' | 'dispute.submitted' | 'dispute.resolved'` (and more); the only emit sites are the 4 listed above. `src/lib/audit/audit-logger.ts:7` header comment reads "Used by: dispute API, approval API, lifecycle transitions" — no dispute API route exists.
+
+In-memory audit arm (UI-facing, non-persistent):
+
+```
+src/lib/audit-service.ts:3-10
+  class AuditService {
+    private queue: AuditLogEntry[] = [];
+    constructor() {
+      // no-op: localStorage removed, auto-flush disabled
+    }
+src/lib/audit-service.ts:159-161
+  private flush(): void {
+    // no-op: localStorage removed
+  }
+```
+
+`src/app/admin/audit/page.tsx:22` imports this service (`import { audit } from '@/lib/audit-service'`) and its CSV export at :100 (`audit.exportAsCSV(filteredLogs)`) reads the in-memory queue. `src/app/operations/audits/logins/page.tsx:49-68` renders mock arrays (`mockLoginAudits`, `techCorpLoginAudits`), not platform_events.
+
+#### Coverage table — demo-path action classes
+
+| Action class | Instrumented? | Event name + emit site |
+|---|---|---|
+| login | YES (DB-verified) | `auth.login.success` (309 rows) / `auth.login.failure` (48) — `src/lib/supabase/auth-service.ts:46/:41` -> `src/app/api/auth/log-event/route.ts:79` -> platform_events |
+| data import | NOT INSTRUMENTED | `data.imported`/`data.committed` defined in `emitter.ts` type union only; `src/app/api/import/commit/route.ts` has zero emit/audit references; 0 DB rows |
+| plan import | CODE ONLY (0 DB rows) | `plan.imported` — `emitEvent` at `src/app/api/plan/import/route.ts:149`; platform_events contains 0 `plan.imported` rows |
+| calculate | CODE ONLY (0 DB rows) | `batch.created` + `lifecycle.<from>_to_<to>` to audit_logs — `calculation-service.ts:85/:246`, on live path via `run-calculation.ts:1318`; audit_logs = 0 rows; no platform_events `calculation.*` emit site |
+| export | NOT INSTRUMENTED | 8 export/download surfaces; none emit; `/admin/audit` CSV export reads in-memory queue |
+| adjustment | NOT INSTRUMENTED | no adjustment API route; no audit action string |
+| dispute | NOT INSTRUMENTED | `dispute.submitted`/`dispute.resolved` exist only in the `PlatformEventType` union; no dispute route, no emit site |
+| persona switch | NOT INSTRUMENTED | `setPersonaOverride` (`src/contexts/persona-context.tsx:37`) has zero logging references |
+
+**GAP TO DEMO BAR:** The Module C functional bar (dispute flagged -> admin queue -> approved adjustment -> audited recalculation) has audit coverage for exactly one segment: the approvals API writes `approval.requested/approved/rejected` to audit_logs (code-verified), and calculation batch creation/lifecycle writes exist on the live path — but audit_logs holds 0 rows, so no end-to-end audit trail has ever landed. Dispute initiation and adjustment have no emit sites and no write paths to instrument. Data import, calculation (platform_events side), export, and persona switch emit nothing. The audit UI surfaces (`/admin/audit`, `/operations/audits/*`) do not read either DB sink.
+
+**EFFORT SHAPE:** Split. login E0 — none. plan import / calculate / approvals E1 — emit sites exist on live paths; remaining proof is an architect browser action (perform the action, observe the row land; audit_logs landing is currently unproven at 0 rows). import / export / persona switch E3 — add `emitEvent()`/`writeAuditLog()` calls to existing routes (`api/import/commit`, export handlers, `persona-context`) using the existing `emitter.ts` + `audit-logger.ts` services; plus an audit-viewer surface change to read `platform_events`/`audit_logs` instead of the in-memory `audit-service`/mock arrays (E2). dispute / adjustment E4 — no routes or write paths exist to instrument; audit coverage arrives only with the Module C build (event types are pre-declared in `emitter.ts`).
+
+## Module D — Net-New Definition and Demo-Surface Invariants
+
+# D1 — Company-wide dashboard adjacents (composition material inventory)
+
+**CURRENT STATE:** A DB-backed, company-wide (tenant-level, single-period) dashboard already exists: `AdminDashboard` mounted at `/perform` (persona `admin`), fed by `getAdminDashboardData()` in `src/lib/data/persona-queries.ts`, which rolls up `entity_period_outcomes` (total payout sum, attainment distribution, per-entity/store breakdown, component composition, lifecycle state) with a fallback to `calculation_results` for pre-OFFICIAL batches. The `entity_period_outcomes` table is live (883 rows across 3 tenant UUIDs, multi-period for 2 of them) and is written by the calc run route and by `materializeEntityPeriodOutcomes()` on lifecycle transitions. A rich library of prop-driven chart components exists (recharts wrappers + design-system visuals). The remaining "dashboard" surfaces (`/insights/analytics`, `/data/reports`, `/insights/compensation`) render synthetic/fixture data, not DB data. A cross-period company trend view does not exist as a UI; the query material for it does (per-period outcome rows + an unconsumed `getDashboardKPIs()` YTD rollup + the platform-observatory `tenant_id, period_id, total_payout` select pattern).
+
+---
+
+## EVIDENCE
+
+### 1. Chart component inventory
+
+Command (from `web/`):
+
+```
+$ grep -rnil "recharts\|Chart" src/ --include="*.tsx"
+src/app/insights/page.tsx
+src/app/insights/sales-finance/page.tsx
+src/app/insights/compensation/page.tsx
+src/app/insights/my-team/page.tsx
+src/app/insights/trends/page.tsx
+src/app/insights/performance/page.tsx
+src/app/insights/analytics/page.tsx
+src/app/test-ds/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/operate/page.tsx
+src/app/operate/results/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/approvals/page.tsx
+src/app/data/import/enhanced/page.tsx
+src/components/ui/chart.tsx
+src/components/hierarchy/HierarchyViewer.tsx
+src/components/hierarchy/HierarchyNode.tsx
+src/components/calculate/PlanResults.tsx
+src/components/intelligence/InsightPanel.tsx
+src/components/intelligence/DistributionCard.tsx
+src/components/platform/AIIntelligenceTab.tsx
+src/components/data-quality/QualityScoreGauge.tsx
+src/components/navigation/ChromeSidebar.tsx
+src/components/navigation/command-palette/CommandPalette.tsx
+src/components/navigation/Sidebar.tsx
+src/components/charts/CompensationPieChart.tsx
+src/components/charts/CompensationTrendChart.tsx
+src/components/charts/sales-history-chart.tsx
+src/components/forensics/PipelineHealth.tsx
+src/components/dashboards/WelcomeCard.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/search/GlobalSearchDialog.tsx
+src/components/design-system/DistributionChart.tsx
+src/components/analytics/MetricTrendChart.tsx
+src/components/dashboards/AdminDashboard.tsx
+src/components/analytics/ExportDialog.tsx
+src/components/help/HelpPanel.tsx
+src/components/reports/revenue-by-rep.tsx
+src/components/design-system/StateIndicator.tsx
+src/components/analytics/KPICard.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/reports/revenue-by-region.tsx
+src/components/reports/revenue-by-period.tsx
+src/components/reports/commission-expense.tsx
+src/components/reports/revenue-by-product.tsx
+```
+
+Files that actually import recharts (26):
+
+```
+$ grep -rn "recharts" src/ --include="*.tsx" -l | sort
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/insights/page.tsx
+src/app/insights/performance/page.tsx
+src/app/insights/trends/page.tsx
+src/components/analytics/BreakdownChart.tsx
+src/components/analytics/MetricTrendChart.tsx
+src/components/charts/CompensationPieChart.tsx
+src/components/charts/CompensationTrendChart.tsx
+src/components/charts/sales-history-chart.tsx
+src/components/import/import-summary-dashboard.tsx
+src/components/intelligence/DistributionCard.tsx
+src/components/reports/commission-expense.tsx
+src/components/reports/revenue-by-period.tsx
+src/components/reports/revenue-by-product.tsx
+src/components/reports/revenue-by-region.tsx
+src/components/reports/revenue-by-rep.tsx
+src/components/ui/chart.tsx
+```
+
+**Classification of all 55 hits:**
+
+| Class | Files |
+|---|---|
+| Reusable prop-driven chart primitives (recharts) | `src/components/ui/chart.tsx` (shadcn ChartContainer wrapper, `import * as RechartsPrimitive`), `src/components/charts/CompensationPieChart.tsx`, `src/components/charts/CompensationTrendChart.tsx`, `src/components/charts/sales-history-chart.tsx`, `src/components/analytics/MetricTrendChart.tsx`, `src/components/analytics/BreakdownChart.tsx`, `src/components/intelligence/DistributionCard.tsx` |
+| Report widgets, prop-driven (recharts) | `src/components/reports/revenue-by-rep.tsx`, `revenue-by-region.tsx`, `revenue-by-period.tsx`, `revenue-by-product.tsx`, `commission-expense.tsx` |
+| Custom (non-recharts) design-system visuals | `src/components/design-system/DistributionChart.tsx` (5-bucket histogram), `src/components/data-quality/QualityScoreGauge.tsx`, `src/components/design-system/StateIndicator.tsx` |
+| Pages with inline recharts usage | 10× `src/app/financial/*` pages, `src/app/insights/page.tsx`, `src/app/insights/performance/page.tsx`, `src/app/insights/trends/page.tsx`, `src/components/import/import-summary-dashboard.tsx` |
+| Matched only on lucide icon names / word "Chart" — NOT chart components | `src/app/approvals/page.tsx`, `src/app/data/import/enhanced/page.tsx`, `src/app/insights/analytics/page.tsx`, `src/app/insights/compensation/page.tsx`, `src/app/insights/my-team/page.tsx`, `src/app/insights/sales-finance/page.tsx`, `src/app/operate/{calculate,lifecycle,page,results}.tsx`, `src/app/operate/page.tsx`, `src/app/test-ds/page.tsx`, `src/components/analytics/ExportDialog.tsx`, `src/components/analytics/KPICard.tsx` (lucide `BarChart3` icon at lines 20/39/59 only — prop-driven KPI tile, no recharts import; reclassified from the chart-primitives row), `src/components/calculate/PlanResults.tsx`, `src/components/dashboards/AdminDashboard.tsx`, `src/components/dashboards/WelcomeCard.tsx`, `src/components/forensics/PipelineHealth.tsx`, `src/components/help/HelpPanel.tsx`, `src/components/hierarchy/HierarchyNode.tsx`, `src/components/hierarchy/HierarchyViewer.tsx`, `src/components/intelligence/InsightPanel.tsx`, `src/components/navigation/{ChromeSidebar,Sidebar}.tsx`, `src/components/navigation/command-palette/CommandPalette.tsx`, `src/components/platform/AIIntelligenceTab.tsx`, `src/components/search/GlobalSearchDialog.tsx` |
+
+Verification command for icon-only matches (set difference of the two lists; each line shows the matched tokens — `BarChart3`, `PieChart`, `LineChart` are lucide-react icons):
+
+```
+$ comm -23 <(grep -rnil "recharts\|Chart" src/ --include="*.tsx" | sort) <(grep -rln "recharts" src/ --include="*.tsx" | sort)
+(29 files; tokens per file were BarChart3 / PieChart / LineChart / "Chart" word-matches —
+ full output retained in probe transcript; e.g.
+ src/components/navigation/Sidebar.tsx :: BarChart3,
+ src/components/dashboards/AdminDashboard.tsx :: Chart,   <- DistributionChart import)
+```
+
+Prop-driven chart signatures (compose-ready, take data as props):
+
+```
+src/components/charts/CompensationTrendChart.tsx:16
+interface TrendData { ... }
+interface CompensationTrendChartProps { ... }
+export function CompensationTrendChart({ data }: CompensationTrendChartProps) {
+
+src/components/charts/CompensationPieChart.tsx:13
+interface PieChartData { ... }
+export function CompensationPieChart({ data }: CompensationPieChartProps) {
+
+src/components/reports/revenue-by-period.tsx:28
+interface RevenueByPeriodProps {
+  monthlyData: PeriodData[];
+  quarterlyData: PeriodData[];
+}
+export function RevenueByPeriod({ monthlyData, quarterlyData }: RevenueByPeriodProps) {
+```
+
+### 2. entity_period_outcomes — schema, writers, readers
+
+Schema authority (matches live shape exactly — see DB probe in §4):
+
+```
+SCHEMA_REFERENCE_LIVE.md:224
+### entity_period_outcomes (11 columns)
+| Column | Type | Nullable | Default |
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | NO | |
+| total_payout | numeric | NO | 0 |
+| rule_set_breakdown | jsonb | NO | |
+| component_breakdown | jsonb | NO | |
+| lowest_lifecycle_state | text | NO | DRAFT |
+| attainment_summary | jsonb | NO | |
+| metadata | jsonb | NO | |
+| materialized_at | timestamp with time zone | NO | now() |
+```
+
+Complete hit list (adjacent-arm sweep):
+
+```
+$ grep -rn "entity_period_outcomes" src/ | sort
+src/app/api/calculation/run/route.ts:2948:  // ── 9. Materialize entity_period_outcomes ──
+src/app/api/calculation/run/route.ts:2970:    .from('entity_period_outcomes')
+src/app/api/calculation/run/route.ts:2980:      .from('entity_period_outcomes')
+src/app/api/calculation/run/route.ts:2992:    addLog(`Materialized ${outcomeRows.length} entity_period_outcomes ...`)
+src/app/api/platform/observatory/route.ts:164:  const outcomePromise = supabase.from('entity_period_outcomes')
+src/app/api/platform/observatory/route.ts:522:    supabase.from('entity_period_outcomes').select('tenant_id, total_payout')...
+src/app/api/platform/observatory/route.ts:598:    supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true }),
+src/components/dashboards/AdminDashboard.tsx:126:  // field exists in entity_period_outcomes. (comment)
+src/lib/calculation/run-calculation.ts:6: * Writes calculation_batches, calculation_results, entity_period_outcomes. (comment)
+src/lib/canvas/graph-service.ts:231:    .from('entity_period_outcomes')
+src/lib/data/persona-queries.ts:144,258,271,287,335,351,368,789:    .from('entity_period_outcomes')
+src/lib/data/platform-queries.ts:232,478,534: ... from('entity_period_outcomes') ...
+src/lib/supabase/calculation-service.ts:21,478,484,564,585,604,625,649,658,663
+src/lib/supabase/database.types.ts:31,1009,1011,1261 (type defs)
+src/scripts/clear-tenant.ts:64 (table list)
+```
+
+**Writer 1 — calc run route (delete + batched insert, per tenant+period):**
+
+```
+src/app/api/calculation/run/route.ts:2948
+  // ── 9. Materialize entity_period_outcomes ──
+  const outcomeRows = entityResults.map(r => ({
+    tenant_id: tenantId,
+    entity_id: r.entity_id,
+    period_id: r.period_id,
+    total_payout: r.total_payout,
+    lowest_lifecycle_state: 'PREVIEW',
+    rule_set_breakdown: [{ rule_set_id: ruleSetId, total_payout: r.total_payout }] as unknown as Json,
+    component_breakdown: r.components.map(c => ({
+      componentId: c.componentId, componentName: c.componentName, payout: c.payout,
+    })) as unknown as Json,
+    attainment_summary: r.attainment as unknown as Json,
+    metadata: {} as unknown as Json,
+  }));
+  // Delete existing outcomes for this tenant+period first
+  await supabase.from('entity_period_outcomes').delete()
+    .eq('tenant_id', tenantId).eq('period_id', periodId);
+  // OB-75: Batched insert for 22K+ outcomes
+  for (let i = 0; i < outcomeRows.length; i += WRITE_BATCH) {
+    const slice = outcomeRows.slice(i, i + WRITE_BATCH);
+    const { error: outErr } = await supabase.from('entity_period_outcomes').insert(slice);
+    ...
+```
+
+**Writer 2 — lifecycle-triggered materializer:**
+
+```
+src/lib/supabase/calculation-service.ts:478
+/**
+ * Materialize entity_period_outcomes for a period.
+ * Triggered on lifecycle transitions (OFFICIAL, APPROVED, POSTED, PUBLISHED).
+ * For each entity in the batch:
+ * 1. Read all calculation_results for the entity in this period
+ * 2. Aggregate: total_payout, per-rule-set breakdown, lowest lifecycle state
+ * 3. Write/update entity_period_outcomes (upsert by tenant+entity+period)
+ */
+export async function materializeEntityPeriodOutcomes(
+  tenantId: string, periodId: string, batchId: string
+): Promise<EntityPeriodOutcomeRow[]> {
+```
+
+**Reader 1 — the company-wide rollup (tenant + period):**
+
+```
+src/lib/data/persona-queries.ts:134
+export async function getAdminDashboardData(tenantId: string): Promise<AdminDashboardData> {
+  const supabase = createClient();
+  const periodId = await getCurrentPeriodId(tenantId);
+  ...
+  const { data: outcomes } = await supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('period_id', periodId);
+```
+
+```
+src/lib/data/persona-queries.ts:219 (return shape)
+  return {
+    totalPayout: sum(safeOutcomes.map(o => o.total_payout)),
+    entityCount: safeOutcomes.length,
+    attainmentDistribution: safeOutcomes.map(o => extractAttainment(o.attainment_summary)),
+    storeBreakdown: safeOutcomes.map(o => ({
+      entityId: o.entity_id,
+      entityName: entityMap.get(o.entity_id)?.display_name ?? o.entity_id,
+      totalPayout: o.total_payout,
+      entityType: entityMap.get(o.entity_id)?.entity_type ?? 'individual',
+    })),
+    lifecycleState,
+    exceptions: deriveExceptions(safeOutcomes, entityMap),
+    componentComposition: aggregateComponents(safeOutcomes),
+    aiMetrics,
+  };
+```
+
+Note: the function also has a documented fallback to `calculation_results` of the latest non-superseded batch when no outcomes are materialized (persona-queries.ts:155-204) — so the dashboard renders for PREVIEW/DRAFT states too.
+
+`AdminDashboardData` interface (persona-queries.ts:26-35): `totalPayout, entityCount, attainmentDistribution[], storeBreakdown[], lifecycleState, exceptions[], componentComposition[], aiMetrics?`. Sibling rollups: `getManagerDashboardData(tenantId, entityIds, canSeeAll)` (team scope, persona-queries.ts:241) and `getRepDashboardData` (persona-queries.ts:319, includes per-period `history`).
+
+**Reader 2 — tenant YTD rollup, currently UNCONSUMED:**
+
+```
+src/lib/supabase/calculation-service.ts:649
+/**
+ * Fetch all dashboard KPI data in parallel from the correct tables.
+ * Queries: entity_period_outcomes, calculation_results, entities.
+ */
+export async function getDashboardKPIs(tenantId: string): Promise<DashboardKPIs> {
+  const [outcomesRes, pendingRes, entityRes, batchRes] = await Promise.all([
+    supabase.from('entity_period_outcomes').select('total_payout').eq('tenant_id', tenantId),       // YTD
+    supabase.from('entity_period_outcomes').select('total_payout').eq('tenant_id', tenantId)
+      .eq('lowest_lifecycle_state', 'APPROVED'),                                                     // pending
+    supabase.from('entities').select('*', { count: 'exact', head: true })...
+```
+
+```
+$ grep -rn "getDashboardKPIs" src/ --include="*.tsx" --include="*.ts" | grep -v calculation-service.ts
+(no output — zero consumers)
+```
+
+**Reader 3 — cross-tenant per-period rollup pattern (platform observatory, vl_admin):**
+
+```
+src/lib/data/platform-queries.ts:232
+    supabase.from('entity_period_outcomes').select('tenant_id, period_id, total_payout')
+      .in('tenant_id', tenantIds),
+```
+
+(same pattern at `src/app/api/platform/observatory/route.ts:164`.)
+
+**Reader 4 — canvas graph service (defect, see Finding F1):**
+
+```
+src/lib/canvas/graph-service.ts:230
+  const { data: outcomes } = await supabase
+    .from('entity_period_outcomes')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false })   // <- column does not exist (probe §4)
+    .limit(1);
+```
+
+Also: `getEntityPeriodOutcomes` / `getEntityOutcome` (calculation-service.ts:596/618) and `getPeerRankings` (persona-queries.ts:781-789).
+
+### 3. Dashboard-ish routes
+
+```
+$ find src/app -type d -iname "*dashboard*" -o -iname "*overview*" -o -iname "*report*" -o -iname "*analytic*" -o -iname "*insight*"
+src/app/api/insights
+src/app/data/reports
+src/app/govern/audit-reports
+src/app/insights
+src/app/insights/analytics
+```
+
+Full route inventory relevant to a company view (from `find src/app -name "page.tsx"`):
+
+| Route | Data source | Notes |
+|---|---|---|
+| `/perform` | `entity_period_outcomes` via persona-queries | Persona-switched: `{persona === 'admin' && <AdminDashboard />}` at `src/app/perform/page.tsx:248`; Manager/Rep variants same file. **The existing company-wide dashboard.** |
+| `/insights/analytics` | `src/lib/analytics/analytics-service.ts` — **generated demo data** | "Advanced Analytics Dashboard" w/ KPICard, MetricTrendChart, BreakdownChart, ExportDialog |
+| `/data/reports` | `src/lib/financial-service.ts` — **static fixture** | RevenueByPeriod/Rep/Product/Region, CommissionExpense |
+| `/insights/compensation` | `restaurant-service` (demo) | CompensationPieChart, CompensationTrendChart, Leaderboard |
+| `/insights`, `/insights/performance`, `/insights/trends` | inline recharts | |
+| `/operate/results` | calc results surfaces | |
+| `/financial/*` (11 pages) | financial module (feature-flagged) | |
+| `/api/platform/observatory` | cross-tenant outcomes rollup | vl_admin scope |
+
+AdminDashboard hero composition (`src/components/dashboards/AdminDashboard.tsx:5-21`): Hero total payout (AnimatedNumber) + DistributionChart (5-bucket attainment histogram) + LifecycleStepper + BenchmarkBar (locations vs budget) + ComponentStack (part-of-whole) + exceptions queue + TrendArrow + AssessmentPanel + readiness checklist.
+
+Period machinery exists: `src/contexts/period-context.tsx` exports `PeriodProvider`/`usePeriod` with `activePeriodId` (line 16/118). However:
+
+```
+src/components/dashboards/AdminDashboard.tsx:113
+    getAdminDashboardData(tenantId).then(result => { ... });
+    ...
+  }, [tenantId, activePeriodId]);
+```
+
+`getAdminDashboardData(tenantId)` takes no period argument — it internally resolves the latest period by `start_date` (`getCurrentPeriodId`, persona-queries.ts:103-128), so the `activePeriodId` dependency re-triggers a fetch of the same latest period (Finding F5).
+
+Self-documented budget placeholder:
+
+```
+src/components/dashboards/AdminDashboard.tsx:125
+  // CLT-56: Budget is estimated as 110% of actual payout since no real budget
+  // field exists in entity_period_outcomes. This produces a tautological -9.1%
+  // delta (=-1/11) for all entities. When a real budget_target column is added,
+  // this should read from the database instead.
+```
+
+Synthetic data evidence for `/insights/analytics`:
+
+```
+src/lib/analytics/analytics-service.ts:28
+export function getExecutiveDashboard(tenantId: string, startDate: string, endDate: string): AnalyticsDashboard {
+  const kpis = generateKPIs();
+  const trends = generateTrends(startDate, endDate);
+  const breakdowns = generateBreakdowns();
+  ...
+src/lib/analytics/analytics-service.ts:62
+  // Generate demo data based on metric and granularity
+  const dataPoints = generateTimeSeriesData(metric, granularity, startDate, endDate);
+```
+
+Fixture data evidence for `/data/reports`:
+
+```
+src/app/data/reports/page.tsx:38
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 800);   // simulated loading
+  ...
+  const monthlyData = getRevenueByPeriod('monthly');            // financial-service
+
+src/lib/financial-service.ts:154
+export function getRevenueByPeriod(type: 'monthly' | 'quarterly' = 'monthly'): RevenueByPeriod[] {
+  const summaries = financialSummariesData as typeof financialSummariesData;   // static JSON fixture
+```
+
+### 4. DB probe — entity_period_outcomes is populated (read-only, service-role)
+
+Script: `web/scripts/diag/diag063_d1_outcomes_rollup.ts` (source on disk; SELECT + head:true counts only, tenant UUIDs only, JSONB keys printed without values).
+
+```
+$ cd web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_d1_outcomes_rollup.ts
+TOTAL entity_period_outcomes rows: 883
+tenants total: 15
+tenant 5035b1e8-0754-4527-b7ec-9f93f85e4c79: 201 outcome rows
+tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111: 510 outcome rows
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 172 outcome rows
+tenants WITH outcomes: 3 | WITHOUT: 12
+  tenant 5035b1e8-... period 8896974e-56bb-420c-b519-07ed29bd6c55 key=monthly_2025-01-01_2025-01-31 status=open: 67 outcome rows
+  tenant 5035b1e8-... period 9a240061-736f-496c-8297-af8ea7652fc2 key=monthly_2025-02-01_2025-02-28 status=open: 67 outcome rows
+  tenant 5035b1e8-... period 8ac39a1d-bd1b-4137-8db3-469e596e9a4b key=monthly_2025-03-01_2025-03-31 status=open: 67 outcome rows
+  tenant b1c2d3e4-... period 0fcd8fa0-c2f2-43c3-b8e6-234244914c16 key=monthly_2025-10-01_2025-10-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period a33899eb-24bc-49e4-b2fc-cbd22dbe46d2 key=monthly_2025-11-01_2025-11-30 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period 4a5805f0-762e-49ae-a28e-1276ce26024f key=monthly_2025-12-01_2025-12-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period d839d264-76ca-4192-8062-5c7ce625100b key=monthly_2026-01-01_2026-01-31 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period a8febd82-85fb-4f63-9e6e-4ba1c36f67aa key=monthly_2026-02-01_2026-02-28 status=open: 85 outcome rows
+  tenant b1c2d3e4-... period 924cbece-d827-48bb-ae7f-62523edfbe98 key=monthly_2026-03-01_2026-03-31 status=open: 85 outcome rows
+row column keys: id, tenant_id, entity_id, period_id, total_payout, rule_set_breakdown, component_breakdown, lowest_lifecycle_state, attainment_summary, metadata, materialized_at
+rule_set_breakdown: ARRAY length=1; first-element keys: rule_set_id, total_payout
+component_breakdown: ARRAY length=4; first-element keys: payout, componentId, componentName
+attainment_summary: OBJECT keys: overall
+metadata: OBJECT keys:
+materialized_at of newest row: 2026-06-11T19:32:40.909944+00:00
+created_at column probe: ERROR: column entity_period_outcomes.created_at does not exist
+```
+
+Live shape matches SCHEMA_REFERENCE_LIVE.md (11 columns, no divergence). Multi-period coverage exists for 2 tenants (3 and 6 periods respectively) — a cross-period trend view has real data to draw.
+
+Follow-up script: `web/scripts/diag/diag063_d1_orphan_periods.ts` — tenant `03d28288...` printed no per-period rows above; verification:
+
+```
+$ npx tsx scripts/diag/diag063_d1_orphan_periods.ts
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 172 outcome rows, 1 distinct period_id(s): b1361a9f-506b-4ed6-8ec7-b37f9aa03333
+periods rows for tenant 03d28288-700b-43e3-a96b-49a4f849d2df: 0
+referenced period_ids found in periods table: 1
+  period b1361a9f-506b-4ed6-8ec7-b37f9aa03333 -> tenant dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=open
+```
+
+I.e., all 172 outcome rows of tenant `03d28288...` reference a `period_id` whose `periods` row belongs to a different tenant (`dbe3b308...`); tenant `03d28288...` has zero rows in `periods`. Recorded as Finding F2 (no fix attempted — HALT-2/READ-ONLY).
+
+---
+
+## COMPOSE-FROM LIST (company view: total payout, attainment by grouping, period view)
+
+1. **Data**: `entity_period_outcomes` (live, 883 rows, multi-period) — `total_payout`, `attainment_summary.overall`, `component_breakdown[{componentId, componentName, payout}]`, `rule_set_breakdown`, `lowest_lifecycle_state`, keyed by `tenant_id + entity_id + period_id`. Period labels from `periods` (`canonical_key`, `label`, `start_date`).
+2. **Rollup queries**: `getAdminDashboardData` (tenant+period; total/distribution/breakdown/composition — in production use), `getDashboardKPIs` (tenant YTD + pending — written, zero consumers), platform pattern `select('tenant_id, period_id, total_payout')` (platform-queries.ts:232) — the exact per-period group-by shape a trend view needs.
+3. **Grouping material**: `storeBreakdown` carries `entityType` per entity; `entities.entity_type` join already in `getAdminDashboardData`; team scope via `getManagerDashboardData(tenantId, entityIds)`; `entity_relationships` table exists (SCHEMA_REFERENCE_LIVE.md:240).
+4. **Period machinery**: `period-context.tsx` (`usePeriod().activePeriodId`, `periods` list) already mounted.
+5. **Presentation**: AdminDashboard's design-system set (AnimatedNumber hero, DistributionChart, ComponentStack, BenchmarkBar, LifecycleStepper, TrendArrow) + prop-driven recharts primitives (`CompensationTrendChart`, `MetricTrendChart`, `BreakdownChart`, `CompensationPieChart`, `ui/chart.tsx`) plus the prop-driven, non-recharts `KPICard` tile (lucide icon only).
+
+## GAP TO DEMO BAR
+
+- **Single-period company view (total payout, attainment distribution, per-location grouping, component composition): no gap** — AdminDashboard at `/perform` (persona `admin`) is DB-backed and live; remaining proof is a browser action.
+- **Period view (cross-period trend / period switching): gap** — no UI reads outcomes across periods for one tenant (`getRepDashboardData` does per-entity history only; platform observatory is cross-tenant vl_admin). AdminDashboard ignores the selected `activePeriodId` (F5). The dashboards that *look* like the bar (`/insights/analytics`, `/data/reports`) are synthetic/fixture-fed (F3, F4).
+- **Attainment by arbitrary grouping (team/region)**: per-entity and per-entity-type grouping exists; team/region grouping needs a join through `entity_relationships`/manager scope — query-level work only, schema present.
+
+## EFFORT SHAPE
+
+**Split: current-period company view E1 VERIFY-ONLY / period-view + grouping company view E3 COMPOSE.** Not E4 — no new table or schema change required.
+
+- E1 part: architect browser action on existing route `/perform` (persona `admin`), components `AdminDashboard` + design-system set, service `getAdminDashboardData`, table `entity_period_outcomes`.
+- E3 part: one service function (persona-queries or calculation-service) of the already-proven shape `select tenant_id, period_id, total_payout, attainment_summary` grouped client-side per period (pattern exists at platform-queries.ts:232) + thread `activePeriodId`/period range into `getAdminDashboardData` + compose `CompensationTrendChart`/`MetricTrendChart` + `BreakdownChart` onto `/perform` (or a new `/insights` tab). Wiring `getDashboardKPIs` (already written, unconsumed) covers the YTD headline.
+
+# D2 — Currency formatting (PDR-01) class analysis
+
+### D2 — Currency formatting (PDR-01) class analysis
+**CURRENT STATE:** Currency formatting is NOT a single authority: the repo contains **10 independent formatting definition sites** — `formatTenantCurrency` (src/types/tenant.ts:134, the only tenant-aware one, exposed via `useCurrency()` at src/contexts/tenant-context.tsx:265 and consumed in 65 files) plus **9 rival `formatCurrency` definitions** (5 exported library-level, 4 component-local), four of which hardcode `en-US`/`USD`. Beyond named formatters, 561 raw formatting hits span 127 files, including **13 surviving hardcoded `` `$${...toLocaleString()}` `` template sites** in lib/export paths. Git history shows at least **14 prior currency-fix commits across 11 cycles** (OB-36/37/38/49, HF-038, OB-101, HF-063, HF-069, HF-070, OB-132, OB-175), each a page-level sweep; the PDR-01 rule itself was redefined three times inside `formatTenantCurrency` (no-cents ≥1,000 → no-cents ≥10,000 → whole-number suppression). This is the AUD-009 instance-closure signature: each cycle closed instances while the rival definitions and raw call sites remained reachable.
+
+**EVIDENCE:**
+
+#### (1) Full grep sweep — totals and per-file enumeration
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rni "toLocaleString\|Intl.NumberFormat\|formatCurrency\|formatMoney" src/ --include="*.ts" --include="*.tsx" | wc -l
+     561
+$ grep -rnic "toLocaleString\|Intl.NumberFormat\|formatCurrency\|formatMoney" src/ --include="*.ts" --include="*.tsx" | grep -v ":0$" | wc -l
+     127
+```
+
+Line-level listing exceeds 400 lines (561), so per E952 the complete file-level enumeration with per-file hit counts follows. Pattern breakdown of the 561:
+
+```
+formatCurrency:      366
+toLocaleString:      175
+Intl.NumberFormat:    20
+formatMoney:           0
+hardcoded "$"+toLocaleString template sites: 13
+```
+
+(Note: some `toLocaleString` hits format counts/dates rather than money; the grep defines the class boundary as stated by the probe.)
+
+Surface totals (classification rule: lib = src/lib|contexts|types|components/ui|app/api; statement = app/perform/statements; export = components/reports; admin = app/admin|govern|operations|upgrade + components/platform|rbac; rep = app/perform|my-compensation|stream + components/briefing|compensation|intelligence|acceleration; dashboard = remainder. Caveat: AdminBriefing.tsx/ManagerBriefing.tsx fall under components/briefing and are counted in "rep" by this rule):
+
+```
+admin       12 files   56 hits
+dashboard   60 files  242 hits
+export       5 files   17 hits
+statement    1 files    6 hits
+lib         26 files   52 hits
+rep         23 files  188 hits
+TOTAL      127 files  561 hits
+```
+
+Complete per-file enumeration (hits, file), grouped by surface:
+
+```
+## ADMIN
+   11  src/app/admin/launch/calculate/page.tsx
+   11  src/components/platform/OnboardingTab.tsx
+    7  src/components/platform/InfrastructureTab.tsx
+    6  src/components/platform/BillingUsageTab.tsx
+    5  src/components/platform/IngestionTab.tsx
+    4  src/app/govern/calculation-approvals/page.tsx
+    4  src/components/platform/ObservatoryTab.tsx
+    3  src/app/upgrade/page.tsx
+    2  src/components/rbac/AuditLogTable.tsx
+    1  src/app/operations/rollback/page.tsx
+    1  src/components/platform/AIIntelligenceTab.tsx
+    1  src/components/platform/FeatureFlagsTab.tsx
+
+## DASHBOARD
+   19  src/app/operate/reconciliation/page.tsx
+   12  src/app/operate/results/page.tsx
+   12  src/components/calculate/PlanResults.tsx
+   11  src/app/operate/page.tsx
+   10  src/components/reconciliation/ReconciliationTracePanel.tsx
+    9  src/app/data/import/enhanced/page.tsx
+    9  src/components/calculate/PlanCard.tsx
+    8  src/app/operate/lifecycle/page.tsx
+    8  src/components/results/ResultsHero.tsx
+    7  src/components/approvals/PayoutEmployeeTable.tsx
+    7  src/components/transactions/transaction-detail-modal.tsx
+    6  src/app/operate/calculate/page.tsx
+    6  src/app/performance/approvals/payouts/[id]/page.tsx
+    6  src/components/results/EntityTable.tsx
+    5  src/app/operate/pay/page.tsx
+    5  src/components/analytics/BreakdownChart.tsx
+    5  src/components/results/NarrativeSpine.tsx
+    5  src/components/results/StoreHeatmap.tsx
+    4  src/app/configure/people/page.tsx
+    4  src/app/data/page.tsx
+    4  src/app/data/reports/page.tsx
+    4  src/app/financial/server/[id]/page.tsx
+    4  src/app/insights/analytics/page.tsx
+    4  src/components/financial/manual-entry-form.tsx
+    4  src/components/results/PopulationHealth.tsx
+    3  src/app/financial/timeline/page.tsx
+    3  src/app/performance/approvals/payouts/page.tsx
+    3  src/components/analytics/KPICard.tsx
+    3  src/components/approvals/PayoutBatchCard.tsx
+    3  src/components/charts/CompensationTrendChart.tsx
+    3  src/components/financial/summary-cards.tsx
+    3  src/components/financial/transaction-table.tsx
+    3  src/components/forensics/ReconciliationTable.tsx
+    3  src/components/sci/ImportReadyState.tsx
+    3  src/components/sci/SCIProposal.tsx
+    2  src/app/financial/location/[id]/page.tsx
+    2  src/app/financial/patterns/page.tsx
+    2  src/app/operate/import/history/page.tsx
+    2  src/components/design-system/ComponentStack.tsx
+    2  src/components/design-system/WhatIfSlider.tsx
+    2  src/components/forensics/EmployeeTrace.tsx
+    2  src/components/lifecycle/LifecycleSubway.tsx
+    2  src/components/operate/OperateSelector.tsx
+    2  src/components/sci/ExecutionProgress.tsx
+    1  src/app/data/operations/page.tsx
+    1  src/app/data/quality/page.tsx
+    1  src/app/financial/page.tsx
+    1  src/app/financial/pulse/page.tsx
+    1  src/app/financial/summary/page.tsx
+    1  src/app/operate/import/quarantine/page.tsx
+    1  src/components/canvas/panels/EntityDetailPanel.tsx
+    1  src/components/data-quality/QuarantineTable.tsx
+    1  src/components/design-system/AnimatedNumber.tsx
+    1  src/components/design-system/BudgetGauge.tsx
+    1  src/components/design-system/CalculationWaterfall.tsx
+    1  src/components/design-system/PayrollSummary.tsx
+    1  src/components/design-system/PeriodComparison.tsx
+    1  src/components/design-system/RelativeLeaderboard.tsx
+    1  src/components/forensics/ExecutionTraceView.tsx
+    1  src/components/import/import-summary-dashboard.tsx
+
+## EXPORT
+    6  src/components/reports/commission-expense.tsx
+    3  src/components/reports/revenue-by-product.tsx
+    3  src/components/reports/revenue-by-region.tsx
+    3  src/components/reports/revenue-by-rep.tsx
+    2  src/components/reports/revenue-by-period.tsx
+
+## LIB
+    5  src/lib/currency.ts
+    4  src/lib/approval-routing/impact-calculator.ts
+    4  src/lib/calculation/results-formatter.ts
+    3  src/lib/forensics/ai-forensics.ts
+    3  src/lib/i18n.ts
+    3  src/lib/reconciliation/benchmark-intelligence.ts
+    2  src/app/api/calculation/run/route.ts
+    2  src/components/ui/currency-display.tsx
+    2  src/contexts/locale-context.tsx
+    2  src/lib/data-architecture/validation-engine.ts
+    2  src/lib/data-service.ts
+    2  src/lib/financial-service.ts
+    2  src/lib/navigation/pulse-service.ts
+    2  src/lib/payroll/period-processor.ts
+    2  src/lib/search/search-service.ts
+    2  src/lib/utils.ts
+    1  src/components/ui/calendar.tsx
+    1  src/components/ui/chart.tsx
+    1  src/contexts/period-context.tsx
+    1  src/lib/data/persona-queries.ts
+    1  src/lib/ingestion/batch-manager.ts
+    1  src/lib/intelligence/anomaly-detection.ts
+    1  src/lib/notifications/notification-service.ts
+    1  src/lib/reconciliation/report-engine.ts
+    1  src/lib/sci/proposal-intelligence.ts
+    1  src/types/tenant.ts
+
+## REP
+   36  src/app/perform/page.tsx
+   23  src/app/stream/page.tsx
+   19  src/components/briefing/AdminBriefing.tsx
+   15  src/components/briefing/ManagerBriefing.tsx
+   13  src/components/intelligence/TrajectoryCard.tsx
+   12  src/components/briefing/IndividualBriefing.tsx
+    8  src/components/compensation/CalculationBreakdown.tsx
+    8  src/components/compensation/LookupTableVisualization.tsx
+    6  src/components/compensation/EarningsSummaryCard.tsx
+    5  src/components/intelligence/ComponentBreakdownCard.tsx
+    5  src/components/intelligence/DistributionCard.tsx
+    4  src/components/compensation/ComponentBreakdownCard.tsx
+    4  src/components/intelligence/PersonalEarningsCard.tsx
+    4  src/components/intelligence/SystemHealthCard.tsx
+    3  src/components/acceleration/goal-pacing.tsx
+    3  src/components/intelligence/ActionRequiredCard.tsx
+    3  src/components/intelligence/AllocationCard.tsx
+    3  src/components/intelligence/CoachingPriorityCard.tsx
+    3  src/components/intelligence/OptimizationCard.tsx
+    3  src/components/intelligence/RelativePositionCard.tsx
+    3  src/components/intelligence/TeamHealthCard.tsx
+    3  src/components/intelligence/TeamHeatmapCard.tsx
+    2  src/app/my-compensation/page.tsx
+
+## STATEMENT
+    6  src/app/perform/statements/page.tsx
+```
+
+#### (2) Definition-site enumeration — every `formatCurrency` definition in src/
+
+```
+$ grep -rn "const formatCurrency\|function formatCurrency\|formatCurrency =" src/ --include="*.ts" --include="*.tsx"
+src/app/data/import/enhanced/page.tsx:2405:  const formatCurrency = (value: unknown): string => {
+src/components/compensation/CalculationBreakdown.tsx:20:  const formatCurrency = (value: number) => {
+src/components/charts/CompensationTrendChart.tsx:28:  const formatCurrency = (value: number) => {
+src/components/analytics/BreakdownChart.tsx:53:  const formatCurrency = (value: number) => {
+src/lib/financial-service.ts:210:export function formatCurrency(amount: number): string {
+src/lib/utils.ts:8:export function formatCurrency(amount: number): string {
+src/lib/currency.ts:49:export function formatCurrency(
+src/lib/approval-routing/impact-calculator.ts:294:function formatCurrency(amount: number, currency: string): string {
+src/lib/data-service.ts:517:export function formatCurrency(amount: number): string {
+```
+
+Plus the tenant-aware authority:
+
+```
+$ grep -rn "formatTenantCurrency" src/ --include="*.ts" --include="*.tsx"
+src/types/tenant.ts:134:export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
+src/contexts/tenant-context.tsx:16:import { DEFAULT_TERMINOLOGY, DEFAULT_FEATURES, formatTenantCurrency, formatTenantDate } from '@/types/tenant';
+src/contexts/tenant-context.tsx:279:    format: (amount: number) => formatTenantCurrency(amount, currency, locale),
+$ grep -rln "useCurrency" src/ --include="*.ts" --include="*.tsx" | wc -l
+      65
+```
+
+src/types/tenant.ts:134 (the tenant-aware authority — current PDR-01 rule = whole-number suppression, per OB-173):
+
+```typescript
+// src/types/tenant.ts:134
+export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
+  // OB-173: Suppress .00 on whole-dollar amounts. $8,698 not $8,698.00
+  const isWhole = Number.isInteger(amount);
+  const fractionDigits = isWhole ? 0 : 2;
+  const formatted = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount);
+  // Distinguish MXN from USD — both use $ in native locales.
+  // Replace bare $ with MX$ for MXN to avoid ambiguity.
+  if (currency === 'MXN' && !formatted.includes('MX')) {
+    return formatted.replace('$', 'MX$');
+  }
+  return formatted;
+}
+```
+
+src/contexts/tenant-context.tsx:265 (the hook that exposes it):
+
+```typescript
+// src/contexts/tenant-context.tsx:265
+export function useCurrency() {
+  const { currentTenant } = useTenant();
+  const currency = currentTenant?.currency || 'USD';
+  const locale = currentTenant?.locale || 'en-US';
+  ...
+  return {
+    format: (amount: number) => formatTenantCurrency(amount, currency, locale),
+    currency,
+    symbol: symbols[currency],
+    locale,
+  };
+}
+```
+
+Rival 1 — src/lib/utils.ts:8 (hardcoded en-US/USD, 0 fraction digits; imported by e.g. src/components/transactions/transaction-detail-modal.tsx):
+
+```typescript
+// src/lib/utils.ts:8
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+```
+
+Rival 2 — src/lib/currency.ts:49 (own currency table, default USD, 0 fraction digits by default; also carries mock EXCHANGE_RATES at line 22 with comment "in production, fetch from API"; sole importer = src/components/ui/currency-display.tsx):
+
+```typescript
+// src/lib/currency.ts:49 (excerpt)
+export function formatCurrency(
+  amount: number,
+  currencyCode: CurrencyCode = 'USD',
+  options?: { ... }
+): string {
+  const currency = SUPPORTED_CURRENCIES.find((c) => c.code === currencyCode);
+  const locale = currency?.locale || 'en-US';
+  const formatOptions: Intl.NumberFormatOptions = {
+    style: 'currency',
+    currency: currencyCode,
+    minimumFractionDigits: options?.minimumFractionDigits ?? 0,
+    maximumFractionDigits: options?.maximumFractionDigits ?? 0,
+  };
+  ...
+  let formatted = new Intl.NumberFormat(locale, formatOptions).format(amount);
+  ...
+}
+```
+
+Rivals 3 and 4 — src/lib/data-service.ts:517 and src/lib/financial-service.ts:210 are byte-identical hardcoded en-US/USD implementations:
+
+```typescript
+// src/lib/data-service.ts:517 (identical body at src/lib/financial-service.ts:210)
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+```
+
+Rival 5 — src/lib/approval-routing/impact-calculator.ts:294 (en-US with passed currency code, raw `$` fallback):
+
+```typescript
+// src/lib/approval-routing/impact-calculator.ts:294
+function formatCurrency(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${amount.toLocaleString()}`;
+  }
+}
+```
+
+Rivals 6-9 are component-local `const formatCurrency` definitions (src/app/data/import/enhanced/page.tsx:2405, src/components/compensation/CalculationBreakdown.tsx:20, src/components/charts/CompensationTrendChart.tsx:28, src/components/analytics/BreakdownChart.tsx:53).
+
+#### (3) Surviving hardcoded `` `$${...toLocaleString()}` `` template sites (13, complete list)
+
+```
+$ grep -rn '\$\${' src/ --include="*.ts" --include="*.tsx" | grep -i "toLocaleString"
+src/components/platform/OnboardingTab.tsx:865:                    {bill.experienceFee > 0 && ` — $${bill.experienceFee.toLocaleString()}/mo`}
+src/components/platform/ObservatoryTab.tsx:164:            value={`$${overview.mrr.toLocaleString()}`}
+src/lib/intelligence/anomaly-detection.ts:83:        description: `${entityIds.length} entities have identical payout of $${value.toLocaleString()}`,
+src/lib/data-architecture/validation-engine.ts:229:            message: `Amount ($${amount.toLocaleString()}) exceeds $1M threshold - requires review`,
+src/lib/data-architecture/validation-engine.ts:420:        message: `Amount ($${amount.toLocaleString()}) is a statistical outlier (${zScore.toFixed(1)} standard deviations from mean)`,
+src/lib/approval-routing/impact-calculator.ts:303:    return `$${amount.toLocaleString()}`;
+src/lib/forensics/ai-forensics.ts:117:          description: `"${ct.componentName}" affects ${ct.employeesAffected} employees with total diff $${ct.difference.toLocaleString()}`,
+src/lib/forensics/ai-forensics.ts:178:  lines.push(`${trace.entityName} (${trace.entityRole}) earned $${trace.totalIncentive.toLocaleString()} in total incentive.`);
+src/lib/forensics/ai-forensics.ts:189:    lines.push(`  ${comp.componentName}: $${comp.outputValue.toLocaleString()} (${pct}% of total)`);
+src/lib/search/search-service.ts:77:      subtitle: `${t.rep} - $${t.amount.toLocaleString()}`,
+src/lib/search/search-service.ts:78:      subtitleEs: `${t.rep} - $${t.amount.toLocaleString()}`,
+src/lib/calculation/results-formatter.ts:521:    return `$${value.toLocaleString()}`;
+src/lib/payroll/period-processor.ts:389:            message: `Calculated ${result.summary.entitiesProcessed} employees, total payout: $${result.summary.totalPayout.toLocaleString()}`,
+```
+
+All 13 are in lib/service paths or vl_admin platform tabs — i.e., the layers the page-level sweeps did not reach.
+
+#### (4) History — git log + git show --stat for each prior fix commit
+
+```
+$ git log --oneline -i --grep="currenc\|cents\|PDR"
+4f13ecb3 OB-203 Phase 2 (5b): full decomposed-dispatch swap in both SCI routes (architect-approved)
+d7497bf6 HF-260 Phase 1 (ADR / confirmation gate): HALT-1 — fetch failed + hang NOT caused by HF-258/259
+cb9b47a2 Merge pull request #447 from CCAFRICA/dev
+d93e9d88 HF-259 Phase 6: bounded-concurrency parallel Phase B (Q4)
+1bf13a84 HF-259 Phase 1: ADR + FP-49 schema gate (idempotency + audited supersession + bounded-concurrency)
+2077b168 HF-257: Enforce single plan-interpretation pipeline (AP-17) (#445)
+82e5e4f5 HF-256: Restore universal file ingestion (Decision 82) — document plans, multi-file, mixed-format (#444)
+0c2da09d HF-255: Restore unified any-format plan import (document transport regressed by HF-239) (#443)
+9cd13fe3 HF-254: Ingestion flywheel — single skip authority, role-bearing caches, lexical prior (#442)
+2ca8b9a2 HF-253: Per-Variant Binding Scope + Distribution Signal in Column Mapping (#441)
+327d3da4 HF-252: Per-Variant Component Intent Emission + Fallback Removal (#440)
+5fde465c HF-251: Compositional Intent + Constructor — Decision 158 Implementation (#439)
+37a9f76d HF-250: Multi-call skeleton/chunk separation — complete HF-249 per IRA Option A specification (#438)
+5d380d9e HF-230 Phase 1: primitive-based decision tree replaces enumerated pattern registry
+4af09ace HF-230 Phase 0: diagnostic -- current HC pattern classifier state
+c1e99fbe HF-226 Phase 2A: signal consumers carry full context
+6df13cbe HF-219: Engine Self-Correction + Flywheel Demotion + Signal-Registry Eradication (#390)
+70e28a40 HF-196 Phase 1D: data_type surface reconstruction per D154/D155 — single canonical declaration via SCI informational_label; 4 import paths converged on shared resolver; processDataUnit boundary parity; normalizeFileNameToDataType repurposed for hashing only
+1babd645 HF-195 Phase 0: prompt-layer registry derivation diagnostic + prerequisites verified
+eaf3f252 HF-194 Phase 0: pre-flight verification
+98408eb9 HF-191 Phase 0: Architecture Decision Gate
+7624aa3e HF-182 Fixes 7-8: Deduplicate plan cards by name
+9abbf9ad OB-189: State refresh, cadence filtering, reconciliation parseNumericValue, NaN guards, structured logging
+31310d05 OB-175 Phase 4: Stream empty state context + currency verification
+8fb4d313 OB-173 Phase A-D: Experience Architecture — User Journey Remediation
+4c5f2252 HF-097 Phase 1: Fix VL Admin login + consolidate role to platform
+28de147a HF-095 Complete: HC Override Authority + nameSignals Elimination
+a6f6e5bf HF-095 Phase 3: Classification accuracy verification — all three sheets correct
+0dcb08b0 HF-095 Phase 1: HC override authority — identifier, temporal, currency detection
+c20beea6 HF-095 Phase 0: Diagnostic — HC authority mapping + nameSignals inventory
+568c2e0a CLT-160 Trace Diagnostic: Layer-by-layer classification analysis for Datos_Flota_Hub misclassification
+e335ce5a CLT-160 Diagnostic: Comprehensive pipeline state analysis after plan import
+bd9745c7 OB-134 Phase 1: Architecture decision — Round 2 Negotiation + Field-Level Claims
+fd067359 OB-132 Phase 4: PDR items — currency formatting, N+1 reduction, persona verification
+927eeb71 OB-132 Phase 0: Full platform diagnostic — platform healthier than expected
+57a6221b HF-081 Phase 3: Convergence source_pattern validation — prevent race condition
+ccc846b6 OB-110 Phase 3: Post-AI confidence calibration — value validation + duplicate detection
+bba072d4 OB-108 Complete: Operate landing pipeline readiness cockpit
+3416aef4 HF-073 Phase 3: Fix Excel serial dates in Data Preview
+e56f0432 HF69-Merge pull request #113 from CCAFRICA/dev
+20a5e120 HF-069 Complete: PDR sweep — currency, persona, brand cards, amber threshold
+b616902a HF-069 Phase 1: PDR-01 Currency no cents — platform-wide sweep
+92467ed3 HF-069 Phase 0: PDR sweep diagnostic — current state of all 4 items
+a94df252 HF-069 Phase 0: Commit prompt — PDR sweep specification
+deedbef1 HF70-Merge pull request #112 from CCAFRICA/dev
+3c327425 HF-070 Complete: Auth bypass fix + PDR sweep
+9e657c78 HF-070 Phase 5: PDR-05 Persona filtering — effectivePersona in my-compensation
+1aad9dbd HF-070 Phase 4: PDR-01 Currency no cents — sweep key pages
+57acc5a5 HF-070: Commit prompt — Auth Bypass Fix + PDR Sweep
+9f2f8d22 HF-063 Phase 6: Sidebar navigation — fix labels and add missing routes
+c1f2f330 HF-063 Phase 2: PDR-01 Currency no cents — threshold 1000 to 10000
+928e015c HF-063 Phase 1: PDR-02 Financial-only redirect — gate ICM data load
+100ad50c HF-063 Phase 0: Browser-truth diagnostic complete
+093b0afa OB-101 Phase 5: Location Detail — 6-section composite with cognitive fit
+641c8618 OB-101 Phase 4: Server Detail — complete 5-section spec with IAP compliance
+f8679c10 OB-101 Phase 1: Platform fixes — currency no-cents, redirect render guard
+d87b28d9 OB-99 Phase 2: Location card visual fixes (F-2, F-3, F-4, F-5)
+99789bd5 OB-98 Phase 5: Rep Performance Trajectory
+be96dacd OB-95 Phase 5: Importable POS demo files for normalization demo
+aa090d74 OB-59 Phase 2: Canvas visualization — dark theme, DS-001, wired to Design
+851ebad1 OB-57 Phases 1-2: Tenant creation wizard + API
+7071875d HF-038 Phase 3: Gerente fixes — currency prefix, zone average benchmark
+06413b22 OB-50 Phase 0: OB-49 gap remediation — request explosion, currency, landing page, headings, Status Chip
+a09494f1 OB-49 Phase 9: Observatory contrast and interactivity fixes
+3100767d OB-49 Phase 6: Tenant-aware currency consistency
+c3a2bb95 OB-42 Phase 12: Demo seed, verification, Korean Test
+85993e94 OB-39-9: Payroll export from lifecycle action bar
+da4a0727 OB-39-6: Reconciliation results display with expandable rows
+60372b85 OB-38-11: Currency verification sweep -- replace hardcoded $ with useCurrency
+d2ce8772 OB-38-7: Perform page persona-aware rendering
+e3dee223 OB-38-6: Reconciliation ADR results display
+a8c6685e OB-37-11: Global currency sweep -- replace hardcoded $ with useCurrency
+f5dc6a3f OB-37-9: Perform page data connection -- verified 3-tier result loading
+1f354f55 OB-37-4: Reconciliation currency, locale, and Wayfinder compliance
+e4f7d501 OB-36-11: formatCurrency sweep - tenant-aware currency across 31 files
+f45d06cd OB-35-9: Register frmx-demo as dual-module tenant (financial + compensation)
+16613568 OB-32: Platform chrome fixes — breadcrumbs, pulse metrics, branding, scripts
+32b110c4 OB-26A: Strict Compliance Re-Run - All 20 Criteria Verified
+74a78939 OB-26: UX/UI Polish + Gap Closure
+2f01bb6e OB-22 Phase 2-4: Plan tier extraction + Period filtering + Chunked storage
+49fa7700 OB-20 Phase 2: Fix variant selection — derive isCertified from employee role
+68bf0ced OB-10: Completion Report - Kill the Demo Employees
+003ab1ef OB-10 Phase 4: Calculate page UX fixes
+7d3908e4 OB-03 Phase 1: Data Package Import field mapping redesign
+329d62c1 feat(CL-01): add RetailCGMX incentive plan with full 6-component structure
+399190fd P1: UX Design System Foundation — tokens, module context, wayfinding shell, state communication components, interaction patterns
+c7747b0e 5.7: Add automated alerts
+bbdad52e 5.6: Add product catalog
+36195733 5.3: Add data readiness config
+52629f50 feat(session4): add transaction line-item detail view (Phase 4.6)
+ecab1647 feat(session4): add shared chart components
+b4edfb22 3.4: Add TSV import service for cheques
+e1df91f8 2C.2: Add tenant context and hooks
+6be0f0ac 2C.1: Add tenant types and registry
+8bb38638 Sessions 2A/2B: Polish & Financial Management Module
+```
+
+Many grep hits above match only on commit-body text; the currency-formatting **fix** commits (subject names a currency formatting change) are the 14 below. One line on each, with `git show --stat`:
+
+- **e4f7d501 (OB-36-11)** — replaced per-page formatting with tenant-aware currency across 31 page/component files (sweep; no authority change).
+- **1f354f55 (OB-37-4)** — reworked reconciliation page + comparison-engine currency/locale display (2 files).
+- **a8c6685e (OB-37-11)** — replaced hardcoded `$` with `useCurrency` in 5 page/component files (sweep).
+- **60372b85 (OB-38-11)** — replaced hardcoded `$` with `useCurrency` in 12 more files (sweep).
+- **3100767d (OB-49 Phase 6)** — tenant-aware currency consistency pass over 10 dashboard/design-system files (sweep).
+- **7071875d (HF-038 Phase 3)** — currency prefix fix confined to ManagerDashboard.tsx (1 file).
+- **f8679c10 (OB-101 Phase 1)** — introduced the PDR-01 rule into `formatTenantCurrency` (no cents >= 1,000) + touched operate/perform pages (3 files).
+- **c1f2f330 (HF-063 Phase 2)** — changed the PDR-01 threshold 1,000 -> 10,000 in `src/types/tenant.ts` only (1 file; commit message states the prior threshold was "changed without authorization by OB-101").
+- **b616902a (HF-069 Phase 1)** — "platform-wide sweep" over 11 dashboard/design-system component files (sweep).
+- **20a5e120 (HF-069 Complete)** — completion report only (1 md file).
+- **1aad9dbd (HF-070 Phase 4)** — swept 3 more key pages (financial/timeline, operate, global-search).
+- **3c327425 (HF-070 Complete)** — completion report only (1 md file).
+- **fd067359 (OB-132 Phase 4)** — currency formatting fix confined to admin/launch/calculate page (1 file).
+- **31310d05 (OB-175 Phase 4)** — currency verification confined to stream page (1 file). (OB-173 8fb4d313 separately rewrote the rule to whole-number suppression — the version on main today.)
+
+```
+$ for sha in c1f2f330 b616902a 20a5e120 1aad9dbd 3c327425 fd067359 f8679c10 3100767d 60372b85 a8c6685e e4f7d501 1f354f55 7071875d 31310d05; do git show --stat --oneline "$sha"; done
+
+===== git show --stat c1f2f330 =====
+c1f2f330 HF-063 Phase 2: PDR-01 Currency no cents — threshold 1000 to 10000
+ web/src/types/tenant.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+===== git show --stat b616902a =====
+b616902a HF-069 Phase 1: PDR-01 Currency no cents — platform-wide sweep
+ .claude/settings.local.json                              |  3 ++-
+ web/src/app/operate/lifecycle/page.tsx                   |  2 +-
+ web/src/app/transactions/disputes/page.tsx               |  4 ++--
+ web/src/components/dashboards/AdminDashboard.tsx         | 10 +++++-----
+ web/src/components/dashboards/ManagerDashboard.tsx       |  8 ++++----
+ web/src/components/dashboards/RepDashboard.tsx           | 16 ++++++++--------
+ web/src/components/design-system/BudgetGauge.tsx         | 13 +++++++++----
+ .../components/design-system/CalculationWaterfall.tsx    |  7 ++++++-
+ web/src/components/design-system/PayrollSummary.tsx      | 11 +++++++++--
+ web/src/components/design-system/PeriodComparison.tsx    |  7 ++++++-
+ web/src/components/design-system/WhatIfSlider.tsx        |  9 +++++++--
+ web/src/components/intelligence/RepTrajectory.tsx        | 12 ++++++------
+ 12 files changed, 65 insertions(+), 37 deletions(-)
+
+===== git show --stat 20a5e120 =====
+20a5e120 HF-069 Complete: PDR sweep — currency, persona, brand cards, amber threshold
+ HF-069_COMPLETION_REPORT.md | 149 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 149 insertions(+)
+
+===== git show --stat 1aad9dbd =====
+1aad9dbd HF-070 Phase 4: PDR-01 Currency no cents — sweep key pages
+ web/src/app/financial/timeline/page.tsx     |  8 ++++----
+ web/src/app/operate/page.tsx                | 18 ++++++++++--------
+ web/src/components/search/global-search.tsx |  4 ++--
+ 3 files changed, 16 insertions(+), 14 deletions(-)
+
+===== git show --stat 3c327425 =====
+3c327425 HF-070 Complete: Auth bypass fix + PDR sweep
+ HF-070_COMPLETION_REPORT.md | 124 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 124 insertions(+)
+
+===== git show --stat fd067359 =====
+fd067359 OB-132 Phase 4: PDR items — currency formatting, N+1 reduction, persona verification
+ web/src/app/admin/launch/calculate/page.tsx | 59 ++++++++++++++++-------------
+ 1 file changed, 32 insertions(+), 27 deletions(-)
+
+===== git show --stat f8679c10 =====
+f8679c10 OB-101 Phase 1: Platform fixes — currency no-cents, redirect render guard
+ web/src/app/operate/page.tsx | 11 ++++++++++-
+ web/src/app/perform/page.tsx |  9 +++++++++
+ web/src/types/tenant.ts      |  5 ++++-
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+===== git show --stat 3100767d =====
+3100767d OB-49 Phase 6: Tenant-aware currency consistency
+ web/src/app/my-compensation/page.tsx                      |  4 ++--
+ web/src/app/operate/page.tsx                              |  5 +++--
+ web/src/components/dashboards/AdminDashboard.tsx          |  9 +++++----
+ web/src/components/dashboards/ManagerDashboard.tsx        |  5 +++--
+ web/src/components/dashboards/RepDashboard.tsx            | 11 ++++++-----
+ web/src/components/design-system/BudgetGauge.tsx          |  2 +-
+ web/src/components/design-system/CalculationWaterfall.tsx |  2 +-
+ web/src/components/design-system/PayrollSummary.tsx       |  2 +-
+ web/src/components/design-system/PeriodComparison.tsx     |  2 +-
+ web/src/components/design-system/WhatIfSlider.tsx         |  2 +-
+ 10 files changed, 24 insertions(+), 20 deletions(-)
+
+===== git show --stat 60372b85 =====
+60372b85 OB-38-11: Currency verification sweep -- replace hardcoded $ with useCurrency
+ web/src/app/acceleration/page.tsx                             |  4 +++-
+ web/src/app/admin/launch/page.tsx                             |  4 +++-
+ web/src/app/admin/launch/plan-import/page.tsx                 |  5 +++--
+ web/src/app/performance/adjustments/page.tsx                  |  6 ++++--
+ web/src/components/charts/CompensationPieChart.tsx            |  4 +++-
+ web/src/components/compensation/CalculationBreakdown.tsx      |  2 +-
+ web/src/components/compensation/LookupTableVisualization.tsx  | 11 +++--------
+ .../components/compensation/plan-editors/PercentageEditor.tsx | 10 ++++++----
+ web/src/components/disputes/GuidedDisputeFlow.tsx             |  9 +++++----
+ web/src/components/financial/manual-entry-form.tsx            |  2 +-
+ web/src/components/forensics/EmployeeTrace.tsx                |  9 ++++++---
+ web/src/components/forensics/PipelineHealth.tsx               |  6 ++++--
+ 12 files changed, 42 insertions(+), 30 deletions(-)
+
+===== git show --stat a8c6685e =====
+a8c6685e OB-37-11: Global currency sweep -- replace hardcoded $ with useCurrency
+ web/src/app/data/import/page.tsx                     | 7 ++++---
+ web/src/app/financial/staff/page.tsx                 | 4 ++--
+ web/src/app/operate/pay/page.tsx                     | 6 +++---
+ web/src/components/financial/manual-entry-form.tsx   | 6 ++++--
+ web/src/components/forensics/ReconciliationTable.tsx | 6 ++++--
+ 5 files changed, 17 insertions(+), 12 deletions(-)
+
+===== git show --stat e4f7d501 =====
+e4f7d501 OB-36-11: formatCurrency sweep - tenant-aware currency across 31 files
+ web/src/app/admin/launch/calculate/page.tsx        | 15 ++------
+ web/src/app/financial/timeline/page.tsx            | 22 ++++++------
+ web/src/app/govern/calculation-approvals/page.tsx  | 11 ++----
+ web/src/app/insights/performance/page.tsx          |  6 ++--
+ web/src/app/insights/trends/page.tsx               | 40 ++++++++++++----------
+ web/src/app/my-compensation/page.tsx               | 12 ++-----
+ web/src/app/operate/results/page.tsx               | 11 ++----
+ .../performance/approvals/payouts/[id]/page.tsx    | 10 ++----
+ web/src/app/performance/approvals/payouts/page.tsx | 10 ++----
+ web/src/app/transactions/[id]/dispute/page.tsx     | 11 ++----
+ web/src/components/acceleration/goal-pacing.tsx    | 12 ++-----
+ web/src/components/analytics/BreakdownChart.tsx    |  8 +++--
+ web/src/components/analytics/KPICard.tsx           |  9 ++---
+ web/src/components/analytics/MetricTrendChart.tsx  |  6 ++--
+ web/src/components/approvals/PayoutBatchCard.tsx   | 10 ++----
+ .../components/approvals/PayoutEmployeeTable.tsx   |  9 ++---
+ .../components/charts/CompensationTrendChart.tsx   |  8 +++--
+ .../compensation/ComponentBreakdownCard.tsx        | 10 ++----
+ .../compensation/EarningsSummaryCard.tsx           | 12 ++-----
+ .../compensation/RecentTransactionsCard.tsx        |  9 ++---
+ .../components/compensation/ScenarioComparison.tsx | 10 ++----
+ .../components/compensation/TeamImpactSummary.tsx  | 11 ++----
+ .../components/disputes/DisputeResolutionForm.tsx  | 13 +++----
+ web/src/components/disputes/GuidedDisputeFlow.tsx  |  8 ++---
+ .../disputes/ResolutionOutcomesChart.tsx           | 11 ++----
+ web/src/components/disputes/SystemAnalyzer.tsx     | 13 +++----
+ web/src/components/reports/commission-expense.tsx  |  4 ++-
+ web/src/components/reports/revenue-by-period.tsx   |  4 ++-
+ web/src/components/reports/revenue-by-region.tsx   |  4 ++-
+ web/src/components/reports/revenue-by-rep.tsx      |  4 ++-
+ web/src/components/search/global-search.tsx        |  5 +--
+ 31 files changed, 112 insertions(+), 216 deletions(-)
+
+===== git show --stat 1f354f55 =====
+1f354f55 OB-37-4: Reconciliation currency, locale, and Wayfinder compliance
+ web/src/app/admin/launch/reconciliation/page.tsx | 176 +++++++++++++----------
+ web/src/lib/reconciliation/comparison-engine.ts  |   8 +-
+ 2 files changed, 107 insertions(+), 77 deletions(-)
+
+===== git show --stat 7071875d =====
+7071875d HF-038 Phase 3: Gerente fixes — currency prefix, zone average benchmark
+ web/src/components/dashboards/ManagerDashboard.tsx | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+===== git show --stat 31310d05 =====
+31310d05 OB-175 Phase 4: Stream empty state context + currency verification
+ web/src/app/stream/page.tsx | 74 ++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 63 insertions(+), 11 deletions(-)
+```
+
+#### (5) The PDR-01 rule itself has been redefined three times in the authority
+
+```
+$ git show f8679c10 -- web/src/types/tenant.ts   (OB-101: rule introduced)
+ export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
++  // OB-101 PDR-01: No cents on amounts >= 1,000 (cleaner display for large financial amounts)
++  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
+   const formatted = new Intl.NumberFormat(locale, {
+     style: 'currency',
+     currency: currency,
+-    minimumFractionDigits: 2,
++    minimumFractionDigits: fractionDigits,
++    maximumFractionDigits: fractionDigits,
+   }).format(amount);
+
+$ git show c1f2f330 -- web/src/types/tenant.ts   (HF-063 Phase 2: threshold corrected)
+    PDR-01 defines: amounts >= MX$10,000 show no cents. The previous
+    implementation used >= 1,000 (changed without authorization by OB-101).
+    Corrected to match the actual PDR definition.
+
+    All financial pages use useCurrency().format which calls
+    formatTenantCurrency — single fix propagates everywhere.
+ ...
+-  // OB-101 PDR-01: No cents on amounts >= 1,000 (cleaner display for large financial amounts)
+-  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
++  // PDR-01: No cents on amounts >= MX$10,000 (cleaner display for large financial amounts)
++  const fractionDigits = Math.abs(amount) >= 10000 ? 0 : 2;
+```
+
+Current main (OB-173, src/types/tenant.ts:135-138) replaced the threshold rule entirely with whole-number suppression: `const fractionDigits = Number.isInteger(amount) ? 0 : 2;` — i.e., three different definitions of the same invariant have shipped, all inside the single tenant-aware authority, while the 9 rival `formatCurrency` definitions and 13 raw `$`-template sites never received any of the three rules.
+
+#### (6) Structural statement (the CLASS)
+
+**N independent sites, not one authority.** Concretely:
+- 1 tenant-aware authority: `formatTenantCurrency` (src/types/tenant.ts:134) via `useCurrency()` (src/contexts/tenant-context.tsx:265), consumed by 65 files.
+- 9 rival `formatCurrency` definitions (4 of them hardcoded en-US/USD; 2 byte-identical duplicates in data-service.ts and financial-service.ts).
+- 13 raw `` `$${...toLocaleString()}` `` template sites in lib/service/platform-tab paths.
+- ~175 raw `toLocaleString` call sites and 20 raw `Intl.NumberFormat` constructions distributed over 127 files.
+
+Every prior fix commit above is an instance closure (AUD-009 signature): it rewrote call sites in a chosen page set and stopped; the rival definitions stayed importable, so new pages re-acquired the defect (demonstrated by HF-038 → OB-49 → OB-36/37/38 → OB-101 → HF-063 → HF-069 → HF-070 → OB-132 → OB-173 → OB-175 recurrence, and by HF-063's own claim "single fix propagates everywhere" followed by three further cycles). The eventual fix is one invariant at one authority. The natural home **already exists**: `formatTenantCurrency` in `src/types/tenant.ts`, exposed to components via `useCurrency()` in `src/contexts/tenant-context.tsx`, is the only tenant-aware implementation and already the majority consumer path (65 files); non-React lib paths (results-formatter, period-processor, impact-calculator, forensics, search, validation-engine) can import it directly since it is a plain function. The structural fix shape is: retire the 9 rival definitions in favor of that one function (re-export or delete), and convert the 13 `$`-template plus remaining raw sites to it. No fix performed here (probe is read-only by mandate).
+
+**GAP TO DEMO BAR:** No single formatting authority — for a MIR demo, any page on the `useCurrency()` path renders tenant-correct currency, but admin platform tabs (ObservatoryTab.tsx:164, OnboardingTab.tsx:865), approval-routing fallbacks, forensics narratives, search results, validation messages, payroll status messages, and results-formatter fallback (line 521) render hardcoded `$`/en-US regardless of tenant currency/locale. A demo walking only useCurrency-path pages shows no defect; a demo touching the 13 listed sites with a non-USD tenant shows the class.
+
+**EFFORT SHAPE:** E3 COMPOSE — no new schema, no new service, no new UI. Shape: converge 9 rival `formatCurrency` definitions (src/lib/utils.ts:8, src/lib/currency.ts:49, src/lib/data-service.ts:517, src/lib/financial-service.ts:210, src/lib/approval-routing/impact-calculator.ts:294, plus 4 component-local consts) and 13 raw `$`-template sites onto the existing authority `formatTenantCurrency` (src/types/tenant.ts:134) / `useCurrency()` (src/contexts/tenant-context.tsx:265); the authority itself needs no new code, only universal adoption plus a guard (lint rule or CI grep) banning raw `toLocaleString`/`$${` money formatting outside the authority module.
+
+# D3 — Demo-path language inventory (neutral)
+
+**CURRENT STATE:** The platform has a custom, library-free i18n stack (no next-intl/i18next in package.json): (1) a JSON-dictionary mechanism — `src/lib/i18n.ts` loads `src/locales/{en-US,es-MX,pt-BR}/{common,compensation}.json` (~125–131 value lines each) through `LocaleProvider`/`useLocale().t()` in `src/contexts/locale-context.tsx`, persisting preference to `profiles.locale`; and (2) an inline per-component bilingual pattern — 89 `.tsx` files carry `'es-MX'`/`isSpanish` conditional label records (e.g. `useAdminLocale().getLabel`, `{ en, es }` records, `isSpanish ? … : …` ternaries). Dictionary `t()` is consumed by exactly 1 route page (`src/app/login/page.tsx`). On the demo path, the SCI import flow (`src/app/operate/import` + `src/components/sci`), calculate (`src/app/operate/calculate` + `src/components/calculate`), results (`src/app/operate/results` + `src/components/results`), and statements (`src/app/my-compensation`, `src/app/perform/statements`, `src/components/compensation`) contain 0 files with locale-conditional strings and carry hardcoded English literals; `src/app/data/import/enhanced` (mapping flow) and the insights dashboards are partially bilingual via the inline pattern. There is no route-level locale handling: `src/middleware.ts` and `next.config.*` have no locale/i18n hits and `src/app/layout.tsx:39` sets `<html lang="en">` statically.
+
+**EVIDENCE:**
+
+## (1) i18n mechanism
+
+Stated grep (note: `--include="*.ts"` as specified — excludes `.tsx`):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "i18n\|locale\|dictionar\|translations" src/ --include="*.ts" | sort
+src/app/api/admin/tenants/create/route.ts
+src/app/api/ai/assessment/route.ts
+src/app/api/auth/signup/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/financial/data/route.ts
+src/app/api/ingest/event/route.ts
+src/app/api/intelligence/narrate/route.ts
+src/app/api/periods/create-from-data/route.ts
+src/app/api/periods/detect/route.ts
+src/app/api/platform/tenant-config/route.ts
+src/app/api/platform/tenants/create/route.ts
+src/hooks/useAdminLocale.ts
+src/lib/ai/ai-service.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/analytics/analytics-service.ts
+src/lib/approval-routing/impact-calculator.ts
+src/lib/auth/__tests__/resolve-identity.test.ts
+src/lib/auth/resolve-identity.ts
+src/lib/auth/server-auth.ts
+src/lib/billing/pricing.ts
+src/lib/calculation/calculation-lifecycle-service.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/results-formatter.ts
+src/lib/calculation/run-calculation.ts
+src/lib/currency.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/data-service.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/data/persona-queries.ts
+src/lib/data/platform-queries.ts
+src/lib/financial/financial-service.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/i18n.ts
+src/lib/import/period-detector.ts
+src/lib/ingestion/batch-manager.ts
+src/lib/intelligence/ai-metrics-service.ts
+src/lib/intelligence/anomaly-detection.ts
+src/lib/intelligence/narration-service.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/trajectory-service.ts
+src/lib/navigation/compensation-clock-service.ts
+src/lib/navigation/pulse-service.ts
+src/lib/normalization/dictionary-seeder.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/normalization/normalization-engine.ts
+src/lib/payroll/period-management.ts
+src/lib/payroll/period-processor.ts
+src/lib/rbac/rbac-service.ts
+src/lib/reconciliation/benchmark-intelligence.ts
+src/lib/reconciliation/report-engine.ts
+src/lib/sci/__tests__/structural-analog-generator.test.ts
+src/lib/sci/agents.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/header-comprehension.ts
+src/lib/sci/proposal-intelligence.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/search/search-service.ts
+src/lib/supabase/__tests__/auth-service.test.ts
+src/lib/supabase/auth-service.ts
+src/lib/supabase/database.types.ts
+src/lib/supabase/entity-service.ts
+src/lib/tenant/provisioning-engine.ts
+src/lib/utils.ts
+src/types/tenant.ts
+```
+
+Most hits are incidental (`toLocaleString`, `locale` config fields, "dictionary-seeder" for data normalization). The i18n core is `src/lib/i18n.ts`, `src/hooks/useAdminLocale.ts`, `src/contexts/locale-context.tsx`.
+
+No i18n library in package.json:
+
+```
+$ grep -nE '"(next-intl|react-i18next|i18next|next-i18next|formatjs|lingui|@formatjs)' package.json
+(no output)
+```
+
+Mechanism A — JSON dictionaries (`src/lib/i18n.ts:1-9, 27-31`):
+
+```ts
+// src/lib/i18n.ts:1
+export type Locale = 'en-US' | 'es-MX' | 'pt-BR';
+
+export const SUPPORTED_LOCALES: { code: Locale; name: string; flag: string }[] = [
+  { code: 'en-US', name: 'English', flag: '🇺🇸' },
+  { code: 'es-MX', name: 'Español', flag: '🇲🇽' },
+  { code: 'pt-BR', name: 'Português', flag: '🇧🇷' },
+];
+
+export const DEFAULT_LOCALE: Locale = 'en-US';
+// src/lib/i18n.ts:27
+  try {
+    // Dynamic import based on locale and namespace
+    const translations = await import(`@/locales/${locale}/${namespace}.json`);
+    translationCache[cacheKey] = translations.default || translations;
+    return translationCache[cacheKey];
+```
+
+```
+$ ls src/locales && ls src/locales/*
+en-US  es-MX  pt-BR
+src/locales/en-US: common.json  compensation.json
+src/locales/es-MX: common.json  compensation.json
+src/locales/pt-BR: common.json  compensation.json
+
+$ for f in src/locales/en-US/common.json src/locales/en-US/compensation.json src/locales/es-MX/common.json src/locales/pt-BR/common.json; do echo "$f: $(grep -c '":' $f) value-lines"; done
+src/locales/en-US/common.json: 125 value-lines
+src/locales/en-US/compensation.json: 131 value-lines
+src/locales/es-MX/common.json: 125 value-lines
+src/locales/pt-BR/common.json: 125 value-lines
+```
+
+`src/contexts/locale-context.tsx:122-127` exposes `t()`; `:104-115` persists preference to `profiles.locale` ('en'/'es'/'pt'); `:88-92` initializes from the auth-context profile locale.
+
+```ts
+// src/contexts/locale-context.tsx:122
+  const t = useCallback(
+    (key: string, params?: Record<string, string | number>): string => {
+      return getTranslation(translations, key, params);
+    },
+    [translations]
+  );
+```
+
+Mechanism B — inline per-component bilingual records (`src/hooks/useAdminLocale.ts:15, 44-48`):
+
+```ts
+// src/hooks/useAdminLocale.ts:15
+export type SupportedLocale = 'en-US' | 'es-MX';
+// src/hooks/useAdminLocale.ts:44
+    const locale: SupportedLocale =
+      (userLocale === 'es-MX' || userLocale === 'en-US') ? userLocale
+      : currentTenant?.locale === 'es-MX' ? 'es-MX'
+      : 'en-US';
+    const isSpanish = locale === 'es-MX';
+```
+
+Adoption split between the two mechanisms:
+
+```
+$ grep -rln "useAdminLocale" src/ --include="*.tsx" | sort
+src/app/admin/launch/calculate/page.tsx
+
+$ grep -rln "loadTranslations\|getTranslation" src/ --include="*.ts" --include="*.tsx" | sort
+src/contexts/locale-context.tsx
+src/lib/i18n.ts
+
+$ grep -rln "useLocale" src/ --include="*.tsx" | wc -l
+      91
+
+$ grep -rln "useLocale" src/ --include="*.tsx" | xargs grep -ln "[^a-zA-Z]t('"
+src/app/login/page.tsx                          # the only route page calling the t() dictionary
+
+$ grep -rln "'es-MX'" src/components src/app --include="*.tsx" | wc -l
+      89                                         # files with inline locale-conditional records
+```
+
+No route-level locale handling; root layout hardcodes lang:
+
+```
+$ grep -rn "locale\|i18n" src/middleware.ts next.config.* | head
+(no output)
+$ grep -n "LocaleProvider\|lang=" src/app/layout.tsx | head
+7:import { LocaleProvider } from "@/contexts/locale-context";
+39:    <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
+46:            <LocaleProvider>
+53:            </LocaleProvider>
+```
+
+## (2) Demo-path route enumeration
+
+Complete page.tsx enumeration under src/app (`find src/app -name "page.tsx" | sort`, 127 entries) — demo-path-relevant dirs marked:
+
+```
+src/app/acceleration/page.tsx
+src/app/admin/access-control/page.tsx
+src/app/admin/audit/page.tsx
+src/app/admin/launch/calculate/diagnostics/page.tsx   <- calculate (admin launch)
+src/app/admin/launch/calculate/page.tsx               <- calculate (admin launch)
+src/app/admin/launch/page.tsx
+src/app/admin/launch/plan-import/page.tsx             <- import (plan)
+src/app/admin/launch/reconciliation/page.tsx
+src/app/admin/tenants/new/page.tsx
+src/app/approvals/page.tsx
+src/app/auth/mfa/enroll/page.tsx
+src/app/auth/mfa/verify/page.tsx
+src/app/configuration/locations/page.tsx
+src/app/configuration/page.tsx
+src/app/configuration/personnel/page.tsx
+src/app/configuration/teams/page.tsx
+src/app/configuration/terminology/page.tsx
+src/app/configure/[...slug]/page.tsx
+src/app/configure/data-specs/page.tsx
+src/app/configure/locations/page.tsx
+src/app/configure/organization/locations/page.tsx
+src/app/configure/organization/teams/page.tsx
+src/app/configure/page.tsx
+src/app/configure/people/page.tsx
+src/app/configure/periods/page.tsx
+src/app/configure/system/page.tsx
+src/app/configure/teams/page.tsx
+src/app/configure/users/invite/page.tsx
+src/app/configure/users/page.tsx
+src/app/data/import/enhanced/page.tsx                 <- import + mapping (enhanced wizard)
+src/app/data/import/page.tsx                          <- import (data)
+src/app/data/imports/page.tsx                         <- import history (data)
+src/app/data/operations/page.tsx
+src/app/data/page.tsx
+src/app/data/quality/page.tsx
+src/app/data/readiness/page.tsx
+src/app/data/reports/page.tsx
+src/app/data/transactions/new/page.tsx
+src/app/data/transactions/page.tsx
+src/app/design/[...slug]/page.tsx
+src/app/design/budget/page.tsx
+src/app/design/goals/page.tsx
+src/app/design/page.tsx
+src/app/design/plans/new/page.tsx
+src/app/financial/leakage/page.tsx
+src/app/financial/location/[id]/page.tsx
+src/app/financial/page.tsx
+src/app/financial/patterns/page.tsx
+src/app/financial/performance/page.tsx
+src/app/financial/products/page.tsx
+src/app/financial/pulse/page.tsx
+src/app/financial/server/[id]/page.tsx
+src/app/financial/staff/page.tsx
+src/app/financial/summary/page.tsx
+src/app/financial/timeline/page.tsx
+src/app/govern/[...slug]/page.tsx
+src/app/govern/access/page.tsx
+src/app/govern/approvals/page.tsx
+src/app/govern/audit-reports/page.tsx
+src/app/govern/calculation-approvals/page.tsx
+src/app/govern/data-lineage/page.tsx
+src/app/govern/page.tsx
+src/app/insights/analytics/page.tsx                   <- dashboards
+src/app/insights/compensation/page.tsx                <- dashboards
+src/app/insights/my-team/page.tsx                     <- dashboards
+src/app/insights/page.tsx                             <- dashboards
+src/app/insights/performance/page.tsx                 <- dashboards
+src/app/insights/sales-finance/page.tsx               <- dashboards
+src/app/insights/trends/page.tsx                      <- dashboards
+src/app/integrations/catalog/page.tsx
+src/app/investigate/[...slug]/page.tsx
+src/app/investigate/adjustments/page.tsx
+src/app/investigate/audit/page.tsx
+src/app/investigate/entities/page.tsx
+src/app/investigate/page.tsx
+src/app/investigate/reconciliation/page.tsx
+src/app/investigate/trace/[entityId]/page.tsx
+src/app/login/page.tsx                                <- login
+src/app/my-compensation/page.tsx                      <- statement (rep)
+src/app/notifications/page.tsx
+src/app/operate/[...slug]/page.tsx
+src/app/operate/approve/page.tsx
+src/app/operate/briefing/page.tsx
+src/app/operate/calculate/page.tsx                    <- calculate
+src/app/operate/import/enhanced/page.tsx              <- import (SCI, enhanced)
+src/app/operate/import/history/page.tsx               <- import history
+src/app/operate/import/page.tsx                       <- import (SCI primary)
+src/app/operate/import/quarantine/page.tsx            <- import quarantine
+src/app/operate/lifecycle/page.tsx
+src/app/operate/monitor/operations/page.tsx
+src/app/operate/monitor/quality/page.tsx
+src/app/operate/monitor/readiness/page.tsx
+src/app/operate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/operate/reconciliation/page.tsx
+src/app/operate/results/page.tsx                      <- results
+src/app/operations/audits/logins/page.tsx
+src/app/operations/audits/page.tsx
+src/app/operations/data-readiness/page.tsx
+src/app/operations/messaging/page.tsx
+src/app/operations/page.tsx
+src/app/operations/rollback/page.tsx
+src/app/page.tsx
+src/app/perform/[...slug]/page.tsx
+src/app/perform/compensation/page.tsx
+src/app/perform/page.tsx
+src/app/perform/statements/page.tsx                   <- statement (manager/entity)
+src/app/perform/team/page.tsx
+src/app/perform/trends/page.tsx
+src/app/performance/adjustments/page.tsx
+src/app/performance/approvals/page.tsx
+src/app/performance/approvals/payouts/[id]/page.tsx
+src/app/performance/approvals/payouts/page.tsx
+src/app/performance/approvals/plans/page.tsx
+src/app/performance/goals/page.tsx
+src/app/performance/page.tsx
+src/app/select-tenant/page.tsx
+src/app/signup/page.tsx
+src/app/spm/alerts/page.tsx
+src/app/stream/page.tsx
+src/app/test-ds/page.tsx
+src/app/unauthorized/page.tsx
+src/app/upgrade/page.tsx
+src/app/workforce/permissions/page.tsx
+src/app/workforce/roles/page.tsx
+src/app/workforce/personnel/page.tsx
+src/app/workforce/teams/page.tsx
+```
+
+"Mapping" is not a standalone route: it is a step inside the import flows. Mapping surfaces found:
+
+```
+$ grep -rniln "mapping" src/components --include="*.tsx" | sort | head -20
+src/components/design-system/DataReadinessPanel.tsx
+src/components/forensics/ComparisonUpload.tsx
+src/components/import/column-mapper.tsx        <- mapping UI
+src/components/import/field-mapper.tsx         <- mapping UI
+src/components/import/validation-preview.tsx
+src/components/navigation/command-palette/CommandPalette.tsx
+src/components/platform/AIIntelligenceTab.tsx
+
+$ grep -rniln "mapping" src/app/operate/import src/app/data/import --include="*.tsx"
+src/app/data/import/enhanced/page.tsx
+```
+
+The SCI import route (`src/app/operate/import/page.tsx:12-16`) composes `src/components/sci/` (SCIUpload, SCIProposal, SCIExecution, ImportReadyState, ImportProgress) — the proposal step is the SCI-flow mapping/comprehension surface.
+
+## (3) Hardcoded English UI string sampling per route scope
+
+Pattern: `"Submit\|Cancel\|Loading\|Search\|Settings\|Save\|Delete\|Upload\|Download\|Export"`, `--include="*.tsx" --include="*.ts"`. Raw hit counts (counts include identifier matches such as `isLoading`/`handleSubmit`; exemplars below are user-visible strings):
+
+```
+== login (src/app/login) ==                                                            18
+== import-sci (src/app/operate/import + src/components/sci) ==                         49
+== import-data+mapping (src/app/data/import + src/components/import) ==                46
+== calculate (src/app/operate/calculate + src/components/calculate + src/app/admin/launch/calculate) == 44
+== results (src/app/operate/results + src/components/results) ==                       15
+== statement (src/app/my-compensation + src/app/perform/statements + src/components/compensation) == 28
+== dashboards (src/app/insights + src/components/dashboards) ==                        92
+```
+
+Exemplars (file:line + string):
+
+login — 18 hits:
+```
+src/app/login/page.tsx:177:              {isLoading ? 'Signing in...' : 'Sign In'}
+src/app/login/page.tsx:217:            {googleLoading ? 'Redirecting...' : 'Continue with Google'}
+src/app/login/page.tsx:112:            {t('auth.signIn')}        <- same page also uses the t() dictionary (line 39: t('auth.welcomeBack', ...))
+```
+
+import (SCI) — 49 hits:
+```
+src/app/operate/import/page.tsx:72:  upload: 'Upload your data and the platform will handle the rest.',
+src/app/operate/import/history/page.tsx:175:              <p className="text-zinc-400">Loading ingestion events...</p>
+src/app/operate/import/quarantine/page.tsx:289:                        Reject & Delete
+```
+
+import (data) + mapping — 46 hits:
+```
+src/components/import/field-mapper.tsx:308:                {isSpanish ? 'Guardar Plantilla' : 'Save Template'}   <- inline bilingual ternary
+src/app/data/import/enhanced/page.tsx:102:    title: { en: 'Upload Package', es: 'Cargar Paquete' },           <- inline { en, es } record
+src/app/data/import/enhanced/page.tsx:103:    description: { en: 'Upload your data workbook', es: 'Cargue su libro de datos' },
+```
+
+calculate — 44 hits:
+```
+src/app/operate/calculate/page.tsx:778:                        Export CSV
+src/components/calculate/PlanCard.tsx:295:              Calculating...
+src/app/operate/calculate/page.tsx:672:        {/* Loading state */}   (surrounding spinner block; page has no locale-conditional strings)
+```
+
+results — 15 hits:
+```
+src/components/results/EntityTable.tsx:150:            placeholder="Search ID, name, store..."
+src/app/operate/results/page.tsx:589:                placeholder="Search entity..."
+src/app/operate/results/page.tsx:587:              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+```
+
+statement — 28 hits:
+```
+src/app/my-compensation/page.tsx:254:          <p className="text-muted-foreground">Loading your outcomes...</p>
+src/app/perform/statements/page.tsx:321:        <span className="ml-2 text-sm text-zinc-500">Loading statement...</span>
+src/app/perform/statements/page.tsx:362:                    placeholder="Search..."
+```
+
+dashboards — 92 hits:
+```
+src/app/insights/compensation/page.tsx:347:                  Export CSV
+src/app/insights/page.tsx:128:          <p className="text-muted-foreground">Loading insights...</p>
+src/app/insights/trends/page.tsx:162:              {isSpanish ? 'Exportar' : 'Export'}   <- inline bilingual ternary
+```
+
+## Locale-conditional coverage per demo-path scope (files containing `isSpanish` or `'es-MX'`)
+
+```
+src/app/login: 0 of 1 tsx files          (uses t() dictionary instead, partially)
+src/app/operate/import: 0 of 4 tsx files
+src/components/sci: 0 of 6 tsx files
+src/app/data/import: 1 of 2 tsx files
+src/components/import: 2 of 6 tsx files
+src/app/operate/calculate: 0 of 1 tsx files
+src/components/calculate: 0 of 2 tsx files
+src/app/operate/results: 0 of 1 tsx files
+src/components/results: 0 of 5 tsx files
+src/app/my-compensation: 0 of 1 tsx files
+src/app/perform/statements: 0 of 1 tsx files
+src/components/compensation: 0 of 6 tsx files
+src/app/insights: 2 of 7 tsx files
+src/components/dashboards: 3 of 4 tsx files
+```
+
+## Language selector surface
+
+```
+$ grep -rln "SUPPORTED_LOCALES\|setLocale" src/components src/app --include="*.tsx" | sort
+src/components/layout/language-switcher.tsx
+
+$ grep -rln "language-switcher\|LanguageSwitcher" src/ --include="*.tsx" | sort
+src/components/layout/language-switcher.tsx
+src/components/navigation/Navbar.tsx          <- mounted in global navbar chrome
+```
+
+**GAP TO DEMO BAR:** The probe bar is the inventory itself — complete; no translation work performed (per probe scope). Inventory facts relevant to a non-English demo: en-US strings are hardcoded across all seven demo-path scopes; es-MX coverage exists only via inline records in `src/app/data/import/enhanced`, `src/components/import` (2 files), `src/app/insights` (2 files), `src/components/dashboards` (3 files), and via the t() dictionary on the login page; the SCI import, calculate, results, and statement scopes have zero locale-conditional strings. pt-BR dictionaries exist but `useAdminLocale.SupportedLocale` covers only `en-US | es-MX`.
+
+**EFFORT SHAPE:** Inventory: E0 — none (this probe is read-only enumeration). If the MIR demo requires an es-MX demo path: E3 COMPOSE — apply the two existing mechanisms (`useLocale().t()` + `src/locales/*` namespaces, or the inline `getLabel`/`isSpanish` record pattern already present in 89 files) to the zero-coverage demo-path surfaces: `src/app/operate/import/*` + `src/components/sci/*` (6 components), `src/app/operate/calculate` + `src/components/calculate` (2), `src/app/operate/results` + `src/components/results` (5), `src/app/my-compensation`, `src/app/perform/statements`, `src/components/compensation` (6). No new schema, services, or routes; `profiles.locale` persistence and `LocaleProvider` wiring already exist in `src/app/layout.tsx:46`.
+
+# D4 — Post-calc display integrity (#69/#71/#72 family)
+
+**CURRENT STATE:** The primary calculate-and-view surface (`/operate/calculate`) re-fetches results after every calculation: the calc API is synchronous (its HTTP response is the completion signal), the trigger calls `onCalculateComplete → refreshBatches()`, and the DS-007 results effect depends on the refreshed `batches` array, re-running `loadResultsPageData` which always selects the latest non-superseded batch. The standalone `/operate/results` page keys off `selectedBatchId`, which is pinned by sessionStorage and is NOT invalidated by a recalculation — and recalculation never sets `superseded_by` on the prior batch (DB-verified: 0 of 15 batches superseded; 4 tenant/period/plan groups carry 2 live PREVIEW batches each). Displayed entity counts in results surfaces derive from `calculation_results` rows (calculated entities); the PlanCard's pre-calc "N entities" derives from `rule_set_assignments` count (assigned, not calculated). The calculate page's period selector reads from OperateContext and the in-page period-creation flow awaits `refreshPeriods()`, so a newly created period appears without page exit.
+
+---
+
+## EVIDENCE
+
+### Adjacent-arm sweep — every calc trigger surface (callers of `/api/calculation/run`)
+
+```
+$ grep -rn "api/calculation/run" src --include="*.ts" --include="*.tsx" -l
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/calculate/page.tsx
+src/app/operate/lifecycle/page.tsx
+src/app/api/calculation/run/route.ts        (the route itself)
+src/app/api/import/commit/route.ts          (comment only — see below)
+src/components/calculate/PlanCard.tsx
+```
+
+`import/commit` is a comment reference, not a trigger:
+
+```
+src/app/api/import/commit/route.ts:986
+    // HF-224: Import-time convergence (OB-120) removed. Calc-time convergence
+    // (HF-165) at /api/calculation/run is the single binding decision point so
+    // every run sees the full committed dataset and a fresh distinguishability
+    // check (no partial bindings persisted from upload time).
+```
+
+Trigger surfaces: (a) `PlanCard` per-plan Calculate, (b) `/operate/calculate` "Calculate All", (c) `/operate/lifecycle` DRAFT→PREVIEW advance, (d) `/admin/launch/calculate` run button. All four are traced below.
+
+---
+
+### READ 1 — Results staleness: trigger → completion signal → refetch (or absence)
+
+**Completion signal = the synchronous HTTP response.** The route writes all `calculation_results`, transitions the batch to PREVIEW, then returns counts in the response body:
+
+```
+src/app/api/calculation/run/route.ts:2870-2877
+  // ── 8. Transition batch to PREVIEW ──
+  const { error: transErr } = await supabase
+    .from('calculation_batches')
+    .update({
+      lifecycle_state: 'PREVIEW',
+      entity_count: entityResults.length,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+```
+
+```
+src/app/api/calculation/run/route.ts:3142-3147
+  return NextResponse.json({
+    success: true,
+    batchId: batch.id,
+    entityCount: entityResults.length,
+    excludedCount: excludedEntities.length,
+    totalPayout: grandTotal,
+```
+
+**Surface (a)+(b): `/operate/calculate` — re-fetch chain verified.** PlanCard awaits the response, then fires the completion callback:
+
+```
+src/components/calculate/PlanCard.tsx:86-97,127-128
+    try {
+      const response = await fetch('/api/calculation/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          periodId,
+          ruleSetId: plan.planId,
+        }),
+      });
+
+      const result = await response.json();
+...
+        onCalculateComplete();
+        onSelect(plan.planId); // HF-182 Fix 1: auto-select plan to show results
+```
+
+The page's completion handler refreshes batches + readiness:
+
+```
+src/app/operate/calculate/page.tsx:228-240
+  // Refresh readiness after calculation
+  const handleCalculateComplete = useCallback(async () => {
+    await refreshBatches();
+    try {
+      const resp = await fetch(`/api/plan-readiness?tenantId=${tenantId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setPlanReadiness(data.plans || []);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [tenantId, refreshBatches]);
+```
+
+("Calculate All" also ends with `await handleCalculateComplete();` at src/app/operate/calculate/page.tsx:274.)
+
+`refreshBatches` is `loadBatches` in OperateContext, which `setBatches(...)` with a new array reference:
+
+```
+src/contexts/operate-context.tsx:228-241,261
+    const supabase = createClient();
+    let query = supabase
+      .from('calculation_batches')
+      .select('id, period_id, rule_set_id, lifecycle_state, entity_count, summary, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', selectedPeriodId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (selectedPlanId) {
+      query = query.eq('rule_set_id', selectedPlanId);
+    }
+
+    const { data } = await query;
+...
+    setBatches(loadedBatches);
+```
+
+The DS-007 results effect lists `batches` in its dependency array, so the refreshed reference re-runs the loader:
+
+```
+src/app/operate/calculate/page.tsx:203-226
+  // Load DS-007 results when a plan is selected
+  useEffect(() => {
+    if (!selectedPlanId || !tenantId || !selectedPeriodId) {
+      setResultsData(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      setResultsLoading(true);
+      try {
+        const data = await loadResultsPageData(tenantId, selectedPeriodId, selectedPlanId);
+        if (!cancelled) setResultsData(data);
+      } catch {
+        if (!cancelled) setResultsData(null);
+      } finally {
+        if (!cancelled) setResultsLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [selectedPlanId, tenantId, selectedPeriodId, batches]);
+```
+
+And the loader always selects the LATEST non-superseded batch:
+
+```
+src/lib/data/results-loader.ts:108-118
+  const [batchRes, ruleSetRes, periodRes] = await Promise.all([
+    supabase
+      .from('calculation_batches')
+      .select('id, lifecycle_state, entity_count, summary, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId)
+      .eq('rule_set_id', ruleSetId)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+```
+
+**Current behavior (from code), `/operate/calculate`:** the results view DOES re-fetch after calculation completes — trigger → awaited response → `refreshBatches()` → `batches` dependency → `loadResultsPageData` → latest batch. Not stale.
+
+**Surface (c): `/operate/lifecycle`** — refetches after calc:
+
+```
+src/app/operate/lifecycle/page.tsx:195-209
+        const response = await fetch('/api/calculation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, periodId: activePeriodId, ruleSetId }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          setCalcError(result.error || (isSpanish ? 'Error al ejecutar calculo' : 'Calculation failed'));
+          return;
+        }
+
+        // Calculation succeeded — reload page data to show results
+        await reloadData();
+```
+
+**Surface (d): `/admin/launch/calculate`** — refetches after calc:
+
+```
+src/app/admin/launch/calculate/page.tsx:357-370 (inside handleRunCalculation)
+      // Refresh batches and results
+      const batches = await listCalculationBatches(currentTenant.id);
+      setRecentBatches(batches.slice(0, 10));
+
+      // Load the latest batch
+      const batch = await getActiveBatch(currentTenant.id, selectedPeriod);
+      setActiveBatch(batch);
+      if (batch) {
+        const [results, cycle] = await Promise.all([
+          getCalculationResults(currentTenant.id, batch.id),
+          batchToCycle(batch, currentTenant.id),
+        ]);
+        setBatchResults(results);
+        setActiveCycle(cycle);
+      }
+```
+
+**Standalone `/operate/results` — staleness path exists.** The page keys ONLY off `selectedBatchId`:
+
+```
+src/app/operate/results/page.tsx:96,112-126,188
+  const { selectedBatchId, selectedBatch, isLoading: contextLoading } = useOperate();
+...
+  // OB-92: Load results for the batch selected in OperateContext
+  useEffect(() => {
+    if (!tenantId || !selectedBatchId) {
+      setResults([]);
+      setTotalPayout(0);
+      setAnomalyReport(null);
+      if (!contextLoading) setIsLoaded(true);
+      return;
+    }
+...
+        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+  }, [tenantId, selectedBatchId, contextLoading]);
+```
+
+`selectedBatchId` auto-select PREFERS the sessionStorage-pinned batch, and `loadBatches` (above) does NOT filter `superseded_by`:
+
+```
+src/contexts/operate-context.tsx:263-274
+    // Auto-select batch: prefer sessionStorage, then most recent
+    const storedBatch = ssGet(SK_BATCH);
+    const validStoredBatch = loadedBatches.find(b => b.id === storedBatch);
+    if (validStoredBatch) {
+      setSelectedBatchId(validStoredBatch.id);
+    } else if (loadedBatches.length > 0) {
+      setSelectedBatchId(loadedBatches[0].id);
+      ssSet(SK_BATCH, loadedBatches[0].id);
+    } else {
+      setSelectedBatchId(null);
+      ssSet(SK_BATCH, null);
+    }
+```
+
+The recalc path never marks the prior batch superseded — the run route only INSERTS a new batch:
+
+```
+src/app/api/calculation/run/route.ts:1247-1262
+  // ── 5. Create calculation batch ──
+  // OB-197 G11: explicit id == calculationRunId so any signal scoped to the
+  // run (convergence, in-run SCI, lifecycle) joins back to this batch row.
+  const { data: batch, error: batchErr } = await supabase
+    .from('calculation_batches')
+    .insert({
+      id: calculationRunId,
+      tenant_id: tenantId,
+      period_id: periodId,
+      rule_set_id: ruleSetId,
+      batch_type: 'standard',
+      lifecycle_state: 'DRAFT',
+      entity_count: calculationEntityIds.length,
+      config: {} as unknown as Json,
+      summary: {} as unknown as Json,
+    })
+```
+
+`supersedeBatch` exists but is reachable only via an explicit SUPERSEDED lifecycle transition (OFFICIAL+ batches), and the lifecycle UI skips it:
+
+```
+$ grep -rn "supersedeBatch" src --include="*.ts" --include="*.tsx"
+src/lib/supabase/calculation-service.ts:278:export async function supersedeBatch(
+src/lib/calculation/calculation-lifecycle-service.ts:18:  supersedeBatch,
+src/lib/calculation/calculation-lifecycle-service.ts:410:      const newBatch = await supersedeBatch(tenantId, batchId, {
+
+src/components/lifecycle/LifecycleActionBar.tsx:92-93
+    // Skip SUPERSEDED — handled separately
+    if (targetState === 'SUPERSEDED') continue;
+```
+
+**DB verification (read-only script, service-role SELECT/head-count only):**
+
+Script: `web/scripts/diag/diag063_d4_batch_accumulation_check.ts`
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_d4_batch_accumulation_check.ts
+calculation_batches total=15 superseded_by_set=0 non_superseded=15
+
+groups(tenant|period|rule_set) seen=11; groups with >1 NON-superseded batch=4
+
+Top 10 groups by non-superseded batch count:
+  tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 period=0fcd8fa0-c2f2-43c3-b8e6-234244914c16 rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-11T19:32:31.342201+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=8ac39a1d-bd1b-4137-8db3-469e596e9a4b rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:36:22.864878+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=9a240061-736f-496c-8297-af8ea7652fc2 rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:36:07.999297+00:00
+  tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 period=8896974e-56bb-420c-b519-07ed29bd6c55 rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 total=2 non_superseded=2 states=[PREVIEW:2] latest=2026-06-10T00:35:52.010776+00:00
+```
+
+(`superseded_by` column confirmed against SCHEMA_REFERENCE_LIVE.md, `calculation_batches (16 columns)`, line 90.)
+
+**Current behavior (from code+DB), `/operate/results`:** after a recalculation, the prior batch remains in the unfiltered batch list and the sessionStorage-pinned `selectedBatchId` remains valid, so the page continues displaying the pre-recalc batch until the user manually changes the Run dropdown (OperateSelector). Recorded, not fixed.
+
+---
+
+### READ 2 — Entity-count source: calculated entities or all entities?
+
+**Results hero ("Entities" stat) — calculated entities.** Displayed value:
+
+```
+src/components/results/ResultsHero.tsx:86-93
+            <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/30 p-3">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Entities</p>
+              <p className="text-lg font-bold text-zinc-200 mt-0.5"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                {resultCount.toLocaleString()}
+              </p>
+            </div>
+```
+
+Exact data source — the count of `calculation_results` rows for the selected batch:
+
+```
+src/lib/data/results-loader.ts:147-154,349-353
+  // Round 2: calculation_results for this batch (1 call)
+  const { data: results } = await supabase
+    .from('calculation_results')
+    .select('entity_id, total_payout, components, attainment, metadata, metrics')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batch.id);
+
+  if (!results || results.length === 0) return null;
+...
+  return {
+    totalPayout,
+    resultCount: entities.length,
+```
+
+**`/operate/results` page ("N entities") — calculated entities of the selected batch:**
+
+```
+src/app/operate/results/page.tsx:126,346,363-366
+        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+...
+  const entityCount = results.length;
+...
+          <p className="text-slate-400 text-sm">
+            {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+          </p>
+```
+
+**PlanCard ("N entities") — TWO sources under one label:**
+
+```
+src/components/calculate/PlanCard.tsx:194-202
+        <div className="flex items-center gap-4 text-xs text-zinc-500 mb-3">
+          <span className="flex items-center gap-1">
+            {(calcEntityCount ?? plan.entityCount) > 0 ? (
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+            ) : (
+              <AlertTriangle className="w-3 h-3 text-amber-500" />
+            )}
+            {calcEntityCount ?? plan.entityCount} entities{excludedCount > 0 && ` (${excludedCount} excl.)`}
+          </span>
+```
+
+Pre-calculation, `plan.entityCount` is the `rule_set_assignments` exact count — assigned entities, not calculated:
+
+```
+src/app/api/plan-readiness/route.ts:39-47,102-108
+  // Fetch assignment counts per plan using exact count (avoids max_rows truncation)
+  const assignCountByPlan = new Map<string, number>();
+  for (const rs of ruleSets) {
+    const { count } = await supabase
+      .from('rule_set_assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', rs.id);
+    assignCountByPlan.set(rs.id, count || 0);
+  }
+...
+  const plans = ruleSets.map(rs => {
+    const latest = latestBatchByPlan.get(rs.id);
+    return {
+      planId: rs.id,
+      planName: rs.name,
+      status: rs.status,
+      entityCount: assignCountByPlan.get(rs.id) || 0,
+```
+
+Post-calculation (in-session), `calcEntityCount` comes from the API response, which is the count of written results (`entityCount: entityResults.length`, run/route.ts:3145). Note the calc route self-heals assignments to ALL tenant `individual` entities, so the assignment count converges to the full individual-entity population:
+
+```
+src/app/api/calculation/run/route.ts:448-462 (condensed)
+  let entityIds = Array.from(new Set(assignments.map(a => a.entity_id)));
+
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  {
+    const allTenantEntityIds: string[] = [];
+    ...
+      const { data: ep } = await supabase
+        .from('entities')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('entity_type', 'individual')  // HF-263: never self-assign grouping entities for calculation
+```
+
+**OperateSelector Run dropdown ("N ent") — `calculation_batches.entity_count` column.** Set to scoped population at insert (`entity_count: calculationEntityIds.length`, run/route.ts:1259), then overwritten at completion with the calculated count (`entity_count: entityResults.length`, run/route.ts:2875). Display:
+
+```
+src/components/operate/OperateSelector.tsx:126-129
+                    {statusDot(b.lifecycleState)}
+                    <span className="truncate">
+                      {b.lifecycleState} — {b.entityCount} ent — {formatCurrency(b.totalPayout)}
+                    </span>
+```
+
+**Current behavior (from code):** all results-view counts (ResultsHero, `/operate/results`, OperateSelector post-completion) derive from CALCULATED entities (`calculation_results` rows / `entity_count` updated to `entityResults.length`). The PlanCard count on the same page derives from `rule_set_assignments` (assigned entities) until a calculation runs in-session, then switches source to the calculated count — same label, two sources.
+
+---
+
+### READ 3 — Period-selector refresh: does a new period appear without page exit?
+
+**Selector data source** — OperateContext `periods`, cadence-filtered:
+
+```
+src/app/operate/calculate/page.tsx:110-113,473-483
+  const filteredPeriods = useMemo(() => {
+    if (!selectedPlanCadence) return periods;
+    return periods.filter(p => p.period_type === selectedPlanCadence);
+  }, [periods, selectedPlanCadence]);
+...
+          {filteredPeriods.length > 0 ? (
+            <Select value={selectedPeriodId || ''} onValueChange={(v) => { selectPeriod(v); setStoreFilter(null); setResultsData(null); setSelectedPlanId(null); }}>
+              <SelectTrigger className="w-64 h-10 text-sm font-semibold text-zinc-100">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredPeriods.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-sm font-medium">{p.label || p.canonicalKey}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+```
+
+Context loads periods once per tenant and exposes an explicit refresh:
+
+```
+src/contexts/operate-context.tsx:137-141,193-201,212
+        supabase
+          .from('periods')
+          .select('id, label, canonical_key, start_date, end_date, status, period_type')
+          .eq('tenant_id', tenantId)
+          .order('start_date', { ascending: true }),
+...
+  // OB-153: refreshPeriods — reload periods from database
+  const loadPeriods = useCallback(async () => {
+    if (!tenantId) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('periods')
+      .select('id, label, canonical_key, start_date, end_date, status, period_type')
+      .eq('tenant_id', tenantId)
+      .order('start_date', { ascending: true });
+...
+    setPeriods(loaded);
+```
+
+**In-page creation path refreshes without exit** — Detect Periods → Create → `await refreshPeriods()`:
+
+```
+src/app/operate/calculate/page.tsx:403-427 (condensed)
+  const handleCreateDetectedPeriods = async () => {
+    const toCreate = detectedPeriods.filter(p => p.selected && !p.exists);
+    if (toCreate.length === 0) return;
+    setIsCreatingPeriods(true);
+    try {
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          periods: toCreate.map(p => ({ ... status: 'open', metadata: { source: 'ob187_detect' } })),
+        }),
+      });
+      if (res.ok) {
+        setShowDetectionPanel(false);
+        setDetectedPeriods([]);
+        await refreshPeriods();
+```
+
+Complete caller enumeration for `refreshPeriods` (only one consumer surface):
+
+```
+$ grep -rn "refreshPeriods" src --include="*.tsx" --include="*.ts"
+src/contexts/operate-context.tsx:70:  refreshPeriods: () => Promise<void>;
+src/contexts/operate-context.tsx:193:  // OB-153: refreshPeriods — reload periods from database
+src/contexts/operate-context.tsx:343:    refreshPeriods: loadPeriods,
+src/app/operate/calculate/page.tsx:56:    refreshPeriods,
+src/app/operate/calculate/page.tsx:427:        await refreshPeriods();
+```
+
+**Cross-surface creation path** — "Create Manually" navigates to `/configure/periods` (its own load/create via `/api/periods`); that route is OUTSIDE the Operate segment, and `OperateProvider` is mounted at the Operate layout, so re-entering `/operate/*` remounts the provider and reloads periods:
+
+```
+src/app/operate/layout.tsx:8
+  return <OperateProvider>{children}</OperateProvider>;
+```
+
+Period-insert endpoints (complete enumeration): `/api/periods` (route.ts:136 `.insert(rows)` — used by both the calculate-page detect flow and `/configure/periods`) and `/api/periods/create-from-data` (route.ts:207 — no UI callers found: `grep -rn "create-from-data" src` returns no .tsx/.ts callers).
+
+**Current behavior (from code):** a period created in-page (Detect Periods panel) appears in the selector WITHOUT page exit via `await refreshPeriods()`. A period created on `/configure/periods` appears after navigating back into `/operate/*` (provider remount reloads periods); no page reload is required, but it is by definition a navigation. Adjacent observation: OperateContext exposes `refreshBatches`/`refreshPeriods` but no `refreshPlans`; the inline cadence editor (`handleCadenceChange` → PATCH `/api/rule-sets/update-cadence`, page.tsx:388-401) re-runs detection but the context's `plans[].cadence_config` (used by `filteredPeriods` via `selectedPlanCadence`) is not refreshed until provider remount.
+
+---
+
+## GAP TO DEMO BAR
+
+1. **Results staleness:** none on `/operate/calculate` (the demo calc surface) — post-calc refetch is wired end-to-end and lands on the latest batch. On `/operate/results`, a recalculation does not move the sessionStorage-pinned Run selection: the page keeps displaying the pre-recalc batch until the Run dropdown is changed manually, because (i) `loadBatches` does not filter `superseded_by` and (ii) the recalc path never sets `superseded_by` (DB: 0/15 set; 4 groups with 2 live PREVIEW batches). Recorded, not fixed.
+2. **Entity-count source:** none for results surfaces — counts derive from calculated entities (`calculation_results` rows). Nuance recorded: PlanCard's "N entities" is the `rule_set_assignments` count pre-calc and the calculated count post-calc, two sources under one label on the same page.
+3. **Period-selector refresh:** none for the in-page creation flow — `await refreshPeriods()` makes new periods appear without page exit. Adjacent gap recorded: no `refreshPlans` in OperateContext (stale `cadence_config` after inline cadence edit until remount).
+
+## EFFORT SHAPE
+
+- Read 1, `/operate/calculate`: **E0 — none.**
+- Read 1, `/operate/results` staleness (if addressed): **E3 COMPOSE** — wire batch supersession into the recalc path (`/api/calculation/run` calling existing `supersedeBatch` in `src/lib/supabase/calculation-service.ts`, or equivalent `superseded_by` update) plus auto-select adjustment in `OperateContext.loadBatches` (filter `superseded_by` / prefer newest over sessionStorage pin). No new tables; no new UI.
+- Read 2 (if the dual-source label is addressed): **E2 SURFACE** — label/source clarification in `PlanCard` stats row (existing `plan-readiness` payload already carries both semantics).
+- Read 3: **E0 — none** for the demo path; adjacent `refreshPlans` (if addressed): **E3 COMPOSE** — add a `loadPlans` refresh to `operate-context.tsx` and invoke after `/api/rule-sets/update-cadence`.
+
+Evidence tier: VERIFIED-CODE+DB. Script: `web/scripts/diag/diag063_d4_batch_accumulation_check.ts` (SELECT/head-count only).
+
+## Module E — Engine-Path Confirmations
+
+# E1 — temporal_adjustment execution
+
+**CURRENT STATE:** `temporal_adjustment` exists as a typed IntentModifier discriminant (`src/lib/calculation/intent-types.ts:207`) and is faithfully passed through the intent transformer (`src/lib/calculation/intent-transformer.ts:224-233`, HF-223 validation-passthrough). The engine's only handler for it is an explicit refusal: `legacy-intent-to-dag.ts:594-599` throws `UntranslatableLegacyIntentError` ("requires period-history context (not in Phase 0 production inventory)"). It is NOT a ComponentType (the union at `src/types/compensation-plan.ts:57-73` includes `temporal_window` but not `temporal_adjustment`). DB: 0 of 943 calculation_results rows (100% scanned, all tenants) and 0 of 9 rule_sets contain the string anywhere in their components jsonb.
+
+**VERDICT: NEVER-EXECUTED** (and never configured in any stored rule set).
+
+**EVIDENCE:**
+
+Grep sweep (complete hit list — 6 hits, 3 files):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "temporal_adjustment" src/lib --include="*.ts"
+src/lib/calculation/intent-transformer.ts:186:  // dropped 'proration' and 'temporal_adjustment' discriminants entirely. That
+src/lib/calculation/intent-transformer.ts:224:      } else if (modType === 'temporal_adjustment' && m.lookbackPeriods != null) {
+src/lib/calculation/intent-transformer.ts:226:          modifier: 'temporal_adjustment',
+src/lib/calculation/legacy-intent-to-dag.ts:594:    case 'temporal_adjustment': {
+src/lib/calculation/legacy-intent-to-dag.ts:596:        `[legacyIntentToDAG] temporal_adjustment modifier requires period-history context ` +
+src/lib/calculation/intent-types.ts:207:  | { modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' };
+```
+
+Engine handler — the modifier-translation case throws (this is the only execution-path handler):
+
+```typescript
+// src/lib/calculation/legacy-intent-to-dag.ts:594-607 (inside wrapModifier switch)
+    case 'temporal_adjustment': {
+      throw new UntranslatableLegacyIntentError(
+        `[legacyIntentToDAG] temporal_adjustment modifier requires period-history context ` +
+        `(not in Phase 0 production inventory). Emission preserved: ${JSON.stringify(mod)}.`
+      );
+    }
+    default: {
+      const modName = (mod as { modifier?: string }).modifier ?? '<undefined>';
+      throw new UntranslatableLegacyIntentError(
+        `[legacyIntentToDAG] Unrecognized IntentModifier discriminator "${modName}". ` +
+        `Emission preserved: ${JSON.stringify(mod)}.`
+      );
+    }
+```
+
+Modifier path into that handler — all modifiers flow through `wrapModifier` via `legacyIntentToDAG`:
+
+```typescript
+// src/lib/calculation/legacy-intent-to-dag.ts:620-629
+export function legacyIntentToDAG(
+  op: IntentOperation,
+  modifiers: IntentModifier[] = [],
+): PrimeNode {
+  let dag = translateOperation(op);
+  for (const mod of modifiers) {
+    dag = wrapModifier(dag, mod);
+  }
+  return dag;
+}
+```
+
+Transformer passthrough — the modifier IS constructed and carried (it is not dropped pre-engine):
+
+```typescript
+// src/lib/calculation/intent-transformer.ts:224-233
+      } else if (modType === 'temporal_adjustment' && m.lookbackPeriods != null) {
+        modifiers.push({
+          modifier: 'temporal_adjustment',
+          lookbackPeriods: Number(m.lookbackPeriods),
+          triggerCondition: normalizeIntentInput(m.triggerCondition) as IntentSource,
+          adjustmentType: (typeof m.adjustmentType === 'string' && ['full_reversal', 'partial', 'prorated'].includes(m.adjustmentType))
+            ? m.adjustmentType as 'full_reversal' | 'partial' | 'prorated'
+            : 'full_reversal',
+        });
+      }
+```
+
+Not a ComponentType — union includes `temporal_window`, not `temporal_adjustment`:
+
+```typescript
+// src/types/compensation-plan.ts:57-73 (excerpt)
+export type ComponentType =
+  | 'bounded_lookup_1d'
+  | 'bounded_lookup_2d'
+  | 'scalar_multiply'
+  | 'conditional_gate'
+  | 'linear_function'
+  | 'piecewise_linear'
+  | 'scope_aggregate'
+  | 'aggregate'
+  | 'ratio'
+  | 'constant'
+  | 'weighted_blend'
+  | 'temporal_window'
+  | 'prime_dag';
+```
+
+Downstream error handling at the run-calculation fallback call site — the translation throw is swallowed by a bare catch:
+
+```typescript
+// src/lib/calculation/run-calculation.ts:376-392 (excerpt)
+        const dag = legacyIntentToDAG(intentOp);
+        const context = buildEvalContext(entityData);
+        const intentPayoutDecimal = evaluate(dag, context);
+        const intentPayout = toNumber(intentPayoutDecimal);
+        if (intentPayout > 0) {
+          payout = intentPayout;
+          ...
+        }
+      }
+    } catch {
+      // Fallback failed silently — use original $0 payout
+    }
+```
+
+DB probe script (NEW, read-only): `web/scripts/diag/diag063_e1_temporal.ts`
+
+```typescript
+// web/scripts/diag/diag063_e1_temporal.ts (logic summary; full source in file)
+// 1. Inspect ONE calculation_results row's components shape (KEYS ONLY).
+// 2. Server-side PostgREST contains count on candidate type keys:
+//    .select('id', { count: 'exact', head: true })
+//    .contains('components', JSON.stringify([{ [typeKey]: 'temporal_adjustment' }]))
+// 3. Shape is an object keyed by component name (not a typed array), so the
+//    contains pattern is shape-inapplicable -> page ALL rows (1000/page,
+//    ordered created_at desc, cap 50000) and scan client-side via
+//    JSON.stringify(row.components).includes('temporal_adjustment').
+// 4. Supplementary: same string scan over all rule_sets.components.
+// Output: counts + distinct tenant_id/period_id UUIDs only.
+```
+
+Script execution (verbatim):
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e1_temporal.ts
+[1] sample row id=e7d390d0-f549-4020-8f59-f81435a28b6d
+[1] components top-level shape: object
+[1] object keys: base_commission, tip_bonus
+[2] contains([{type: 'temporal_adjustment'}]) -> count=0
+[2] contains([{componentType: 'temporal_adjustment'}]) -> count=0
+[3] calculation_results total rows: 943
+[3] client-side scan method: JSON.stringify(components).includes('temporal_adjustment')
+[3] coverage: scanned 943 of 943 rows (most recent first, cap 50000)
+[3] rows containing 'temporal_adjustment' anywhere in components: 0
+[3] distinct tenant_ids with hits: 0 []
+[3] distinct period_ids with hits: 0 []
+[4] rule_sets total rows scanned: 9
+[4] rule_sets containing 'temporal_adjustment' in components: 0
+[4] rule_set ids with hits: []
+[4] distinct tenant_ids with rule_set hits: 0 []
+```
+
+Method/coverage note: `calculation_results.components` is an OBJECT keyed by component name (sample keys: `base_commission`, `tip_bonus`) — not an array of `{type: ...}` objects — so the PostgREST array-contains filter cannot match by shape (counts of 0 at step [2] are shape-artifacts, not evidence). The authoritative result is the client-side string scan at step [3]: 943/943 rows = 100% coverage across ALL tenants, 0 hits. Schema cross-check: `SCHEMA_REFERENCE_LIVE.md:101-116` confirms `calculation_results.components` jsonb NOT NULL; no divergence observed in response keys.
+
+**GAP TO DEMO BAR:** The modifier cannot execute at all: any plan configuring `temporal_adjustment` reaches the throwing case in `wrapModifier`. Missing is (a) the `temporal_adjustment` translation case in `legacy-intent-to-dag.ts` (lookback reversal/partial/prorated logic over prior-period results) and (b) wiring of period-history context into the modifier translation — note OB-81 period-history batch-loading already exists for `temporal_window` (`src/app/api/calculation/run/route.ts:1292-1325`). No tenant has ever configured or executed it (0/9 rule_sets, 0/943 results).
+
+**EFFORT SHAPE:** E3 COMPOSE — implement the `temporal_adjustment` case in `wrapModifier` (`src/lib/calculation/legacy-intent-to-dag.ts`) composing the existing OB-81 period-history context already batch-loaded in `src/app/api/calculation/run/route.ts:1292` for `temporal_window`; transformer (`intent-transformer.ts`) and types (`intent-types.ts:207`) already carry the modifier. No new schema, no new UI surface; existing tables (`calculation_results`, `rule_sets`) suffice.
+
+# E2 — Period-scoped plan assignment
+
+### E2 — Period-scoped plan assignment (gates the MIR seasonal-overlay plan)
+
+**CURRENT STATE:** The schema fully supports period scoping: both `rule_set_assignments` and `rule_sets` carry nullable `effective_from`/`effective_to` date columns (SCHEMA_REFERENCE_LIVE.md). The calculation path does NOT honor them: both calculation entry points fetch assignments filtered only by `tenant_id` + `rule_set_id` with no date-range predicate against the period, and `effective_from`/`effective_to` are never referenced in either calculation file for assignments or rule sets. A repo-wide sweep finds no site anywhere that filters `rule_set_assignments` by effective range; the only reads of those columns are display/readiness payloads. Additionally, an HF-126/HF-189 self-heal inside the calculation route inserts assignments (without `effective_from`) for every unassigned individual entity to whichever rule set is being calculated. Live DB counts: 643 of 703 assignments have NULL `effective_from`, and zero rows in either table have `effective_to`. Date-effectivity machinery does exist in the calc path — but only for entity `temporal_attributes`, not assignments.
+
+**EVIDENCE:**
+
+Schema lines (SCHEMA_REFERENCE_LIVE.md:494-507 and 509-531, relevant rows):
+
+```
+### rule_set_assignments (10 columns)
+| Column | Type | Nullable | Default |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+
+### rule_sets (18 columns)
+| Column | Type | Nullable | Default |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+```
+
+Sweep command (run from web/):
+
+```
+grep -rn "rule_set_assignments" src/lib src/app --include="*.ts"
+```
+
+Complete file-level enumeration (per-file hit counts; 38 line hits total):
+
+```
+src/lib/sci/assignment-creation.ts        (5 hits: header comments, presence-check select, insert)
+src/lib/canvas/graph-service.ts           (1 hit: select rule_set_id, effective_from — graph display)
+src/lib/supabase/rule-set-service.ts      (4 hits: insert + selects of entity_id/effective_from — UI listing)
+src/lib/supabase/database.types.ts        (4 hits: type definitions)
+src/lib/supabase/data-service.ts          (5 hits: comments + presence-check select + insert)
+src/lib/calculation/run-calculation.ts    (1 hit: CALC FETCH — see below)
+src/lib/data/page-loaders.ts              (1 hit: head:true count for readiness)
+src/app/api/intelligence/wire/route.ts    (5 hits: creation + select)
+src/app/api/import/commit/route.ts        (3 hits: creation)
+src/app/api/calculation/run/route.ts      (2 hits: CALC FETCH + self-heal insert — see below)
+src/app/api/import/sci/execute-bulk/route.ts (2 hits: comments referencing assignment-creation.ts)
+src/app/api/rule-set-assignments/route.ts (4 hits: CRUD route, GET selects effective_from/effective_to)
+src/app/api/plan-readiness/route.ts       (1 hit: head:true count)
+```
+
+Calc fetch site 1 — src/lib/calculation/run-calculation.ts:916-935 (no date filter):
+
+```typescript
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+
+    if (aErr) {
+      return { success: false, batchId: '', entityCount: 0, totalPayout: 0, error: `Failed to fetch assignments: ${aErr.message}` };
+    }
+    if (!page || page.length === 0) break;
+    assignments.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    assignPage++;
+  }
+```
+
+Calc fetch site 2 — src/app/api/calculation/run/route.ts:422-446 (identical shape, no date filter):
+
+```typescript
+  // ── 2. Fetch entities via assignments (OB-75: paginated, no 1000-row cap) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+```
+
+HF-126/HF-189 self-heal — src/app/api/calculation/run/route.ts:451-495 (excerpt; inserts assignments WITHOUT effective_from, for ALL unassigned individual entities, on every calc run):
+
+```typescript
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  ...
+      if (missingEntityIds.length > 0) {
+        const INSERT_BATCH = 5000;
+        const newAssignments = missingEntityIds.map(eid => ({
+          tenant_id: tenantId,
+          rule_set_id: ruleSetId,
+          entity_id: eid,
+          assignment_type: 'direct',
+          metadata: {},
+        }));
+        for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+          const slice = newAssignments.slice(i, i + INSERT_BATCH);
+          await supabase.from('rule_set_assignments').insert(slice);
+        }
+        entityIds = [...entityIds, ...missingEntityIds];
+```
+
+Period IS fetched in the calc path, but is used for data scoping (source_date), not assignment scoping — src/lib/calculation/run-calculation.ts:957-961:
+
+```typescript
+  // ── 3. Fetch period info (OB-152: include end_date for source_date hybrid) ──
+  const { data: period } = await supabase
+    .from('periods')
+    .select('id, canonical_key, start_date, end_date')
+    .eq('id', periodId)
+```
+
+Repo-wide sweep for any honoring of the effective columns (run from web/):
+
+```
+grep -rn "effective_from\|effective_to" src/lib src/app --include="*.ts" --include="*.tsx"
+```
+
+File-level result (79 line hits total; NO site applies a date predicate to rule_set_assignments):
+
+```
+src/lib/sci/entity-resolution.ts          (9 hits — entity temporal_attributes, not assignments)
+src/lib/supabase/rule-set-service.ts      (11 hits — display mapping effectiveDate/endDate + unfiltered selects)
+src/lib/supabase/entity-service.ts        (8 hits — entity attributes/relationships)
+src/lib/canvas/graph-service.ts           (11 hits — entity_relationships .is('effective_to', null); assignments selected unfiltered)
+src/lib/supabase/database.types.ts        (18 hits — type defs)
+src/app/api/intelligence/wire/route.ts    (3 hits — sets effective_from=today on insert)
+src/app/api/plan/import/route.ts          (2 hits — writes rule_sets.effective_from/to from plan config)
+src/app/api/calculation/run/route.ts      (4 hits — temporal_attributes as-of-date ONLY, lines 1679-1686)
+src/app/api/rule-set-assignments/route.ts (4 hits — sets effective_from=today on insert; GET returns columns)
+src/app/api/import/commit/route.ts        (3 hits — sets effective_from=today on insert)
+src/app/api/import/sci/execute-bulk/route.ts (6 hits — entity temporal_attributes)
+src/lib/sci/assignment-creation.ts        (0 hits — inserts assignments WITHOUT effective_from)
+```
+
+The ONLY date-effectivity honoring in the calculation path is for entity temporal_attributes — src/app/api/calculation/run/route.ts:1682-1686:
+
+```typescript
+          const sorted = [...attrs].sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
+          for (const attr of sorted) {
+            if (attr.key in resolved) continue;
+            if (attr.effective_from && attr.effective_from > asOfDate) continue;
+            if (attr.effective_to && attr.effective_to < asOfDate) continue;
+```
+
+"Active rule set" selection is status-based, not date-based — src/lib/sci/assignment-creation.ts:41-46:
+
+```typescript
+    const { data: activeRuleSets } = await supabase
+      .from('rule_sets')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active');
+```
+
+`population_config` is fetched but never read in either calc file (no alternative scoping mechanism):
+
+```
+$ grep -n "population_config\|populationConfig" src/lib/calculation/run-calculation.ts src/app/api/calculation/run/route.ts
+src/lib/calculation/run-calculation.ts:873:    .select('id, name, components, input_bindings, population_config, metadata')
+src/app/api/calculation/run/route.ts:191:    .select('id, name, components, input_bindings, population_config, metadata')
+```
+
+DB probe — script web/scripts/diag/diag063_e2_effective_range_population.ts (SELECT head:true counts only):
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+
+async function count(table: string, mod?: (q: any) => any): Promise<number | string> {
+  let q = supabase.from(table).select('id', { count: 'exact', head: true });
+  if (mod) q = mod(q);
+  const { count: c, error } = await q;
+  if (error) return `ERROR: ${error.message}`;
+  return c ?? 0;
+}
+
+async function main() {
+  const out: Record<string, number | string> = {};
+  out['rule_set_assignments.total'] = await count('rule_set_assignments');
+  out['rule_set_assignments.effective_from_not_null'] = await count(
+    'rule_set_assignments', q => q.not('effective_from', 'is', null));
+  out['rule_set_assignments.effective_to_not_null'] = await count(
+    'rule_set_assignments', q => q.not('effective_to', 'is', null));
+  out['rule_sets.total'] = await count('rule_sets');
+  out['rule_sets.effective_from_not_null'] = await count(
+    'rule_sets', q => q.not('effective_from', 'is', null));
+  out['rule_sets.effective_to_not_null'] = await count(
+    'rule_sets', q => q.not('effective_to', 'is', null));
+  out['rule_sets.status_active'] = await count(
+    'rule_sets', q => q.eq('status', 'active'));
+  for (const [k, v] of Object.entries(out)) console.log(`${k} = ${v}`);
+}
+
+main().catch(e => { console.error('FATAL', e?.message ?? e); process.exit(1); });
+```
+
+Output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e2_effective_range_population.ts
+rule_set_assignments.total = 703
+rule_set_assignments.effective_from_not_null = 60
+rule_set_assignments.effective_to_not_null = 0
+rule_sets.total = 9
+rule_sets.effective_from_not_null = 2
+rule_sets.effective_to_not_null = 0
+rule_sets.status_active = 8
+```
+
+**GAP TO DEMO BAR:** The honoring code is ABSENT. To gate a seasonal-overlay plan by period, the calculation assignment fetch must add a date-range predicate against the period's `start_date`/`end_date` (e.g. `effective_from <= period.end_date AND (effective_to IS NULL OR effective_to >= period.start_date)`) in BOTH calc paths. Two coupled gaps: (1) the HF-126/HF-189 self-heal auto-assigns ALL individual entities to the calculated rule set with NULL `effective_from` on every run, which would re-include out-of-window entities and assign everyone to a seasonal overlay plan; (2) live data is mostly NULL-dated (643/703 assignments NULL `effective_from`, 0/703 with `effective_to`), so demo data needs dated assignments for the overlay plan. `rule_sets.effective_from/to` is written at plan import and read only for display; rule-set selection is status-based.
+
+**EFFORT SHAPE:** E3 COMPOSE — no new schema, no new UI required. Service-layer work in two named sites: the assignment fetch loop in `src/lib/calculation/run-calculation.ts` (~line 921) and `src/app/api/calculation/run/route.ts` (~line 429) gains a period-overlap date filter (period dates are already fetched in both paths); the HF-126/HF-189 self-heal block in `src/app/api/calculation/run/route.ts` (lines 451-495) must be made range-aware so it does not re-assign out-of-window entities; assignment writers (`src/lib/sci/assignment-creation.ts`, `src/app/api/rule-set-assignments/route.ts`, `src/app/api/import/commit/route.ts`, `src/app/api/intelligence/wire/route.ts`) already exist — only `assignment-creation.ts` omits `effective_from` entirely. Optional surface: the existing `/api/rule-set-assignments` POST already accepts the table columns; an effective-range input on the assignment UI would be an E2-style extension on top.
+
+### E3 — Plan variant mechanism (BCL-era)
+
+**CURRENT STATE:** The operative variant mechanism is the HF-119 token-overlap matcher, inline in the calculation orchestrator `src/app/api/calculation/run/route.ts` (inside `export async function POST`, declared at line 71). Variants are parsed from `rule_sets.components` JSONB (legacy nested `{ variants: [{ components: [...] }] }` format, route.ts:202-222); per-variant token sets and discriminant tokens are built once before the entity loop (route.ts:1619-1643); each entity's tokens are built from `flatDataByEntity` (committed_data `row_data` string values) — the BCL-era flat source restored unconditionally by HF-200 (commit 2f2160c5, PR #363) — then scored discriminant-first, total-overlap on tie, default-last on full tie (route.ts:1819-1867). An OB-194 eligibility gate excludes entities matching no variant (route.ts:1876-1900) and HF-212 accumulates a per-variant distribution counter (route.ts:1903-1907). A second, older role-name variant matcher exists in `src/lib/calculation/run-calculation.ts:1367-1397` inside `runCalculation()` (exported at line 856), but that function has no callers — HF-079 moved calculation to the API route — so it is dormant. The mechanism file is identical between this branch's HEAD and the main anchor SHA.
+
+**EVIDENCE:**
+
+Provenance — HF-200 commits (run from repo root):
+
+```
+$ git log -i --grep="HF-200" --oneline
+9f209bdf Merge pull request #363 from CCAFRICA/hf-200-restore-flat-variant-matcher
+2f2160c5 HF-200: restore flatDataByEntity as unconditional variant-matcher source
+```
+
+HF-200 commit message + diff target (excerpt):
+
+```
+$ git show 2f2160c5 --stat | head -30
+commit 2f2160c5c22535a2d3d9a05197723a39c6bbb3a3
+...
+    HF-200: restore flatDataByEntity as unconditional variant-matcher source
+
+    Reverts OB-177 Phase 3 (bbe8fd33) variant-matcher source-priority demotion.
+
+    DIAG-027 + DIAG-028 forensic chain established that reconciliation-era
+    mechanism (flatDataByEntity token-overlap from committed_data via entity_id
+    FK) produced reconciled proof for BCL/CRP/Meridian at cbaacb12/1bd8100b.
+    OB-177 P3 demoted this mechanism to fallback gated on entityTokens.size === 0.
+    materializedState as PRIMARY is broken at canonicalization layer per DIAG-025.
+
+    This commit deletes materializedState read block and gate from variant-matcher;
+    flatDataByEntity becomes unconditional source. ...
+
+ web/src/app/api/calculation/run/route.ts | 28 +++++-----------------------
+ 1 file changed, 5 insertions(+), 23 deletions(-)
+```
+
+Mechanism core part 1 — tokenizer + discriminant build:
+
+```typescript
+// src/app/api/calculation/run/route.ts:1619-1643
+  // HF-119: Token overlap variant matching — build token sets once before entity loop
+  const variantTokenize = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove accents
+      .replace(/[^a-z0-9\s_]/g, ' ')
+      .split(/[\s_]+/)
+      .filter(t => t.length > 2);
+
+  const variantTokenSets = variants.map(v => {
+    const text = [
+      String(v.variantName ?? ''),
+      String(v.description ?? ''),
+      String(v.variantId ?? ''),
+    ].join(' ');
+    return new Set(variantTokenize(text));
+  });
+
+  // Discriminant tokens: tokens unique to each variant (not in any other variant)
+  const variantDiscriminants = variantTokenSets.map((tokens, i) => {
+    const otherTokens = new Set<string>();
+    variantTokenSets.forEach((t, j) => { if (j !== i) t.forEach(tok => otherTokens.add(tok)); });
+    return new Set(Array.from(tokens).filter(t => !otherTokens.has(t)));
+  });
+```
+
+Mechanism core part 2 — per-entity selection (HF-200-restored flat source + scoring):
+
+```typescript
+// src/app/api/calculation/run/route.ts:1819-1867 (excerpt, <=40 lines)
+    // HF-119: Token overlap variant matching — cross-language, structural
+    let selectedComponents = defaultComponents;
+    let selectedVariantIndex = 0;
+    if (variants.length > 1) {
+      // Build entity token set from ALL string field values
+      const entityTokens = new Set<string>();
+      for (const row of entityRowsFlat) {
+        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+          ? row.row_data as Record<string, unknown> : {};
+        for (const val of Object.values(rd)) {
+          if (typeof val === 'string' && val.length > 1) {
+            for (const token of variantTokenize(val)) { entityTokens.add(token); }
+          }
+        }
+      }
+      // Score by discriminant token matches
+      const discScores = variantDiscriminants.map((disc, i) => {
+        const matched = Array.from(disc).filter(t => entityTokens.has(t));
+        return { index: i, matches: matched.length, tokens: matched };
+      });
+      discScores.sort((a, b) => b.matches - a.matches);
+
+      let method = 'default_last';
+      if (discScores[0].matches > (discScores[1]?.matches ?? 0)) {
+        selectedVariantIndex = discScores[0].index;          // discriminant winner
+        method = 'discriminant_token';
+      } else {
+        const overlapScores = variantTokenSets.map((tokens, i) => ({
+          index: i,
+          overlap: Array.from(tokens).filter(t => entityTokens.has(t)).length,
+        }));
+        overlapScores.sort((a, b) => b.overlap - a.overlap);
+        if (overlapScores[0].overlap > (overlapScores[1]?.overlap ?? 0)) {
+          selectedVariantIndex = overlapScores[0].index;     // total-overlap winner
+          method = 'total_overlap';
+        } else {
+          selectedVariantIndex = variants.length - 1;        // default to last (Standard)
+        }
+      }
+      selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
+```
+
+Variants source — `rule_sets.components` JSONB parse:
+
+```typescript
+// src/app/api/calculation/run/route.ts:202-220 (excerpt)
+  // Parse components from JSONB — handle 3 formats:
+  // 1. Flat array  2. Wrapped object  3. Legacy nested: { variants: [{ components: [...] }] }
+  const rawComponents = ruleSet.components;
+  let defaultComponents: PlanComponent[];
+  let variants: Array<Record<string, unknown>> = [];
+  ...
+      // Legacy nested format: { variants: [{ components: [...] }] }
+      variants = (componentsJson?.variants as Array<Record<string, unknown>>) ?? [];
+      defaultComponents = (variants[0]?.components as PlanComponent[]) ?? [];
+```
+
+Matcher is inside the calculation POST handler (single function from line 71 onward; no other `export async function POST` before line 1819):
+
+```
+$ grep -n "export async function POST" src/app/api/calculation/run/route.ts
+71:export async function POST(request: NextRequest)
+```
+
+Call chain hop into the matcher's output — selected components are transformed to intents per entity:
+
+```
+$ grep -rn "transformVariant" src --include="*.ts" --include="*.tsx"
+src/app/api/calculation/run/route.ts:31:import { transformVariant } from '@/lib/calculation/intent-transformer';
+src/app/api/calculation/run/route.ts:418:  const componentIntents: ComponentIntent[] = transformVariant(defaultComponents);
+src/app/api/calculation/run/route.ts:2529:      : transformVariant(selectedComponents);
+src/lib/calculation/intent-transformer.ts:52:export function transformVariant(
+```
+
+Call chain hops into the route (ADJACENT-ARM SWEEP — complete caller enumeration):
+
+```
+$ grep -rn "api/calculation/run" src --include="*.ts" --include="*.tsx" | grep -v "src/app/api/calculation/run"
+src/app/admin/launch/calculate/page.tsx:333:        const response = await fetch('/api/calculation/run', {
+src/app/operate/calculate/page.tsx:252:        const response = await fetch('/api/calculation/run', {
+src/app/operate/lifecycle/page.tsx:195:        const response = await fetch('/api/calculation/run', {
+src/app/api/import/commit/route.ts:986:    // (HF-165) at /api/calculation/run is the single binding decision point so
+src/components/calculate/PlanCard.tsx:87:      const response = await fetch('/api/calculation/run', {
+```
+
+(4 fetch call sites; the import/commit hit is a comment, not a caller.)
+
+Second variant-selection site (dormant arm): `src/lib/calculation/run-calculation.ts:1367-1397` contains an OB-85-R3R4 role-name matcher (exact then contains match on `variant.variantName`/`description` vs entity role) inside `runCalculation()` (exported at run-calculation.ts:856). Complete caller enumeration for `runCalculation`:
+
+```
+$ grep -rn "runCalculation\b" src --include="*.ts" --include="*.tsx" | grep -v "src/lib/calculation/run-calculation.ts"
+src/app/admin/launch/calculate/page.tsx:317:  // HF-079: Call API route (service role) instead of client-side runCalculation()
+src/app/api/calculation/run/route.ts:2566:      bufferTrace(`[CalcTrace] runCalculation:entity_start ...`)
+src/app/api/calculation/run/route.ts:2650:        bufferTrace(`[CalcTrace] runCalculation:component_complete ...`)
+src/app/api/calculation/run/route.ts:3118:    `[CalcTrace] runCalculation:period_complete` +
+src/app/api/calculation/run/route.ts:3131:    `[CalcTrace] runCalculation:batch_complete` +
+```
+
+(All hits are comments or trace-label strings — zero invocations. The route imports only evaluator helpers from run-calculation.ts, route.ts:20-29: `getExpectedMetricNames`, `rowMatchesFilters`, `applyMetricDerivations`, types.)
+
+ADJACENT-ARM SWEEP — the probe's stated search (complete file-level list, 47 files):
+
+```
+$ grep -rnil "variant" src/lib --include="*.ts"
+src/lib/animations.ts
+src/lib/reconciliation/report-engine.ts
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/reconciliation/smart-file-parser.ts
+src/lib/reconciliation/ai-column-mapper.ts
+src/lib/normalization/dictionary-seeder.ts
+src/lib/normalization/product-variant-generator.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/state-reader.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/auth/session-lifecycle.ts
+src/lib/sci/reimport-resume.ts
+src/lib/signals/briefing-signals.ts
+src/lib/sci/plan-orchestration.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/plan-idempotency.ts
+src/lib/sci/import-batch-supersession.ts
+src/lib/sci/content-unit-hash.ts
+src/lib/sci/__tests__/comprehension-state.test.ts
+src/lib/sci/interpretation-errors.ts
+src/lib/sci/__tests__/import-atomicity.test.ts
+src/lib/sci/__tests__/content-unit-hash.test.ts
+src/lib/forensics/ai-forensics.ts
+src/lib/forensics/types.ts
+src/lib/forensics/trace-builder.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/intent-validator.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/calculation/intent-types.ts
+src/lib/calculation/results-formatter.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/data/intelligence-stream-loader.ts
+src/lib/import-pipeline/smart-mapper.ts
+src/lib/domain/domains/icm.ts
+src/lib/data/briefing-loader.ts
+src/lib/design-system/interaction-patterns.ts
+```
+
+Variant-SELECTION sites among all hits: (1) route.ts:1619-1907 matcher (LIVE), (2) run-calculation.ts:1367-1397 role matcher (dormant, no callers). The remaining `src/lib` hits are variant-aware plumbing, not selection: interpretation-side per-variant intent emission/binding scope (compositional-intent.ts, convergence-service.ts — HF-251/252/253), DAG-side `variantId`/`transformVariant` (intent-transformer.ts:52, intent-types.ts, intent-executor.ts, legacy-intent-to-dag.ts, intent-validator.ts), and non-plan uses (UI animation variants, product-variant normalization, session/forensics strings).
+
+Anchor confirmation — matcher present at branch HEAD and main anchor; file identical between the two:
+
+```
+$ git rev-parse HEAD main
+dc79a10ad0269875ab4aa97ed9b486360de4b72f   (HEAD, diag/063-mir-demo-capability-assessment)
+d38d63553bddc079fab2cfda6f1fa2d178a2704a   (main anchor)
+
+$ git show dc79a10a...:web/src/app/api/calculation/run/route.ts | grep -n "HF-119\|flatDataByEntity" | tail -3
+1796:    const entityRowsFlat = flatDataByEntity.get(entityId) || [];
+1819:    // HF-119: Token overlap variant matching — cross-language, structural
+2526:    // HF-119: Use selected variant's intents, not always defaultComponents
+
+$ git show d38d6355...:web/src/app/api/calculation/run/route.ts | grep -c "HF-119"
+4
+
+$ git diff --stat main diag/063-mir-demo-capability-assessment -- web/src/app/api/calculation/run/route.ts
+(empty — file identical to anchor)
+
+$ git log -1 --format="%h %s" diag/063-mir-demo-capability-assessment -- web/src/app/api/calculation/run/route.ts
+ff7fea6a HF-281 Phase 2: binding completeness predicate + phase gate
+```
+
+Eligibility gate + distribution counter (downstream of selection):
+
+```typescript
+// src/app/api/calculation/run/route.ts:1876-1907 (excerpt)
+      // OB-194: Variant Eligibility Gate
+      // ... entity matching NONE with score > 0 is excluded from calculation.
+      if (method === 'default_last') {
+        ...
+        if (bestDiscScore === 0 && bestOverlap === 0) {
+          excludedEntities.push({ entityId, entityName, externalId, reason: 'no_qualifying_variant', tokens: tokenList });
+          continue; // Skip calculation for this entity
+        }
+      }
+    // HF-212: Increment variant distribution counter for non-excluded entities.
+    const variantKey = `variant_${selectedVariantIndex}(${...metadata?.role ?? 'unknown'})`;
+    variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
+```
+
+**GAP TO DEMO BAR:** none — the BCL-era flat variant matcher (HF-119 token overlap, HF-200-restored flatDataByEntity source) exists at HEAD, is identical to the main anchor, sits inline in the live calculation orchestrator (POST /api/calculation/run), and is reached from 4 UI call sites. Remaining proof is observational: an architect calculation run on a multi-variant plan showing the `HF-119 Variant discriminants` log line and the HF-212 variant distribution in the Tier 1 footer.
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY — no development. Route: `src/app/api/calculation/run/route.ts` (matcher at 1619-1643 + 1819-1907); service hop: `transformVariant` in `src/lib/calculation/intent-transformer.ts:52` consuming per-entity `selectedComponents` at route.ts:2529; table: `rule_sets.components` JSONB (legacy nested `variants` format). Dormant duplicate in `src/lib/calculation/run-calculation.ts:1367-1397` requires nothing for the demo.
+
+### E4 — Filtered metric derivation (MIR category-commission dependency)
+
+**CURRENT STATE:** Filtered derivation (sum + filters, count + filters) is a fully implemented, operative engine capability. Rules live in `rule_sets.input_bindings.metric_derivations` (JSONB, shape `MetricDerivationRule` at `src/lib/calculation/run-calculation.ts:70`); the executor `applyMetricDerivations` (run-calculation.ts:137) translates each rule via `legacyDerivationToDAG` (src/lib/calculation/legacy-intent-to-dag.ts:662) into an `aggregate` prime wrapped in a `filter`-prime chain, evaluated by the single `evaluate()` surface (src/lib/calculation/intent-executor.ts:145) — `filter` narrows `activeRows` (intent-executor.ts:218), `count` returns row count (256), `sum` Decimal-sums `node.field` (264). The production calc route invokes it once per entity at `src/app/api/calculation/run/route.ts:1928`. A live-DB census found 0 of 9 rule_sets currently carry persisted `metric_derivations`; route.ts:260-301 shows rules are generated at calc time by convergence (Pass 4 emits filters) and persisted on first run, so no live tenant currently exercises the filtered-derivation arm.
+
+**EVIDENCE:**
+
+#### 1. Stated search (E952 complete enumeration)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rn "derivation\|applyFilter\|derived_metric" src/lib --include="*.ts" | cut -d: -f1 | sort | uniq -c | sort -rn
+  57 src/lib/intelligence/convergence-service.ts
+  24 src/lib/calculation/run-calculation.ts
+   5 src/lib/sci/content-profile.ts
+   5 src/lib/calculation/legacy-intent-to-dag.ts
+   3 src/lib/plan-intelligence/compositional-intent.ts
+   3 src/lib/calculation/intent-types.ts
+   2 src/lib/plan-intelligence/intent-constructor.ts
+   1 src/lib/sci/sci-types.ts
+   1 src/lib/sci/entity-resolution.ts
+   1 src/lib/sci/atom-flywheel.ts
+   1 src/lib/intelligence/canonical-signal-writer.ts
+   1 src/lib/intelligence/__tests__/canonical-signal-writer.test.ts
+   1 src/lib/compensation/ai-plan-interpreter.ts
+=== total ===
+     105
+=== applyFilter alone ===
+       0
+=== derived_metric alone ===
+       0
+```
+
+Total 105 line-level hits in src/lib across the 13 files above (complete file-level list). The tokens `applyFilter` and `derived_metric` have ZERO hits anywhere in src (`grep -rn` over src, .ts+.tsx). The actual vocabulary: `metric_derivations` (JSONB key), `MetricDerivationRule` (type), `applyMetricDerivations` (executor), `rowMatchesFilters` / `rowMatchesPredicate` (filter application), `filter` prime (DAG node). Non-engine hit clusters from the 105: `src/lib/plan-intelligence/*` = `output_derivation` (intent construction, unrelated); `src/lib/sci/*` = pattern/field-identity derivations (import comprehension, unrelated); `src/lib/intelligence/convergence-service.ts` = derivation RULE GENERATION (Pass 4); `src/lib/calculation/*` = derivation RULE EXECUTION (this probe).
+
+#### 2. Derivation rule shape — filters are first-class on the rule
+
+```ts
+// src/lib/calculation/run-calculation.ts:70
+export interface MetricDerivationRule {
+  metric: string;          // Target metric name (from plan configuration)
+  operation: 'count' | 'sum' | 'delta' | 'ratio';  // Derivation operation
+  source_pattern: string;  // Regex pattern to match data_type/sheet name
+  filters: Array<{
+    field: string;         // Field name in row_data (discovered at runtime)
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+    value: string | number | boolean;
+  }>;
+  source_field?: string;   // OB-119: Field to sum (for operation='sum' or 'delta')
+```
+
+#### 3. The derivation executor — rule → DAG → evaluate
+
+```ts
+// src/lib/calculation/run-calculation.ts:171 (inside applyMetricDerivations, declared at :137)
+  for (const rule of derivations) {
+    // HF-238 R2 Closure 5: delta hybrid block deleted. Delta derivations now
+    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+    // every other operation; the prior_period prime switches activeRows to
+    // priorRows for the prior side of the subtraction.
+
+    // Build the LegacyDerivation shape from the rule and translate to DAG.
+    const legacyShape: LegacyDerivation = {
+      metric: rule.metric,
+      operation: rule.operation,
+      source_field: rule.source_field,
+      filters: rule.filters as PrimePredicate[] | undefined,
+      source_pattern: rule.source_pattern,
+      numerator_metric: rule.numerator_metric,
+      denominator_metric: rule.denominator_metric,
+      scale_factor: rule.scale_factor,
+      scope: rule.scope,
+    };
+
+    let dag;
+    try {
+      dag = legacyDerivationToDAG(legacyShape);
+    } catch (err) {
+      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
+      continue;
+    }
+```
+
+```ts
+// src/lib/calculation/run-calculation.ts:206
+    const context: EvalContext = {
+      entity: { metadata: {} },
+      activeRows: allRows,
+      allEntityRows: [],
+      metrics: { ...derived },
+      priorPeriodRows: priorRows,
+    };
+
+    try {
+      const result = evaluate(dag, context);
+      derived[rule.metric] = toNumber(result);
+    } catch (err) {
+      console.warn(`[Derivation] evaluate failed for "${rule.metric}": ${(err as Error).message}`);
+      derived[rule.metric] = 0;
+    }
+  }
+```
+
+#### 4. Sum-with-filters AND count-with-filters translation (shared path)
+
+Both operations take the identical translation: one `aggregate` node (`op: d.operation` — `sum` or `count`), wrapped in a `filter` chain when `filters` is non-empty.
+
+```ts
+// src/lib/calculation/legacy-intent-to-dag.ts:723
+  // Aggregate ops: sum / count / avg / min / max with optional filter chain
+  const field = d.source_field ?? '';
+  let dag: PrimeNode = {
+    prime: 'aggregate',
+    op: d.operation,
+    field,
+  };
+
+  if (Array.isArray(d.filters) && d.filters.length > 0) {
+    // Innermost filter sits closest to the aggregate. Reverse so the OUTERMOST
+    // filter in the DAG is the FIRST filter in the rule (declaration order
+    // preserved as filter-chain order top-down).
+    for (let i = d.filters.length - 1; i >= 0; i--) {
+      const f = d.filters[i];
+      dag = {
+        prime: 'filter',
+        predicate: { field: f.field, operator: f.operator, value: f.value },
+        downstream: dag,
+      };
+    }
+  }
+
+  // OB-200 Phase 3: wrap with scope prime when the derivation declares an
+  // entity-sibling grouping. [...]
+  if (d.scope?.entity_group_by) {
+    dag = {
+      prime: 'scope',
+      boundary: d.scope.entity_group_by,
+      downstream: dag,
+      ...(d.scope.temporal_range ? { temporal_range: d.scope.temporal_range } : {}),
+    };
+  }
+
+  return dag;
+}
+```
+
+#### 5. Filter execution — `filter` prime narrows activeRows
+
+```ts
+// src/lib/calculation/intent-executor.ts:218
+    case 'filter': {
+      const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
+      return evaluate(node.downstream, { ...context, activeRows: filtered });
+    }
+```
+
+```ts
+// src/lib/calculation/intent-executor.ts:118
+function rowMatchesPredicate(
+  row: Record<string, unknown>,
+  predicate: { field: string; operator: string; value: string | number | boolean },
+): boolean {
+  const raw = row[predicate.field];
+  switch (predicate.operator) {
+    case 'eq':       return raw === predicate.value;
+    case 'neq':      return raw !== predicate.value;
+    case 'gt':       return typeof raw === 'number' && raw > Number(predicate.value);
+    case 'gte':      return typeof raw === 'number' && raw >= Number(predicate.value);
+    case 'lt':       return typeof raw === 'number' && raw < Number(predicate.value);
+    case 'lte':      return typeof raw === 'number' && raw <= Number(predicate.value);
+    case 'contains': return typeof raw === 'string' && String(raw).includes(String(predicate.value));
+    default:         return false;
+  }
+}
+```
+
+#### 6. Count and sum execution — `aggregate` prime over the (filtered) activeRows
+
+```ts
+// src/lib/calculation/intent-executor.ts:250
+    case 'aggregate': {
+      const rows = context.activeRows;
+      if (rows.length === 0) {
+        // count of empty rows is 0; sum/avg/min/max of empty rows is 0.
+        return ZERO;
+      }
+      if (node.op === 'count') {
+        return toDecimal(rows.length);
+      }
+      const values = rows.map(r => {
+        const v = r[node.field];
+        return typeof v === 'number' ? v : (typeof v === 'string' ? parseFloat(v) : 0) || 0;
+      });
+      switch (node.op) {
+        case 'sum': {
+          let total = ZERO;
+          for (const v of values) total = total.plus(toDecimal(v));
+          return total;
+        }
+```
+
+So count+filters = filter prime(s) narrow `activeRows` → `count` returns `rows.length` of the narrowed set; sum+filters = same narrowing → `sum` Decimal-adds `node.field` across the narrowed set.
+
+#### 7. Operative confirmation — calc path invokes the executor (one hop)
+
+Production API route (per-entity loop):
+
+```ts
+// src/app/api/calculation/run/route.ts:1913
+    // HF-228 Phase 4: execute convergence-produced metric_derivations to make
+    // derived metrics available to the intent executor. Convergence produces
+    // derivation rules (operation + filter + source_field per
+    // MetricDerivationRule) that the engine's binding-based path
+    // (resolveMetricsFromConvergenceBindings) cannot express — filtered
+    // counts (Cross-Sell conditional_gate), cross-category sums, ratio
+    // derivations, prior-period deltas. [...]
+    const perEntitySheetData = dataByEntity.get(entityId);
+    const derivedMetrics: Record<string, number> = perEntitySheetData && metricDerivations.length > 0
+      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+      : {};
+```
+
+Rules parsed in the same route:
+
+```ts
+// src/app/api/calculation/run/route.ts:362
+  // ── OB-118: Parse metric derivation rules from input_bindings ──
+  const inputBindings = ruleSet.input_bindings as Record<string, unknown> | null;
+  let metricDerivations: MetricDerivationRule[] =
+    (inputBindings?.metric_derivations as MetricDerivationRule[] | undefined) ?? [];
+  if (metricDerivations.length > 0) {
+    addLog(`OB-118 Metric derivations: ${metricDerivations.length} rules from input_bindings`);
+  }
+```
+
+Second operative call site — the lib orchestrator `runCalculation` (rules parsed at run-calculation.ts:908-911):
+
+```ts
+// src/lib/calculation/run-calculation.ts:1420
+    const derivedMetrics = metricDerivations.length > 0
+      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+      : {};
+```
+
+Complete call-site enumeration (E952) for executor functions across src (.ts/.tsx):
+
+```
+$ grep -rn "applyMetricDerivations\|rowMatchesFilters\|rowMatchesPredicate\|legacyDerivationToDAG" src --include="*.ts" --include="*.tsx"
+src/types/convergence-bindings.ts:42:  // bridge is retired. Empty / absent means "no filter" — rowMatchesFilters
+src/app/api/calculation/run/route.ts:24:  rowMatchesFilters,
+src/app/api/calculation/run/route.ts:28:  applyMetricDerivations,
+src/app/api/calculation/run/route.ts:1433:    // identical pre-HF-227 behavior via rowMatchesFilters returning true on
+src/app/api/calculation/run/route.ts:1567:    // (applyMetricDerivations in run-calculation.ts) respected filters via
+src/app/api/calculation/run/route.ts:1568:    // rowMatchesFilters. The two paths differed on the filter contract, which
+src/app/api/calculation/run/route.ts:1570:    // rowMatchesFilters returns true for empty/missing filter arrays, so this
+src/app/api/calculation/run/route.ts:1579:      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+src/app/api/calculation/run/route.ts:1920:    // bypassed applyMetricDerivations entirely (DIAG-048 Phase 10 evidence):
+src/app/api/calculation/run/route.ts:1928:      ? applyMetricDerivations(perEntitySheetData, metricDerivations)
+src/lib/intelligence/convergence-service.ts:134:  // means "no filter" — rowMatchesFilters returns true for empty filter arrays.
+src/lib/intelligence/convergence-service.ts:639:  // applyMetricDerivations processes the array in order and the last entry
+src/lib/intelligence/convergence-service.ts:2331:// identically (rowMatchesFilters returns true for empty arrays).
+src/lib/intelligence/convergence-service.ts:2497:    // equivalent to absent filters for the engine (rowMatchesFilters returns
+src/lib/calculation/legacy-intent-to-dag.ts:662:export function legacyDerivationToDAG(d: LegacyDerivation): PrimeNode {
+src/lib/calculation/intent-executor.ts:118:function rowMatchesPredicate(
+src/lib/calculation/intent-executor.ts:219:      const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
+src/lib/calculation/run-calculation.ts:24:import { legacyIntentToDAG, legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
+src/lib/calculation/run-calculation.ts:86:  // (window over prior periods). When present, legacyDerivationToDAG wraps the
+src/lib/calculation/run-calculation.ts:117:export function rowMatchesFilters(
+src/lib/calculation/run-calculation.ts:137:export function applyMetricDerivations(
+src/lib/calculation/run-calculation.ts:173:    // flow through the same legacyDerivationToDAG → evaluate() pipeline as
+src/lib/calculation/run-calculation.ts:178:    // OB-200 Phase 3: propagate scope through to legacyDerivationToDAG, which
+src/lib/calculation/run-calculation.ts:194:      dag = legacyDerivationToDAG(legacyShape);
+src/lib/calculation/run-calculation.ts:196:      console.warn(`[Derivation] legacyDerivationToDAG failed for "${rule.metric}": ${(err as Error).message}`);
+src/lib/calculation/run-calculation.ts:1421:      ? applyMetricDerivations(derivationInput, metricDerivations, entityPriorData)
+```
+
+#### 8. Adjacent arm (E952) — convergence_bindings path also applies filters during sum
+
+The route has a SECOND sum-with-filters arm: when metrics resolve via `convergence_bindings` (Decision 111 primary path), filters come from the binding entry (HF-227) and are applied per-row by `rowMatchesFilters` inside `resolveColumnFromBatch` (HF-226 Phase 3A unified filter contract):
+
+```ts
+// src/app/api/calculation/run/route.ts:1450
+      // HF-227: filters read from the binding entry, not from metric_derivations.
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters);
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:1545
+  function resolveColumnFromBatch(
+    column: string,
+    entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
+  ): number | null {
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:1573
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
+    let sum = 0;
+    let found = false;
+    let filteredOut = 0;
+    const perRowValues: unknown[] = [];
+    for (const rd of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) {
+        filteredOut += 1;
+        continue;
+      }
+      const val = rd[column];
+```
+
+`rowMatchesFilters` (run-calculation.ts:117-135) implements the same 7 operators as `rowMatchesPredicate`; all `resolveColumnFromBatch` call sites pass binding filters: route.ts:1396, 1451, 1452, 1481, 1503 (complete list from grep `resolveColumnFromBatch(` above).
+
+#### 9. Where filtered rules COME FROM — calc-time convergence (Pass 4)
+
+```ts
+// src/app/api/calculation/run/route.ts:260 (HF-165 calc-time convergence block, 232-360)
+    if ((!hasMetricDerivations && !hasConvergenceBindings) || !bindingsAreCurrent) {
+      addLog('HF-165: input_bindings empty — running calc-time convergence');
+      try {
+        const convResult = await convergeBindings(tenantId, ruleSetId, supabase, calculationRunId);
+```
+
+```ts
+// src/app/api/calculation/run/route.ts:286
+          if (derivationCount > 0) {
+            updatedBindings.metric_derivations = convResult.derivations;
+          }
+          // [...]
+          updatedBindings.convergence_version = 'HF-234';
+          // Persist to rule_set for reuse on subsequent calculations
+          await supabase
+            .from('rule_sets')
+            .update({ input_bindings: updatedBindings as unknown as Json })
+            .eq('id', ruleSetId);
+```
+
+Pass 4 is the sole filter-discovery surface (HF-226 Phase 2B / HF-234) — `src/lib/intelligence/convergence-service.ts:3374` prompt instruction: "Generate derivation rules for each required metric. Use filters to narrow broad fields to specific subsets when the metric label implies a category." Emitted rules logged at convergence-service.ts:716: `[Convergence] Pass 4 derivation: ${d.metric} → ${d.operation}(${d.source_field || ''}) filters=${JSON.stringify(d.filters || [])}`.
+
+#### 10. Live-DB census (read-only) — persisted derivation rules
+
+Script: `web/scripts/diag/diag063_e4_derivation_rules_live.ts` (source in repo; scans `rule_sets.input_bindings.metric_derivations`, structural output only — UUIDs, counts, operations, filter operators; no filter values, no tenant names).
+
+```
+$ cd web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e4_derivation_rules_live.ts
+rule_sets scanned: 9
+rule_sets with metric_derivations: 0
+derivation rules by operation: {}
+derivation rules WITH filters by operation: {}
+sum/count-with-filters examples (structural fields only):
+```
+
+Script: `web/scripts/diag/diag063_e4_bindings_state_census.ts` (per-rule_set binding state).
+
+```
+$ npx tsx scripts/diag/diag063_e4_bindings_state_census.ts
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-03T06:00:56.651415+00:00
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-03T06:00:56.651415+00:00
+rule_set=001fe318-e912-4533-86e9-aca83f4fbef1 tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-12T15:21:12.749739+00:00
+rule_set=14325cb4-3da1-4201-9fe0-488fae730d21 tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=archived derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-10T00:42:28.837841+00:00
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active derivations=0 convergence_bindings=8 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-09T22:33:41.77747+00:00
+rule_set=9334db67-604f-4c6f-a197-b184354d1d6f tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-10T00:45:24.392496+00:00
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active derivations=0 convergence_bindings=10 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-10T17:35:37.230631+00:00
+rule_set=c6a9c77e-e595-45ce-9c15-072a233b2c32 tenant=03d28288-700b-43e3-a96b-49a4f849d2df status=active derivations=0 convergence_bindings=10 version=HF-234 input_bindings_keys=[convergence_version,convergence_bindings] updated_at=2026-06-11T16:55:35.595704+00:00
+rule_set=6a35a323-e32e-4f72-b300-f2a1cfc06820 tenant=dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=active derivations=0 convergence_bindings=0 version=none input_bindings_keys=[] updated_at=2026-06-11T15:54:26.061817+00:00
+total rule_sets: 9
+```
+
+(Both census runs returned 9 rows, 0 derivations. Schema check: `rule_sets.input_bindings jsonb NOT NULL` per SCHEMA_REFERENCE_LIVE.md:509-522 — observed live keys `convergence_version`/`convergence_bindings` are inside the JSONB, no schema divergence.)
+
+Reading: 3 rule_sets are at convergence_version HF-234 with `convergence_bindings` only (their plans resolved via direct column bindings; Pass 4 produced 0 derivation rules — `derivationCount > 0` gate at route.ts:286 means the key is simply absent). 6 rule_sets have empty `input_bindings` and will run calc-time convergence on next calculation (route.ts:260).
+
+**GAP TO DEMO BAR:** The execution machinery for sum+filters and count+filters is complete and operative (parsed route.ts:362-365, executed route.ts:1928 → run-calculation.ts:137 → legacy-intent-to-dag.ts:723-743 → intent-executor.ts:218/250). The gap is evidential, not structural: no live rule_set currently carries a persisted filtered derivation rule, so the MIR category-commission case has not been exercised end-to-end on live data. Producing one requires a calculation run (convergence Pass 4 emits filters at calc time and persists via `rule_sets.update` at route.ts:298-301) — a write, excluded from this read-only probe (HALT-2; recorded as open question).
+
+**EFFORT SHAPE:** E1 VERIFY-ONLY — no new route/component/service/table. Existing structure: route `POST /api/calculation/run` (src/app/api/calculation/run/route.ts), services `applyMetricDerivations` + `legacyDerivationToDAG` + `evaluate()` (src/lib/calculation/run-calculation.ts, legacy-intent-to-dag.ts, intent-executor.ts), rule generator `convergeBindings` Pass 4 (src/lib/intelligence/convergence-service.ts), storage `rule_sets.input_bindings.metric_derivations`. Remaining proof is an architect browser action: run a calculation against a plan whose metric labels imply categorical subsetting and observe Pass 4 emit + engine execute filtered sum/count rules.
+
+# E5 — Condition-subject constructor surface map
+
+### E5 — Constructor boundary map (CRP Plan-3-arc surface; D-158)
+
+**CURRENT STATE:** The intent-constructor surface is `web/src/lib/plan-intelligence/intent-constructor.ts` (`constructTree`, HF-251/Decision 158): a deterministic translator from an LLM-emitted `CompositionalIntent` (shapes: `banded_lookup` / `arithmetic` / `conditional` / `composed`) into a `PrimeNode` DAG. It has exactly ONE production call site — `plan-orchestration.ts:529` — and per HF-252 it is the SOLE interpretation pipeline: every component of every plan import routes through it (a response without `compositional_intent` is a structured failure, not a fallback). The bypass arm is execution-time: `componentIntentToDAG` (legacy-intent-to-dag.ts:772) short-circuits any persisted intent already carrying `{prime: ...}` straight to the evaluator and translates legacy `{operation: ...}` shapes via `legacyIntentToDAG` (11 IntentOperation discriminators + 4 modifiers) without ever touching the constructor. Live DB census: 54/54 components across the 7 variants-shaped rule_sets are `prime_node` with `construction_method=compositional_intent`; one tenant carries 2 rule_sets in a third, pre-prime config-object shape that passes through NEITHER arm.
+
+**EVIDENCE:**
+
+#### 1. Probe-specified searches (complete file-level hit lists)
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && grep -rnil "intent" src/lib --include="*.ts"
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/design/tokens.ts
+src/lib/test/OB-12-proof-gate.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/normalization/frmx-demo-data.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/intelligence/__tests__/canonical-signal-writer.test.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/sci/plan-orchestration.ts
+src/lib/sci/negotiation.ts
+src/lib/sci/reimport-resume.ts
+src/lib/sci/plan-interpretation.ts
+src/lib/sci/import-batch-supersession.ts
+src/lib/sci/signal-capture-service.ts
+src/lib/sci/tenant-context.ts
+src/lib/sci/interpretation-errors.ts
+src/lib/sci/calc-time-entity-resolution.ts
+src/lib/sci/__tests__/import-atomicity.test.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/agents/insight-agent.ts
+src/lib/agents/reconciliation-agent.ts
+src/lib/supabase/client.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/prime-assembler.ts
+src/lib/compensation/plan-comprehension-emitter.ts
+src/lib/calculation/prime-grammar.ts
+src/lib/calculation/intent-validator.ts
+src/lib/calculation/synaptic-types.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/calculation/primitive-registry.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/anomaly-detector.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/prime-validator.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/calculation/intent-types.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/ai/ai-service.ts
+src/lib/ai/providers/__tests__/anthropic-adapter-normalization.test.ts
+src/lib/ai/types.ts
+src/lib/orchestration/metric-resolver.ts
+src/lib/data/results-loader.ts
+src/lib/help/help-service.ts
+src/lib/design-system/interaction-patterns.ts
+```
+
+```
+$ grep -rn "condition" src/lib --include="*.ts" -l
+src/lib/reconciliation/employee-reconciliation-trace.ts
+src/lib/data-architecture/validation-engine.ts
+src/lib/approval-routing/types.ts
+src/lib/approval-routing/approval-service.ts
+src/lib/plan-intelligence/intent-constructor.ts
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts
+src/lib/intelligence/canonical-signal-writer.ts
+src/lib/plan-intelligence/compositional-intent.ts
+src/lib/intelligence/__tests__/binding-completeness.test.ts
+src/lib/intelligence/convergence-service.ts
+src/lib/intelligence/trajectory-engine.ts
+src/lib/sci/synaptic-ingestion-state.ts
+src/lib/sci/comprehension-state-service.ts
+src/lib/sci/seed-priors.ts
+src/lib/sci/signatures.ts
+src/lib/sci/resolver.ts
+src/lib/sci/atom-flywheel.ts
+src/lib/sci/fingerprint-flywheel.ts
+src/lib/sci/hc-pattern-classifier.ts
+src/lib/sci/sci-types.ts
+src/lib/sci/proposal-intelligence.ts
+src/lib/sci/__tests__/hc-pattern-classifier.test.ts
+src/lib/forensics/trace-builder.ts
+src/lib/forensics/types.ts
+src/lib/sci/tenant-context.ts
+src/lib/calculation/prime-grammar.ts
+src/lib/calculation/intent-executor.ts
+src/lib/calculation/pattern-signature.ts
+src/lib/calculation/legacy-intent-to-dag.ts
+src/lib/calculation/intent-transformer.ts
+src/lib/calculation/intent-types.ts
+src/lib/lifecycle/lifecycle-pipeline.ts
+src/lib/calculation/prime-assembler.ts
+src/lib/calculation/decimal-precision.ts
+src/lib/calculation/run-calculation.ts
+src/lib/calculation/intent-validator.ts
+src/lib/ai/providers/anthropic-adapter.ts
+src/lib/orchestration/metric-resolver.ts
+src/lib/calculation/primitive-registry.ts
+src/lib/compensation/ai-plan-interpreter.ts
+src/lib/domain/domains/franchise.ts
+src/lib/payroll/period-processor.ts
+src/lib/domain/domains/rebate.ts
+src/lib/calculation/prime-validator.ts
+src/lib/calculation/boundary-canonicalizer.ts
+src/lib/data/results-loader.ts
+src/lib/domain/domains/icm.ts
+src/lib/calculation/results-formatter.ts
+src/lib/domain/domain-registry.ts
+```
+
+Narrowing to constructor/composition resolves to `src/lib/plan-intelligence/intent-constructor.ts` (685 lines) + its input type module `src/lib/plan-intelligence/compositional-intent.ts` (341 lines).
+
+#### 2. The constructor entry + structural dispatcher
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:73
+export function constructTree(intent: CompositionalIntent): PrimeNode {
+  if (!intent || typeof intent !== 'object') {
+    throw new ConstructionError('$', null, 'intent is not an object');
+  }
+  if (!intent.structure) {
+    throw new ConstructionError('$.structure', null, 'structure field missing');
+  }
+  // HF-266 P2: snapshot the RAW LLM intent before normalization, so a construction
+  // failure surfaces the exact malformation (previously only the error path string survived).
+  let rawSnapshot: string;
+  try { rawSnapshot = JSON.stringify(intent); } catch { rawSnapshot = '<unserializable>'; }
+  // HF-266 P3: infer missing shape/kind discriminants from structural cues before validation.
+  normalizeCompositionalIntent(intent);
+  try {
+    return constructStructure(intent.structure, intent.scale, '$.structure');
+  } catch (err) {
+    // HF-266 P2: the raw intent is the diagnostic evidence for any future failure (§4A — retain).
+    console.error(
+      `[intent-constructor] HF-266 construction failed: ${err instanceof Error ? err.message : String(err)} ` +
+      `— raw CompositionalIntent (pre-normalization): ${rawSnapshot}`,
+    );
+    throw err;
+  }
+}
+```
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:164
+function constructStructure(
+  desc: StructuralDescription,
+  scale: ScaleSpec | null,
+  path: string,
+): PrimeNode {
+  if (!desc || typeof desc !== 'object') {
+    throw new ConstructionError(path, null, 'structural description is not an object');
+  }
+  switch (desc.shape) {
+    case 'banded_lookup':
+      return constructBandedLookup(desc, scale, path);
+    case 'arithmetic':
+      return constructArithmetic(desc, scale, path);
+    case 'conditional':
+      return constructConditional(desc, scale, path);
+    case 'composed':
+      return constructComposed(desc, scale, path);
+    default: {
+      // Exhaustiveness — TypeScript narrows desc to `never` here. Defensive
+      // throw for runtime malformations (e.g., LLM emitting an unknown shape).
+      const unknownShape = (desc as { shape?: unknown }).shape;
+      throw new ConstructionError(
+        path,
+        desc as StructuralDescription,
+        `unknown shape "${String(unknownShape)}" (expected banded_lookup | arithmetic | conditional | composed)`,
+      );
+    }
+  }
+}
+```
+
+#### 3. The condition-subject constructor (conditional shape) + its input type
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:360
+function constructConditional(
+  desc: ConditionalDescription,
+  scale: ScaleSpec | null,
+  path: string,
+): PrimeNode {
+  if (!desc.condition) {
+    throw new ConstructionError(path, desc, 'conditional requires a condition');
+  }
+  if (desc.then === undefined || desc.else === undefined) {
+    throw new ConstructionError(path, desc, 'conditional requires both then and else branches');
+  }
+  return {
+    prime: 'conditional',
+    condition: {
+      prime: 'compare',
+      op: desc.condition.operator,
+      inputs: [
+        buildReferenceNode(desc.condition.reference, refSourceField(desc.condition.reference), `${path}.condition.reference`),
+        buildConstantWithScale(desc.condition.threshold, scale, refSourceField(desc.condition.reference), true, desc.condition.reference?.type === 'ratio'),
+      ],
+    },
+    then: constructBranchOrOperand(desc.then, scale, `${path}.then`),
+    else: constructBranchOrOperand(desc.else, scale, `${path}.else`),
+  };
+}
+```
+
+```
+src/lib/plan-intelligence/compositional-intent.ts:105
+export interface ConditionalDescription {
+  shape: 'conditional';
+  condition: {
+    reference: ReferenceSource;
+    operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
+    threshold: number;
+  };
+  then: StructuralDescription | OperandDescription;
+  else: StructuralDescription | OperandDescription;
+}
+```
+
+Conditions are also EMITTED (not just consumed) by the banded-lookup arm — each band becomes a `conditional`+`compare(gte)` pair:
+
+```
+src/lib/plan-intelligence/intent-constructor.ts:316
+    chain = {
+      prime: 'conditional',
+      condition: {
+        prime: 'compare',
+        op: 'gte',
+        inputs: [
+          buildReferenceNode(dim.reference_source, dim.reference_field, `${path}.dim[${dimIdx}].ref`),
+          buildConstantWithScale(breakValue, scale, dim.reference_field, dimIdx === 0, dim.reference_source?.type === 'ratio'),
+        ],
+      },
+      then: thenBranch,
+      else: chain,
+    };
+```
+
+and by the composed arm's reductions (`max`/`min`/`first_match` → conditional cascades, intent-constructor.ts:456-485).
+
+#### 4. Call-site enumeration — ONE production caller (complete list)
+
+```
+$ grep -rn "constructTree" src --include="*.ts" --include="*.tsx"
+src/lib/sci/plan-orchestration.ts:31:import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
+src/lib/sci/plan-orchestration.ts:526:          // Validate structurally inside constructTree; throw ConstructionError
+src/lib/sci/plan-orchestration.ts:529:          const constructedTree = constructTree(ci);
+src/lib/plan-intelligence/intent-constructor.ts:73:export function constructTree(intent: CompositionalIntent): PrimeNode {
+src/lib/plan-intelligence/__tests__/intent-constructor.test.ts:18:import { constructTree } from '../intent-constructor';
+(+ 12 further hits, all inside src/lib/plan-intelligence/__tests__/intent-constructor.test.ts)
+```
+
+#### 5. THROUGH-route: interpretation-time — ALL components, no type dispatch, no fallback
+
+```
+src/lib/sci/plan-orchestration.ts:512
+      } else {
+        // HF-252 single pipeline: construction pathway is the sole route.
+        // Response MUST contain compositional_intent. Absence is a structured
+        // failure (MissingCompositionalIntentError), not a silent downgrade to
+        // a deprecated emission pathway (T0-E03 / AP-17 / Decision 154).
+        const compositionalIntentRaw = result.compositional_intent as Record<string, unknown> | undefined;
+        let intent: Record<string, unknown> | undefined;
+        const constructionMethod = 'compositional_intent' as const;
+
+        try {
+          if (!compositionalIntentRaw) {
+            throw new MissingCompositionalIntentError(spec.id, spec.name);
+          }
+          // Decision 158 pathway: LLM emitted a CompositionalIntent.
+          // Validate structurally inside constructTree; throw ConstructionError
+          // on malformed input (caught below and mapped to error class).
+          const ci = compositionalIntentRaw as unknown as CompositionalIntent;
+          const constructedTree = constructTree(ci);
+          intent = constructedTree as unknown as Record<string, unknown>;
+```
+
+The orchestrator runs this for EVERY entry of the skeleton's `componentIndex` (plan-orchestration.ts:188-258, `runOne` → `callPlanComponentWithRetry`); the only skip is reimport-resume, which reuses a PRIOR constructor-built tree (`plan-orchestration.ts:251-258`). The constructed tree persists as the component's `calculationIntent` with `calculationMethod {type:'prime_dag'}`:
+
+```
+src/lib/sci/plan-orchestration.ts:660
+          return {
+            component: {
+              calculationIntent: intent,
+              calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
+              confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
+              reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+              metadataExtension,
+            },
+```
+
+Entry into the orchestrator (sole import-time path):
+
+```
+src/lib/sci/plan-interpretation.ts:286
+  const { orchestratePerComponentInterpretation } = await import('./plan-orchestration');
+  const { loadResumeContext } = await import('./reimport-resume');
+  const resumeCtx = await loadResumeContext(supabase, tenantId, storagePath);
+  ...
+  const orchestration = await orchestratePerComponentInterpretation({
+```
+
+Inside the constructor route, the four shapes that pass THROUGH: `banded_lookup`, `arithmetic`, `conditional`, `composed` (dispatcher at intent-constructor.ts:172-180); operand kinds `reference` / `constant` / `structure` (intent-constructor.ts:499-505); reference-source types `metric`, `attribute`, `ratio`, `aggregate`, `scope_aggregate`, `cross_data`, `prior_component` (intent-constructor.ts:531-575).
+
+#### 6. BYPASS dispatch: execution-time — `componentIntentToDAG` decides
+
+```
+src/lib/calculation/legacy-intent-to-dag.ts:772
+export function componentIntentToDAG(
+  intent: ComponentIntent,
+  routingAttributeValue?: string | number | boolean,
+): { dag: PrimeNode; matchedRoute?: { matchValue: string | number | boolean } } {
+  // HF-238: prime-DAG format short-circuit. When the persisted intent shape
+  // is already a PrimeNode (discriminator key `prime`), skip translation and
+  // use it directly. The shape arrives here at runtime because the engine
+  // hydrates ComponentIntent loosely from JSON — TypeScript views .intent as
+  // an IntentOperation, but a prime-format component carries { prime, ... }
+  // instead.
+  const maybePrimeIntent = (intent as unknown as { intent?: unknown }).intent;
+  if (maybePrimeIntent && isPrimeNode(maybePrimeIntent)) {
+    let dag: PrimeNode = maybePrimeIntent;
+    for (const mod of intent.modifiers ?? []) {
+      dag = wrapModifier(dag, mod);
+    }
+    return { dag };
+  }
+
+  // Variant-routed component
+  if (intent.variants) {
+    const routing = intent.variants;
+    const matched = routing.routes.find(r => String(r.matchValue) === String(routingAttributeValue));
+    if (matched) {
+      return {
+        dag: legacyIntentToDAG(matched.intent, intent.modifiers),
+        matchedRoute: { matchValue: matched.matchValue },
+      };
+    }
+    ...
+  }
+
+  if (intent.intent) {
+    return { dag: legacyIntentToDAG(intent.intent, intent.modifiers) };
+  }
+
+  return { dag: { prime: 'constant', value: 0 } };
+}
+```
+
+```
+src/lib/calculation/intent-types.ts:434
+/** Type guard — narrows unknown into PrimeNode. */
+export function isPrimeNode(value: unknown): value is PrimeNode {
+  return typeof value === 'object' && value !== null && 'prime' in value
+    && typeof (value as Record<string, unknown>).prime === 'string'
+    && VALID_PRIMES.has((value as { prime: string }).prime as PrimeNode['prime']);
+}
+```
+
+So the boundary rule is purely STRUCTURAL: a persisted intent carrying `{prime: <one of 10 grammar primes>}` (`arithmetic`, `aggregate`, `filter`, `conditional`, `scope`, `compare`, `logical`, `constant`, `reference`, `prior_period` — intent-types.ts:389-399) is used AS-IS (constructor-built or hand-authored — the guard cannot tell the difference); anything carrying `{operation: ...}` or `{variants: ...}` is translated by the legacy adapter WITHOUT the constructor.
+
+#### 7. BYPASS arm enumeration — every legacy shape translated outside the constructor
+
+`translateOperation` (legacy-intent-to-dag.ts:165) operation discriminators, and modifier wrappers:
+
+```
+$ grep -n "function translateOperation|case '" src/lib/calculation/legacy-intent-to-dag.ts   (operation + modifier arms)
+165:function translateOperation(op: IntentOperation): PrimeNode {
+177:    case 'constant':            197:    case 'scalar_multiply':
+181:    case 'linear_function':     209:    case 'ratio':
+227:    case 'aggregate':           231:    case 'conditional_gate':
+250:    case 'piecewise_linear':    351:    case 'bounded_lookup_1d':
+428:    case 'bounded_lookup_2d':   497:    case 'weighted_blend':
+523:    case 'temporal_window':
+-- modifiers (wrapModifier) --
+554:    case 'cap':   567:    case 'floor':   579:    case 'proration':   594:    case 'temporal_adjustment':
+-- IntentSource arms --
+70: 'metric'  74: 'ratio'  99: 'aggregate'  112: 'constant'  115: 'entity_attribute'  121: 'prior_component'  125: 'cross_data'  130: 'scope_aggregate'
+```
+
+Production call sites of the bypass translators (complete, non-test):
+
+```
+$ grep -n "legacyIntentToDAG(|legacyDerivationToDAG(|componentIntentToDAG(" (call sites)
+src/lib/calculation/intent-executor.ts:376:  const routingDag = legacyIntentToDAG({ operation: 'aggregate', source: attrSrc });   // variant routing-attribute leaf
+src/lib/calculation/intent-executor.ts:381:  const { dag, matchedRoute } = componentIntentToDAG(intent, routingAttributeValue);   // MAIN execution entry
+src/lib/calculation/legacy-intent-to-dag.ts:797/805/818: internal (variants + plain intent arms)
+src/lib/calculation/run-calculation.ts:194:      dag = legacyDerivationToDAG(legacyShape);                      // metric derivations (convergence metric_derivations)
+src/lib/calculation/run-calculation.ts:376:        const dag = legacyIntentToDAG(intentOp);                     // evaluateComponent $0-fallback (dormant, see #9)
+```
+
+Live calc route execution (sole authority — every selected component goes `executeIntent` → `componentIntentToDAG`):
+
+```
+src/app/api/calculation/run/route.ts:2607
+      const intentResult = executeIntent(ci, entityData);
+```
+
+Binding-resolution dispatch on the same structural boundary:
+
+```
+src/app/api/calculation/run/route.ts:1381
+    const compType = (component as unknown as { componentType?: string }).componentType;
+    const intent = component.calculationIntent as Record<string, unknown> | undefined;
+    const intentIsPrimeNode = !!intent && typeof intent.prime === 'string';
+    if (compType === 'prime_dag' || intentIsPrimeNode) {
+      const refs = extractReferencesFromDAG(intent);
+```
+
+run-calculation.ts foundational ComponentType union (the 12 identifiers admitted past `evaluateComponent`; legacy strings throw `LegacyEngineUnknownComponentTypeError`):
+
+```
+src/lib/calculation/run-calculation.ts:311
+  switch (component.componentType) {
+    case 'bounded_lookup_1d':
+    case 'bounded_lookup_2d':
+    case 'scalar_multiply':
+    case 'conditional_gate':
+    case 'linear_function':
+    case 'piecewise_linear':
+    case 'scope_aggregate':
+    case 'aggregate':
+    case 'ratio':
+    case 'constant':
+    case 'weighted_blend':
+    case 'temporal_window':
+      // Foundational primitive — calculation flows through intent-executor below.
+      break;
+    default:
+      throw new LegacyEngineUnknownComponentTypeError(...)
+```
+
+#### 8. Adjacent-arm sweep (E952): every production module that emits PrimeNode trees
+
+```
+$ grep -rln "prime: '" src --include="*.ts" --include="*.tsx" | grep -v __tests__   (with per-file counts)
+src/lib/calculation/intent-types.ts:10          — type union declarations only (PrimeNode at :389-399), no emission
+src/lib/calculation/intent-executor.ts:1        — a type-guard signature at :80, no emission
+src/lib/plan-intelligence/intent-constructor.ts:27 — THE constructor (through-route)
+src/lib/calculation/legacy-intent-to-dag.ts:107 — the legacy translation adapter (bypass arm)
+```
+
+Looser sweep `grep -rln "prime:"` adds only `src/lib/calculation/prime-assembler.ts` (a type field, :52) and `src/lib/intelligence/convergence-service.ts` (prompt prose, :3335) — neither emits trees. Total: exactly TWO production tree-emitters — intent-constructor.ts and legacy-intent-to-dag.ts.
+
+Dormant surfaces found by the sweep:
+
+```
+$ grep -rn "assembleTree" src --include="*.ts" --include="*.tsx" | grep -v __tests__ | grep -v prime-assembler.ts
+src/lib/calculation/prime-grammar.ts:156:// chunks back into a single PrimeNode tree (assembleTree in this file).   ← comment only
+$ grep -rn "evaluateComponent" src --include="*.ts" --include="*.tsx" | grep -v __tests__ | grep -v "run-calculation.ts"
+src/app/api/calculation/run/route.ts:2489:      // HF-220 R1 / ADR Decision 1: legacy evaluateComponent + per-component rounding   ← comment only
+src/lib/intelligence/convergence-service.ts:1470: * path (run/route.ts) and evaluateComponent to surface a loud per-component `failed` in place   ← comment only
+```
+
+#### 9. Live DB census — which persisted components sit on which side of the boundary
+
+Scripts (read-only, service-role SELECT):
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes.ts` (pass 1 — assumed top-level array; all rows reported 0, exposing the real JSONB shape)
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes2.ts` (pass 2 — structural type + keys, then classification)
+- `web/scripts/diag/diag063_e5_constructor_boundary_shapes3.ts` (pass 3 — key-set probe of the two object-shaped rule_sets)
+
+`SCHEMA_REFERENCE_LIVE.md:509` — `rule_sets (18 columns)` includes `components | jsonb | NO`.
+
+Pass 2 output (verbatim):
+
+```
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active components_jsType=object topLevelKeys=[volume,service_quality,revenue_efficiency,operational_discipline]
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active components_jsType=object topLevelKeys=[tip_bonus,base_commission]
+rule_set=001fe318-e912-4533-86e9-aca83f4fbef1 tenant=3d354bfa-b298-48dd-88a0-9f8c5a00be4e status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=14325cb4-3da1-4201-9fe0-488fae730d21 tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=archived components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=4 legacy_operation=0 variants=0 none_or_other=0
+rule_set=54fe1094-89fc-4ea9-a439-14ce44af3911 tenant=b1c2d3e4-aaaa-bbbb-cccc-111111111111 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=8 legacy_operation=0 variants=0 none_or_other=0
+rule_set=9334db67-604f-4c6f-a197-b184354d1d6f tenant=e44bbcb1-2710-4880-8c7d-a1bd902720b7 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=2 legacy_operation=0 variants=0 none_or_other=0
+rule_set=cac8c391-74b3-48b1-a9d5-6b2156dcd658 tenant=5035b1e8-0754-4527-b7ec-9f93f85e4c79 status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=c6a9c77e-e595-45ce-9c15-072a233b2c32 tenant=03d28288-700b-43e3-a96b-49a4f849d2df status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+rule_set=6a35a323-e32e-4f72-b300-f2a1cfc06820 tenant=dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c status=active components_jsType=object topLevelKeys=[variants]
+  key=variants arrayLen=2 prime_node=10 legacy_operation=0 variants=0 none_or_other=0
+--- global component shape census ---
+{"prime_node":54,"legacy_operation":0,"variants":0,"none_or_other":0}
+--- construction_method marker census ---
+{"compositional_intent":54}
+```
+
+Pass 3 output (verbatim) — the two non-variants rule_sets:
+
+```
+rule_set=2054d734-2a3c-4cd7-b199-79d2f1c578f0 tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active
+  component_key=volume valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=service_quality valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=revenue_efficiency valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=operational_discipline valueType=object keys=[metric,weight,description,output_type] hasPrime=false hasOperation=false hasCalculationIntent=false
+rule_set=fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b tenant=f7093bcc-e90b-4918-9680-69da7952dd65 status=active
+  component_key=tip_bonus valueType=object keys=[type,bonus,metric,threshold,description] hasPrime=false hasOperation=false hasCalculationIntent=false
+  component_key=base_commission valueType=object keys=[type,basis,tiers,description] hasPrime=false hasOperation=false hasCalculationIntent=false
+```
+
+#### 10. Boundary map summary (the route-around table)
+
+| Arm | Shape persisted/consumed | Decided at | Constructor involved |
+|---|---|---|---|
+| THROUGH — interpretation | LLM `compositional_intent` (banded_lookup / arithmetic / conditional / composed) → PrimeNode | plan-orchestration.ts:512-531 (NO type dispatch — all components) | YES — constructTree is the sole route (HF-252) |
+| THROUGH — execution of constructed trees | `calculationIntent.{prime}` / `componentType='prime_dag'` | legacy-intent-to-dag.ts:783-790 isPrimeNode short-circuit; route.ts:1383-1384 binding path | Trees originated in constructTree, but the guard accepts ANY valid PrimeNode — the route-around seam |
+| BYPASS — legacy operations | `{operation: constant\|linear_function\|scalar_multiply\|ratio\|aggregate\|conditional_gate\|piecewise_linear\|bounded_lookup_1d\|bounded_lookup_2d\|weighted_blend\|temporal_window}` (+ modifiers cap/floor/proration/temporal_adjustment) | legacy-intent-to-dag.ts:818 → translateOperation:165 | NO |
+| BYPASS — variant-routed legacy | `{variants: {routingAttribute, routes[]}}` | legacy-intent-to-dag.ts:792-815 + intent-executor.ts:368-381 | NO |
+| BYPASS — metric derivations | LegacyDerivation `{operation: sum\|count\|avg\|min\|max\|ratio\|delta, scope}` | run-calculation.ts:194 → legacyDerivationToDAG:662 | NO |
+| OUTSIDE BOTH | config-object components (keys `[metric,weight,description,output_type]` / `[type,basis,tiers,description]`, no prime/operation/calculationIntent) — 2 live rule_sets, tenant f7093bcc-… | none of the above dispatches matches | NO |
+
+**GAP TO DEMO BAR:** None for the probe's stated bar — the constructor surface, its single production call site, the deciding dispatches (plan-orchestration.ts:512-531 interpretation-side; componentIntentToDAG legacy-intent-to-dag.ts:772-822 execution-side; route.ts:1383-1384 binding-side), and the through/bypass enumeration are all banked with code+DB evidence. For the architect's route-around authoring: there is NO authoring UI for either side of the boundary — the route-around seam is structural (any `{prime: ...}` JSON persisted into `rule_sets.components.variants[].components[].calculationIntent` executes via the isPrimeNode short-circuit without constructor or validator involvement).
+
+**EFFORT SHAPE:** E0 — none (boundary map verified as-is; no development effort required for this probe). If route-around authoring were pursued later, the structural seam is: write a grammar-valid PrimeNode into `rule_sets.components` (table: rule_sets; consuming services: intent-executor.executeIntent → componentIntentToDAG short-circuit; route: /api/calculation/run) — that would be a separate E2/E3 surface, explicitly out of scope here (D-158: probe, never modify).
+
+# E6 — Multi-plan concurrency
+
+### E6 — Multi-plan concurrency
+**CURRENT STATE:** The schema is many-to-many capable (rule_set_assignments rows per entity×rule_set; calculation_results carries per-row rule_set_id; entity_period_outcomes carries a rule_set_breakdown jsonb), but live data contains ZERO entities with >=2 active rule-set assignments (703 assignments, exactly 1 distinct rule_set per entity) and ZERO (entity, period) pairs in calculation_results with >=2 distinct rule_set_ids (943 rows scanned). One tenant (f7093bcc-e90b-4918-9680-69da7952dd65) does run two active rule sets in the same period inside one batch — but over disjoint populations (20 vs 40 entities, overlap 0), and that batch was inserted directly by the seed script `web/scripts/frmx/p6-calc.ts`, not produced by the calculation engine. The engine itself is single-rule-set per invocation (run per ruleSetId; pre-write delete scoped to tenant+rule_set+period so a second plan's rows would coexist in calculation_results), while the entity_period_outcomes materializer is batch-scoped with a period-wide delete, so a second plan's materialization replaces the first plan's outcomes for that period.
+
+**EVIDENCE:**
+
+#### 1. Schema authority — SCHEMA_REFERENCE_LIVE.md
+
+```
+SCHEMA_REFERENCE_LIVE.md:494-507
+### rule_set_assignments (10 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| rule_set_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| effective_from | date | YES | |
+| effective_to | date | YES | |
+| assignment_type | text | NO | direct |
+| metadata | jsonb | NO | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+```
+
+```
+SCHEMA_REFERENCE_LIVE.md:101-116
+### calculation_results (12 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| batch_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| rule_set_id | uuid | YES | |
+| period_id | uuid | YES | |
+| total_payout | numeric | NO | 0 |
+| components | jsonb | NO | |
+| metrics | jsonb | NO | |
+| attainment | jsonb | NO | |
+| metadata | jsonb | NO | |
+| created_at | timestamp with time zone | NO | now() |
+```
+
+```
+SCHEMA_REFERENCE_LIVE.md:224-238
+### entity_period_outcomes (11 columns)
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | extensions.uuid_generate_v4() |
+| tenant_id | uuid | NO | |
+| entity_id | uuid | NO | |
+| period_id | uuid | NO | |
+| total_payout | numeric | NO | 0 |
+| rule_set_breakdown | jsonb | NO | |
+| component_breakdown | jsonb | NO | |
+| lowest_lifecycle_state | text | NO | DRAFT |
+| attainment_summary | jsonb | NO | |
+| metadata | jsonb | NO | |
+| materialized_at | timestamp with time zone | NO | now() |
+```
+
+Note: SCHEMA_REFERENCE_LIVE.md documents columns only; `grep -n "UNIQUE\|unique\|constraint" SCHEMA_REFERENCE_LIVE.md` returned no hits — uniqueness constraints are not documented in the schema authority (see open questions).
+
+#### 2. DB probe (mandated): entities with >=2 active assignments
+
+Script: `web/scripts/diag/diag063_e6_multiplan.ts` (read-only; pages rule_set_assignments, groups client-side by entity_id; active = effective_from null-or-past AND effective_to null-or-future as of today; then checks calculation_results for candidates).
+
+Command and verbatim output:
+
+```
+$ cd /Users/AndrewAfrica/spm-platform/web && set -a && source .env.local && set +a && npx tsx scripts/diag/diag063_e6_multiplan.ts
+rule_set_assignments total rows: 703
+paged assignments fetched: 703
+distinct entity_ids with any assignment: 703
+entities with >=2 ACTIVE assignments to distinct rule_sets: 0
+distribution (distinct active rule_sets per entity -> entity count):
+  1 -> 703
+assignment_type distribution (all rows):
+  direct: 703
+NO entity with >=2 active distinct rule_set assignments found in data.
+```
+
+Per the probe instruction: **no such entity exists in data — this is the evidence.** Every one of the 703 assigned entities has exactly one active assignment, all `assignment_type='direct'`.
+
+#### 3. DB probe (secondary): any (entity, period) with >=2 distinct rule_set_ids in calculation_results
+
+Script: `web/scripts/diag/diag063_e6_multiplan_results_scan.ts` (pages calculation_results selecting entity_id/period_id/rule_set_id/batch_id/tenant_id only — no payout columns).
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_results_scan.ts
+calculation_results total rows: 943
+rows scanned: 943
+distinct (entity_id, period_id) pairs with non-null period+rule_set: 943
+pairs with >=2 distinct rule_set_ids: 0
+NO (entity, period) pair in calculation_results carries more than one rule_set_id.
+```
+
+#### 4. DB probe (tertiary): per-tenant multi-plan landscape
+
+Script: `web/scripts/diag/diag063_e6_multiplan_tenant_landscape.ts`.
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_tenant_landscape.ts
+tenants with rule_sets or assignments: 7
+
+tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e
+  rule_sets: 1 (active:1)
+  assignments: 0 rows across 0 distinct rule_set_id(s): -
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant e44bbcb1-2710-4880-8c7d-a1bd902720b7
+  rule_sets: 2 (archived:1, active:1)
+  assignments: 0 rows across 0 distinct rule_set_id(s): -
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant f7093bcc-e90b-4918-9680-69da7952dd65
+  rule_sets: 2 (active:2)
+  assignments: 60 rows across 2 distinct rule_set_id(s): fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b, 2054d734-2a3c-4cd7-b199-79d2f1c578f0
+  calculation_results: 60 rows across 2 distinct rule_set_id(s)
+tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111
+  rule_sets: 1 (active:1)
+  assignments: 85 rows across 1 distinct rule_set_id(s): 54fe1094-89fc-4ea9-a439-14ce44af3911
+  calculation_results: 510 rows across 1 distinct rule_set_id(s)
+tenant dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c
+  rule_sets: 1 (active:1)
+  assignments: 79 rows across 1 distinct rule_set_id(s): 6a35a323-e32e-4f72-b300-f2a1cfc06820
+  calculation_results: 0 rows across 0 distinct rule_set_id(s)
+tenant 03d28288-700b-43e3-a96b-49a4f849d2df
+  rule_sets: 1 (active:1)
+  assignments: 400 rows across 1 distinct rule_set_id(s): c6a9c77e-e595-45ce-9c15-072a233b2c32
+  calculation_results: 172 rows across 1 distinct rule_set_id(s)
+tenant 5035b1e8-0754-4527-b7ec-9f93f85e4c79
+  rule_sets: 1 (active:1)
+  assignments: 79 rows across 1 distinct rule_set_id(s): cac8c391-74b3-48b1-a9d5-6b2156dcd658
+  calculation_results: 201 rows across 1 distinct rule_set_id(s)
+```
+
+Exactly one tenant runs 2 active rule sets with assignments and results under both.
+
+#### 5. DB probe (detail): the 2-plan tenant — disjoint populations, one batch, one period
+
+Script: `web/scripts/diag/diag063_e6_multiplan_tenant_detail.ts`.
+
+```
+$ npx tsx scripts/diag/diag063_e6_multiplan_tenant_detail.ts
+tenant f7093bcc-e90b-4918-9680-69da7952dd65: 60 assignment rows
+  rule_set 2054d734-2a3c-4cd7-b199-79d2f1c578f0: 20 assigned entities
+  rule_set fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b: 40 assigned entities
+  entity overlap between the two rule_sets: 0
+  distinct (effective_from, effective_to, type) tuples: from=2024-01-01 to=null type=direct
+
+calculation_results rows: 60
+grouped by (rule_set_id, period_id):
+  rule_set 2054d734-2a3c-4cd7-b199-79d2f1c578f0 period 849991e5-396e-4b06-ba39-c760383bad1b:
+    rows=20 entities=20 batches=ac82b514-10c1-4696-8f8f-734ecb012a83
+    created_at (distinct, second precision): 2026-06-03T06:03:04
+  rule_set fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b period 849991e5-396e-4b06-ba39-c760383bad1b:
+    rows=40 entities=40 batches=ac82b514-10c1-4696-8f8f-734ecb012a83
+    created_at (distinct, second precision): 2026-06-03T06:03:04
+period 849991e5-396e-4b06-ba39-c760383bad1b: results from 2 distinct rule_set(s)
+```
+
+Tenant-level multi-plan in one period exists (2 rule sets, 1 period, 1 shared batch UUID) but entity populations are disjoint — no entity calculates under both.
+
+#### 6. Origin of the dual-rule-set batch: seed script, not the engine
+
+```
+$ grep -rln "f7093bcc" scripts/ src/ | grep -v "scripts/diag/diag063_e6"
+scripts/verify-hf283-rls.ts
+scripts/frmx/p9-verify.ts
+```
+
+```
+web/scripts/frmx/p6-calc.ts:24-28, 41, 54, 59 (grep -n "batch\|rule_set\|calculation_results")
+24:  // batch
+25:  await sb.from('calculation_results').delete().eq('tenant_id',tid);
+26:  await sb.from('calculation_batches').delete().eq('tenant_id',tid);
+27:  const { data: batch, error: be } = await sb.from('calculation_batches').insert({ tenant_id:tid, period_id:monthly, batch_type:'standard', lifecycle_state:'APPROVED', entity_count:60, summary:{note:'FRMX reseed — Performance Index (20 locations) + Server Commission (40 servers)'}, config:{} }).select('id').single(); if(be) throw be;
+41:    results.push({ tenant_id:tid, batch_id:bid, entity_id:loc.id, rule_set_id:rsPerf, period_id:monthly, total_payout:0,
+54:    results.push({ tenant_id:tid, batch_id:bid, entity_id:s.id, rule_set_id:rsComm, period_id:monthly, total_payout:payout,
+59:  for(let i=0;i<results.length;i+=500){ const{error}=await sb.from('calculation_results').insert(results.slice(i,i+500)); if(error)throw error; }
+```
+
+The one batch with two rule_set_ids was direct-inserted by this seed script; it never passed through the calculation engine.
+
+#### 7. Adjacent-arm sweep — every site touching rule_set_assignments (complete file list, 14 files)
+
+```
+$ grep -rn "rule_set_assignments" src/ --include="*.ts" --include="*.tsx" -l
+src/app/api/intelligence/wire/route.ts
+src/app/api/calculation/run/route.ts
+src/app/api/rule-set-assignments/route.ts
+src/app/api/import/commit/route.ts
+src/app/api/import/sci/execute-bulk/route.ts
+src/app/api/plan-readiness/route.ts
+src/scripts/clear-tenant.ts
+src/lib/sci/assignment-creation.ts
+src/lib/supabase/data-service.ts
+src/lib/canvas/graph-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/supabase/rule-set-service.ts
+src/lib/supabase/database.types.ts
+src/lib/data/page-loaders.ts
+```
+
+Complete file list touching calculation_results (22 files):
+
+```
+$ grep -rn "calculation_results" src/ --include="*.ts" --include="*.tsx" -l
+src/app/admin/launch/calculate/page.tsx
+src/app/operate/pay/page.tsx
+src/app/perform/statements/page.tsx
+src/app/api/reconciliation/run/route.ts
+src/app/api/reconciliation/analyze/route.ts
+src/app/api/reconciliation/compare/route.ts
+src/app/operate/results/page.tsx
+src/app/api/calculation/run/route.ts
+src/lib/calculation/intent-types.ts
+src/app/api/ai/assessment/route.ts
+src/lib/data/briefing-loader.ts
+src/components/calculate/PlanResults.tsx
+src/lib/intelligence/state-reader.ts
+src/lib/data/results-loader.ts
+src/lib/supabase/database.types.ts
+src/scripts/clear-tenant.ts
+src/lib/data/persona-queries.ts
+src/lib/lifecycle/lifecycle-service.ts
+src/lib/supabase/calculation-service.ts
+src/lib/calculation/run-calculation.ts
+src/lib/data/page-loaders.ts
+src/lib/data/intelligence-stream-loader.ts
+```
+
+#### 8. Engine is single-rule-set per run; an entity in two plans = two runs
+
+```
+src/lib/calculation/run-calculation.ts:913-933 (assignment fetch — filtered to ONE rule set)
+  // ── 2. Fetch entities with assignments (OB-75: paginated) ──
+  const PAGE_SIZE = 1000; // Supabase project max_rows = 1000
+  const assignments: Array<{ entity_id: string }> = [];
+  let assignPage = 0;
+  while (true) {
+    const from = assignPage * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data: page, error: aErr } = await supabase
+      .from('rule_set_assignments')
+      .select('entity_id')
+      .eq('tenant_id', tenantId)
+      .eq('rule_set_id', ruleSetId)
+      .range(from, to);
+```
+
+```
+src/app/api/calculation/run/route.ts:73-77 (single ruleSetId required per invocation)
+  const { tenantId, periodId, ruleSetId } = body;
+
+  if (!tenantId || !periodId || !ruleSetId) {
+    return NextResponse.json(
+      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+```
+
+Pre-write cleanup is scoped to (tenant, rule_set, period) — a run for plan A does NOT delete plan B's rows in the same period, so per-entity multi-plan rows can coexist in calculation_results across two batches:
+
+```
+src/lib/calculation/run-calculation.ts:1489-1495
+  // ── 7. Write results (HF-078: DELETE before INSERT to prevent UNIQUE constraint violations) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+```
+
+```
+src/app/api/calculation/run/route.ts:2818-2824
+  // ── 7. Write calculation_results (OB-121: DELETE before INSERT to prevent stale accumulation) ──
+  const { error: cleanupErr } = await supabase
+    .from('calculation_results')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('rule_set_id', ruleSetId)
+    .eq('period_id', periodId);
+```
+
+Results write carries per-row rule_set_id:
+
+```
+src/lib/supabase/calculation-service.ts:344-353 (saveResults insert mapping)
+  const insertRows: CalcResultInsert[] = results.map(r => ({
+    tenant_id: tenantId,
+    batch_id: batchId,
+    entity_id: r.entityId,
+    rule_set_id: r.ruleSetId || null,
+    period_id: r.periodId || null,
+    total_payout: r.totalPayout,
+    components: r.components,
+    metrics: r.metrics,
+    attainment: r.attainment || ({} as Json),
+    metadata: r.metadata || ({} as Json),
+  }));
+```
+
+#### 9. Two code paths that CREATE multi-plan assignments
+
+(a) HF-126/HF-189 self-heal in the run route auto-assigns every unassigned individual entity of the tenant to the rule set being run (so calculating a second plan force-creates overlapping assignments — and erases intentional population splits):
+
+```
+src/app/api/calculation/run/route.ts:451-490 (excerpt)
+  // HF-126 + HF-189: Self-healing — ensure ALL tenant entities are assigned
+  // HF-126 original: fires when zero assignments exist
+  // HF-189 expansion: also fires when some entities are missing (import timing gap)
+  {
+    const allTenantEntityIds: string[] = [];
+    ...
+        .eq('entity_type', 'individual')  // HF-263: never self-assign grouping entities for calculation
+    ...
+      const missingEntityIds = allTenantEntityIds.filter(id => !assignedSet.has(id));
+
+      if (missingEntityIds.length > 0) {
+        const INSERT_BATCH = 5000;
+        const newAssignments = missingEntityIds.map(eid => ({
+          tenant_id: tenantId,
+          rule_set_id: ruleSetId,
+          entity_id: eid,
+          assignment_type: 'direct',
+          metadata: {},
+        }));
+        for (let i = 0; i < newAssignments.length; i += INSERT_BATCH) {
+          const slice = newAssignments.slice(i, i + INSERT_BATCH);
+          await supabase.from('rule_set_assignments').insert(slice);
+        }
+```
+
+(b) SCI bulk assignment creation builds the full cross-product entities × ALL active rule sets:
+
+```
+src/lib/sci/assignment-creation.ts:90-101
+    for (const rs of activeRuleSets) {
+      for (const entityId of allEntityIds) {
+        if (!assignedSet.has(`${entityId}:${rs.id}`)) {
+          newAssignments.push({
+            tenant_id: tenantId,
+            rule_set_id: rs.id,
+            entity_id: entityId,
+            assignment_type: 'direct',
+            metadata: {},
+          });
+        }
+      }
+    }
+```
+
+#### 10. Downstream aggregation: multi-plan-aware shape, single-batch materialization
+
+entity_period_outcomes carries a per-rule-set breakdown (multi-plan-aware row shape):
+
+```
+src/lib/supabase/calculation-service.ts:521-532 (ruleSetBreakdown construction)
+    const ruleSetBreakdown: Array<{ rule_set_id: string; total_payout: number; components: Json }> = [];
+    const ruleSetMap = new Map<string, { total: number; components: Json[] }>();
+    for (const r of results) {
+      const rsId = r.rule_set_id || 'unknown';
+      const existing = ruleSetMap.get(rsId) || { total: 0, components: [] };
+      existing.total += r.total_payout || 0;
+      existing.components.push(r.components);
+      ruleSetMap.set(rsId, existing);
+    }
+```
+
+But materialization reads only ONE batch and deletes the whole period's outcomes before inserting:
+
+```
+src/lib/supabase/calculation-service.ts:477-501 (excerpt — docstring vs query)
+ * Materialize entity_period_outcomes for a period.
+ *
+ * Triggered on lifecycle transitions (OFFICIAL, APPROVED, POSTED, PUBLISHED).
+ * For each entity in the batch:
+ * 1. Read all calculation_results for the entity in this period
+ ...
+  // Read all results for this batch
+  const { data: batchResults, error: resErr } = await supabase
+    .from('calculation_results')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+```
+
+```
+src/lib/supabase/calculation-service.ts:562-568
+  // Upsert: delete existing for this period, then insert new
+  if (outcomes.length > 0) {
+    await supabase
+      .from('entity_period_outcomes')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('period_id', periodId);
+```
+
+Consequence for two batches (plan A, plan B) in one period: the second batch's materialization deletes the period's outcomes (including plan A's) and re-inserts only from the second batch.
+
+#### Scripts written (all new, read-only)
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_results_scan.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_tenant_landscape.ts
+- /Users/AndrewAfrica/spm-platform/web/scripts/diag/diag063_e6_multiplan_tenant_detail.ts
+
+**GAP TO DEMO BAR:** The probe's bar — one entity with >=2 active assignments calculating under both in one period — is NOT met in data: zero dual-assigned entities (703 assignments, all 1-per-entity) and zero (entity, period) pairs with 2 distinct rule_set_ids in calculation_results (943 rows). The only dual-rule-set batch (tenant f7093bcc…, batch ac82b514…, period 849991e5…) is seed-script-inserted over disjoint populations. To demonstrate live: (1) one assignment write via the existing POST /api/rule-set-assignments route, (2) two engine runs (one per rule set) in the same period — both are architect actions, not builds (writes were not performed under the READ-ONLY constraint). Residual structural gap: materializeEntityPeriodOutcomes is single-batch-scoped with a period-wide delete, so entity_period_outcomes (and any surface reading it) would retain only the last-materialized plan; calculation_results-level coexistence is supported (rule-set-scoped pre-write delete in both engine paths).
+
+**EFFORT SHAPE:** Split — assignments+results-level concurrency E1 (routes POST /api/rule-set-assignments and POST /api/calculation/run, table rule_set_assignments, table calculation_results — code green, remaining proof is the architect browser sequence below); period-outcome aggregation across plans E3 (service `materializeEntityPeriodOutcomes` in src/lib/supabase/calculation-service.ts re-shaped to aggregate calculation_results per period across batches instead of one batch_id, feeding the existing rule_set_breakdown column of entity_period_outcomes; consumers already read that breakdown shape).
+
+---
+
+## Architect Browser Verification Checklist
+
+One action + one observable each; AB-refs are cited in the Summary Matrix.
+
+- **AB-1** (§A1A2) — **Action:** Open the import history surface for tenant 3d354bfa-b298-48dd-88a0-9f8c5a00be4e and locate the 2026-06-12 15:21 session (proposalId b4c64b88-9ee9-4dd7-88fe-54a0d303651e). **Observable:** 15 files listed with per-file row counts summing to 162,927, matching the per-batch table in the evidence file.
+- **AB-2** (§A1A2) — **Action:** For tenant 3d354bfa, run period detection/creation over the imported data via the existing UI (backed by /api/periods/detect and /api/periods/create-from-data); tenant currently has 0 periods and all 160,443 anchor rows have period_id NULL. **Observable:** periods rows appear for the tenant and committed rows bind to them.
+- **AB-3** (§A1A2) — **Action:** Assign the tenant's single existing rule_set (rule_sets count=1, rule_set_assignments=0) and execute a calculation run via the Operate > Calculate surface (/api/calculation/run). **Observable:** A calculation_batches row with started_at/completed_at (run duration) and calculation_results count > 0 for tenant 3d354bfa — closes 'Import proven at ~162k; calculation at volume: NOT YET EXECUTED'.
+- **AB-4** (§A3) — **Action:** In the demo tenant, import an entity/roster file and a transaction file keyed by the same employee identifier, then open the entities/team surface **Observable:** One entity row per identifier after both imports (entity count does not increase on the second file); transaction-file rows attach to the roster-created entities
+- **AB-5** (§A3) — **Action:** Run a calculation for the multi-file tenant (336af2a7-e9b3-445e-abea-85792afa893d) and inspect the run log/response **Observable:** Calc-time entity resolution reports zero NULL entity_id rows remaining (idempotent second pass; all committed_data rows already linked)
+- **AB-6** (§A4) — **Action:** Upload a multi-tab XLSX through the SCI import surface in the demo tenant **Observable:** One content unit per tab in the SCI units view; on commit, one import batch per tab sharing the same source file
+- **AB-7** (§A4) — **Action:** Run a calculation over a multi-tab import **Observable:** Calculation trace shows sheet-aware metric grouping and roster-sheet detection (parent-sheet __ convention / keyword tiers) across the file's tabs
+- **AB-8** (§A5) — **Action:** In /data/import/enhanced, upload a workbook, reach the Map step, and set every Entity ID mapping to unmapped across all sheets **Observable:** The Next button (bottom-right) is disabled; re-mapping Entity ID on any one sheet re-enables it (canProceed 'map' case requires entityId, page.tsx:2393)
+- **AB-9** (§A5) — **Action:** In /operate/reconciliation, upload a comparison file and clear the Entity ID or Total Payout selector in the 'Mapping confirmation + overrides' panel **Observable:** The run-comparison button greys out (opacity-40, cursor-not-allowed) until both columns are selected (page.tsx:1033)
+- **AB-10** (§A5) — **Action:** In /data/import/enhanced with entityId unmapped, attempt to click ahead on the stepper to Validate/Approve **Observable:** Forward step buttons are disabled — only past steps are clickable (isClickable = isPast, page.tsx:2525), so the Map gate cannot be bypassed
+- **AB-11** (§A6) — **Action:** Import the same plan file twice for a demo tenant (second import after the first completes), watching the server console **Observable:** Second import logs '[SCI plan-interp] HF-259 idempotent REUSE — content_hash matched completed rule_set <id>; no re-execution' and returns pipeline 'plan-interpretation-reused'; no second rule_set row appears
+- **AB-12** (§A7) — **Action:** Live persona-switch on production: log in as VL Admin, select a tenant, then click Manager and Rep chips in the bottom persona bar; navigate between pages after switching **Observable:** Persona bar appears only when authenticated VL Admin has a tenant selected (auth-shell.tsx:219 gate); active chip changes with no page reload or re-login; data scope and visual identity change per persona; override survives navigation (sessionStorage key vl_persona_override); redirect to default workspace occurs only when the current workspace is inaccessible to the new persona (OB-96 logic in PersonaSwitcher.tsx:61-85)
+- **AB-13** (§B1) — **Action:** Log in as a member/sales_rep-role user and inspect the Perform workspace sidebar (ChromeSidebar) **Observable:** Only 'Intelligence' (/stream) appears; no Results, no statement link — confirming rep nav stops at L1/L2
+- **AB-14** (§B1) — **Action:** As the same rep, navigate directly to /perform/statements by URL **Observable:** Page renders with an entity picker listing ALL tenant entities; selecting any entity shows their total, component table, and expandable 'Source Data' committed_data rows
+- **AB-15** (§B1) — **Action:** As the same rep, navigate directly to /my-compensation by URL **Observable:** 'No Outcome Results Yet' card despite calculation_results rows existing for the tenant (email-derived id vs uuid entity_id mismatch)
+- **AB-16** (§B1) — **Action:** As admin, open /operate/results, expand an entity row, click 'Full Trace' to /investigate/trace/<entityId> **Observable:** EmployeeTrace section is empty (calculation_traces has 0 rows); only the 'Intent Execution Trace' section from result metadata renders, and its inputs panel is empty
+- **AB-17** (§B2) — **Action:** Log in as admin and navigate directly to /perform/statements (no nav link exists); pick an entity and a period with results **Observable:** Total Payout card with lifecycle badge, Component Breakdown table showing per-component name, payout, % of total; Details column reads 'Component type prime_dag not supported in statement display' for every row; trajectory strip if >=2 periods; collapsible Source Data table
+- **AB-18** (§B2) — **Action:** Log in as the sales_rep profile and navigate directly to /perform/statements **Observable:** Entity picker is shown and lists ALL tenant entities (not just the rep's own); first entity auto-selected — confirms absence of rep self-scoping in the rendered UI
+- **AB-19** (§B2) — **Action:** Inspect the Perform workspace sidebar/nav while on /stream **Observable:** No 'Statements' entry appears in any nav section (perform workspace registers only /stream and /operate/results)
+- **AB-20** (§B3) — **Action:** Log in as vl_admin, open /admin/launch/calculate for a tenant with a calculation batch in APPROVED/POSTED/CLOSED/PAID/PUBLISHED state, click the Export button on the LifecycleActionBar **Observable:** Browser downloads <Tenant>_<period_id>_Results.csv with header 'Entity ID,Entity Name,<component columns>,Total Outcome', one row per entity, and a summary footer (Tenant/Period/State/Total Entities/Total Outcome/Currency/Exported At)
+- **AB-21** (§B3) — **Action:** On the same page, view a batch in a pre-APPROVED state (e.g. PREVIEW) **Observable:** Export button is absent — gating at src/components/lifecycle/LifecycleActionBar.tsx:143 limits export to APPROVED/POSTED/CLOSED/PAID/PUBLISHED
+- **AB-22** (§B3) — **Action:** Open /operate/calculate with results loaded and trigger its download **Observable:** Client-side CSV with 'External ID,Name,Store,Attainment,<components>,Total Payout' — the only surface emitting business external_id and Store
+- **AB-23** (§B4) — **Action:** Log in to tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111 (6 distinct calculated periods) and open /stream **Observable:** TrajectoryCard renders with velocity/trend, component growth/decline deltas, top accelerators/decliners, and confidence-basis disclosure (DS-013 S7)
+- **AB-24** (§B4) — **Action:** On the same tenant open /perform/statements **Observable:** Per-row trend indicators driven by computeVelocity/classifyTrend (trajectory-service) across periods
+- **AB-25** (§B4) — **Action:** Open the rep dashboard (rep persona) for a gate-pass tenant **Observable:** RepTrajectoryPanel renders null (expected: active rule_sets components carry no metadata.intent, so computeRepTrajectory emits zero cards) — confirms the data dependency, not a code defect
+- **AB-26** (§B5) — **Action:** Open /operate/results with Plan/Period/Run selector set to a populated run (e.g. batch f1924b7f-1ae0-4fda-84cc-e08b26c6ca48) **Observable:** Header 'N entities' matches the Run dropdown's 'N ent' figure; table shows Employee ID, Name, Store, one numeric column per component, Total; rows expand to L3/L2 proof detail with Full Trace link
+- **AB-27** (§B5) — **Action:** On /operate/results, select run 883f7052-d180-4ae4-8150-bc4d2471b96e in the Run dropdown **Observable:** Dropdown advertises 85 ent while the page renders 'No results found for the selected batch' — live divergence between calculation_batches.entity_count and actual results rows
+- **AB-28** (§B5) — **Action:** Open /operate/calculate for the same plan/period **Observable:** DS-007 view renders: ResultsHero, StoreHeatmap, PopulationHealth, EntityTable with pagination (50/page), status filter, MiniBar Components column
+- **AB-29** (§C1) — **Action:** Log in as a vendedor-role user and open /my-compensation **Observable:** Lifecycle-gated personal statement renders; no dispute/flag affordance is present (page header at web/src/app/my-compensation/page.tsx:7 states dispute UI removed pending structured-dispute rebuild)
+- **AB-30** (§C1) — **Action:** Log in as admin and open /performance/adjustments; attempt New Adjustment and Approve/Reject **Observable:** Queue renders empty (loader silently maps dropped-table error to empty list) and writes do not persist; network tab shows PGRST205 on disputes requests
+- **AB-31** (§C1) — **Action:** In the sidebar open Insights > Dispute Analytics (/insights/disputes) **Observable:** 404 / not-found — Sidebar.tsx:136 links a route with no directory under web/src/app/insights/
+- **AB-32** (§C2) — **Action:** Open /performance/adjustments as admin **Observable:** Whether the page renders an empty list with console warning '[Adjustments] Load failed' — its disputes backing table is dropped live (AUD-004)
+- **AB-33** (§C2) — **Action:** On /performance/adjustments click New Adjustment, fill description, Submit **Observable:** Whether the form silently fails to persist (insert targets the dropped public.disputes table; handler swallows the error)
+- **AB-34** (§C2) — **Action:** Open /perform/statements as vendedor and expand 'Source Data (N records)' **Observable:** Transaction rows render Type/Date/Data columns only — no flag/dispute control on any row
+- **AB-35** (§C2) — **Action:** Open /approvals (universal approval queue) **Observable:** Queue renders empty — approval-routing store is in-memory with no manual_adjustment producer
+- **AB-36** (§C3) — **Action:** Perform a plan import via the UI, then GET /api/platform/events (or re-run diag063_c3_events.ts) and check for a new plan.imported row **Observable:** plan.imported row appears in platform_events with actor_id set — proves the fire-and-forget emit at src/app/api/plan/import/route.ts:149 lands
+- **AB-37** (§C3) — **Action:** Run a calculation from the UI, then re-run scripts/diag/diag063_c3_events.ts to recount audit_logs **Observable:** audit_logs count moves from 0 and contains action='batch.created' resource_type='calculation_batch' — proves the live-path audit write at calculation-service.ts:85 lands
+- **AB-38** (§C3) — **Action:** Submit and decide an approval via the approvals UI/API, then recount audit_logs **Observable:** approval.requested then approval.approved/rejected rows appear — proves the approvals audit segment of the Module C bar
+- **AB-39** (§C3) — **Action:** Open /admin/audit, refresh the page, and attempt the CSV export **Observable:** entry list resets to empty on refresh (in-memory audit-service queue, flush is a no-op) — confirms the audit UI does not read audit_logs or platform_events
+- **AB-40** (§D1) — **Action:** Log in as a tenant admin and open /perform with persona=admin **Observable:** AdminDashboard renders hero total payout, 5-bucket attainment distribution, per-location BenchmarkBar, ComponentStack, and LifecycleStepper from live entity_period_outcomes data (tenants 5035b1e8... or b1c2d3e4... have multi-period data)
+- **AB-41** (§D1) — **Action:** On /perform, change the period in the period selector **Observable:** Expected per code (persona-queries.ts getCurrentPeriodId): numbers do NOT change — getAdminDashboardData(tenantId) ignores activePeriodId and always loads the latest period; confirms Finding F5
+- **AB-42** (§D1) — **Action:** Open /insights/analytics and /data/reports **Observable:** Both render synthetic/fixture data (analytics-service generateKPIs/generateTrends; financial-service static financialSummariesData with simulated 800ms load) — do not use these surfaces in the MIR demo
+- **AB-43** (§D2) — **Action:** Log into the MIR demo tenant (non-USD currency/locale) and open a useCurrency-path page such as /operate or /perform **Observable:** Amounts render in tenant currency with whole-number cent suppression (MX$ disambiguation for MXN) — the formatTenantCurrency path working
+- **AB-44** (§D2) — **Action:** As vl_admin, open the /admin platform Observatory tab **Observable:** MRR stat card renders hardcoded '$' with en-US grouping regardless of tenant locale (src/components/platform/ObservatoryTab.tsx:164 raw template site)
+- **AB-45** (§D2) — **Action:** With a non-USD tenant, run a calculation from the operate/lifecycle action bar and read the status message **Observable:** Status message shows hardcoded '$' total via raw toLocaleString (src/lib/payroll/period-processor.ts:389)
+- **AB-46** (§D2) — **Action:** With a non-USD tenant, use global search on a record carrying an amount **Observable:** Result subtitle shows hardcoded '$' prefix (src/lib/search/search-service.ts:77-78), diverging from page-body formatting on useCurrency pages
+- **AB-47** (§D3) — **Action:** Using the Navbar language switcher (src/components/layout/language-switcher.tsx mounted in src/components/navigation/Navbar.tsx), switch to es-MX and traverse login -> /operate/import -> /operate/calculate -> /operate/results -> /perform/statements -> /insights **Observable:** Login strings switch via t() dictionary; /data/import/enhanced step titles and /insights/trends Export label switch via inline records; SCI import, calculate, results, and statement strings remain English (0-of-N locale-conditional coverage in those scopes)
+- **AB-48** (§D3) — **Action:** Open the language switcher and inspect the offered locales, then select Portugues if shown **Observable:** SUPPORTED_LOCALES (src/lib/i18n.ts:3-7) offers en-US/es-MX/pt-BR with pt-BR dictionaries present, while useAdminLocale (src/hooks/useAdminLocale.ts:15) narrows to en-US|es-MX - observe which surfaces respond to pt-BR
+- **AB-49** (§D4) — **Action:** On /operate/calculate: select a period, Calculate a plan, note the footer 'Batch <id8>' under the DS-007 view, then Recalculate the same plan without leaving the page **Observable:** Footer batch id changes to a new id after recalculation without reload (refetch chain live)
+- **AB-50** (§D4) — **Action:** After recalculating on /operate/calculate, navigate to /operate/results and inspect the Run dropdown in the OperateSelector bar **Observable:** Whether the selected Run is the newest batch or the previously pinned one — code predicts the pre-recalc batch stays selected (sessionStorage pin, no superseded filter)
+- **AB-51** (§D4) — **Action:** On /operate/calculate for a tenant with data but zero periods: click 'Detect Periods from Data', select suggestions, click 'Create N New Periods' **Observable:** Period dropdown replaces the create card and lists the new periods without page exit (awaited refreshPeriods)
+- **AB-52** (§E2) — **Action:** Create a second active plan with an assignment effective range outside the current period (via /api/rule-set-assignments POST or assignment UI), then run calculation for that period **Observable:** Out-of-range entities still appear in calculation results, and rule_set_assignments row count grows (HF-126/HF-189 self-heal auto-assigns all individual entities to the calculated plan), confirming effective ranges are not honored
+- **AB-53** (§E3) — **Action:** Run a calculation on a multi-variant plan (legacy nested variants format) from /operate/calculate or /admin/launch/calculate and open the run log **Observable:** Log line 'HF-119 Variant discriminants: V0=[...] V1=[...]' plus per-entity [VARIANT] selection lines and the HF-212 variant distribution (variant_<index>(<role>) counts) in the Tier 1 footer
+- **AB-54** (§E4) — **Action:** Run a calculation (admin UI -> POST /api/calculation/run) against a rule set whose plan metric labels imply categorical subsetting (the MIR category-commission shape) **Observable:** Run log line 'HF-165: Convergence complete — N derivations, ...' with N>0, plus server console '[Convergence] Pass 4 derivation: <metric> -> sum(...)/count(...) filters=[...]' carrying a non-empty filters array, and per-entity derived metrics flowing into component results
+- **AB-55** (§E4) — **Action:** After that calculation run, re-execute web/scripts/diag/diag063_e4_bindings_state_census.ts (read-only) **Observable:** The target rule_set row shows derivations>0 with version=HF-234, confirming filtered rules persisted to rule_sets.input_bindings.metric_derivations for reuse on subsequent runs
+- **AB-56** (§E5) — **Action:** Import a plan document on a sandbox tenant and tail the server logs during interpretation **Observable:** Every component emits `[plan-component] mode=construction component=...` followed by `constructed component=<id> from compositional_intent shape=<banded_lookup|arithmetic|conditional|composed>` — no alternate emission-path log line appears for any component (HF-252 single pipeline)
+- **AB-57** (§E5) — **Action:** Run a calculation for a tenant whose rule_set is variants-shaped, with a traced entity enabled **Observable:** `[CalcTrace] resolveMetricsFromConvergenceBindings:exit ... path=prime_dag` lines confirm the persisted constructor-built PrimeNode takes the isPrimeNode short-circuit (route.ts:1383-1384) into the evaluator
+- **AB-58** (§E6) — **Action:** In tenant f7093bcc-e90b-4918-9680-69da7952dd65, use the assignment surface (POST /api/rule-set-assignments) to assign one entity currently on rule_set fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b to rule_set 2054d734-2a3c-4cd7-b199-79d2f1c578f0 as well **Observable:** rule_set_assignments shows two rows for that entity_id with two distinct rule_set_id values, both active (effective_to null)
+- **AB-59** (§E6) — **Action:** Run calculation from /admin/launch/calculate twice in period 849991e5-396e-4b06-ba39-c760383bad1b — once per rule set **Observable:** calculation_results contains rows for that entity in that one period with 2 distinct rule_set_id values under 2 distinct batch UUIDs; side effect to watch: HF-189 self-heal will expand each run's assignments to ALL individual entities (the 20/40 split becomes 60/60)
+- **AB-60** (§E6) — **Action:** Transition both batches through a materializing lifecycle state (OFFICIAL/APPROVED/POSTED/PUBLISHED), then open the entity's statement/results surface **Observable:** whether both plans appear in the entity outcome — expected from code: only the LAST materialized batch's plan survives in entity_period_outcomes (period-wide delete, single-batch read at calculation-service.ts:496-568)
+
+## Open Questions
+
+- **OQ-1 — `CC_DIAGNOSTIC_PROTOCOL.md` not present in repository.** Searches attempted: `find . -name "CC_DIAGNOSTIC_PROTOCOL.md" -not -path "./node_modules/*"` (no hits); `find . \( -iname "*DIAGNOSTIC*PROTOCOL*" -o -iname "*CC_DIAG*" \) -not -path "./node_modules/*" -not -path "./.git/*"` (no hits); `grep -rln "CC_DIAGNOSTIC_PROTOCOL" docs/ *.md` (referenced by 10+ directives, never materialized as a file). Same result for `COMPLETION_REPORT_ENFORCEMENT.md` and `INF_Structured_Compliant_Drafting_Reference_20260513.md`: referenced by directives, not present as files. The directive's own phase prose was executed as written; Rules 19–28 applied as cited inline in the directive.
+
+- **OQ-2 (§A1A2)** — Provenance of the 43,875 committed_data rows with import_batch_id NULL (10.5% of 416,258 total). Sample of 1,000 most recent: single tenant f7093bcc-e90b-4918-9680-69da7952dd65, data_type pos_cheque, all created 2026-06-03, metadata.source absent.
+  *Searches/queries attempted:* head:true count with .is('import_batch_id', null); 1000-row sample tally by tenant_id/data_type/metadata.source (diag063_a1a2_null_batch_sample.ts); grep sweep of all committed_data insert sites in src/ (3 found: commit-content-unit.ts:405, api/import/commit/route.ts:853, data-service.ts:167 — all three set import_batch_id), so no current src/ write path produces NULL; likely a removed/legacy or direct load. HALT-2: no fix attempted.
+- **OQ-3 (§A1A2)** — Whether batch 307a2928-ece4-4be2-89d7-2fc0dca9568a (tenant 1b770e90, status=processing, committed 18,000 of declared 20,677, created 2026-06-12T18:29Z) is live in-flight or stalled.
+  *Searches/queries attempted:* Single time-point DB observation in diag063_a1a2_top_batches.ts; no second-pass re-query performed within this probe; error_summary not inspected. Read-only constraint prevents any nudge/retry.
+- **OQ-4 (§A1A2)** — Whether cross-proposal re-import of the same contentUnitId is intended (re-demo) or a duplicate-guard gap: the two 160,443-row batches share contentUnitId but have different proposalId and file_name, 62.8 minutes apart, same tenant.
+  *Searches/queries attempted:* Structural comparison of the pair in diag063_a1a2_multifile_and_calc.ts (same tenant/contentUnitId/declared count; different proposalId/file_name); grep of execute-bulk route and commit-content-unit.ts for 'duplicate|alreadyCommitted|fingerprint' — hits address duplicate plan-interpretation execution (HF-257/AP-17) only; no commit guard keyed on contentUnitId found.
+- **OQ-5 (§A3)** — Is there any mechanism to resolve one person keyed by DIFFERENT identifier systems across files (cross-key bridging)? None located: entities stores a single external_id; alias_registry is reference_item-scoped (FK reference_item_id) with 0 rows for the probed tenant.
+  *Searches/queries attempted:* grep -rni "dedup|entity.*match|resolveEntity|entity_identifier" src/ --include=*.ts (51 files reviewed); grep -rni "crosswalk|alias" src/ --include=*.ts (23 files, none entity-keyed); SCHEMA_REFERENCE_LIVE.md alias_registry + entities sections; DB count of alias_registry rows for tenant 336af2a7 (=0)
+- **OQ-6 (§A3)** — Whether the probed most-recent multi-file tenant (336af2a7-e9b3-445e-abea-85792afa893d) is the MIR demo tenant — cannot be confirmed without reading tenants.name/slug, which the anonymization constraint prohibits.
+  *Searches/queries attempted:* Identified via import_batches recency only (latest 500 batches grouped by tenant_id); no tenants-table name/slug query attempted per constraint 4
+- **OQ-7 (§A4)** — Q1 groups classification_signals by (tenant_id, source_file_name) text value; two distinct uploads sharing a file name within a tenant would merge into one group, so per-file distinct-sheet counts are an upper bound at file-name granularity. Cross-check via file_hash grouping (Q3/Q5) agreed (16 sheets) for the largest file, but was not run for every group.
+  *Searches/queries attempted:* classification_signals has no file-hash column (SCHEMA_REFERENCE_LIVE.md:132-155 lists 20 columns; structural_fingerprint is per-sheet jsonb, not per-file); cross-checked largest group against import_batches.file_hash_sha256 grouping via diag063_a4_multisheet_db3.ts (26 batches -> 16 distinct contentUnitIds, matching distinct_sheets=16)
+- **OQ-8 (§A5)** — Whether the absence of a server-side mapping check in /api/import/commit (only tenantId/fileName/storagePath validated at route.ts:95; absent mappings trigger identity/AI auto-mapping fallback at route.ts:153-160) is intended as the final commit posture, or whether a commit-time entityId re-check is expected
+  *Searches/queries attempted:* grep -n "entityId|required|400|validate|mapping" src/app/api/import/commit/route.ts; read of handleSubmitImport (page.tsx:1962-1970) showing only tenant/file/analysis guards; stepper bypass check (page.tsx:2523-2531) confirming the Map gate is unavoidable in the UI path
+- **OQ-9 (§A7)** — Is the persona-context profile-linkage arm (profileId/entityId via profiles lookup) ever expected to bind, given the filter value is user.id = profiles.id and 9/11 live rows have id !== auth_user_id (all tenant-role rows)? Design intent of HF-060/OB-150 for this arm is not documented in code comments beyond the scope-recalculation note.
+  *Searches/queries attempted:* grep -rn "eq('auth_user_id'" src/ (28 sites); grep setPersonaOverride (single caller); read mapProfileToUser (auth-context.tsx:60-78) and classifyProfileFetch (auth-service.ts:177-194) to confirm user.id = profiles.id; DB probe diag063_a7_profiles_id_alignment.ts (2/11 rows id===auth_user_id, both platform); HF-097 comment auth-service.ts:201-206 on tenant_id filters
+- **OQ-10 (§A7)** — Do the 13 downstream consumers of usePersona profileId/entityId (financial pages, my-compensation, stream, Rep/Manager dashboards) render correctly with profileId always null under current data? Per-page tracing is beyond this probe's chain; live confirmation needs the architect browser pass.
+  *Searches/queries attempted:* grep -rln profileId|entityId cross-referenced with usePersona (14 files incl. persona-context itself); not traced page-by-page (out of A7 scope, recorded for the architect pass)
+- **OQ-11 (§B1)** — Do the LIVE database RLS policies on calculation_results/committed_data/entities still match migration 003 (tenant-scoped SELECT only, no entity/role predicate), or were they altered outside the repo's migration files?
+  *Searches/queries attempted:* Read web/supabase/migrations/003_data_and_calculation.sql (tenant-scoped SELECT policies), grepped 006_vl_admin_cross_tenant_read.sql and 20260610180000_hf283_rls_platform_predicate.sql (only add platform-role policies). pg_policies cannot be queried via the permitted supabase-js SELECT-only pattern (PostgREST does not expose pg_catalog; .rpc is prohibited), so live-policy confirmation requires an architect action.
+- **OQ-12 (§B1)** — Why are components[].details persisted as empty objects across all 4 tenants' latest results while ComponentResult.details is populated in the engine (run-calculation.ts) — does the intent-path orchestrator (/api/calculation/run route.ts) bypass the details population, and would a non-intent run persist them?
+  *Searches/queries attempted:* grep 'details' in src/lib/calculation/run-calculation.ts (engine maps c.details into JSONB at lines 1471-1477); grep intentTraces in src/app/api/calculation/run/route.ts (separate intent path at lines 2530-2710); DB probe diag063_b1_details_by_tenant.ts showed 0 components with non-empty details across all 4 tenants' latest results. Tracing the full intent-path component assembly in the 2700+-line route exceeded probe scope; verifying would require running a calculation (write — HALT-2).
+- **OQ-13 (§B2)** — Are the live pg_policies on calculation_results identical to the repo migrations (tenant-wide SELECT, no entity predicate)? Migration SQL was verified in-repo but live catalog could not be read.
+  *Searches/queries attempted:* grep CREATE POLICY across web/supabase/migrations (hits in 003_data_and_calculation.sql:169, 006_vl_admin_cross_tenant_read.sql:67, 20260610180000_hf283_rls_platform_predicate.sql:55); live verification not possible via supabase-js REST (pg_policies not exposed; psql prohibited by probe constraints)
+- **OQ-14 (§B2)** — What mechanism is intended to map a rep's auth profile to their entity ('own entity ... via profile link' per the page docstring)? No implementation found.
+  *Searches/queries attempted:* Read full statements page (no profile/role usage); SCHEMA_REFERENCE_LIVE.md profiles section (no entity_id column); profile_scope.visible_entity_ids exists but DB probe shows 0 rows and grep shows the page never queries profile_scope
+- **OQ-15 (§B3)** — Which tenant/batch will back the MIR demo export? The memory-documented test tenant f0f0f0f0-... has no calculation batches with entity_count > 0, so the live proof ran against tenant UUID b1c2d3e4-... (most recent batch with results, state PREVIEW).
+  *Searches/queries attempted:* supabase-js SELECT calculation_batches WHERE tenant_id=f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd AND entity_count>0 ORDER BY created_at DESC LIMIT 1 -> 0 rows; fallback structural SELECT across calculation_batches (entity_count>0, newest first, 10 rows) + head:true count of calculation_results per batch_id -> first match used
+- **OQ-16 (§B3)** — Is hierarchy uniformly available across tenants for the export delta? For the probed tenant it exists only as entities.metadata.region (entity_relationships = 0 rows); whether other tenants populate entity_relationships instead was not probed (out of B3 scope).
+  *Searches/queries attempted:* SELECT entities.metadata key names (3 rows) and head:true count of entity_relationships for tenant b1c2d3e4-...; grep src/types/hierarchy.ts and SCHEMA_REFERENCE_LIVE.md entity_relationships (13 cols) for structural existence
+- **OQ-17 (§B4)** — Which tenant UUID is the MIR demo tenant (to confirm it is one of the two gate-pass tenants b1c2d3e4-... or 5035b1e8-...)
+  *Searches/queries attempted:* Per-tenant gate probe over calculation_batches (diag063_b4_trajectory_inputs.ts); tenant name/slug lookup forbidden by anonymization constraint
+- **OQ-18 (§B4)** — Whether any rule set version newer than the two active ones carries metadata.intent/calculationIntent (which would activate RepTrajectoryPanel without data work)
+  *Searches/queries attempted:* diag063_b4_trajectory_ruleset_shape.ts read all rule_sets for the two gate-pass tenants (2 rows, both status=active, operations=[no_intent]); descended both variants[] and components[] paths
+- **OQ-19 (§B5)** — Why batch 883f7052-d180-4ae4-8150-bc4d2471b96e (tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111) carries entity_count=85 with zero calculation_results rows — results removed after the count was written, or a separate writer set entity_count. Determining the cause needs write-history/audit data; any reconciliation would be a write (HALT-2), so recorded only.
+  *Searches/queries attempted:* grep for entity_count writers (only calculation-service.ts:367-371 update after insert); SELECT of the batch's superseded_by/supersedes (both null), lifecycle_state (PREVIEW), started_at/completed_at; exact head:true count of its calculation_results (0) via diag063_b5_results_entitycount.ts
+- **OQ-20 (§B5)** — Whether MIR demo batches will exceed 1000 entities per batch — that determines whether the measured 1000-row unpaginated-select ceiling manifests as a wrong displayed count/total during the demo (largest live batch today is 172).
+  *Searches/queries attempted:* DB probe ordered calculation_batches by entity_count desc (max=172); committed_data unpaginated select returned exactly 1000 of 416258 rows, establishing the server max-rows ceiling; grep for .range(/.limit( in calculation-service.ts getCalculationResults and results-loader.ts loadResultsPageData (none on the results fetches)
+- **OQ-21 (§C1)** — Where is the fresh schema design for the roadmap 'structured dispute workflow' specified (the AUD-004 drop migration says the future feature 'builds on fresh schema design')? Recreating the table is a migration and was not attempted (HALT-2).
+  *Searches/queries attempted:* grep -ril 'structured.dispute' docs/ web/src/ — hits: docs/design-specifications/DS-021_..., docs/audits/AUD-007_evidence/E5_1_DS-021_full.md, docs/closing-handoff/SESSION_HANDOFF_20260519.md (one marketing-level sentence), web/src/lib/stripe/config.ts:190 (module description 'Structured dispute workflow, pre-screening, audit trail'); none contains a schema design
+- **OQ-22 (§C1)** — Do live RLS policies on audit_logs permit non-service-role dispute audit writes (relevant to the resolve+audit step shape)?
+  *Searches/queries attempted:* SCHEMA_REFERENCE_LIVE.md line 65 confirms audit_logs (10 columns); policy inspection not possible via SELECT-only PostgREST (pg_policies not exposed); no write test permitted under READ-ONLY constraint
+- **OQ-23 (§C2)** — Whether a fresh schema design for the 'structured dispute workflow' (the AUD-004 stated successor to the dropped disputes table) exists anywhere as a design spec, or remains an unwritten roadmap item
+  *Searches/queries attempted:* grep -ril 'structured.dispute|GuidedDisputeFlow|dispute-service' docs/ web/src/ — hits are the AUD-004 audit finding, DS-021 evidence/spec mentions, session handoff, DIAG-063 C1 evidence, and the my-compensation removal comment; no schema design document found
+- **OQ-24 (§C2)** — Whether live audit_logs being 0 rows total reflects an unexercised approval path or silently failing writes (writeAuditLog is non-fatal and swallows insert errors); exercising the POST /api/approvals path to test would be a DB write, prohibited under the read-only constraint (HALT-2)
+  *Searches/queries attempted:* grep writeAuditLog consumers (api/approvals POST+PATCH, api/lifecycle/transition, rbac-service, lifecycle/calculation services); head counts: audit_logs total=0, approval_requests total=0; like-pattern counts approval.%/%dispute%/%adjust% all 0; read src/lib/audit/audit-logger.ts:27-48 confirming try/catch console.error-only failure handling
+- **OQ-25 (§C3)** — What emitted the single platform_events row with event_type 'data.import_telemetry_audit_divergence'? No emitter exists in the current working tree.
+  *Searches/queries attempted:* grep -rn 'import_telemetry_audit_divergence' repo-wide excluding node_modules/.git/.next (0 hits); grep 'telemetry_audit' and 'import_telemetry' across web/src, web/scripts, web/supabase (0 hits). Likely emitted by a transient script on another branch (OB-203 work).
+- **OQ-26 (§C3)** — Why does audit_logs hold 0 rows when 'batch.created' is on the live calculation path (run/route.ts -> run-calculation.ts:1318 -> calculation-service.ts:85) and approvals routes write it? All writers swallow errors, so failure vs never-executed cannot be distinguished read-only; proving it requires triggering a calculation/approval (a write), prohibited under HALT-2.
+  *Searches/queries attempted:* head:true count of audit_logs (0); full grep sweep of 'audit_logs' and 'writeAuditLog' across src (*.ts,*.tsx); code-path trace from /api/calculation/run imports; schema check showing changes+metadata NOT NULL without defaults (lifecycle-service.ts:277 insert omits metadata).
+- **OQ-27 (§D1)** — How did tenant 03d28288-700b-43e3-a96b-49a4f849d2df acquire 172 entity_period_outcomes rows whose single period_id (b1361a9f-...) belongs to a different tenant (dbe3b308-...), with zero rows in periods for 03d28288? Resolving/cleaning would require a write — recorded only (HALT-2).
+  *Searches/queries attempted:* DB probes diag063_d1_outcomes_rollup.ts (per-tenant and per-period head:true counts) and diag063_d1_orphan_periods.ts (distinct period_id select for the tenant; periods lookup by id across all tenants; periods count for the tenant = 0); code search 'grep -rn entity_period_outcomes src/' for writers — both writers stamp tenant_id+period_id from the calc request, neither validates the period belongs to the tenant
+- **OQ-28 (§D1)** — Is any UI surface intended to consume getDashboardKPIs (tenant YTD rollup in calculation-service.ts:655), which currently has zero consumers?
+  *Searches/queries attempted:* grep -rn 'getDashboardKPIs' src/ --include='*.tsx' --include='*.ts' excluding its defining file — no hits
+- **OQ-29 (§D2)** — Do exported payroll/report artifacts embed formatted currency strings or raw numerics (i.e., does the class reach exported files, not just on-screen text)?
+  *Searches/queries attempted:* grep -rn '\$\${' src/ | grep toLocaleString (found period-processor.ts:389 status message and results-formatter.ts:521 fallback); per-file enumeration of src/components/reports/*; the export file-serialization path itself (OB-39-9 payroll export) was not traced in this read-only probe
+- **OQ-30 (§D2)** — Do live tenants.currency values fall outside the hardcoded union in src/contexts/tenant-context.tsx symbols map (USD/MXN/EUR/GBP/CAD — no JPY) vs lib/currency.ts CurrencyCode (adds JPY)? A mismatch would make symbol lookup undefined for that tenant.
+  *Searches/queries attempted:* Read of both type unions and the symbols Record in tenant-context.tsx:270-276; no DB SELECT of distinct tenants.currency was run (probe scoped to code/git per its text)
+- **OQ-31 (§D3)** — Which locale the MIR demo tenant will run (en-US / es-MX / pt-BR) - determines whether the zero-coverage demo-path scopes are demo-visible
+  *Searches/queries attempted:* grep SUPPORTED_LOCALES, useAdminLocale, 'es-MX', isSpanish, loadTranslations across web/src; tenant locale fallback found at src/hooks/useAdminLocale.ts:46 (currentTenant?.locale); not derivable from repo code, requires engagement input
+- **OQ-32 (§D4)** — Is the SUPERSEDED lifecycle transition reachable from any UI surface? supersedeBatch is invoked only via calculation-lifecycle-service for OFFICIAL+ batches, and LifecycleActionBar.tsx:92-93 explicitly skips SUPERSEDED ('handled separately'); no other UI caller was found, and live DB shows 0 of 15 batches with superseded_by set.
+  *Searches/queries attempted:* grep -rn 'supersedeBatch' src; grep -rn 'SUPERSEDED' src/app src/components; grep -n 'supersede' src/app/api/calculation/run/route.ts; DB probe diag063_d4_batch_accumulation_check.ts (superseded_by_set=0 of 15)
+- **OQ-33 (§E1)** — Whether the LLM plan-interpretation prompt can emit temporal_adjustment at all (no rule_set has ever carried it — unclear if absence is prompt-side suppression or simply no tenant plan requiring it)
+  *Searches/queries attempted:* grep -rn "temporal_adjustment" src/lib --include="*.ts" (6 hits, none in prompt builders); grep -rn "temporal" src --include="*.ts" --include="*.tsx" (no prompt-layer hits for temporal_adjustment); client-side scan of all 9 rule_sets.components via diag063_e1_temporal.ts (0 hits). Verifying prompt emission would require running an interpretation, i.e. a write path — not attempted per HALT-2/READ-ONLY.
+- **OQ-34 (§E2)** — Whether any DB-side view/RLS policy applies effective-range filtering that app code does not (no migrations dir was searched for views; supabase-js paths show none)
+  *Searches/queries attempted:* grep -rn "rule_set_assignments" src/lib src/app --include=*.ts (39 hits, all enumerated); grep -rn "effective_from|effective_to" src/lib src/app --include=*.ts --include=*.tsx (84 hits, all classified); grep -n population_config in both calc files (selected but never read)
+- **OQ-35 (§E3)** — Whether any current MIR-demo tenant rule_set actually stores the legacy nested { variants: [...] } components format (the matcher is a no-op for flat-array and wrapped-object formats since variants.length <= 1)
+  *Searches/queries attempted:* Code-only probe: route.ts:202-222 shows the 3-format parse; verifying which format the demo tenant's rule_sets.components uses would require a DB read of rule_sets, which was outside this probe's stated scope (no DB step specified); left for the architect run or a sibling DB probe
+- **OQ-36 (§E4)** — Will convergence Pass 4 emit category filters for MIR-shaped plan/data at calc time? Filtered rules are AI-generated on first calculation (convergeBindings Pass 4, prompt at convergence-service.ts:3374) — no live rule_set currently carries one, so the generation step for the MIR case is unproven on live data.
+  *Searches/queries attempted:* Live census of all 9 rule_sets via two read-only scripts (diag063_e4_derivation_rules_live.ts, diag063_e4_bindings_state_census.ts): 0 persisted metric_derivations, 3 rule_sets at HF-234 with convergence_bindings only; grep -rn 'metric_derivations' across src (route.ts:238/287/365 gating and persistence sites); confirmed rule generation requires a calculation run that WRITES rule_sets.input_bindings (route.ts:298-301) — excluded under HALT-2, recorded here instead.
+- **OQ-37 (§E5)** — Which engine arm, if any, consumes the two live config-object rule_sets for tenant f7093bcc-e90b-4918-9680-69da7952dd65 at calc time (components keyed [metric,weight,description,output_type] and [type,basis,tiers,description], carrying no prime, no operation, no calculationIntent)? No dispatch arm matching that shape was found in the calc path.
+  *Searches/queries attempted:* grep -n 'prime_dag|evaluateComponent|executeIntent' src/app/api/calculation/run/route.ts; run-calculation.ts:311-323 foundational ComponentType union (throws LegacyEngineUnknownComponentTypeError on unrecognized componentType); componentIntentToDAG arms (legacy-intent-to-dag.ts:772-822) match only prime/variants/intent shapes; DB pass-3 key probe (diag063_e5_constructor_boundary_shapes3.ts) confirmed hasPrime=false hasOperation=false hasCalculationIntent=false for all 6 component entries
+- **OQ-38 (§E6)** — Exact UNIQUE constraint on calculation_results — whether it spans (tenant, entity, rule_set, period) or includes batch_id; determines insert-collision behavior when one entity is written under two plans in one period (engine pre-write delete being rule_set-scoped suggests the key includes rule_set_id, but this is inference)
+  *Searches/queries attempted:* grep -n 'UNIQUE|unique|constraint' SCHEMA_REFERENCE_LIVE.md (no hits — columns only); grep -rn 'HF-078' src/ (comments only, no constraint name); database.types.ts encodes no constraints; live pg_catalog inspection would require psql/RPC which is prohibited (HALT-2: recorded, not performed)
+- **OQ-39 (§E6)** — Whether rule_set_assignments has a DB-level uniqueness guard on (entity_id, rule_set_id) — assignment-creation.ts dedupes client-side by pair and run/route.ts inserts without conflict handling, suggesting no ON CONFLICT path is relied upon
+  *Searches/queries attempted:* grep on SCHEMA_REFERENCE_LIVE.md for constraints (none documented); grep -n 'onConflict|upsert' in src/lib/sci/assignment-creation.ts and src/app/api/rule-set-assignments/route.ts and src/app/api/calculation/run/route.ts assignment-insert blocks (plain .insert in all three); live catalog check prohibited
+
+## Findings Register
+
+- **F-1 — Sequence premise vs. main listing.** The directive states the authoritative `docs/diagnostics/` read shows highest existing DIAG-062; the `main` listing actually tops out at DIAG-059. DIAG-060/061 exist only as references in HF-282/HF-283 commit bodies (their artifacts are not in `docs/diagnostics/` on any ref found), and DIAG-062's artifacts exist only on the unmerged branch `origin/diag-062-sabor-profile-census`. Evidence: §1.2 above. Neutral consequence: future sequence checks against `main`'s `docs/diagnostics/` listing alone will under-count; assignment provenance lives partly in unmerged branches and commit bodies.
+- **F-2 (§A1A2)** — AP-17 projection path: src/lib/sci/commit-content-unit.ts:205 declares 'commitContentUnit — sole committed_data write surface', but two additional committed_data insert sites exist: src/app/api/import/commit/route.ts:853-855 (live route; src/app/data/import/enhanced/page.tsx:69 routes the enhanced import page to it) and src/lib/supabase/data-service.ts:167 (writeCommittedData; internal callers only at data-service.ts:349 and :768, no external callers found).
+- **F-3 (§A1A2)** — Duplicate-execution belief scope: the same contentUnitId was committed twice under two different proposalIds for tenant 3d354bfa (b4c64b88 at 15:21Z, d8085364 at 16:24Z, gap 62.8 min), writing 160,443 rows each; code-side duplicate handling found (HF-257/AP-17) covers in-session plan-interpretation duplication, and no contentUnitId-keyed commit guard was found.
+- **F-4 (§A1A2)** — sci-bulk finalize (src/lib/sci/commit-content-unit.ts:455-462) updates status and row_count but not completed_at; all top-10 batches (all source=sci-bulk, status=completed) have completed_at=null, so wall-clock was computed from the committed_data write window (396.0s and 437.7s for the two 160,443-row files).
+- **F-5 (§A1A2)** — Two import_batches rows have status=completed with committed_data count 0 against declared row_count 201 (dab3377d-dd02-42b6-8c08-bbbc52941b2d and 4254af27-b170-42c2-86c6-6f92b24171c3, both classification=target, tenant 24103940).
+- **F-6 (§A1A2)** — 43,875 committed_data rows platform-wide (of 416,258) carry import_batch_id NULL; sampled rows trace to a single tenant (f7093bcc), data_type pos_cheque, created 2026-06-03, with no metadata.source; none of the three current insert paths writes NULL import_batch_id.
+- **F-7 (§A1A2)** — Batch 307a2928-ece4-4be2-89d7-2fc0dca9568a observed status=processing with 18,000 of 20,677 declared rows committed at probe time (created 2026-06-12T18:29Z) — single-observation state, in-flight or stalled undetermined.
+- **F-8 (§A3)** — Identifier model is single-key: entities.external_id holds exactly one source key per entity; multi-identifier storage per entity is structurally impossible in the current schema (probe's 'entities with >=2 distinct source keys' = 0 as stored; cross-file resolution instead proven via linkage: 40/44 entities span 2 import batches).
+- **F-9 (§A3)** — Key matching is String(value).trim() exact-match (entity-resolution.ts:209, :425) — no case or format normalization of the source key value.
+- **F-10 (§A3)** — src/lib/sci/store-metadata-population.ts:28-31 carries hardcoded language-specific column-name lists (STORE_FIELDS/TIER_FIELDS/VOLUME_KEY_FIELDS, e.g. 'num_tienda', 'Rango de Tienda') in the entity-metadata enrichment path; the file's own header documents this as a deliberate fixed-list exception to the Korean Test.
+- **F-11 (§A3)** — Supporting (consistent with belief register, not a contradiction): failed batch 96d0f8b4 (row_count=3200) retried 29s later as completed 26e4f11f; committed_data totals 3,244 = 3,200+40+4 — failed attempt contributed zero committed rows and zero duplicate entities.
+- **F-12 (§A4)** — SCHEMA_REFERENCE_LIVE.md lists import_batches with 11 columns; live selects additionally return file_hash_sha256 and content_unit_hash_sha256 (written by src/lib/sci/commit-content-unit.ts:248) — reference generated 2026-03-18 predates HF-196/HF-213.
+- **F-13 (§A4)** — committed_data.metadata.source_sheet is written only by the legacy commit path (src/app/api/import/commit/route.ts:846 and src/lib/supabase/data-service.ts:763); the active SCI path records the sheet in row_data._sheetName with one import_batch per content unit — all 12 most recent batches show metadata->>source_sheet null for every committed row (rows_without_source_sheet equals row_count).
+- **F-14 (§A4)** — Batch 96d0f8b4-7b7a-4b1d-a484-a9095fb271ce (tenant 336af2a7-e9b3-445e-abea-85792afa893d, 2026-06-12T21:48:17Z) has status=failed with row_count=3200 and 0 committed_data rows; a sibling batch 26e4f11f-d324-4fa2-bead-39a88bc4937c of identical row_count completed 29 seconds later — recorded verbatim, not investigated further.
+- **F-15 (§A4)** — Reconciliation arm is selection-based rather than all-sheets: src/app/operate/reconciliation/page.tsx:380 (HF-182 Fix 12) auto-selects the sheet matching the plan under reconciliation, defaulting to SheetNames[0]; src/lib/reconciliation/smart-file-parser.ts:130 likewise defaults activeSheet to the first sheet.
+- **F-16 (§A5)** — src/components/import/column-mapper.tsx exports ColumnMapper with a 'Missing required fields' warning block (lines 214-235) but has zero importers in src/ — the only other 'ColumnMapper' matches are the unrelated reconciliation ai-column-mapper; the surface is orphaned.
+- **F-17 (§A5)** — The validate step never blocks progression: canProceed('validate') returns validationComplete, which is set unconditionally at page.tsx:1957 after the scoring pass; validationResult.isValid (overallScore >= 70, page.tsx:1946) is computed but never read as a gate, and missing plan-required fields produce only a score penalty plus a severity:'error' issue (page.tsx:1925-1942).
+- **F-18 (§A5)** — The commit path itself contains no mapping guard: handleSubmitImport (page.tsx:1962) checks only tenantId/uploadedFile/analysis, the Approve & Import button is gated only on isImporting (page.tsx:4007), and /api/import/commit validates only tenantId/fileName/storagePath (route.ts:95), falling back to identity/AI auto-mapping when sheet mappings are absent (route.ts:153-160). The effective gate is the upstream Map-step entityId check, which cannot be bypassed because forward step navigation is disabled (isClickable = isPast, page.tsx:2525).
+- **F-19 (§A5)** — The Map-step gate scope is entityId only — HF-066 comment at page.tsx:2385-2389 documents that the prior all-required-fields gate was deliberately relaxed because uploaded files may lack columns for all plan metrics.
+- **F-20 (§A6)** — Table plan_interpretation_runs (backing the duplicate-execution guard, migration web/supabase/migrations/20260531000000_hf259_idempotency_lifecycle.sql) is absent from SCHEMA_REFERENCE_LIVE.md (generated 2026-03-18); live DB query confirms the table exists with 7 rows — schema reference is stale for this table.
+- **F-21 (§A7)** — Divergent identity read in the switcher chain: src/contexts/persona-context.tsx:163-168 queries profiles by auth_user_id directly with .maybeSingle(), bypassing resolveIdentity(); src/lib/auth/resolve-identity.ts:4 declares itself 'THE only sanctioned profiles-by-auth_user_id read' and its contract (lines 10-11) bans .single()/.maybeSingle() as the DIAG-060 defect shape.
+- **F-22 (§A7)** — Filter-key mismatch in the divergent read: the value passed to .eq('auth_user_id', ...) is user.id, which mapProfileToUser sets to profile.id (src/contexts/auth-context.tsx:60-68) from classifyProfileFetch id: identity.id = profiles.id (src/lib/supabase/auth-service.ts:184); live DB shows 9 of 11 profiles rows have id !== auth_user_id (all tenant_admin/admin/manager/sales_rep rows), so the lookup returns zero rows for every tenant-role user.
+- **F-23 (§A7)** — The divergent read adds .eq('tenant_id', currentTenant.id) while all 3 platform rows carry tenant_id NULL (DB probe), so for the VL Admin operating the switcher the profile lookup also resolves null; persona scope is produced entirely by the demo-override fallback branches (persona-context.tsx:187-193 admin, 213-235 rep sample-individual, 267-295 manager first-brand). Related HF-097 comment at auth-service.ts:201-206: 'DO NOT add tenant_id filters to the login profile fetch' (different surface, recorded for context).
+- **F-24 (§A7)** — Adjacent-arm sweep (E952): 28 profiles-by-auth_user_id query sites total excluding tests; 27 sit outside the canonical reader resolve-identity.ts:83 (full enumeration in evidence file section 11); only persona-context.tsx:166 is inside this probe's chain, and the API-route sites use the server-derived auth user id rather than the mapped client user.id.
+- **F-25 (§A7)** — The switcher's login-identity arm IS canonical: auth-context.tsx:200/212/255 -> fetchCurrentProfile (auth-service.ts:208) -> resolveIdentity (resolve-identity.ts:76); the switch action itself performs no auth round-trip (context-only override, OB-89, sessionStorage key vl_persona_override) — consistent with the belief-register entry at the mechanism level.
+- **F-26 (§B1)** — calculation_traces table holds 0 rows (global, DB-verified) and its writer writeCalculationTraces (src/lib/supabase/calculation-service.ts:423) has zero call sites; /investigate/trace/[entityId]'s EmployeeTrace renders from this empty source, with trace substance coming instead from calculation_results.metadata.intentTraces
+- **F-27 (§B1)** — /perform/statements header comment states 'Rep: own entity only', but the code loads all tenant entities into an unscoped picker for every user (page.tsx:106-145) with no RequireCapability gate and no middleware prefix match; RLS SELECT policies on calculation_results and committed_data are tenant-scoped only (migration 003:65-68,169-172), so any tenant member can read every entity's results and source rows
+- **F-28 (§B1)** — /my-compensation matches the rep's result via email-derived numeric id against calculation_results.entity_id, which is uuid in all live rows (DB-verified entity_id_is_uuid=true; entities.external_id non-numeric) — the own-statement path cannot match, yielding 'No Outcome Results Yet'
+- **F-29 (§B1)** — Persisted component JSONB key is 'payout' (run-calculation.ts:1471-1477; DB-verified keys componentId/componentName/componentType/details/payout), but /my-compensation reads comp.outputValue||comp.output_value (page.tsx:168) and RepDashboard's parseComponents reads comp.value||comp.outputValue (persona-queries.ts:484-490) — component amounts resolve to 0 on those rep surfaces; ComponentBreakdownCard reads comp.inputs.attainment (line 104) where 'inputs' is absent from the persisted shape
+- **F-30 (§B1)** — /perform/statements, /my-compensation, and /perform have zero inbound links in the active navigation: the perform workspace in workspace-config.ts contains only /stream and /operate/results (the latter capability-filtered to platform/admin), and the legacy Sidebar.tsx that links /my-compensation is not imported anywhere
+- **F-31 (§B1)** — components[].details is an empty object on the latest calculation_result of all 4 tenants and metadata.intentTraces[0].inputs is empty in the sampled row — the L3 'inputs' layer exists as schema keys but is unpopulated in live data
+- **F-32 (§B1)** — /investigate/trace/[entityId] is reachable by any authenticated user (no WORKSPACE_CAPABILITIES prefix for /investigate, no page-level RequireCapability); all in-app links to it originate from admin-gated surfaces
+- **F-33 (§B1)** — /perform/statements source-row panel queries committed_data by entity only (last 50 rows, page.tsx:230-237) without filtering to the selected period
+- **F-34 (§B2)** — Page docstring (src/app/perform/statements/page.tsx:15-18) states 'Rep: own entity only (via profile link or URL param)' but the component contains no role/profile check: it loads all tenant entities, shows the picker unconditionally, and auto-selects the first entity (lines 106-149); RLS SELECT on calculation_results is tenant-wide (003_data_and_calculation.sql:169-172); profile_scope has 0 rows — any tenant user reaching the URL can view any entity's statement
+- **F-35 (§B2)** — Route /perform/statements is referenced nowhere in src (grep 'perform/statements' = zero hits): absent from workspace-config.ts perform sections, Sidebar.tsx, ChromeSidebar.tsx, and the command palette — direct-URL access only, despite statement.view being granted to all five roles in src/lib/auth/permissions.ts
+- **F-36 (§B2)** — All 3,905 live component entries across all 943 calculation_results have componentType 'prime_dag' with empty details {}; formatComponentDetail (page.tsx:582-601) handles four other types and renders the explicit default label 'Component type prime_dag not supported in statement display' for 100% of current data — name/payout/%-of-total still render
+- **F-37 (§B2)** — QuickActionsCard 'Download Statement' action links to href '#' (src/components/compensation/QuickActionsCard.tsx:13) — dead link; compensation-clock getRepNextAction 'View Statement' (compensation-clock-service.ts:237) returns a label string with no route attached
+- **F-38 (§B2)** — Live profiles role vocabulary {platform, tenant_admin, admin, manager, sales_rep} plus 'vl_admin' in RLS policies diverges from permissions.ts ROLE_CAPABILITIES keys {platform, admin, manager, member, viewer}; the roles granted statement.view (member, viewer) do not appear in the live role distribution
+- **F-39 (§B3)** — exportToCSV (src/lib/calculation/results-formatter.ts:323) covers all five demo-bar fields (Employee ID/Name/Role/Store ID/Store Name/Period/Plan/Total Incentive/Currency/Calculated At) but has zero call sites in src/.
+- **F-40 (§B3)** — The wired payroll export's 'Entity ID' column carries the internal entity UUID (calculation_results.entity_id), not the business entities.external_id; external_id appears only in the /operate/calculate inline CSV.
+- **F-41 (§B3)** — src/app/operate/pay/page.tsx is wrapped in RequireCapability capability="data.export" (line 338) but contains no export/download/CSV code; the payroll export lives on /admin/launch/calculate instead.
+- **F-42 (§B3)** — Tenant f0f0f0f0-aaaa-bbbb-cccc-dddddddddddd has no calculation_batches rows with entity_count > 0 (headless probe returned NO_BATCH_FOUND); the run used the most recent batch-with-results, tenant b1c2d3e4-aaaa-bbbb-cccc-111111111111.
+- **F-43 (§B3)** — No export API route exists (find src/app/api -type d -iname '*export*' returns nothing); all export surfaces are client-side Blob downloads.
+- **F-44 (§B3)** — entity_relationships has 0 rows for the probed tenant; hierarchy data for that tenant lives only as entities.metadata keys (region/role/cargo/nivel_cargo).
+- **F-45 (§B4)** — Trajectory output is not persisted to any table: zero 'trajector' matches in SCHEMA_REFERENCE_LIVE.md; both engines are pure functions and output lives only in React state (stream/page.tsx setTrajectoryData; RepTrajectory.tsx useMemo); no .insert/.update/.upsert/.delete in the trajectory path (grep exit=1) — recomputed on every page load
+- **F-46 (§B4)** — loadTrajectoryData (state-reader.ts:329-341) keeps the most recent calculation_batch per period by created_at order without filtering on lifecycle_state or superseded_by columns that exist on calculation_batches
+- **F-47 (§B4)** — computeRepTrajectory returns empty trajectories for weighted_kpi configs (trajectory-engine.ts:234-235); only additive_lookup variants with bounded_lookup_1d/2d intent produce cards
+- **F-48 (§B4)** — Both gate-pass tenants' active rule_sets.components carry zero metadata.intent/calculationIntent (probe output: operations=[no_intent] across 8 and 10 components), so the rep-level RepTrajectoryPanel renders null for them today; the population-level TrajectoryCard has no such dependency
+- **F-49 (§B4)** — ruleSetToPlanConfig (rule-set-service.ts:31,45) defaults type to 'additive_lookup' whenever metadata.plan_type is not 'weighted_kpi', injecting a type key absent from the stored components JSONB (observed stored shape: object_no_type)
+- **F-50 (§B5)** — calculation_batches.entity_count diverges from actual calculation_results rows for live batch 883f7052-d180-4ae4-8150-bc4d2471b96e: column reads 85, exact results count is 0, batch is PREVIEW and not superseded — the Run dropdown advertises entities for a run whose results page renders empty
+- **F-51 (§B5)** — Displayed entity count and total payout on /operate/results derive from an unpaginated .select() (calculation-service.ts:385-391); live measurement shows the server returns at most 1000 rows (committed_data: 416258 exact vs 1000 returned), so batches >1000 entities would display truncated counts/totals; same shape in results-loader.ts:148-152 feeding /operate/calculate
+- **F-52 (§B5)** — The two entity-count displays use different sources: page header = fetched-row length (results.length, page.tsx:346), Run dropdown = calculation_batches.entity_count (operate-context.tsx:231,255) — they can disagree, as demonstrated by the divergent batch
+- **F-53 (§B5)** — /operate/results renders only the first 100 table rows with no pagination control (page.tsx:635, 797-800: filteredResults.slice(0, 100) plus 'Showing 100 of N' footer)
+- **F-54 (§B5)** — results-loader.ts:170 hardcodes dataset-specific metadata keys for the Store column in shared code: meta.No_Tienda ?? meta.num_tienda ?? meta.storeId
+- **F-55 (§B5)** — src/components/calculate/PlanResults.tsx is an orphaned results-table component — no importers anywhere in src
+- **F-56 (§C1)** — Belief 'a disputes foundation exists' is contradicted at the DB layer: web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql dropped the disputes table (2026-04-28, 0 rows, zero FK fan-in); live probe returns PGRST205; SCHEMA_REFERENCE_LIVE.md (2026-03-18) and web/src/lib/supabase/database.types.ts still list the table (stale).
+- **F-57 (§C1)** — Belief 'no UI to initiate, manage, or approve' is contradicted: web/src/app/performance/adjustments/page.tsx (OB-73 Mission 5 F-31/F-32) contains a New Adjustment insert form plus Approve and Reject handlers — all wired to the now-dropped disputes table, so the surfaces exist but cannot function.
+- **F-58 (§C1)** — web/src/lib/data/page-loaders.ts:510 loadAdjustmentsPageData maps the dropped-table error to an empty adjustments list, so /performance/adjustments renders empty without surfacing the failure.
+- **F-59 (§C1)** — web/src/components/navigation/Sidebar.tsx:136 nav item 'Dispute Analytics' targets /insights/disputes, for which no route directory exists under web/src/app/insights/.
+- **F-60 (§C1)** — Resolve handlers (page.tsx:80 handleApprove, :102 handleReject) update the table directly client-side with no audit write (grep 'audit' in the page: zero hits); web/src/lib/audit/audit-logger.ts:7 documents 'Used by: dispute API' but grep -rnil dispute src/app/api returns zero hits — no dispute API route exists.
+- **F-61 (§C1)** — handleNewAdjustment (page.tsx:151) selects the tenant's first entity as a placeholder, with in-code comment 'user should pick in a real form'.
+- **F-62 (§C1)** — web/src/components/compensation/AttributionDetails.tsx carries the only flag-transaction affordance ('Report a Problem' with onReportProblem callback) but is mounted by no page — referenced only by the barrel export src/components/compensation/index.ts.
+- **F-63 (§C1)** — No code path links dispute/adjustment resolution to recalculation: recalc references (rollback-service.ts, period-processor.ts, impact-calculator.ts, api/calculation/run/route.ts, etc.) contain no dispute linkage.
+- **F-64 (§C2)** — Belief 'no UI to initiate, manage, or approve' is contradicted at the code layer: /performance/adjustments (re-exported at /investigate/adjustments) ships New Adjustment/Approve/Reject handlers wired to disputes (header comment: 'Approve/Reject/New Adjustment buttons are fully functional', OB-73 Mission 5 F-31/F-32); the belief holds operationally because the backing table is absent live
+- **F-65 (§C2)** — SCHEMA_REFERENCE_LIVE.md (2026-03-18) lists disputes (16 columns) but live service-role SELECT returns "Could not find the table 'public.disputes' in the schema cache"; migration web/supabase/migrations/20260428_aud_004_drop_disputes_table.sql dropped it deliberately after reference generation; src/lib/supabase/database.types.ts still types the dropped table (lines 667, 1252)
+- **F-66 (§C2)** — Live audit_logs contains 0 rows total and approval_requests 0 rows, in the populated platform DB (entities=22148, calculation_batches=15, periods=16)
+- **F-67 (§C2)** — Adjustments resolution handlers (src/app/performance/adjustments/page.tsx:79-121) write directly from the browser client with no audit emission, no approval_requests linkage, and no submitter-vs-approver check; handleNewAdjustment assigns the tenant's first entity as a placeholder (code comment 'user should pick in a real form') with no transaction data reference
+- **F-68 (§C2)** — ApprovalDomain 'manual_adjustment' (src/lib/approval-routing/types.ts:14) has zero producers — only import-service (import_batch) and rollback-service (rollback) call createApprovalRequest — and the approval-routing store is in-memory (loadFromStorage returns empty Map)
+- **F-69 (§C2)** — src/lib/audit/audit-logger.ts:7 header claims 'Used by: dispute API' but no dispute/adjustment API route exists (find src/app/api -iname '*dispute*' -o -iname '*adjust*' returns nothing)
+- **F-70 (§C2)** — No recalculation path consumes adjustments: disputes.amount_resolved is read in page-loaders.ts:518 but never written anywhere in src; period-processor's runPeriodCalculation is a stub with underscore-prefixed params; the /api/calculation/run orchestrator reads committed_data with no adjustment input
+- **F-71 (§C3)** — audit_logs table contains 0 rows while 8 code emit sites exist (approvals x3, calculation-service x2 on the live calc path, lifecycle-service, calculation-lifecycle-service, lifecycle transition route); every writer suppresses insert errors (.catch(()=>{}), try/catch, or unchecked result).
+- **F-72 (§C3)** — src/lib/lifecycle/lifecycle-service.ts:277 inserts into audit_logs without the metadata column, which SCHEMA_REFERENCE_LIVE.md lists as NOT NULL with no default; the insert result is not checked.
+- **F-73 (§C3)** — Belief register nuance: the dispute audit foundation consists only of 'dispute.submitted'/'dispute.resolved' entries in the PlatformEventType union (src/lib/events/emitter.ts) and a header comment in src/lib/audit/audit-logger.ts:7 stating 'Used by: dispute API' — no dispute API route or emit site exists under src/app/api.
+- **F-74 (§C3)** — plan.imported emit site exists (src/app/api/plan/import/route.ts:149) but platform_events contains zero plan.imported rows; emit is fire-and-forget with errors swallowed.
+- **F-75 (§C3)** — src/lib/supabase/data-service.ts:448 exports a second, signature-divergent writeAuditLog with zero callers (duplicate of src/lib/audit/audit-logger.ts:27).
+- **F-76 (§C3)** — The audit-viewing surfaces do not read either DB sink: /admin/audit is backed by an in-memory AuditService (src/lib/audit-service.ts — constructor and flush() are no-ops, 'localStorage removed'), and /operations/audits/logins renders hardcoded mock arrays (mockLoginAudits, techCorpLoginAudits at page.tsx:49-68).
+- **F-77 (§C3)** — Persona switch (setPersonaOverride, src/contexts/persona-context.tsx:37), data import commit (src/app/api/import/commit/route.ts), and all 8 export/CSV surfaces emit no events to either sink.
+- **F-78 (§D1)** — F1 defect: src/lib/canvas/graph-service.ts:236 orders entity_period_outcomes by created_at; live probe returns 'ERROR: column entity_period_outcomes.created_at does not exist' and the call site does not check the error, so the outcome read yields null.
+- **F-79 (§D1)** — F2 defect: all 172 entity_period_outcomes rows for tenant 03d28288-700b-43e3-a96b-49a4f849d2df reference period b1361a9f-506b-4ed6-8ec7-b37f9aa03333, which the periods table assigns to tenant dbe3b308-1483-4cd8-8032-6fdd4a8a8f5c; tenant 03d28288 has 0 periods rows (cross-tenant period reference).
+- **F-80 (§D1)** — F3: the 'Advanced Analytics Dashboard' at /insights/analytics renders generated demo data — src/lib/analytics/analytics-service.ts getExecutiveDashboard calls generateKPIs()/generateTrends()/generateBreakdowns(); no DB access in that service.
+- **F-81 (§D1)** — F4: /data/reports renders static fixture data — src/lib/financial-service.ts getRevenueByPeriod reads financialSummariesData (static JSON); page simulates loading with setTimeout(800).
+- **F-82 (§D1)** — F5: AdminDashboard lists activePeriodId in its useEffect deps (AdminDashboard.tsx:113-123) but getAdminDashboardData(tenantId) takes no period argument and internally resolves the latest period by start_date, so period selection re-fetches the same latest period.
+- **F-83 (§D1)** — F6: getDashboardKPIs (calculation-service.ts:655, tenant YTD + pending rollup over entity_period_outcomes) has zero consumers in src/.
+- **F-84 (§D1)** — F7 (code-acknowledged): AdminDashboard.tsx:125-128 CLT-56 comment — budget shown is estimated as 110% of actual payout because no budget field exists in entity_period_outcomes, producing a constant -9.1% delta.
+- **F-85 (§D2)** — Nine independent formatCurrency definitions exist alongside the tenant-aware formatTenantCurrency (10 total definition sites); four hardcode en-US/USD; src/lib/data-service.ts:517 and src/lib/financial-service.ts:210 are byte-identical duplicates.
+- **F-86 (§D2)** — 13 hardcoded `$${...toLocaleString()}` template sites survive on main after all prior sweeps, all in lib/service paths or vl_admin platform tabs (complete list in evidence file, section 3).
+- **F-87 (§D2)** — The PDR-01 invariant itself shipped in three different definitions inside the single authority: no-cents >=1,000 (OB-101 f8679c10), no-cents >=10,000 (HF-063 c1f2f330, whose message records the OB-101 threshold was 'changed without authorization'), and whole-number suppression (OB-173, current main).
+- **F-88 (§D2)** — HF-063 c1f2f330 commit message asserts 'single fix propagates everywhere', yet at least four further currency fix cycles followed (HF-069, HF-070, OB-132 Phase 4, OB-175 Phase 4) — consistent with N-site structure, not a single authority; all 14 fix commits in evidence section 4 are page-set sweeps or single-file changes (AUD-009 instance-closure signature).
+- **F-89 (§D2)** — src/lib/currency.ts:22 carries hardcoded mock EXCHANGE_RATES consumed by convertCurrency/formatWithConversion ('in production, fetch from API'); its formatCurrency rival is reachable via src/components/ui/currency-display.tsx.
+- **F-90 (§D2)** — Class scale: 561 grep hits across 127 files (formatCurrency 366, toLocaleString 175, Intl.NumberFormat 20, formatMoney 0); surface split: dashboard 60 files/242 hits, rep 23/188, lib 26/52, admin 12/56, export 5/17, statement 1/6.
+- **F-91 (§D2)** — Structural statement: the eventual fix is one invariant at one authority, and the authority already exists — formatTenantCurrency (src/types/tenant.ts:134) exposed via useCurrency() (src/contexts/tenant-context.tsx:265), already consumed by 65 files and importable directly by non-React lib paths. No fix performed (read-only probe).
+- **F-92 (§D3)** — Two parallel i18n mechanisms coexist: the JSON-dictionary t() (src/lib/i18n.ts + src/contexts/locale-context.tsx) is consumed by exactly 1 route page (src/app/login/page.tsx), while 89 tsx files use inline per-locale label records ('es-MX'/isSpanish) instead
+- **F-93 (§D3)** — src/lib/i18n.ts:1-7 declares pt-BR as a supported locale with full dictionaries in src/locales/pt-BR/, while src/hooks/useAdminLocale.ts:15 narrows SupportedLocale to 'en-US' | 'es-MX'
+- **F-94 (§D3)** — src/app/login/page.tsx mixes dictionary calls (t('auth.signIn') line 112, t('auth.welcomeBack') line 39) with hardcoded literals ('Sign In' line 177, 'Continue with Google' line 217) in the same page
+- **F-95 (§D3)** — Demo-path scopes src/app/operate/import + src/components/sci, src/app/operate/calculate + src/components/calculate, src/app/operate/results + src/components/results, src/app/my-compensation, src/app/perform/statements + src/components/compensation contain 0 files with locale-conditional strings; English literals present (pattern hits: 49/44/15/28 respectively)
+- **F-96 (§D3)** — No route-level locale handling: src/middleware.ts and next.config have no locale/i18n hits; src/app/layout.tsx:39 statically sets <html lang="en">
+- **F-97 (§D4)** — Recalculation via POST /api/calculation/run inserts a new calculation_batches row and never sets superseded_by on the prior batch (run/route.ts:1247-1262; no supersede call in route). Live DB: 0 of 15 batches have superseded_by set; 4 (tenant,period,rule_set) groups each carry 2 non-superseded PREVIEW batches.
+- **F-98 (§D4)** — /operate/results keys off selectedBatchId, which OperateContext auto-select pins from sessionStorage (operate-context.tsx:263-274) over an unfiltered batch list (loadBatches has no superseded_by filter, operate-context.tsx:229-241); after a recalculation the page continues displaying the pre-recalc batch until the Run dropdown is changed manually.
+- **F-99 (§D4)** — PlanCard's 'N entities' shows two sources under one label on the same page: pre-calc it is the rule_set_assignments exact count (plan-readiness/route.ts:39-47,108); after an in-session calc it switches to the calculated count from the API response (entityResults.length, run/route.ts:3145). Results-view counts (ResultsHero, /operate/results) derive from calculation_results rows.
+- **F-100 (§D4)** — OperateContext exposes refreshBatches and refreshPeriods but no refreshPlans; the inline cadence editor (PATCH /api/rule-sets/update-cadence, calculate/page.tsx:388-401) does not refresh context plans, so the cadence-based period filter (selectedPlanCadence -> filteredPeriods) uses stale cadence_config until the provider remounts.
+- **F-101 (§D4)** — refreshPeriods has exactly one consumer call site platform-wide (calculate/page.tsx:427, the detect-periods create flow); periods created on /configure/periods reach the Operate selector only via OperateProvider remount on segment re-entry (operate/layout.tsx:8).
+- **F-102 (§E1)** — temporal_adjustment is defined in intent-types.ts:207 and constructed by intent-transformer.ts:224-233, but the only engine handler (legacy-intent-to-dag.ts:594-599, wrapModifier) throws UntranslatableLegacyIntentError — the modifier is carried end-to-end yet has no executable translation.
+- **F-103 (§E1)** — At the run-calculation.ts fallback call site (src/lib/calculation/run-calculation.ts:390), the translation throw is absorbed by a bare catch block with comment 'Fallback failed silently — use original $0 payout'; a component configured with temporal_adjustment would yield the unmodified payout without surfacing the unsupported modifier.
+- **F-104 (§E1)** — calculation_results.components is a jsonb OBJECT keyed by component name (sample keys: base_commission, tip_bonus), not an array of {type:...} objects — the probe's suggested PostgREST contains([{<typekey>:...}]) pattern is shape-inapplicable; the authoritative count came from a 100%-coverage client-side string scan (943/943 rows, 0 hits).
+- **F-105 (§E1)** — Supplementary configuration scan: 0 of 9 rule_sets contain temporal_adjustment anywhere in components — the capability is not only never executed but never configured by any tenant.
+- **F-106 (§E2)** — Calculation assignment fetch filters only tenant_id + rule_set_id in both paths (src/lib/calculation/run-calculation.ts:920-926; src/app/api/calculation/run/route.ts:428-434); effective_from/effective_to never referenced for assignments anywhere in src/lib or src/app
+- **F-107 (§E2)** — HF-126/HF-189 self-heal (src/app/api/calculation/run/route.ts:451-495) inserts assignments for ALL unassigned individual entities to the calculated rule set, with NULL effective_from, on every calc run — under multiple active plans this assigns every entity to every plan calculated
+- **F-108 (§E2)** — Live data: 643 of 703 rule_set_assignments rows have NULL effective_from; 0 of 703 have effective_to; rule_sets: 2 of 9 have effective_from, 0 have effective_to, 8 of 9 status=active
+- **F-109 (§E2)** — src/lib/sci/assignment-creation.ts inserts assignments without effective_from at all, while the other three writer sites set effective_from = today
+- **F-110 (§E2)** — Date-effectivity honoring DOES exist in the calc path for entity temporal_attributes (src/app/api/calculation/run/route.ts:1685-1686 as-of-date checks) but is not applied to assignments; rule_sets effective_from/to is read only for display mapping (src/lib/supabase/rule-set-service.ts:33-34) and active-plan selection is status-based
+- **F-111 (§E3)** — A second variant-selection implementation exists at src/lib/calculation/run-calculation.ts:1367-1397 (OB-85-R3R4 role-name exact/contains matcher) inside exported runCalculation(); grep across src shows zero invocations of runCalculation (only comments and [CalcTrace] label strings), so two divergent variant-selection algorithms coexist with only the route-inline HF-119 matcher reachable.
+- **F-112 (§E3)** — On full scoring tie the matcher silently defaults to the LAST variant (method 'default_last', route.ts:1862) rather than excluding; the OB-194 exclusion gate only fires when both discriminant and total overlap are exactly 0.
+- **F-113 (§E4)** — Live DB: 0 of 9 rule_sets carry persisted input_bindings.metric_derivations; 3 are at convergence_version=HF-234 with convergence_bindings only (Pass 4 emitted 0 derivation rules for those plans; the derivationCount>0 gate at route.ts:286 leaves the key absent); 6 have empty input_bindings. The filtered-derivation executor is operative in code but currently unexercised by any persisted rule.
+- **F-114 (§E4)** — Stated search tokens 'applyFilter' and 'derived_metric' have 0 hits anywhere in src; the operative vocabulary is metric_derivations (JSONB key on rule_sets.input_bindings), applyMetricDerivations, rowMatchesFilters/rowMatchesPredicate, and the 'filter' prime — there is no dedicated derivations table.
+- **F-115 (§E4)** — Two distinct filter-application arms exist in the calc route: (1) metric_derivations -> applyMetricDerivations -> filter-prime DAG (route.ts:1928), and (2) convergence_bindings -> resolveColumnFromBatch with filters read from the binding entry (HF-227) applied via rowMatchesFilters (route.ts:1579) — unified to one filter contract by HF-226 Phase 3A.
+- **F-116 (§E5)** — Two live rule_sets (2054d734-2a3c-4cd7-b199-79d2f1c578f0, fc14ea6e-ecb9-40c7-a1d0-7d903fbf835b; tenant f7093bcc-e90b-4918-9680-69da7952dd65) persist components in a third structural shape outside BOTH boundary arms: named config objects with keys [metric,weight,description,output_type] / [type,basis,tiers,description], no prime, no operation, no calculationIntent — matched by neither the constructor route nor the legacy translation dispatch.
+- **F-117 (§E5)** — evaluateComponent (run-calculation.ts:264) and its internal legacyIntentToDAG fallback (run-calculation.ts:376) have zero production call sites — references outside run-calculation.ts are comments only (route.ts:2489 records its retirement; convergence-service.ts:1470 doc comment).
+- **F-118 (§E5)** — assembleTree (prime-assembler.ts:203) has zero production call sites — the HF-250 chunk-assembly surface remains after HF-252 retired the chunking pathway; only a comment (prime-grammar.ts:156) and tests reference it.
+- **F-119 (§E5)** — Live census: 54/54 components across the 7 variants-shaped rule_sets are prime_node with metadata construction_method=compositional_intent; zero legacy_operation and zero ComponentIntent-level variants shapes are persisted — the legacy translation arm (translateOperation, 11 operation discriminators + 4 modifiers) currently has no live persisted consumers.
+- **F-120 (§E6)** — Zero entities have >=2 active rule_set assignments: 703 assignment rows, 703 distinct entities, all assignment_type='direct', distribution 1->703 (diag063_e6_multiplan.ts output)
+- **F-121 (§E6)** — Zero (entity, period) pairs in calculation_results carry >=2 distinct rule_set_ids: 943 rows scanned, 943 distinct pairs, 0 multi-plan pairs (diag063_e6_multiplan_results_scan.ts output)
+- **F-122 (§E6)** — The only batch containing two rule_set_ids (tenant f7093bcc-e90b-4918-9680-69da7952dd65, batch ac82b514-10c1-4696-8f8f-734ecb012a83, period 849991e5-396e-4b06-ba39-c760383bad1b) was inserted directly by web/scripts/frmx/p6-calc.ts:25-59, not produced by the calculation engine; its two populations are disjoint (20 vs 40 entities, overlap 0)
+- **F-123 (§E6)** — POST /api/calculation/run self-heal (HF-126/HF-189, src/app/api/calculation/run/route.ts:451-490) inserts a 'direct' assignment for every individual tenant entity missing from the run's rule set; on a tenant with intentionally disjoint plan populations, one engine run expands that plan's assignment to all individual entities
+- **F-124 (§E6)** — materializeEntityPeriodOutcomes (src/lib/supabase/calculation-service.ts:487-590) reads calculation_results for ONE batch_id (:496-501) but deletes ALL entity_period_outcomes for the tenant+period before insert (:562-568); a second plan's materialization in the same period removes the first plan's outcomes. Docstring at :481 states 'Read all calculation_results for the entity in this period' while the query filters by batch_id
+- **F-125 (§E6)** — SCI bulk path (src/lib/sci/assignment-creation.ts:90-101) creates the full cross-product entities x ALL active rule sets — a tenant with 2 active rule sets at SCI execution time would get every entity dual-assigned via this path
