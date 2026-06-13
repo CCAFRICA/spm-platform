@@ -130,7 +130,10 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // its reference_key, by the HC LLM's definition of those roles. Quota /
 // roster / capacity tables are unaffected.
 
-function findHcRole(
+// HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC
+// surface this resolver already trusts (Decision 64 v3 — one surface, not a
+// second binding-vocabulary surface). No duplication of the read logic.
+export function findHcRole(
   classificationTrace: Record<string, unknown> | undefined,
   targetRole: 'identifier' | 'reference_key',
 ): string | null {

@@ -30,7 +30,7 @@ import { executePostCommitConstruction } from '@/lib/sci/post-commit-constructio
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcRole } from '@/lib/sci/commit-content-unit';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
@@ -782,8 +782,17 @@ async function processEntityUnit(
   const nameBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_name');
   const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');
 
-  if (!idBinding) {
-    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity_identifier binding found' };
+  // HF-285-A (DIAG-066): the entity identifier lives on ONE canonical surface —
+  // the HC interpretation's columnRole==='identifier' (HC_IDENTIFIER_THRESHOLD),
+  // the surface commitContentUnit.resolveEntityIdField already trusts. The
+  // confirmedBindings.semanticRole vocabulary is a SECOND surface that the warm
+  // flywheel can populate with a non-entity role (transaction_identifier) when its
+  // cold write diverged from the cold proposal. When the semantic binding is
+  // absent, read the canonical surface — blind to producer (AUD-009: a future
+  // third producer needs no change here; Decision 64 v3 one-surface).
+  const idSourceField = idBinding?.sourceField ?? findHcRole(unit.classificationTrace, 'identifier');
+  if (!idSourceField) {
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity identifier found on any surface (semanticBinding or HC columnRole)' };
   }
 
   // Collect unique external IDs with metadata + enrichment attributes
@@ -793,7 +802,7 @@ async function processEntityUnit(
     b.semanticRole === 'entity_attribute' || b.semanticRole === 'descriptive_label'
   );
   for (const row of rows) {
-    const eid = row[idBinding.sourceField];
+    const eid = row[idSourceField];
     if (eid == null || !String(eid).trim()) continue;
     const key = String(eid).trim();
     if (entityData.has(key)) continue;
