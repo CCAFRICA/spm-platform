@@ -7,7 +7,7 @@
 // listing (D7). Import proceeds with any non-empty selection; failed/excluded units simply don't
 // commit; the button reflects the subset (D8). Zero domain vocabulary. Korean Test applies.
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -17,6 +17,7 @@ import type {
 } from '@/lib/sci/sci-types';
 import type { ParsedFileData } from '@/components/sci/SCIUpload';
 import type { SessionStateView, UnitStateView, UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
+import { allUnitsSettled } from '@/lib/sci/comprehension-state-service';
 import { setImportInteractionContext, captureImportInteraction, flushPendingImportInteractions } from '@/lib/sci/import-interaction-signals';
 
 const BADGE_STYLES: Record<string, string> = {
@@ -355,6 +356,8 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
 
   // ── D7: ONE durable state read drives every card (poll SessionStateView) ──
   const [liveStates, setLiveStates] = useState<Map<string, UnitStateView>>(new Map());
+  const pollIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const poll = useCallback(async () => {
     if (!tenantId || !importSessionId) return;
     try {
@@ -362,6 +365,12 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
       if (res.ok) {
         const view = await res.json() as SessionStateView;
         setLiveStates(new Map(view.units.map(u => [u.unitId, u])));
+        // HF-286: stop polling once every unit is settled (bound/resolved/failed_interpretation).
+        // Settled-set, NOT !isOpen — failed_interpretation keeps isOpen===true (awaiting human).
+        if (allUnitsSettled(view.units) && pollIdRef.current !== null) {
+          clearInterval(pollIdRef.current);
+          pollIdRef.current = null;
+        }
       }
     } catch { /* transient */ }
   }, [tenantId, importSessionId]);
@@ -372,7 +381,8 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
     captureImportInteraction({ surface: 'sci_proposal', action: 'view', dedupKey: `view:${importSessionId}` });
     void poll();
     const id = setInterval(() => void poll(), 1500);
-    return () => { clearInterval(id); flushPendingImportInteractions(); };
+    pollIdRef.current = id;
+    return () => { clearInterval(id); pollIdRef.current = null; flushPendingImportInteractions(); };
   }, [poll, tenantId, importSessionId]);
 
   const unitIds = useMemo(() => {

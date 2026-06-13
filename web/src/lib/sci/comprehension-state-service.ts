@@ -59,6 +59,26 @@ export function isSpineState(s: UnitComprehensionState): boolean {
 }
 
 /**
+ * Terminal/settled states for poller-stop purposes (HF-286).
+ * A unit is settled when it will not change without a NEW user action or a NEW import:
+ *   - bound / resolved  → terminal success (isOpen === false implies all units here)
+ *   - failed_interpretation → terminal-but-awaiting-human (retryable); note this keeps
+ *     session isOpen === true, so an all-failed/awaiting proposal is settled-for-polling
+ *     even though the session is not "closed". This is why the poller stop predicate is
+ *     settled-set membership, NOT !isOpen alone.
+ */
+export const SETTLED_STATES: ReadonlySet<UnitComprehensionState> = new Set<UnitComprehensionState>([
+  'bound',
+  'resolved',
+  'failed_interpretation',
+]);
+
+/** True when every unit is settled (nothing in-flight) — the poller-stop predicate. */
+export function allUnitsSettled(units: ReadonlyArray<{ state: UnitComprehensionState }>): boolean {
+  return units.length > 0 && units.every(u => SETTLED_STATES.has(u.state));
+}
+
+/**
  * Emission guard: is `next` a legal forward transition from `current`?
  * Spine→spine must not regress rank. failed_interpretation is reachable from any
  * spine state. resolved is reachable from any state (terminal). Re-emitting

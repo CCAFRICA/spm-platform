@@ -7,6 +7,8 @@
 // "nanobatch" is reserved for the DS-020 learning innovation and never appears here.
 
 import { useEffect, useState } from 'react';
+import { allUnitsSettled } from '@/lib/sci/comprehension-state-service';
+import type { UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
 
 interface ImportTelemetry {
   totalSignalsWritten: number;
@@ -56,17 +58,25 @@ export function ImportTelemetryPanel({
   useEffect(() => {
     if (!tenantId || !sessionId) return;
     let cancelled = false;
+    let id: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(sessionId)}&telemetry=1`);
         if (!r.ok || cancelled) return;
         const data = await r.json();
         if (data?.telemetry) setT(data.telemetry as ImportTelemetry);
+        // HF-286: the telemetry=1 response spreads ...view, so data.units is present.
+        // Stop once every unit is settled (same settled-set predicate as the proposal poller).
+        const units = (data?.units ?? []) as Array<{ state: UnitComprehensionState }>;
+        if (allUnitsSettled(units) && id !== null) {
+          clearInterval(id);
+          id = null;
+        }
       } catch { /* best-effort — durable record is the source; a missed poll self-corrects next tick */ }
     };
-    const id = setInterval(poll, 2000);
+    id = setInterval(poll, 2000);
     void poll();
-    return () => { cancelled = true; clearInterval(id); };
+    return () => { cancelled = true; if (id !== null) clearInterval(id); };
   }, [tenantId, sessionId]);
 
   if (!t) return null;
