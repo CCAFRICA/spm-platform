@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
     }
 
+    // OB-203 D16.1: never derive periods from a non-completed (processing/failed) batch's partial rows.
+    const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+    const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
     // Check for existing periods
     const { count: existingCount } = await supabase
       .from('periods')
@@ -39,24 +43,24 @@ export async function POST(req: NextRequest) {
     // Entity/roster dates (hire_date) and reference dates are not performance boundaries.
     const periodMap = new Map<string, { year: number; month: number; count: number }>();
 
-    const { data: sourceDateSample } = await supabase
+    const { data: sourceDateSample } = await applyCommittedDataVisibility(supabase
       .from('committed_data')
       .select('source_date')
       .eq('tenant_id', tenantId)
       .not('source_date', 'is', null)
-      .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target')
+      .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds)
       .limit(1);
 
     if (sourceDateSample && sourceDateSample.length > 0) {
       // Source dates exist — scan them for unique year-months
       let offset = 0;
       while (true) {
-        const { data: rows } = await supabase
+        const { data: rows } = await applyCommittedDataVisibility(supabase
           .from('committed_data')
           .select('source_date')
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
-          .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target')
+          .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds)
           .range(offset, offset + 4999);
 
         if (!rows || rows.length === 0) break;
@@ -87,10 +91,10 @@ export async function POST(req: NextRequest) {
       const dateFieldNames = new Set<string>();
       const DATE_ROLES = ['transaction_date', 'period_marker', 'event_timestamp'];
 
-      const { data: metaSample } = await supabase
+      const { data: metaSample } = await applyCommittedDataVisibility(supabase
         .from('committed_data')
         .select('metadata')
-        .eq('tenant_id', tenantId)
+        .eq('tenant_id', tenantId), hiddenBatchIds)
         .limit(50);
 
       if (metaSample) {
@@ -111,10 +115,10 @@ export async function POST(req: NextRequest) {
         // Scan the identified date fields in row_data
         let offset = 0;
         while (offset < 50000) {
-          const { data: rows } = await supabase
+          const { data: rows } = await applyCommittedDataVisibility(supabase
             .from('committed_data')
             .select('row_data')
-            .eq('tenant_id', tenantId)
+            .eq('tenant_id', tenantId), hiddenBatchIds)
             .range(offset, offset + 4999);
 
           if (!rows || rows.length === 0) break;

@@ -7,6 +7,7 @@ import type {
   ContentProfile, AgentType, AgentScore, AgentSignal,
   ContentClaim, SemanticBinding, SemanticRole,
 } from './sci-types';
+import { isEntityIdentifierAgent } from './sci-types'; // HF-285-B (value import)
 import { detectSignatures } from './signatures';
 
 // ============================================================
@@ -497,7 +498,17 @@ function assignSemanticRole(
       return { role: 'entity_identifier', context: `${field.fieldName} — identifier (LLM: ${identifiesWhat})`, confidence: 0.85 };
     }
 
-    // Deterministic Fallback: HF-169 cardinality check
+    // HF-285-B: classification-aware fallback (no LLM identifiesWhat). For an
+    // entity/target-classified sheet, an identifier column identifies the entity
+    // regardless of cardinality — the high-uniqueness→transaction_identifier path
+    // is correct ONLY for transaction/reference sheets. DIAG-066: the warm
+    // flywheel cached transaction_identifier for entity sheets (this branch,
+    // pre-fix), diverging from the cold proposal's entity_identifier; this
+    // converges both surfaces. Korean Test: structural agent check, no literals.
+    if (isEntityIdentifierAgent(agent)) {
+      return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (entity-classified sheet, HF-285-B)`, confidence: 0.85 };
+    }
+    // Deterministic Fallback: HF-169 cardinality check (transaction/reference)
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
       return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };

@@ -189,6 +189,10 @@ export interface SessionStateView {
   tenantId: string;
   units: UnitStateView[];
   isOpen: boolean;                  // any unit not yet in {bound, resolved} (no completion gate on comprehension)
+  // OB-203 Phase D: monotonic progress tick (= total_signals_written on the
+  // session telemetry record). The analyze stall-detector reads this instead of
+  // summing per-unit history lengths; absent on reducer-built views.
+  progressTick?: number;
 }
 
 // Minimal row shape the reducer consumes (a subset of classification_signals).
@@ -294,4 +298,134 @@ export async function rebuildSessionState(
     throw new Error(`[comprehension-state] rebuild failed for session ${importSessionId}: ${error.message}`);
   }
   return reduceSessionState(tenantId, importSessionId, (data ?? []) as RawStateSignalRow[]);
+}
+
+// ── OB-203 §2 — Import Telemetry (BL-005) ─────────────────────────────────────────────────────────────
+// The witness operator's live view of the platform's actual work. Shaped to DS-020's SynapticSurface.stats
+// vocabulary (totalSynapsesWritten / synapsesPerType) — these import counters ARE the SCI expression of
+// synaptic stats, not a parallel concept. EVERY counter derives from the DURABLE SPINE (classification_
+// signals, the session-state view, import_batches + committed_data) — no client-side tally. If a counter
+// can't be derived here, that is a gap in the record, not a license to count elsewhere.
+export interface ImportTelemetry {
+  // SynapticSurface.stats shape (DS-020) — the running totals of the synaptic surface, SCI expression.
+  totalSignalsWritten: number;                 // ~ totalSynapsesWritten
+  signalsPerType: Record<string, number>;      // ~ synapsesPerType
+  // ANALYZE — Progressive Performance witness
+  sheets: { comprehended: number; total: number };
+  fingerprints: { recognizedTier1: number; storedNew: number };
+  atoms: { claimedFromMemory: number; novelComprehended: number };
+  llm: { made: number; bypassedByMemory: number };   // bypassedByMemory IS the Progressive Performance number
+  fieldBindingsInjected: number;
+  // EXECUTE — pulses landing on the durable record
+  units: { committed: number; total: number };
+  rows: { committed: number; total: number };
+  perUnit: Array<{ sheetName: string | null; expectedRows: number; committed: boolean }>;
+  pulses: { committed: number; total: number };       // derived from rows ÷ PULSE_SIZE
+}
+
+// Pulse size mirrors commit-content-unit's sci-bulk write profile (D16: 500-row pulses). Kept in sync so
+// "pulse X of Y" matches the actual write shape. Exported for the settle audit's
+// formula-level pulse comparison (the accumulated record carries ACTUAL pulse
+// counts; this constant only feeds the auditor's re-derivation).
+export const PULSE_SIZE = 500;
+
+// OB-203 Phase D (Amendment 2 §2 D.3): DEMOTED TO AUDITOR. This full-scan
+// derivation is no longer on any polling path — its sole caller is the
+// once-per-session settle audit (/api/import/sci/settle-audit), which compares
+// this scanned truth against the write-time-accumulated session telemetry
+// record and flags divergence as a named platform_event. Display reads come
+// from projectImportTelemetry over the single-row record.
+export async function deriveImportTelemetry(
+  tenantId: string,
+  importSessionId: string,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<ImportTelemetry> {
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // 1. ALL signals for the session → analyze counters + synaptic-stats shape (one read).
+  const { data: sigRows } = await supabase
+    .from('classification_signals')
+    .select('signal_type, signal_value')
+    .eq('tenant_id', tenantId)
+    .eq('context->>importSessionId', importSessionId);
+  const signals = (sigRows ?? []) as Array<{ signal_type: string; signal_value: Record<string, unknown> | null }>;
+
+  const signalsPerType: Record<string, number> = {};
+  let recognizedTier1 = 0, storedNew = 0, llmMade = 0, llmBypassed = 0;
+  let atomsMemory = 0, atomsNovel = 0, fieldBindingsInjected = 0;
+  // D17: the fingerprint/atom/LLM counters derive from the STREAMED `comprehended` unit-states (emitted
+  // per-sheet as each finishes, carrying tier + knownCount + novelCount), so the counters move LIVE through
+  // the comprehension stretch instead of jumping at the end off the batched tier/composition signals.
+  // fieldBindings still rides the tier_resolution signal (the only place it lives). Dedupe per unit.
+  const seenUnits = new Set<string>();
+  for (const r of signals) {
+    signalsPerType[r.signal_type] = (signalsPerType[r.signal_type] ?? 0) + 1;
+    const sv = r.signal_value ?? {};
+    if (r.signal_type === 'comprehension:unit_state' && sv.state === 'comprehended') {
+      const uid = sv.unitId as string | undefined;
+      if (uid && !seenUnits.has(uid)) {
+        seenUnits.add(uid);
+        const tier = sv.tier as number | null;
+        if (tier === 1) { recognizedTier1++; llmBypassed++; }
+        else if (tier === 3) { storedNew++; llmMade++; }
+        atomsMemory += (sv.knownCount as number) ?? 0;
+        atomsNovel += (sv.novelCount as number) ?? 0;
+      }
+    } else if (r.signal_type === 'comprehension:tier_resolution') {
+      fieldBindingsInjected += (sv.injectedBindings as number) ?? 0;
+    }
+  }
+
+  // 2. Session-state view → sheets comprehended + units committed (bound).
+  const view = await rebuildSessionState(tenantId, importSessionId, supabaseUrl, supabaseServiceKey);
+  const total = view.units.length;
+  const comprehended = view.units.filter(u =>
+    ['comprehended', 'classified', 'bound', 'resolved', 'failed_interpretation'].includes(u.state),
+  ).length;
+  const unitsCommitted = view.units.filter(u => u.state === 'bound').length;
+  const sheetByUnitId = new Map(view.units.map(u => [u.unitId, u.sheetName]));
+
+  // 3. Execute counters — session batches (expected rows + per-unit) + committed_data count (actual).
+  // OB-203 Phase B: the auditor reads batches through the CANONICAL visibility
+  // semantics (Phase E §2.2: one predicate for every consumer — completed AND
+  // not superseded). A failed/swept batch (outage mid-commit, resumed) or a
+  // superseded prior generation is not expected work; counting it made the
+  // auditor disagree with both the gate and physical truth.
+  const { data: batches } = await supabase
+    .from('import_batches')
+    .select('id, row_count, status, superseded_by, metadata')
+    .eq('tenant_id', tenantId)
+    .eq('metadata->>proposalId', importSessionId);
+  let rowsTotal = 0;
+  const perUnit: ImportTelemetry['perUnit'] = [];
+  for (const b of (batches ?? []) as Array<{ id: string; row_count: number | null; status: string; superseded_by: string | null; metadata: Record<string, unknown> | null }>) {
+    if (b.status !== 'completed' || b.superseded_by) continue;
+    const expected = b.row_count ?? 0;
+    rowsTotal += expected;
+    const unitId = (b.metadata?.contentUnitId as string) ?? '';
+    perUnit.push({ sheetName: sheetByUnitId.get(unitId) ?? null, expectedRows: expected, committed: true });
+  }
+  const { count: rowsCommitted } = await supabase
+    .from('committed_data')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('metadata->>proposalId', importSessionId);
+  const committed = rowsCommitted ?? 0;
+
+  return {
+    totalSignalsWritten: signals.length,
+    signalsPerType,
+    sheets: { comprehended, total },
+    fingerprints: { recognizedTier1, storedNew },
+    atoms: { claimedFromMemory: atomsMemory, novelComprehended: atomsNovel },
+    llm: { made: llmMade, bypassedByMemory: llmBypassed },
+    fieldBindingsInjected,
+    units: { committed: unitsCommitted, total },
+    rows: { committed, total: rowsTotal },
+    perUnit,
+    pulses: { committed: Math.ceil(committed / PULSE_SIZE), total: Math.ceil(rowsTotal / PULSE_SIZE) },
+  };
 }

@@ -83,12 +83,13 @@ export async function POST(request: NextRequest) {
   const log: string[] = [];
   const addLog = (msg: string) => { log.push(msg); console.log(`[CalcAPI] ${msg}`); };
 
-  // HF-196 Phase 1E: fetch superseded import_batch ids; engine queries below
-  // exclude these via NOT IN — operative-batch-only data per Rule 30.
-  const { fetchSupersededBatchIds } = await import('@/lib/sci/import-batch-supersession');
-  const supersededIds = await fetchSupersededBatchIds(supabase, tenantId);
-  if (supersededIds.length > 0) {
-    addLog(`Phase 1E: ${supersededIds.length} superseded batches excluded from engine reads`);
+  // Phase 6B: the SINGLE canonical visibility gate — hides non-completed AND superseded batches. This
+  // route previously composed only the legacy HF-196 superseded filter (no D16.1 gate); it now adopts the
+  // gate (the F4 fix: the gate is the one predicate every committed_data consumer reads).
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+  if (hiddenBatchIds.length > 0) {
+    addLog(`visibility gate: ${hiddenBatchIds.length} batch(es) hidden (non-completed or superseded)`);
   }
 
   // OB-197 G11: pre-generate the calculation run id at run-start so signals
@@ -633,7 +634,7 @@ export async function POST(request: NextRequest) {
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
         .range(from, to);
-      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
 
       if (!page || page.length === 0) break;
@@ -660,7 +661,7 @@ export async function POST(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
-      if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+      q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
 
       if (!page || page.length === 0) break;
@@ -685,7 +686,7 @@ export async function POST(request: NextRequest) {
       .is('period_id', null)
       .is('source_date', null)
       .range(from, to);
-    if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    q = applyCommittedDataVisibility(q, hiddenBatchIds);
     const { data: page } = await q;
 
     if (!page || page.length === 0) break;
@@ -919,7 +920,7 @@ export async function POST(request: NextRequest) {
           .gte('source_date', priorPeriod.start_date)
           .lte('source_date', priorPeriod.end_date)
           .range(from, to);
-        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        q = applyCommittedDataVisibility(q, hiddenBatchIds);
         const { data: page } = await q;
 
         if (!page || page.length === 0) break;
@@ -943,7 +944,7 @@ export async function POST(request: NextRequest) {
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
-        if (supersededIds.length > 0) q = q.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+        q = applyCommittedDataVisibility(q, hiddenBatchIds);
         const { data: page } = await q;
 
         if (!page || page.length === 0) break;
@@ -1173,7 +1174,7 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .not('import_batch_id', 'is', null)
       .limit(100);
-    if (supersededIds.length > 0) bq = bq.not('import_batch_id', 'in', `(${supersededIds.join(',')})`);
+    bq = applyCommittedDataVisibility(bq, hiddenBatchIds);
     const { data: batchRows } = await bq;
 
     const batchIds = Array.from(new Set((batchRows ?? []).map(r => r.import_batch_id).filter((id): id is string => id !== null)));

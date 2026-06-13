@@ -25,6 +25,10 @@ import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, w
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 import type { ClassificationTrace } from '@/lib/sci/synaptic-ingestion-state';
 import { loadPromotedPatterns } from '@/lib/sci/promoted-patterns';
+// HF-285-D: parse-once — persist the parsed workbook so execute-bulk reads it
+// instead of re-parsing (keyed by content hash; same hash fn execute uses).
+import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
+import { writeParsedCompanion, type ParsedSheets } from '@/lib/sci/parsed-companion';
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
@@ -111,6 +115,16 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[SCI-WORKER] Job ${jobId.substring(0, 8)}: Parsed ${sheets.reduce((s, sh) => s + sh.totalRowCount, 0)} rows across ${sheets.length} sheets`);
+
+    // HF-285-D: write the parse-once companion (gzipped, keyed by content hash) so
+    // execute-bulk reads it instead of re-parsing the same workbook. Best-effort —
+    // never throws; a failure just means execute parses as before. fileHash uses the
+    // SAME function execute computes, so the keys align.
+    {
+      const companionSheets: ParsedSheets = {};
+      for (const sh of sheets) companionSheets[sh.sheetName] = { columns: sh.columns, rows: sh.rows };
+      await writeParsedCompanion(supabase, job.tenant_id, computeFileHashSha256(buffer), companionSheets);
+    }
 
     // HF-197B: per-sheet fingerprint computation (was: single H(sheets[0]) for entire job).
     // The processing_jobs.structural_fingerprint row column retains primarySheet's hash for

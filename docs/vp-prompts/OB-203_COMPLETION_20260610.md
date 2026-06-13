@@ -930,3 +930,74 @@ check: import → click Retry → see Processing; exclude → see Excluded treat
 Proximity → **operations backlog BL-003** (design homes DS-013/DS-003). Out of Phase 5 scope.
 
 Build green; 79 tests pass; typecheck + lint clean.
+
+---
+
+## PHASE 6 — Workbook Graph + Contextual-Role Resolution + Reconciliation — CODE-COMPLETE (2026-06-12)
+
+Branch `OB-203-phase-6` off `main` @ `d38d6355`. Full SCI suite **87 pass** (+8); typecheck + lint clean; build green.
+**HALT-5 cleared:** the graph is DERIVED, FLAG-ONLY — informs at consumption, never gates comprehension, no new tables.
+
+### 1. Workbook-graph synthesis (`workbook-graph.ts`) — DI-3 / DI-4
+Pure, total relational pass over compact per-sheet summaries (identifier/reference_key value-sets, repeat ratio,
+atom hashes). STRUCTURAL tests only (cross-sheet value overlap + repeat-ratio direction + atom sharing) — **zero name
+literals**. Derives `roster / fact / reference / derived` roles + `fact→roster` edges; degrades a sheet to `'unknown'`
+rather than failing the workbook (DI-4 synthesis totality). Wired into analyze: annotates each proposal unit with
+`graphEvidence {role, reasoning, nonFkReferenceKeys}`, logs `[SCI-WORKBOOK-GRAPH]`, fires `comprehension:workbook_graph`
+(fire-and-forget). Proposal shows the workbook map (role chip + relational reasoning).
+
+### 2. Contextual-role resolution (D3) — the spurious-entity fix
+The graph's `referenceKeyResolution` answers: does a reference_key reference a roster identifier? `Codigo_Turno`
+(shift codes) references no roster → **not a foreign key**. The reliable enforcement is at the consumption layer
+(`entity-resolution.ts`): external_ids are tagged by batch origin; an external_id that exists as NO entity and
+originates ONLY from a transaction/target event-unit reference_key is a categorical dimension — **entity creation is
+suppressed**. A real FK's entities are pre-created by the roster (entity batch) → in `existingMap` → linked unchanged.
+Full-data + committed-roster (no sampling). **HALT-9-gated by the Phase 7 regression.**
+
+### 3. Reconciliation assessment (`scripts/ob203-reconcile.ts`) — read-only, SR-44
+Enumerates poisoned sheet fingerprints (d464 `fieldBindings`-under-wrong-classification + `unknown`-role rows), the
+sentinel census, and accumulated ambiguous atoms — and **authors** the retire/re-derive SQL (never executes; SR-44).
+Live sandbox run: **(A) zero poisoned sheet fingerprints** (Phase 2's class fix + targeted reset already reconciled the
+d464 shape); **(B) 4 ambiguous atoms** (`0441c426eab1` etc. — correctly routing to comprehension; KEEP-or-RETIRE SQL
+authored for architect disposition); **(C) sentinel census clean** (0 string/empty/null). The contamination is largely
+self-reconciled; the authored SQL stands for the architect's ambiguous-atom disposition.
+
+### 4. DI-8 temporal identity (`di8-temporal-identity.test.ts`) — 3 tests
+An atom recognized in period N resolves Tier-1 in period N+1: atom identity is structural (period-agnostic). Pinned.
+
+### EPGs / evidence
+- Graph signals on the one canonical surface (no new table) — `comprehension:workbook_graph`.
+- D3 fix logs `· N spurious entity(ies) suppressed (D3: non-FK reference_key)`.
+- 8 new tests (5 graph incl. the Codigo_Turno fix, 3 DI-8).
+
+### Staged exit verification (architect-executed blind-holdout import)
+`scripts/ob203-phase6-verify.ts <tenant> [session]` reports: (1) workbook-graph roles per sheet (Empleados=roster,
+Ventas_Transaccional=fact, Resumen_*=derived, Portada=excluded non-tabular); (2) classifications; (3) entity census —
+**`entity_type=location` from non-roster reference_keys = 0** (D3 PASS). Plus `ob203-trace.ts` for the signal timeline
+and zero-LLM re-import recognition. Meridian regression (185,063 / 175,585 / 196,337) is the full-pipeline witness.
+
+### RECORD CORRECTION — intra-file learning (architect, 2026-06-12)
+
+Holdout run-1's mid-file atom claims (e.g. Ventas claiming 13/30 "from atoms learned sheets 1-15") were
+**sandbox PRE-EXISTING atoms**, NOT intra-file learning. The honest **cold run-2** (tenant 3d354bfa, freshly
+reset) shows **`known=0/N` on every sheet** — atoms write at the **END** of analyze (`writeAtoms` after the
+decomposed dispatch), so a cold multi-sheet file gets zero intra-file recognition; each sheet comprehends
+its full residue independently. **Correction:** the within-import flywheel does not exist yet. The recorded
+successor **"Incremental Comprehension — Persist, Release, Read Back"** is therefore the mechanism that
+**CREATES** the intra-file flywheel (persist each unit's atoms immediately, read them back for later sheets
+in the same import), **not an optimization of an existing one** — priority note raised accordingly.
+
+### HOLDOUT — engine PASS twice (run-1 119.7s, run-2 cold 73.7s) — D13 experience fixes
+
+Both holdout runs: server succeeded, all 16 sheets comprehended, bounded per-sheet, zero silent fallback,
+analyze 200. **D13** (self-inflicted client stall):
+- **D13.1 — STREAM unit states.** Comprehended/failed states were batched at end-of-file (Phase 3), so the
+  long mid-file comprehension stretch streamed nothing → the client stall detector false-tripped. Fix:
+  `decomposeComprehension` / `runDecomposedComprehension` take an `onUnitDone` callback; the analyze route
+  fire-and-forget-emits each unit's `comprehended`/`failed_interpretation` state **as that sheet finishes**.
+  The batched emission now covers only Tier-1 (no-dispatch) sheets. The progress strip advances truthfully N/16.
+- **D13.2 — recovery is a POLL, not a shot.** On stall-abort the client now polls proposal + session-state;
+  a 404 while server states still advance = keep waiting; failure only when the server session is genuinely
+  quiet for the stall window AND no proposal materializes (run-2's proposal persisted 13s after the false abort).
+
+Build green; 87 tests pass; typecheck + lint clean.

@@ -22,6 +22,7 @@ export const SIGNAL = {
   resolution: 'comprehension:resolution',
   learningWriteBlocked: 'comprehension:learning_write_blocked',
   interactionImport: 'interaction:import',
+  workbookGraph: 'comprehension:workbook_graph',
 } as const;
 
 const CTX = { phase: '4', ob: 'OB-203' };
@@ -81,11 +82,14 @@ export type Resolver = 'flywheel' | 'llm' | 'deterministic' | 'human';
 export interface TierResolutionParams {
   tenantId: string; unitId: string; sheetName?: string | null; tier: number | null; resolver: Resolver;
   importSessionId?: string | null;
+  // OB-203 §2: warm-path witness — fieldBindings injected from the flywheel for this Tier-1 sheet (0 on
+  // the cold/LLM path). Recorded on the durable spine so the import-telemetry counter derives, never tallies.
+  injectedBindings?: number;
 }
 export function buildTierResolutionSignal(p: TierResolutionParams): CanonicalSignalInput {
   return {
     tenantId: p.tenantId, signalType: SIGNAL.tierResolution,
-    signalValue: { unitId: p.unitId, tier: p.tier, resolver: p.resolver },
+    signalValue: { unitId: p.unitId, tier: p.tier, resolver: p.resolver, injectedBindings: p.injectedBindings ?? 0 },
     sheetName: p.sheetName ?? null, scope: 'tenant', source: 'sci_agent',
     context: { ...CTX, importSessionId: p.importSessionId ?? null },
   };
@@ -130,6 +134,21 @@ export function buildLearningWriteBlockedSignal(p: LearningWriteBlockedParams): 
     confidence: 0, decisionSource: 'failed_interpretation',
     sheetName: p.sheetName ?? null, sourceFileName: p.sourceFileName ?? null, scope: 'tenant', source: 'sci_agent',
     context: { ...CTX, di: 'DI-7' },
+  };
+}
+
+export interface WorkbookGraphParams {
+  tenantId: string; importSessionId?: string | null;
+  roles: Record<string, string>;        // unitId -> graph role
+  edgeCount: number;
+  suppressedReferenceKeys: number;      // D3: reference_keys flagged as non-FK (spurious-entity prevention)
+}
+export function buildWorkbookGraphSignal(p: WorkbookGraphParams): CanonicalSignalInput {
+  return {
+    tenantId: p.tenantId, signalType: SIGNAL.workbookGraph,
+    signalValue: { roles: p.roles, edgeCount: p.edgeCount, suppressedReferenceKeys: p.suppressedReferenceKeys },
+    scope: 'tenant', source: 'sci_agent',
+    context: { ...CTX, importSessionId: p.importSessionId ?? null },
   };
 }
 

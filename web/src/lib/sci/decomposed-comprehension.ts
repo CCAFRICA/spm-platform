@@ -14,10 +14,21 @@
 // isolation) is testable without a live LLM; the live wrapper (route) supplies comprehendHeaders
 // + one repair retry.
 
+import pLimit from 'p-limit';
 import { planSheetComprehension, buildBoundedComprehensionInput } from './comprehension-planner';
 import { computeAtomFingerprint } from './atom-fingerprint';
 import type { KnownAtom } from './atom-flywheel';
 import type { ComprehensionFailureClass } from './sci-types';
+
+// HF-285-C: per-sheet residue comprehension is INDEPENDENT (Decision 158 — concurrency
+// of recognition, not its semantics; each sheet gets the same prompt/model/parse, the
+// graph stage runs after all complete). Bounded concurrency cuts cold analyze wall time
+// without changing construction. Configurable; default 4, clamped [1,8].
+export function sciLlmConcurrency(): number {
+  const raw = Number(process.env.SCI_LLM_CONCURRENCY ?? '');
+  const n = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 4;
+  return Math.max(1, Math.min(8, n));
+}
 
 export interface SheetInput {
   sheetName: string;
@@ -67,69 +78,101 @@ export async function decomposeComprehension(
   known: Map<string, KnownAtom>,
   comprehendResidue: ResidueComprehender,
   minConfidence = 0.5,
+  // OB-203 D13: streamed per-unit completion — fired as EACH sheet finishes (recognized /
+  // comprehended / failed), not at end-of-file, so the import surface advances truthfully and the
+  // stall detector sees live progress through the long comprehension stretch.
+  onUnitDone?: (r: UnitComprehensionResult) => void,
 ): Promise<UnitComprehensionResult[]> {
   const results: UnitComprehensionResult[] = [];
+  // emit is called from concurrent tasks; JS is single-threaded so push + onUnitDone
+  // run atomically between awaits. Result order is downstream-keyed by sheetName, so
+  // completion-order interleaving is immaterial (D13 streaming is about progress).
+  const emit = (r: UnitComprehensionResult) => { results.push(r); try { onUnitDone?.(r); } catch { /* streaming must never break comprehension */ } };
 
-  for (const sheet of sheets) {
-    const plan = planSheetComprehension(sheet.sheetName, sheet.columns, sheet.rows, known, minConfidence);
+  // HF-285-C: each sheet's residue comprehension is an independent task. recognized
+  // (no-novel) sheets resolve with zero LLM; only novel-residue sheets await the LLM.
+  // Bounded concurrency over the slow (LLM) tasks; planning stays in-task. A task that
+  // throws unexpectedly emits failed_interpretation (single-sheet failure never aborts
+  // the batch — the existing per-unit isolation, now under allSettled).
+  const processSheet = async (sheet: SheetInput): Promise<void> => {
+    try {
+      const plan = planSheetComprehension(sheet.sheetName, sheet.columns, sheet.rows, known, minConfidence);
 
-    // claimed-from-prior atoms (always safe to re-accumulate — they comprehended before)
-    const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }> = [];
-    for (const a of plan.atoms) {
-      // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
-      if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9 });
-    }
+      // claimed-from-prior atoms (always safe to re-accumulate — they comprehended before)
+      const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }> = [];
+      for (const a of plan.atoms) {
+        // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
+        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9 });
+      }
 
-    if (plan.novelColumns.length === 0) {
-      results.push({
+      if (plan.novelColumns.length === 0) {
+        emit({
+          sheetName: sheet.sheetName,
+          status: 'recognized',
+          knownColumns: plan.knownColumns,
+          recognizedFraction: plan.recognizedFraction,
+          atomsToWrite,
+        });
+        return;
+      }
+
+      const input = buildBoundedComprehensionInput(plan, sheet.rows)!; // novel residue, O(novel)
+      const res = await comprehendResidue(input);
+
+      if (!res.ok) {
+        // HOLD (b): THIS unit fails; siblings are independent. HOLD (a): no atoms for a failed unit.
+        emit({
+          sheetName: sheet.sheetName,
+          status: 'failed_interpretation',
+          knownColumns: plan.knownColumns,
+          failure: { failureClass: res.failureClass },
+          recognizedFraction: plan.recognizedFraction,
+          atomsToWrite: [],
+        });
+        return;
+      }
+
+      // comprehended: add the newly-resolved novel atoms to the write set
+      const comprehendedColumns: Array<{ columnName: string; interpretation: ComprehendedInterpretation }> = [];
+      for (const col of plan.novelColumns) {
+        const interp: ComprehendedInterpretation = res.interpretations[col] ?? {
+          semanticMeaning: 'unknown', dataExpectation: 'unknown', columnRole: 'unknown', confidence: 0.5,
+        };
+        comprehendedColumns.push({ columnName: col, interpretation: interp });
+        if (interp.columnRole && interp.columnRole !== 'unknown') {
+          const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
+          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole, roleConfidence: interp.confidence });
+        }
+      }
+
+      emit({
         sheetName: sheet.sheetName,
-        status: 'recognized',
+        status: 'comprehended',
         knownColumns: plan.knownColumns,
+        comprehendedColumns,
         recognizedFraction: plan.recognizedFraction,
         atomsToWrite,
       });
-      continue;
-    }
-
-    const input = buildBoundedComprehensionInput(plan, sheet.rows)!; // novel residue, O(novel)
-    const res = await comprehendResidue(input);
-
-    if (!res.ok) {
-      // HOLD (b): THIS unit fails; siblings already pushed / will be pushed independently.
-      // HOLD (a): no atoms written for a failed unit.
-      results.push({
+    } catch (e) {
+      // Unexpected throw (planner, fingerprint) — isolate to this sheet, do not abort the batch.
+      emit({
         sheetName: sheet.sheetName,
         status: 'failed_interpretation',
-        knownColumns: plan.knownColumns,
-        failure: { failureClass: res.failureClass },
-        recognizedFraction: plan.recognizedFraction,
+        knownColumns: [],
+        failure: { failureClass: 'unclassified_failure' },
+        recognizedFraction: 0,
         atomsToWrite: [],
       });
-      continue;
+      console.error(`[OB-203][comprehension] sheet ${sheet.sheetName} threw (isolated): ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
 
-    // comprehended: add the newly-resolved novel atoms to the write set
-    const comprehendedColumns: Array<{ columnName: string; interpretation: ComprehendedInterpretation }> = [];
-    for (const col of plan.novelColumns) {
-      const interp: ComprehendedInterpretation = res.interpretations[col] ?? {
-        semanticMeaning: 'unknown', dataExpectation: 'unknown', columnRole: 'unknown', confidence: 0.5,
-      };
-      comprehendedColumns.push({ columnName: col, interpretation: interp });
-      if (interp.columnRole && interp.columnRole !== 'unknown') {
-        const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-        atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole, roleConfidence: interp.confidence });
-      }
-    }
-
-    results.push({
-      sheetName: sheet.sheetName,
-      status: 'comprehended',
-      knownColumns: plan.knownColumns,
-      comprehendedColumns,
-      recognizedFraction: plan.recognizedFraction,
-      atomsToWrite,
-    });
+  const concurrency = sciLlmConcurrency();
+  if (process.env.OB203_VERBOSE === '1' || process.env.OB203_VERBOSE === 'true') {
+    console.log(`[OB203_VERBOSE] comprehension concurrency=${concurrency} over ${sheets.length} sheet(s) (HF-285-C)`);
   }
+  const limit = pLimit(concurrency);
+  await Promise.allSettled(sheets.map(sheet => limit(() => processSheet(sheet))));
 
   return results;
 }

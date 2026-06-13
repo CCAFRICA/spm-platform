@@ -64,10 +64,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Fetch committed data row count
-  const { count: dataRowCount } = await supabase
+  // OB-203 D16.1: don't count a non-completed (processing/failed) batch's partial rows toward readiness.
+  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+  let dataRowCountQ = supabase
     .from('committed_data')
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', tenantId);
+  dataRowCountQ = applyCommittedDataVisibility(dataRowCountQ, await hiddenBatchIdsForTenant(supabase, tenantId));
+  const { count: dataRowCount } = await dataRowCountQ;
 
   // When committed_data exists, the engine can auto-resolve metrics for any plan
   // without explicit input_bindings (via buildMetricsForComponent token matching).

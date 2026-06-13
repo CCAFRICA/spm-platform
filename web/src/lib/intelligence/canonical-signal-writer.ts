@@ -37,6 +37,9 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+// OB-203 Phase D Hook 1 — write-time telemetry accumulation. The accumulator
+// imports only TYPES from this module, so this runtime import is cycle-free.
+import { accumulateFromSignals } from '@/lib/sci/session-telemetry-accumulator';
 // HF-219 Disposition 5: signal-registry eradicated. Open-vocabulary signal_types.
 // Emission is unconditional on signal_type string. Consumers subscribe via
 // pattern-matching queries against classification_signals directly. AP-26 in
@@ -309,6 +312,12 @@ export async function writeSignalWithClient(
     );
   }
 
+  // OB-203 Phase D Hook 1: piggyback the session telemetry increment on the
+  // signal write that just succeeded (one counter update batched with existing
+  // work — Amendment 2 D.2). Awaited so patches land in emission order; the
+  // accumulator never throws (the import is senior to its telemetry).
+  await accumulateFromSignals([signal], supabase);
+
   // Emit observability signal for contract-failure outcomes (out_of_range, missing_required)
   if (outcome.kind === 'out_of_range' || outcome.kind === 'missing_required') {
     const obs = buildObservabilitySignal(signal, outcome);
@@ -428,6 +437,11 @@ export async function writeSignalBatchWithClient(
       `[CanonicalWriter] database unreachable on batch (count=${signals.length}): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+
+  // OB-203 Phase D Hook 1: one telemetry increment for the whole batch,
+  // piggybacked on the insert that just succeeded (Amendment 2 D.2). Awaited
+  // for emission-order patches; the accumulator never throws.
+  await accumulateFromSignals(signals, supabase);
 
   // Observability emission (one round-trip for the whole batch)
   let observabilityEmitted = 0;

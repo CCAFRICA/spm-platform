@@ -1209,12 +1209,71 @@ export interface Database {
         };
         Relationships: [];
       };
+
+      // ──────────────────────────────────────────────
+      // TABLE: import_session_telemetry (OB-203 Phase 6B Phase D)
+      // One durable row per import session, accumulated at write time via
+      // increment_import_session_telemetry. Every import display number
+      // projects from this row (D19/A5 closure).
+      // ──────────────────────────────────────────────
+      import_session_telemetry: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          import_session_id: string;
+          total_signals_written: number;
+          signals_per_type: Json;
+          unit_states: Json;
+          conclusion: Json | null;
+          audit: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          import_session_id: string;
+          total_signals_written?: number;
+          signals_per_type?: Json;
+          unit_states?: Json;
+          conclusion?: Json | null;
+          audit?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          total_signals_written?: number;
+          signals_per_type?: Json;
+          unit_states?: Json;
+          conclusion?: Json | null;
+          audit?: Json | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      // OB-203 Phase D: writes to import_session_telemetry go exclusively
+      // through this single-statement atomic upsert (service_role EXECUTE only).
+      increment_import_session_telemetry: {
+        Args: {
+          p_tenant_id: string;
+          p_import_session_id: string;
+          p_signals_delta?: number;
+          p_signals_per_type?: Json;
+          p_unit_states?: Json;
+          p_conclusion?: Json | null;
+          p_audit?: Json | null;
+        };
+        Returns: undefined;
+      };
+      jsonb_add_counters: {
+        Args: { a: Json; b: Json };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;
@@ -1263,3 +1322,4 @@ export type PlatformSetting = Tables<'platform_settings'>;
 export type ReferenceData = Tables<'reference_data'>;
 export type ReferenceItem = Tables<'reference_items'>;
 export type AliasRegistry = Tables<'alias_registry'>;
+export type ImportSessionTelemetry = Tables<'import_session_telemetry'>;

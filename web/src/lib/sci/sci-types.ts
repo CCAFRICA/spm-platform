@@ -14,6 +14,9 @@ export interface ContentProfile {
 
   structure: {
     rowCount: number;
+    sampleRowCount?: number;        // D15.2: rows the profiling sample saw — the SAME basis distinctCount
+                                    // used, so identifierRepeatRatio divides like-by-like (not full÷sample).
+                                    // Optional: absent → the ratio falls back to rowCount (pre-fix basis).
     columnCount: number;
     sparsity: number;               // 0-1, percentage of null/empty cells
     headerQuality: 'clean' | 'auto_generated' | 'missing';
@@ -196,6 +199,17 @@ export interface FieldProfile {
 
 export type AgentType = 'plan' | 'entity' | 'target' | 'transaction' | 'reference';
 
+// HF-285-B: structural predicate over the closed AgentType vocabulary (Korean
+// Test — no language literals). A sheet classified entity OR target is one whose
+// `identifier` columnRole IS the entity identifier — exactly the classifications
+// resolveEntityIdField (commit-content-unit) maps through findHcRole('identifier').
+// Used by the identifier-role negotiation (agents.ts assignSemanticRole +
+// negotiation.ts inferRoleForAgent) so an entity-classified identifier resolves
+// to entity_identifier regardless of cardinality (DIAG-066 convergence).
+export function isEntityIdentifierAgent(agent: AgentType): boolean {
+  return agent === 'entity' || agent === 'target';
+}
+
 export interface AgentScore {
   agent: AgentType;
   confidence: number;                 // 0-1
@@ -361,6 +375,15 @@ export interface ContentUnitProposal {
   // (comprehension cost). Additive/optional (Phase 1 failedInterpretation pattern); rendered only
   // when present (legacy-shaped units show nothing).
   recognitionProvenance?: { recognizedFraction: number; novelCount: number; llmCalled: boolean };
+  // OB-203 Phase 6: workbook-graph evidence (DERIVED, FLAG-ONLY). The relational role + reasoning are
+  // shown in the proposal; `nonFkReferenceKeys` carries the D3 contextual-role resolution to the commit
+  // layer — reference_key columns that reference NO roster identifier (not entity foreign keys), so
+  // entity creation is suppressed for them. Additive/optional; informs, never gates.
+  graphEvidence?: {
+    role: 'roster' | 'fact' | 'reference' | 'derived' | 'unknown';
+    reasoning: string;
+    nonFkReferenceKeys: string[];
+  };
 }
 
 // ============================================================

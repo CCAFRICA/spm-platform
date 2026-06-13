@@ -9,6 +9,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { hiddenBatchIdsForTenant, applyCommittedDataVisibility } from '@/lib/sci/committed-data-visibility';
 
 // HF-110: Guard against row index misidentification
 // If most values are sequential small integers (0,1,2... or 1,2,3...), it's likely row indices
@@ -32,7 +33,7 @@ export async function resolveEntitiesFromCommittedData(
   // Step 1: Discover which batches have person identifier columns
   // Priority: entity batches first, then transaction/target, then reference
   // HF-199 D3: also discover attribute columns per batch for entities.materializedState projection
-  const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null; attributeColumns: string[] }>();
+  const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null; attributeColumns: string[]; isEventUnit: boolean }>();
   const batchLabels = new Map<string, string>(); // batchId -> informational_label
   // HF-263 (corrected, Decision 111): batchId -> the structuralType of the column that produced
   // this batch's external_ids (its idColumn). 'identifier' => individual; 'reference_key' => a
@@ -43,15 +44,22 @@ export async function resolveEntitiesFromCommittedData(
 
   const seenBatches = new Set<string>();
 
+  // OB-203 D16.1: never discover/bind entities from a non-completed (processing/failed) batch's partial
+  // rows. Gating the tenant-wide discovery read keeps hidden batches out of batchIdentifiers entirely, so
+  // the per-batch reads + entity_id backfill below never touch them. No-op when none are hidden.
+  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
   // Scan committed_data metadata for identifier columns
   // Read one row per batch to get metadata (dedup by import_batch_id)
   let offset = 0;
   while (true) {
-    const { data: rows } = await supabase
+    let dq = supabase
       .from('committed_data')
       .select('import_batch_id, metadata, data_type')
       .eq('tenant_id', tenantId)
       .range(offset, offset + 999);
+    dq = applyCommittedDataVisibility(dq, hiddenBatchIds);
+    const { data: rows } = await dq;
 
     if (!rows || rows.length === 0) break;
 
@@ -159,7 +167,7 @@ export async function resolveEntitiesFromCommittedData(
             }
           }
         }
-        batchIdentifiers.set(batchId, { idColumn, nameColumn, attributeColumns });
+        batchIdentifiers.set(batchId, { idColumn, nameColumn, attributeColumns, isEventUnit });
       }
     }
 
@@ -187,9 +195,16 @@ export async function resolveEntitiesFromCommittedData(
   // HF-263 (corrected): external_id -> set of structuralTypes of the idColumns that produced it.
   // 'identifier' => individual (a real person id wins); else 'reference_key' => grouping (location).
   const extIdStructTypes = new Map<string, Set<string>>();
+  // OB-203 Phase 6 (D3): external_ids that ORIGINATE from an entity-DEFINING batch (entity / reference
+  // — NOT a transaction/target event unit). A transaction's reference_key LINKS to existing entities;
+  // it must never FABRICATE them. This is the contextual-role resolution at the consumption layer:
+  // Codigo_Turno (a transaction reference_key over shift codes that define no entity) created 8
+  // spurious 'location' entities; gating creation to entity-defining origins suppresses that while a
+  // real foreign key (its entities pre-created by the roster) still links unchanged.
+  const definedByEntityDefiningBatch = new Set<string>();
 
   for (const batchId of discoveryBatchIds) {
-    const { idColumn, nameColumn, attributeColumns } = batchIdentifiers.get(batchId)!;
+    const { idColumn, nameColumn, attributeColumns, isEventUnit } = batchIdentifiers.get(batchId)!;
     const isEntityBatch = batchLabels.get(batchId) === 'entity';
     let batchOffset = 0;
     const sampleValues: string[] = [];
@@ -208,6 +223,7 @@ export async function resolveEntitiesFromCommittedData(
         const rd = row.row_data as Record<string, unknown>;
         const extId = String(rd[idColumn] ?? '').trim();
         if (!extId) continue;
+        if (!isEventUnit) definedByEntityDefiningBatch.add(extId);   // D3: only entity-defining batches define entities
         if (sampleValues.length < 50) sampleValues.push(extId);
         const name = nameColumn ? String(rd[nameColumn] ?? extId).trim() : extId;
         if (!allEntities.has(extId)) {
@@ -300,8 +316,13 @@ export async function resolveEntitiesFromCommittedData(
     metadata: Record<string, unknown>;
   }> = [];
 
+  let suppressedSpurious = 0;
   for (const [extId, name] of Array.from(allEntities.entries())) {
     if (!existingMap.has(extId)) {
+      // OB-203 Phase 6 (D3): an external_id that exists in NO entity yet and originates ONLY from a
+      // transaction/target reference_key is a categorical dimension, not a foreign key — do not
+      // fabricate an entity for it. (A real FK's entities were created by the roster → in existingMap.)
+      if (!definedByEntityDefiningBatch.has(extId)) { suppressedSpurious++; continue; }
       // HF-263 (CPI Phase 1, corrected — Decision 111): entity_type derives from the structuralType
       // of the idColumn(s) that produced this external_id. A real person identifier wins (always an
       // 'individual'); otherwise an id discovered as a 'reference_key' is a grouping entity →
@@ -447,7 +468,7 @@ export async function resolveEntitiesFromCommittedData(
     }
   }
 
-  console.log(`[Entity Resolution] DS-009 3.3: ${created} created, ${linked} rows linked across ${batchIdentifiers.size} batches`);
+  console.log(`[Entity Resolution] DS-009 3.3: ${created} created, ${linked} rows linked across ${batchIdentifiers.size} batches${suppressedSpurious > 0 ? ` · ${suppressedSpurious} spurious entity(ies) suppressed (D3: non-FK reference_key)` : ''}`);
 
   return { created, updated: 0, linked };
 }

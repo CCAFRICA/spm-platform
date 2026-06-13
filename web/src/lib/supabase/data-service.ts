@@ -7,6 +7,7 @@
 import { createClient, requireTenantId } from './client';
 import type { Database, Json } from './database.types';
 import { findOrCreateEntity, materializePeriodEntityState } from './entity-service';
+import { hiddenBatchIdsForTenant, applyCommittedDataVisibility } from '@/lib/sci/committed-data-visibility';
 
 // ──────────────────────────────────────────────
 // Type aliases
@@ -188,6 +189,8 @@ export async function getCommittedDataByEntity(
     .eq('entity_id', entityId);
   if (options?.periodId) query = query.eq('period_id', options.periodId);
   if (options?.dataType) query = query.eq('data_type', options.dataType);
+  // OB-203 D16.1: never return rows from a non-completed (processing/failed) batch. No-op when none.
+  query = applyCommittedDataVisibility(query, await hiddenBatchIdsForTenant(supabase, tenantId));
   const { data, error } = await query;
   if (error) throw error;
   return (data || []) as CommittedDataRow[];
@@ -202,11 +205,14 @@ export async function getCommittedDataByBatch(
 ): Promise<CommittedDataRow[]> {
   requireTenantId(tenantId);
   const supabase = createClient();
-  const { data, error } = await supabase
+  // OB-203 D16.1: a non-completed batch's rows are partial — return nothing for them. No-op otherwise.
+  let q = supabase
     .from('committed_data')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('import_batch_id', batchId);
+  q = applyCommittedDataVisibility(q, await hiddenBatchIdsForTenant(supabase, tenantId));
+  const { data, error } = await q;
   if (error) throw error;
   return (data || []) as CommittedDataRow[];
 }
@@ -220,11 +226,14 @@ export async function getCommittedDataByPeriod(
 ): Promise<CommittedDataRow[]> {
   requireTenantId(tenantId);
   const supabase = createClient();
-  const { data, error } = await supabase
+  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  let q = supabase
     .from('committed_data')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
+  q = applyCommittedDataVisibility(q, await hiddenBatchIdsForTenant(supabase, tenantId));
+  const { data, error } = await q;
   if (error) throw error;
   return (data || []) as CommittedDataRow[];
 }
@@ -496,11 +505,14 @@ export async function loadAggregatedDataAsync(
   if (error) throw error;
 
   // Read committed data for this period
-  const { data: committed } = await supabase
+  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
+  let committedQ = supabase
     .from('committed_data')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('period_id', periodId);
+  committedQ = applyCommittedDataVisibility(committedQ, await hiddenBatchIdsForTenant(supabase, tenantId));
+  const { data: committed } = await committedQ;
 
   // Build aggregated format compatible with calculation engine
   return (states || []).map(state => {

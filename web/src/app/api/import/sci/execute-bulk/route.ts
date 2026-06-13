@@ -23,6 +23,8 @@ import type {
 // and threaded into commitContentUnit per content unit).
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 import { isSpreadsheetPath, extensionOf } from '@/lib/sci/file-format';
+// HF-285-D: parse-once companion (read + best-effort write-through).
+import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-companion';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -30,7 +32,15 @@ import { executePostCommitConstruction } from '@/lib/sci/post-commit-constructio
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcRole } from '@/lib/sci/commit-content-unit';
+// OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
+// through the one observability spine (VERBOSE 'pulse' + session record).
+import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
+import { accumulateUnitCommitFields, fetchSessionTelemetryRecord, unflattenUnitStates } from '@/lib/sci/session-telemetry-accumulator';
+import { ob203Trace } from '@/lib/sci/ob203-verbose';
+// OB-203 Phase B: idempotent resume — every invocation classifies each unit
+// against the durable spine; response death cannot orphan unprocessed units.
+import { classifyUnitForResume, batchLivenessMs } from '@/lib/sci/execute-resume';
 // OB-203 Phase 3 (R2): terminal `bound` state on the canonical surface.
 import { emitUnitStates } from '@/lib/sci/comprehension-state-service';
 // HF-239 Phase 0.1: plan interpretation extracted into a shared module.
@@ -47,6 +57,8 @@ import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 // HF-239 Phase 0.4: store metadata population extracted from execute's
 // per-pipeline postCommitConstruction (OB-146 Step 1b block).
 import { populateStoreMetadata } from '@/lib/sci/store-metadata-population';
+// OB-203 D16.1: reconcile + reclaim any stale/partial batches from a prior outage BEFORE new data lands.
+import { reconcileStaleBatches } from '@/lib/sci/committed-data-visibility';
 
 // Processing order: plan first, then entity, then data
 const PROCESSING_ORDER: Record<AgentType, number> = {
@@ -146,6 +158,20 @@ export async function POST(req: NextRequest) {
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
 
+    // ── OB-203 D16.1: reconcile stale/partial batches from a prior outage, BEFORE committing new data ──
+    // A batch stuck in `processing` past its liveness window (an outage killed the request mid-commit) is
+    // marked `failed` truthfully, and any orphan rows it left — here or in a `failed` batch whose
+    // host-killed rollback never ran — are deleted while the host is healthy. The platform self-heals at
+    // the next import; nothing partial survives into this import as live data.
+    try {
+      const recon = await reconcileStaleBatches(supabase, tenantId);
+      if (recon.reconciledProcessing || recon.rowsReclaimed || recon.failedSwept) {
+        console.log(`[SCI Bulk] D16.1 reconcile: processing→failed=${recon.reconciledProcessing} failedSwept=${recon.failedSwept} rowsReclaimed=${recon.rowsReclaimed}`);
+      }
+    } catch (reconErr) {
+      console.error('[SCI Bulk] D16.1 reconcile failed (non-blocking):', reconErr instanceof Error ? reconErr.message : reconErr);
+    }
+
     // ── Step 1+2 (HF-256, Decision 82 multi-file): per-file download + format-aware parse ──
     // Every file in the import is downloaded and parsed by its OWN format. The per-file
     // map (storagePaths) supersedes the single storagePath; when only the single path is
@@ -182,11 +208,27 @@ export async function POST(req: NextRequest) {
       const fileHash = computeFileHashSha256(buffer);
 
       const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[] }>();
+      // HF-285-D: parse-once. If the gzipped parsed companion exists for this file's
+      // content hash (written by process-job at classify, or a prior execute/resume),
+      // read it instead of re-parsing the xlsx (~5s vs ~34s for the witness file). Any
+      // miss/error falls through to the live parse below (no regression).
+      let usedCompanion = false;
+      if (isSpreadsheetPath(path)) {
+        const companion = await readParsedCompanion(supabase, tenantId, fileHash);
+        if (companion) {
+          for (const [sheetName, sd] of Object.entries(companion)) {
+            sheetDataMap.set(sheetName, { rows: sd.rows, columns: sd.columns });
+          }
+          usedCompanion = true;
+          const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+          console.log(`[SCI Bulk] ${fileName}: parse-once companion HIT — ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms (xlsx parse skipped, HF-285-D)`);
+        }
+      }
       // HF-256: format-aware parse (file-format.ts). Documents (PDF/PPTX/DOCX) are PLAN
       // sources — NOT workbook-parsed; their plan unit routes to the format-aware plan
       // pipeline below. Workbook-parsing a document would throw "Could not find workbook".
       // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
-      if (isSpreadsheetPath(path)) {
+      if (!usedCompanion && isSpreadsheetPath(path)) {
         const XLSX = await import('xlsx');
         const workbook = XLSX.read(buffer, { type: 'array' });
         for (const sheetName of workbook.SheetNames) {
@@ -196,11 +238,19 @@ export async function POST(req: NextRequest) {
           const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
           sheetDataMap.set(sheetName, { rows: jsonData, columns });
         }
-      } else {
+        // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the
+        // synchronous import flow that skips process-job) writes the companion so the
+        // 300s-boundary resume re-reads it. Fire-and-forget (best-effort cache).
+        const companionSheets: Record<string, { columns: string[]; rows: Record<string, unknown>[] }> = {};
+        for (const [sheetName, sd] of Array.from(sheetDataMap.entries())) companionSheets[sheetName] = { columns: sd.columns, rows: sd.rows };
+        void writeParsedCompanion(supabase, tenantId, fileHash, companionSheets);
+      } else if (!usedCompanion) {
         console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
       }
-      const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
-      console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+      if (!usedCompanion) {
+        const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+        console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+      }
       fileParseByName.set(fileName, {
         fileName,
         path,
@@ -316,8 +366,97 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // D18: plan units write no committed_data, so without this they never reach a terminal spine state and
+    // the completion screen (which reads the durable surface) can't settle them OR show their reason. Emit
+    // each plan unit's terminal state per-unit AS the batch resolved — bound on success, failed_interpretation
+    // carrying the REASON on failure (e.g. "plan interpretation found zero components"). The story persists.
+    if (handledPlanUnitIds.size > 0) {
+      const planStates = results
+        .filter(r => handledPlanUnitIds.has(r.contentUnitId))
+        .map(r => {
+          const cu = contentUnits.find(u => u.contentUnitId === r.contentUnitId);
+          // D15.2 (1b): a plan that interprets to ZERO components is not a failure — it was never a plan
+          // (a cover page misrouted here, D15.2 accepted). The atomicity guard already refuses to commit a
+          // broken plan; here we give it a GRACEFUL disposition (resolved / ignored — "not a plan, nothing
+          // committed") instead of a hard failure, so the witness sees an honest non-event, not an error.
+          const zeroComponents = !r.success && /no (usable )?components/i.test(r.error ?? '');
+          const state = r.success ? ('bound' as const)
+            : zeroComponents ? ('resolved' as const)
+            : ('failed_interpretation' as const);
+          return {
+            tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
+            sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
+            sourceFileName: cu?.sourceFile ?? null,
+            state, seq: 5, classification: 'plan' as const,
+            failureClass: r.success || zeroComponents ? null : (r.error ?? 'plan interpretation failed'),
+          };
+        });
+      try {
+        await emitUnitStates(planStates, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      } catch (e) {
+        console.warn('[SCI Bulk] plan unit-state emit failed (non-blocking):', e instanceof Error ? e.message : e);
+      }
+    }
+
+    // OB-203 Phase B: resume-disposition inputs — ONE single-row record read +
+    // ONE session-batches query, O(units) not O(rows) (Amendment 2 §4). On a
+    // first run nothing is terminal and nothing holds a lease, so every unit
+    // classifies 'process' and the path is behavior-identical.
+    const resumeRecord = await fetchSessionTelemetryRecord(tenantId, proposalId, supabase).catch(() => null);
+    const resumeSnaps = unflattenUnitStates(resumeRecord?.unit_states ?? null);
+    const latestBatchByUnit = new Map<string, { status: string; createdAt: string }>();
+    {
+      const { data: sessionBatches } = await supabase
+        .from('import_batches')
+        .select('status, created_at, metadata')
+        .eq('tenant_id', tenantId)
+        .eq('metadata->>proposalId', proposalId);
+      for (const b of (sessionBatches ?? []) as Array<{ status: string; created_at: string; metadata: Record<string, unknown> | null }>) {
+        const cuId = (b.metadata?.contentUnitId as string) ?? '';
+        if (!cuId) continue;
+        const prev = latestBatchByUnit.get(cuId);
+        if (!prev || b.created_at > prev.createdAt) {
+          latestBatchByUnit.set(cuId, { status: b.status, createdAt: b.created_at });
+        }
+      }
+    }
+
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
+
+      // OB-203 Phase B: skip units the durable spine already settled or a
+      // possibly-live owner holds (liveness window = the lease). The unit list
+      // walked here is the REQUEST's — a unit that never created a batch
+      // cannot hide (A3 closed operationally).
+      const snap = resumeSnaps.get(unit.contentUnitId);
+      const spineState = snap ? (snap.resolvedAt ? 'resolved' : ((snap.state as string) ?? null)) : null;
+      const dispo = classifyUnitForResume({
+        spineState,
+        latestBatch: latestBatchByUnit.get(unit.contentUnitId) ?? null,
+        livenessMs: batchLivenessMs(),
+        nowMs: Date.now(),
+      });
+      if (dispo !== 'process') {
+        console.log(`[SCI Bulk] Phase B resume: ${unit.contentUnitId} → ${dispo} (state=${spineState ?? 'none'})`);
+        if (dispo === 'skip_completed_batch') {
+          // The commit landed; only the bound emission died with the response.
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+                sheetName: unit.tabName ?? unit.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'bound' as const, seq: 5, classification: unit.confirmedClassification ?? null,
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (e) {
+            console.warn(`[SCI Bulk] resume bound re-emit failed (non-blocking) for ${unit.contentUnitId}:`, e instanceof Error ? e.message : e);
+          }
+        }
+        continue;
+      }
       try {
         // HF-256: resolve this unit's source file's parse (single-file => the one parse).
         const parse = resolveParse(unit);
@@ -367,6 +506,52 @@ export async function POST(req: NextRequest) {
           parse.fileHash,
         );
         results.push(result);
+        // D16 truthful completion: emit this unit's terminal `bound` state AS it commits — durable
+        // per-unit, not batched at end-of-run. A mid-run infra failure (run-3's chunk-8/81 502 killed the
+        // request before the end-batch ran) then still leaves a truthful durable record for every unit
+        // that DID commit, so the completion screen reads the spine instead of inferring a false 0/16.
+        // State-spine emission STREAMS (durability); the heavy flywheel/learning signals stay deferred to
+        // post-commit below — no signal is dropped (DI-7), they are split by purpose, not discarded.
+        if (result.success) {
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: result.contentUnitId,
+                sheetName: unit.tabName ?? result.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'bound' as const, seq: 5, classification: unit.confirmedClassification ?? null,
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (stateErr) {
+            // A state-spine write failure must never re-mark a committed unit as failed.
+            console.warn(`[SCI Bulk] per-unit bound emit failed (non-blocking) for ${result.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+          }
+        } else {
+          // OB-203 Phase C (combined arms, named in the ADR): a FAILED data unit
+          // lands on the same spine as a committed one — terminal
+          // failed_interpretation with its reason, durable, so no panel ever
+          // shows a unit stuck mid-flight when the server already knows it died
+          // (D16 truthful completion covers failure too; plan units already did
+          // this at the batched-plan emission).
+          try {
+            await emitUnitStates(
+              [{
+                tenantId, importSessionId: proposalId, unitId: result.contentUnitId,
+                sheetName: unit.tabName ?? result.contentUnitId.split('::')[1] ?? null,
+                sourceFileName: unit.sourceFile ?? null,
+                state: 'failed_interpretation' as const, seq: 5,
+                classification: unit.confirmedClassification ?? null,
+                failureClass: (result.error ?? 'unit_failed').slice(0, 300),
+              }],
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            );
+          } catch (stateErr) {
+            console.warn(`[SCI Bulk] per-unit failed emit failed (non-blocking) for ${result.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+          }
+        }
       } catch (err) {
         results.push({
           contentUnitId: unit.contentUnitId,
@@ -376,6 +561,23 @@ export async function POST(req: NextRequest) {
           pipeline: unit.confirmedClassification,
           error: String(err),
         });
+        // Phase C combined arms: thrown failures land on the spine too.
+        try {
+          await emitUnitStates(
+            [{
+              tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+              sheetName: unit.tabName ?? unit.contentUnitId.split('::')[1] ?? null,
+              sourceFileName: unit.sourceFile ?? null,
+              state: 'failed_interpretation' as const, seq: 5,
+              classification: unit.confirmedClassification ?? null,
+              failureClass: String(err).slice(0, 300),
+            }],
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          );
+        } catch (stateErr) {
+          console.warn(`[SCI Bulk] per-unit failed emit failed (non-blocking) for ${unit.contentUnitId}:`, stateErr instanceof Error ? stateErr.message : stateErr);
+        }
       }
     }
 
@@ -518,6 +720,24 @@ function filterFieldsForPartialClaim(
   };
 }
 
+// ── D16 unit-atomic rollback helper ──
+// Deletes the entities a single entity unit just created — by their exact new external_ids, batched.
+// Safe because every id in `newIds` was ABSENT from the tenant at fetch time (filtered against
+// existingMap), so this never removes a pre-existing or another unit's entity. Non-throwing: a rollback
+// failure is logged, never propagated (it must not convert one failure into an unhandled crash).
+async function rollbackNewEntities(supabase: SupabaseClient, tenantId: string, newIds: string[]): Promise<void> {
+  if (newIds.length === 0) return;
+  try {
+    for (let j = 0; j < newIds.length; j += 200) {
+      const slice = newIds.slice(j, j + 200);
+      const { error } = await supabase.from('entities').delete().eq('tenant_id', tenantId).in('external_id', slice);
+      if (error) console.error(`[SCI Bulk] entity rollback batch failed: ${error.message}`);
+    }
+  } catch (e) {
+    console.error('[SCI Bulk] entity rollback threw (non-blocking):', e instanceof Error ? e.message : e);
+  }
+}
+
 // ── Process a single content unit with server-parsed data ──
 
 async function processContentUnit(
@@ -588,8 +808,17 @@ async function processEntityUnit(
   const nameBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_name');
   const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');
 
-  if (!idBinding) {
-    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity_identifier binding found' };
+  // HF-285-A (DIAG-066): the entity identifier lives on ONE canonical surface —
+  // the HC interpretation's columnRole==='identifier' (HC_IDENTIFIER_THRESHOLD),
+  // the surface commitContentUnit.resolveEntityIdField already trusts. The
+  // confirmedBindings.semanticRole vocabulary is a SECOND surface that the warm
+  // flywheel can populate with a non-entity role (transaction_identifier) when its
+  // cold write diverged from the cold proposal. When the semantic binding is
+  // absent, read the canonical surface — blind to producer (AUD-009: a future
+  // third producer needs no change here; Decision 64 v3 one-surface).
+  const idSourceField = idBinding?.sourceField ?? findHcRole(unit.classificationTrace, 'identifier');
+  if (!idSourceField) {
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity identifier found on any surface (semanticBinding or HC columnRole)' };
   }
 
   // Collect unique external IDs with metadata + enrichment attributes
@@ -599,7 +828,7 @@ async function processEntityUnit(
     b.semanticRole === 'entity_attribute' || b.semanticRole === 'descriptive_label'
   );
   for (const row of rows) {
-    const eid = row[idBinding.sourceField];
+    const eid = row[idSourceField];
     if (eid == null || !String(eid).trim()) continue;
     const key = String(eid).trim();
     if (entityData.has(key)) continue;
@@ -631,20 +860,32 @@ async function processEntityUnit(
     entityData.set(key, meta);
   }
 
-  // Fetch existing entities in batches of 200 (Section G)
+  // Fetch existing entities in batches of 200 (Section G). OB-203 Phase C: the
+  // select is WIDENED to carry the enrichment-merge inputs (temporal_attributes,
+  // metadata) plus the columns the upsert must re-assert — this one batched read
+  // (already happening) eliminates BOTH per-entity SELECTs the retired enrich
+  // loop ran (DS-020 litmus: batch I/O, no per-entity round-trips).
+  interface ExistingEntityRow {
+    id: string; external_id: string | null; entity_type: string; status: string;
+    display_name: string; temporal_attributes: Json; metadata: Json;
+  }
   const allIds = Array.from(entityData.keys());
   const existingMap = new Map<string, string>();
+  const existingRows = new Map<string, ExistingEntityRow>();
   const BATCH = 200;
   for (let i = 0; i < allIds.length; i += BATCH) {
     const slice = allIds.slice(i, i + BATCH);
     const { data: existing } = await supabase
       .from('entities')
-      .select('id, external_id')
+      .select('id, external_id, entity_type, status, display_name, temporal_attributes, metadata')
       .eq('tenant_id', tenantId)
       .in('external_id', slice);
     if (existing) {
-      for (const e of existing) {
-        if (e.external_id) existingMap.set(e.external_id, e.id);
+      for (const e of existing as unknown as ExistingEntityRow[]) {
+        if (e.external_id) {
+          existingMap.set(e.external_id, e.id);
+          existingRows.set(e.external_id, e);
+        }
       }
     }
   }
@@ -661,89 +902,119 @@ async function processEntityUnit(
     }));
   }
 
-  // Create new entities — bulk insert in 5000-row chunks
+  // OB-203 Phase C: compute the ENTIRE write plan in memory BEFORE any write —
+  // new-entity rows (unchanged build) plus the enrichment changed-set (pure
+  // merge over the widened fetch; the retired loop's exact semantics live in
+  // computeEnrichmentMerge). Knowing the plan up front makes the entity phase's
+  // pulse total truthful from the first pulse.
   const newIds = allIds.filter(eid => !existingMap.has(eid));
-  let created = 0;
-  if (newIds.length > 0) {
-    const newEntities = newIds.map(eid => {
-      const meta = entityData.get(eid);
-      return {
-        tenant_id: tenantId,
-        external_id: eid,
-        display_name: meta?.name || eid,
-        entity_type: 'individual' as const,
-        status: 'active' as const,
-        temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
-        metadata: {
-          ...(meta?.enrichment || {}),  // HF-190: All enrichment fields in metadata for scope resolution
-          ...(meta?.role ? { role: meta.role } : {}),
-          ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
-        } as Record<string, Json>,
-      };
-    });
+  const newEntities = newIds.map(eid => {
+    const meta = entityData.get(eid);
+    return {
+      tenant_id: tenantId,
+      external_id: eid,
+      display_name: meta?.name || eid,
+      entity_type: 'individual' as const,
+      status: 'active' as const,
+      temporal_attributes: buildTemporalAttrs(meta?.enrichment || {}) as Json[],
+      metadata: {
+        ...(meta?.enrichment || {}),  // HF-190: All enrichment fields in metadata for scope resolution
+        ...(meta?.role ? { role: meta.role } : {}),
+        ...(meta?.licenses ? { product_licenses: meta.licenses } : {}),
+      } as Record<string, Json>,
+    };
+  });
 
-    const INSERT_BATCH = 5000;
-    for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
-      const slice = newEntities.slice(i, i + INSERT_BATCH);
-      const { error: entErr } = await supabase.from('entities').insert(slice);
-      if (entErr) {
-        return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: created, pipeline: 'entity', error: entErr.message };
-      }
-      created += slice.length;
-    }
-  }
-
-  // OB-177: Enrich EXISTING entities — merge temporal_attributes (don't overwrite)
-  let enriched = 0;
+  // OB-177 semantics preserved: enrich EXISTING entities — merge temporal
+  // attributes (don't overwrite), spread enrichment into metadata (HF-190).
+  const upsertRows: Array<Record<string, unknown>> = [];
   for (const eid of allIds) {
-    const entityId = existingMap.get(eid);
-    if (!entityId) continue;
+    const row = existingRows.get(eid);
+    if (!row) continue;
     const meta = entityData.get(eid);
     if (!meta?.enrichment || Object.keys(meta.enrichment).length === 0) continue;
+    const merge = computeEnrichmentMerge({
+      existingAttrs: ((row.temporal_attributes ?? []) as unknown as TemporalAttr[]),
+      existingMeta: ((row.metadata ?? {}) as Record<string, unknown>),
+      enrichment: meta.enrichment,
+      role: meta.role,
+      importDate,
+    });
+    if (!merge.changed) continue; // idempotent — nothing to write for this entity
+    upsertRows.push({
+      id: row.id,
+      tenant_id: tenantId,
+      external_id: row.external_id,
+      display_name: row.display_name,
+      entity_type: row.entity_type,
+      status: row.status,
+      temporal_attributes: merge.temporalAttributes as unknown as Json[],
+      metadata: merge.metadata as unknown as Json,
+      updated_at: new Date().toISOString(),
+    });
+  }
 
-    // Fetch current temporal_attributes
-    const { data: current } = await supabase
-      .from('entities')
-      .select('temporal_attributes')
-      .eq('id', entityId)
-      .single();
+  // Entity-phase pulse plan: every WRITE chunk is a pulse on the SAME spine as
+  // commit pulses (HALT-1 disposition §3: one observability spine, no
+  // entity-specific vocabulary). Creation writes in 5000s; enrichment upserts
+  // at the standing 200 (Amendment 2 §3).
+  const INSERT_BATCH = 5000;
+  const ENRICH_BATCH = 200;
+  const entityPulsesTotal = Math.ceil(newEntities.length / INSERT_BATCH) + Math.ceil(upsertRows.length / ENRICH_BATCH);
+  let entityPulsesLanded = 0;
+  if (entityPulsesTotal > 0) {
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { sheetName: tabName, pulsesTotal: entityPulsesTotal, pulsesLanded: 0 },
+    }, supabase);
+  }
+  const landEntityPulse = async (entitiesWritten: number) => {
+    entityPulsesLanded++;
+    ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: entityPulsesLanded, ofTotal: entityPulsesTotal, rows: entitiesWritten });
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { pulsesLanded: entityPulsesLanded },
+    }, supabase);
+  };
+  const zeroEntityPulses = async () => {
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { pulsesLanded: 0, pulsesTotal: 0 },
+    }, supabase);
+  };
 
-    const existingAttrs = (current?.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
-
-    // Merge: for each enrichment field, check if value changed
-    const newAttrs = [...existingAttrs];
-    for (const [key, value] of Object.entries(meta.enrichment)) {
-      const existing = newAttrs.find(a => a.key === key && a.effective_to === null);
-      if (existing && existing.value === value) continue; // Same value, idempotent
-      if (existing) {
-        // Close current entry
-        existing.effective_to = importDate;
-      }
-      // Add new entry
-      newAttrs.push({ key, value, effective_from: importDate, effective_to: null });
+  // Create new entities — bulk insert in 5000-row chunks (unchanged write shape).
+  let created = 0;
+  for (let i = 0; i < newEntities.length; i += INSERT_BATCH) {
+    const slice = newEntities.slice(i, i + INSERT_BATCH);
+    const { error: entErr } = await supabase.from('entities').insert(slice);
+    if (entErr) {
+      // D16 unit-atomic: roll back every entity THIS unit created (all are new — pre-existing were
+      // filtered out via existingMap), so a partial entity insert retains nothing, then report truthfully.
+      await rollbackNewEntities(supabase, tenantId, newIds);
+      await zeroEntityPulses();
+      return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${entErr.message} — entity unit rolled back (${created} partial entities removed)` };
     }
+    created += slice.length;
+    await landEntityPulse(created);
+  }
 
-    // HF-190: Spread ALL enrichment fields into metadata (not just role)
-    {
-      const { data: entData } = await supabase.from('entities').select('metadata').eq('id', entityId).single();
-      const existingMeta = (entData?.metadata ?? {}) as Record<string, unknown>;
-      const mergedMeta = {
-        ...existingMeta,
-        ...meta.enrichment,  // HF-190: All enrichment fields in metadata for scope resolution
-        ...(meta.role ? { role: meta.role } : {}),
-      };
-      const metaChanged = JSON.stringify(existingMeta) !== JSON.stringify(mergedMeta);
-      if (metaChanged || newAttrs.length !== existingAttrs.length) {
-        await supabase.from('entities').update({
-          temporal_attributes: newAttrs as unknown as Json[],
-          metadata: mergedMeta as unknown as Json,
-        }).eq('id', entityId);
-        enriched++;
-        continue;
-      }
+  // Enrich changed entities — 200-row upsert chunks. The retired per-entity
+  // loop's 2 SELECTs + 1 UPDATE per entity are extinct on this path: the reads
+  // rode the widened batch fetch above; the writes land here, in pulses.
+  // No enrich rollback (same posture as the retired loop): the merge is
+  // idempotent and re-runnable; a chunk failure fails the unit truthfully.
+  let enriched = 0;
+  for (let i = 0; i < upsertRows.length; i += ENRICH_BATCH) {
+    const slice = upsertRows.slice(i, i + ENRICH_BATCH);
+    const { error: upErr } = await supabase.from('entities').upsert(slice as never[], { onConflict: 'id' });
+    if (upErr) {
+      await rollbackNewEntities(supabase, tenantId, newIds);
+      await zeroEntityPulses();
+      return { contentUnitId: unit.contentUnitId, classification: 'entity' as const, success: false, rowsProcessed: 0, pipeline: 'entity', error: `${upErr.message} — enrich upsert failed at chunk ${Math.floor(i / ENRICH_BATCH) + 1}; entity unit rolled back (${created} new entities removed)` };
     }
-
-    // HF-190: temporal-only update path removed — unified update above handles both metadata + temporal
+    enriched += slice.length;
+    await landEntityPulse(created + enriched);
   }
 
   console.log(`[SCI Bulk] Entity: ${created} new, ${existingMap.size} existing, ${enriched} enriched`);
@@ -762,8 +1033,16 @@ async function processEntityUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
+    // Phase C: compose entity-phase pulses with commit pulses on one number line.
+    pulseBase: { landed: entityPulsesLanded, total: entityPulsesTotal },
   });
-  void commitResult;
+  // D16 unit-atomic + truthfulness: commitContentUnit rolls back its OWN partial rows on failure; if its
+  // committed_data write failed, roll back this unit's new entities too (all-or-nothing across both
+  // surfaces) and report the unit as failed rather than the prior silent success-regardless.
+  if (!commitResult.success) {
+    await rollbackNewEntities(supabase, tenantId, newIds);
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `${commitResult.error ?? 'committed_data write failed'} — entity unit rolled back (${created} entities removed)` };
+  }
 
   // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
   // The blanket wipe destroyed BCL's PASS-RECONCILED state (DIAG-052

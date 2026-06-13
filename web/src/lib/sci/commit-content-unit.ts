@@ -29,6 +29,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { ob203Trace } from '@/lib/sci/ob203-verbose';
 import type {
   AgentType,
   SemanticBinding,
@@ -45,6 +46,7 @@ import { resolveDataTypeFromClassification } from './data-type-resolver';
 import { computeContentUnitHashSha256 } from './content-unit-hash';
 import { supersedePriorBatchOnContentMatch } from './import-batch-supersession';
 import { extractFieldIdentitiesFromTrace } from './header-comprehension';
+import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 
 // ============================================================
 // PUBLIC SHAPE — minimal common surface both callers can satisfy
@@ -76,6 +78,12 @@ export interface CommitContentUnitParams {
   fileName: string;
   source: CommitContentUnitSource;
   fileHashSha256: string;
+  // OB-203 Phase C: pulses the CALLER already landed for this unit before the
+  // committed_data commit (entity creation/enrichment chunks). The unit's pulse
+  // counters compose caller-phase + commit-phase on the ONE spine — "pulse X of
+  // Y" stays a single number line, no entity-specific vocabulary. Default 0/0
+  // keeps every other caller byte-identical (DD-7).
+  pulseBase?: { landed: number; total: number };
 }
 
 export interface CommitContentUnitResult {
@@ -122,7 +130,10 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // its reference_key, by the HC LLM's definition of those roles. Quota /
 // roster / capacity tables are unaffected.
 
-function findHcRole(
+// HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC
+// surface this resolver already trusts (Decision 64 v3 — one surface, not a
+// second binding-vocabulary surface). No duplication of the read logic.
+export function findHcRole(
   classificationTrace: Record<string, unknown> | undefined,
   targetRole: 'identifier' | 'reference_key',
 ): string | null {
@@ -189,16 +200,24 @@ function resolveEntityIdField(
 
 interface RouteProfile {
   chunkSize: number;
-  retryAttempts: number; // 1 means a single attempt; 3 means up to 3 attempts with backoff
+  retryAttempts: number; // 1 means a single attempt; 4 means up to 4 attempts with exponential backoff
+  pacingMs: number;      // D16: inter-chunk pause to keep instantaneous write load under the instance ceiling
 }
 
+// §3e (pulse-size asymmetry, justified): reads batch at 200 (the standing .in() rule — an IN-list
+// cardinality cap that bounds query-param size on LOOKUPS); writes pulse at 500 (INSERT payload
+// throughput under the Small-instance write ceiling). Different operations, different constraints — the
+// two numbers are not the same concept tuned differently, so they are not aligned.
 function profileFor(source: CommitContentUnitSource): RouteProfile {
-  // sci-bulk preserves OB-174 Phase 5 nanobatch contract (2000-row chunks,
-  // up to 3 retries with linear backoff). sci uses the wider 5000-row
-  // chunks with no retry — the existing execute behavior.
+  // D16 (run-4 ceiling): the prior 2000-row chunk overran a Small instance's write ceiling on the
+  // ~162k-row Ventas sheet (502 at chunk 11/81, both runs). Drop sci-bulk to 500-row chunks with a
+  // 200ms inter-chunk pause — 4× smaller, lower instantaneous load. Implication for the big sheet:
+  // ~162k rows / 500 = ~325 chunks; at insert (~150ms) + 200ms pace ≈ ~115s for Ventas, comfortably
+  // under Vercel's 300s maxDuration. (This is headroom under the instance ceiling — the durable fix is
+  // the BL "Loading Dock" queue, off the request lifecycle.) sci keeps the wide no-retry execute path.
   return source === 'sci-bulk'
-    ? { chunkSize: 2000, retryAttempts: 3 }
-    : { chunkSize: 5000, retryAttempts: 1 };
+    ? { chunkSize: 500, retryAttempts: 4, pacingMs: 200 }
+    : { chunkSize: 5000, retryAttempts: 1, pacingMs: 0 };
 }
 
 // ============================================================
@@ -263,6 +282,26 @@ export async function commitContentUnit(
       classification,
     } as unknown as Json,
   });
+
+  // OB-203 Phase D Hook 2 (batch created): the unit's expected work is now
+  // known — record it on the session telemetry row, piggybacked on the batch
+  // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
+  // cannot land before this one. Phase C: pulse counters compose on top of
+  // the caller-phase base (entity creation/enrichment pulses already landed).
+  const pulseBase = params.pulseBase ?? { landed: 0, total: 0 };
+  await accumulateUnitCommitFields({
+    tenantId,
+    importSessionId: proposalId,
+    unitId: unit.contentUnitId,
+    fields: {
+      sheetName: tabName,
+      expectedRows: rows.length,
+      pulsesTotal: pulseBase.total + Math.ceil(rows.length / profile.chunkSize),
+      rowsCommitted: 0,
+      pulsesLanded: pulseBase.landed,
+      batchCommitted: false,
+    },
+  }, supabase);
 
   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
   await supersedePriorBatchOnContentMatch(
@@ -392,7 +431,6 @@ export async function commitContentUnit(
 
   // Chunked insert — per-source profile (sci-bulk retries; sci does not).
   let totalInserted = 0;
-  let firstError: string | undefined;
   const totalChunks = Math.ceil(insertRows.length / profile.chunkSize);
   let chunksCompleted = 0;
 
@@ -408,8 +446,9 @@ export async function commitContentUnit(
       if (insertErr) {
         lastErr = insertErr.message;
         if (profile.retryAttempts > 1 && attempt < profile.retryAttempts - 1) {
-          // Linear backoff between retries — preserves sci-bulk behavior.
-          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          // D16: exponential backoff (capped) — gives a saturated/5xx-ing host room to recover between
+          // retries rather than hammering it on a fixed cadence (the run-3 502 was instance saturation).
+          await new Promise(r => setTimeout(r, Math.min(4000, 500 * 2 ** attempt)));
         }
       } else {
         chunkSuccess = true;
@@ -419,36 +458,73 @@ export async function commitContentUnit(
     if (chunkSuccess) {
       totalInserted += slice.length;
       chunksCompleted++;
-    } else {
-      // First chunk failure is fatal for the sci (no-retry) profile and gets
-      // recorded for sci-bulk callers that decide to surface partial failure.
-      if (!firstError) firstError = lastErr;
-      console.error(
-        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed: ${lastErr}`,
-      );
-      if (profile.retryAttempts === 1) {
-        // sci behavior: mark batch failed and short-circuit.
-        await supabase
-          .from('import_batches')
-          .update({
-            status: 'failed',
-            error_summary: { error: lastErr } as unknown as Json,
-          })
-          .eq('id', batchId);
-        return {
-          batchId,
-          totalInserted,
-          dataType,
-          entityIdField,
-          fieldIdentities,
-          earliestDate,
-          latestDate,
-          dateCount,
-          success: false,
-          error: lastErr,
-        };
+      // OB-203 §2/§5: a write is a PULSE (DS-021 family; "nanobatch" stays reserved for DS-020 learning).
+      ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: chunksCompleted, ofTotal: totalChunks, rows: totalInserted });
+      // OB-203 Phase D Hook 2 (pulse landed): ONE counter update per 500-row
+      // pulse, never per row (Amendment 2 D.2/D.4). The panels' pulse/row
+      // numbers move with this write.
+      await accumulateUnitCommitFields({
+        tenantId,
+        importSessionId: proposalId,
+        unitId: unit.contentUnitId,
+        fields: { rowsCommitted: totalInserted, pulsesLanded: pulseBase.landed + chunksCompleted },
+      }, supabase);
+      // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
+      // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
+      if (profile.pacingMs > 0 && i + profile.chunkSize < insertRows.length) {
+        await new Promise(r => setTimeout(r, profile.pacingMs));
       }
-      // sci-bulk behavior: continue with next chunk (preserve prior chunks).
+    } else {
+      // D16 (unit-atomic execute): a unit that cannot fully commit retains NOTHING. Roll back every row
+      // already inserted under this batch, mark the batch failed/rolled_back, and return an atomic
+      // failure with totalInserted:0. This replaces BOTH the prior sci-bulk "continue / preserve prior
+      // chunks" (the run-3 partial-retention that left partial rows behind on the mid-bulk 502) and the
+      // sci short-circuit (which also kept its partial rows). The happy path — every chunk succeeds — is
+      // byte-identical and never enters here, so proof-tenant imports are unaffected.
+      console.error(
+        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed after ${profile.retryAttempts} attempt(s): ${lastErr}`,
+      );
+      const { error: rbErr } = await supabase
+        .from('committed_data')
+        .delete()
+        .eq('import_batch_id', batchId);
+      await supabase
+        .from('import_batches')
+        .update({
+          status: 'failed',
+          error_summary: {
+            error: lastErr,
+            rolledBack: !rbErr,
+            rolledBackRows: totalInserted,
+            rollbackError: rbErr?.message ?? null,
+          } as unknown as Json,
+        })
+        .eq('id', batchId);
+      console.error(
+        `[commitContentUnit] UNIT-ATOMIC ROLLBACK batch=${batchId}: removed ${totalInserted} partial rows ` +
+          `(${rbErr ? 'ROLLBACK FAILED: ' + rbErr.message : 'ok'})`,
+      );
+      // OB-203 Phase D Hook 2 (rollback): the unit retains NOTHING (D16) — its
+      // telemetry snapshot says so too. Decision 95: the panel never shows rows
+      // the table no longer holds.
+      await accumulateUnitCommitFields({
+        tenantId,
+        importSessionId: proposalId,
+        unitId: unit.contentUnitId,
+        fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+      }, supabase);
+      return {
+        batchId,
+        totalInserted: 0,
+        dataType,
+        entityIdField,
+        fieldIdentities,
+        earliestDate,
+        latestDate,
+        dateCount,
+        success: false,
+        error: `${lastErr} — unit rolled back (${totalInserted} partial rows removed)`,
+      };
     }
   }
 
@@ -460,6 +536,15 @@ export async function commitContentUnit(
       row_count: totalInserted,
     })
     .eq('id', batchId);
+
+  // OB-203 Phase D Hook 2 (batch completed): terminal commit truth on the
+  // telemetry row, piggybacked on the finalize update.
+  await accumulateUnitCommitFields({
+    tenantId,
+    importSessionId: proposalId,
+    unitId: unit.contentUnitId,
+    fields: { rowsCommitted: totalInserted, batchCommitted: true },
+  }, supabase);
 
   console.log(
     `[commitContentUnit] ${classification} (${source}): ${totalInserted} rows committed, ` +
@@ -477,6 +562,8 @@ export async function commitContentUnit(
     latestDate,
     dateCount,
     success: true,
-    error: firstError,
+    // D16: reaching here means every chunk committed — failures now roll back and return above, so a
+    // successful result carries no residual error.
+    error: undefined,
   };
 }

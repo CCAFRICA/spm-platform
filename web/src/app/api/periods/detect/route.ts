@@ -64,13 +64,18 @@ export async function POST(req: NextRequest) {
     const { tenantId } = await req.json();
     if (!tenantId) return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
 
+    // OB-203 D16.1: period detection must not read a non-completed (processing/failed) batch's partial
+    // rows — a half-committed transaction sheet would skew the data window. No-op when none are hidden.
+    const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
+    const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
+
     // Query 1: Data range (PRIMARY — always runs)
     // HF-185: Period detection from transactional data only (OB-107 principle).
     // Entity/roster dates (hire_date) and reference dates are not performance boundaries.
     // Include rows where informational_label is 'transaction', 'target', or null (legacy data).
-    const { data: minRow } = await supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target').order('source_date', { ascending: true }).limit(1);
-    const { data: maxRow } = await supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target').order('source_date', { ascending: false }).limit(1);
-    const { count: totalTxns } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target');
+    const { data: minRow } = await applyCommittedDataVisibility(supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds).order('source_date', { ascending: true }).limit(1);
+    const { data: maxRow } = await applyCommittedDataVisibility(supabase.from('committed_data').select('source_date').eq('tenant_id', tenantId).not('source_date', 'is', null).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds).order('source_date', { ascending: false }).limit(1);
+    const { count: totalTxns } = await applyCommittedDataVisibility(supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds);
 
     const hasData = !!(minRow?.length && maxRow?.length);
     const dataRange = hasData ? { min_date: minRow![0].source_date, max_date: maxRow![0].source_date, total_transactions: totalTxns || 0, has_data: true } : { min_date: null, max_date: null, total_transactions: 0, has_data: false };
@@ -116,7 +121,7 @@ export async function POST(req: NextRequest) {
       // Query 3: Transaction counts per suggested period
       // HF-185: Exclude entity/reference rows from period transaction counts
       for (const sp of suggestedPeriods) {
-        const { count } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).gte('source_date', sp.start_date).lte('source_date', sp.end_date).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target');
+        const { count } = await applyCommittedDataVisibility(supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).gte('source_date', sp.start_date).lte('source_date', sp.end_date).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds);
         sp.transaction_count = count || 0;
       }
     }
@@ -143,8 +148,8 @@ export async function POST(req: NextRequest) {
       if (dataRange.min_date! < coveredStart || dataRange.max_date! > coveredEnd) {
         // There may be orphaned data
         // HF-185: Exclude entity/reference rows from orphaned data detection
-        const { count: beforeCount } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).lt('source_date', coveredStart).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target');
-        const { count: afterCount } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).gt('source_date', coveredEnd).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target');
+        const { count: beforeCount } = await applyCommittedDataVisibility(supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).lt('source_date', coveredStart).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds);
+        const { count: afterCount } = await applyCommittedDataVisibility(supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).not('source_date', 'is', null).gt('source_date', coveredEnd).or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds);
         orphanedCount = (beforeCount || 0) + (afterCount || 0);
         if (beforeCount && beforeCount > 0) orphanedMin = dataRange.min_date;
         if (afterCount && afterCount > 0) orphanedMax = dataRange.max_date;
