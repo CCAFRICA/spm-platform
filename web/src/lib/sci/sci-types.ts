@@ -199,6 +199,17 @@ export interface FieldProfile {
 
 export type AgentType = 'plan' | 'entity' | 'target' | 'transaction' | 'reference';
 
+// HF-285-B: structural predicate over the closed AgentType vocabulary (Korean
+// Test — no language literals). A sheet classified entity OR target is one whose
+// `identifier` columnRole IS the entity identifier — exactly the classifications
+// resolveEntityIdField (commit-content-unit) maps through findHcRole('identifier').
+// Used by the identifier-role negotiation (agents.ts assignSemanticRole +
+// negotiation.ts inferRoleForAgent) so an entity-classified identifier resolves
+// to entity_identifier regardless of cardinality (DIAG-066 convergence).
+export function isEntityIdentifierAgent(agent: AgentType): boolean {
+  return agent === 'entity' || agent === 'target';
+}
+
 export interface AgentScore {
   agent: AgentType;
   confidence: number;                 // 0-1

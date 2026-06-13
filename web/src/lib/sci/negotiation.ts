@@ -15,6 +15,7 @@ import type {
   NegotiationLogEntry,
   ColumnRole,
 } from './sci-types';
+import { isEntityIdentifierAgent } from './sci-types'; // HF-285-B (value import)
 import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from './agents';
 
 // ============================================================
@@ -317,7 +318,13 @@ function inferRoleForAgent(
       }
       return { role: 'entity_identifier', context: `${field.fieldName} — identifier (LLM: ${identifiesWhat})`, confidence: 0.85 };
     }
-    // Deterministic Fallback: cardinality
+    // HF-285-B: classification-aware fallback (twin of agents.ts:assignSemanticRole;
+    // T1-E952 — fix both arms). Entity/target-classified identifier → entity_identifier
+    // regardless of cardinality; cardinality→transaction_identifier is transaction/reference only.
+    if (isEntityIdentifierAgent(agent)) {
+      return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (entity-classified sheet, HF-285-B)`, confidence: 0.85 };
+    }
+    // Deterministic Fallback: cardinality (transaction/reference)
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
       return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };
