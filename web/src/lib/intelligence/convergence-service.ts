@@ -2961,11 +2961,45 @@ async function generateAllComponentBindings(
         };
         boundColumnToField.set(best.name, req.metricField);
         console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
+      } else {
+        // HF-287: order-independent AI-explicit recovery. The boundary fallback could not
+        // distinctly bind (degenerate look-alike cluster, or no candidate). BEFORE surfacing a
+        // gap/marker, honor the AI's EXPLICIT per-token recognition: the AI may have deliberately
+        // mapped THIS token to a real column that an EARLIER token in this same variant group
+        // already claimed (intra-group column contention — DIAG-068/HF-287 root cause). The
+        // one-column-once guard on the AI-mapping path above is a speculative-reuse guard, not a
+        // veto over explicit recognition: a single physical column may legitimately satisfy
+        // multiple AI-mapped tokens (e.g. a loads column read by both a monthly-loads metric and a
+        // fleet-utilization ratio numerator). Binding here makes the result ORDER-INDEPENDENT —
+        // whichever contending token is processed first, the other recovers its AI-recognized
+        // column — closing the generation-sensitivity that flipped which variant aborted across
+        // re-imports. DD-7: this fires ONLY on the fallback-failure (would-be-unbound) path; every
+        // currently-binding token binds above and never reaches here. Decision 158 / Korean Test:
+        // binds the AI's structural per-token choice (no column-name literal, no language string).
+        const aiProposed = aiMapping[req.metricField];
+        const aiCol = typeof aiProposed === 'string' ? aiProposed : aiProposed?.column;
+        const aiMc = aiCol ? measureColumns.find(c => c.name === aiCol) : undefined;
+        const aiNullRate = aiCol ? (individualNullRates.get(aiCol) ?? 0) : 1;
+        if (aiMc && aiNullRate < 1) {
+          const { scaleFactor } = scoreColumnForRequirement(aiMc.name, aiMc.stats, req);
+          const aiFilters = typeof aiProposed === 'object' && aiProposed !== null && Array.isArray(aiProposed.filters) ? aiProposed.filters : [];
+          bindings[compKey][req.role] = {
+            column: aiMc.name,
+            field_identity: aiMc.fi,
+            match_pass: 2,  // AI-explicit recovery (recognized, not independently boundary-distinct)
+            confidence: 0.6 * (1 - aiNullRate),
+            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+            learning_provenance: {
+              batch_id: aiMc.batchId,
+              learned_at: new Date().toISOString(),
+            },
+            filters: aiFilters,
+          };
+          boundColumnToField.set(aiMc.name, req.metricField);
+          console.log(`[Convergence] HF-287 ${comp.name}:${req.role} → ${aiMc.name} (AI-explicit recovery over intra-group contention; nullRate=${aiNullRate.toFixed(2)})`);
       } else if (candidates.length > 0) {
-        // Ambiguous: real columns exist but none is distinctly THE match. This is
-        // convergence-matching quality (Decision 108 / §6A territory), NOT the
-        // HF-272 hallucination-catch. Preserve the existing gap log; DD-7: today's
-        // silent behavior for the ambiguous case is unchanged (no marker written).
+        // Ambiguous: real columns exist but none is distinctly THE match, and the AI made no
+        // viable explicit proposal. Decision 108 / §6A territory, NOT the HF-272 hallucination-catch.
         console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
       } else {
         // HF-272: the required reference token resolved to NO real column — there is no
@@ -2988,7 +3022,8 @@ async function generateAllComponentBindings(
             candidatesConsidered: candidates.length,
           },
         };
-        console.log(`[Convergence] HF-272 ${comp.name}:${req.role}: token "${req.metricField}" resolved to NO real column (candidatesConsidered=${candidates.length}) — per-component resolution failure recorded (loud failed, not silent $0).`);
+          console.log(`[Convergence] HF-272 ${comp.name}:${req.role}: token "${req.metricField}" resolved to NO real column (candidatesConsidered=${candidates.length}) — per-component resolution failure recorded (loud failed, not silent $0).`);
+        }
       }
     }
 
