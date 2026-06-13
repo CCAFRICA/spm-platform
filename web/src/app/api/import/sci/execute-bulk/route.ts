@@ -23,6 +23,8 @@ import type {
 // and threaded into commitContentUnit per content unit).
 import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 import { isSpreadsheetPath, extensionOf } from '@/lib/sci/file-format';
+// HF-285-D: parse-once companion (read + best-effort write-through).
+import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-companion';
 // HF-196 Phase 1: post-commit construction unified across both import endpoints.
 // Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
 // post-commit work as execute (entity resolution + entity_id back-link).
@@ -206,11 +208,27 @@ export async function POST(req: NextRequest) {
       const fileHash = computeFileHashSha256(buffer);
 
       const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[] }>();
+      // HF-285-D: parse-once. If the gzipped parsed companion exists for this file's
+      // content hash (written by process-job at classify, or a prior execute/resume),
+      // read it instead of re-parsing the xlsx (~5s vs ~34s for the witness file). Any
+      // miss/error falls through to the live parse below (no regression).
+      let usedCompanion = false;
+      if (isSpreadsheetPath(path)) {
+        const companion = await readParsedCompanion(supabase, tenantId, fileHash);
+        if (companion) {
+          for (const [sheetName, sd] of Object.entries(companion)) {
+            sheetDataMap.set(sheetName, { rows: sd.rows, columns: sd.columns });
+          }
+          usedCompanion = true;
+          const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+          console.log(`[SCI Bulk] ${fileName}: parse-once companion HIT — ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms (xlsx parse skipped, HF-285-D)`);
+        }
+      }
       // HF-256: format-aware parse (file-format.ts). Documents (PDF/PPTX/DOCX) are PLAN
       // sources — NOT workbook-parsed; their plan unit routes to the format-aware plan
       // pipeline below. Workbook-parsing a document would throw "Could not find workbook".
       // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
-      if (isSpreadsheetPath(path)) {
+      if (!usedCompanion && isSpreadsheetPath(path)) {
         const XLSX = await import('xlsx');
         const workbook = XLSX.read(buffer, { type: 'array' });
         for (const sheetName of workbook.SheetNames) {
@@ -220,11 +238,19 @@ export async function POST(req: NextRequest) {
           const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
           sheetDataMap.set(sheetName, { rows: jsonData, columns });
         }
-      } else {
+        // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the
+        // synchronous import flow that skips process-job) writes the companion so the
+        // 300s-boundary resume re-reads it. Fire-and-forget (best-effort cache).
+        const companionSheets: Record<string, { columns: string[]; rows: Record<string, unknown>[] }> = {};
+        for (const [sheetName, sd] of Array.from(sheetDataMap.entries())) companionSheets[sheetName] = { columns: sd.columns, rows: sd.rows };
+        void writeParsedCompanion(supabase, tenantId, fileHash, companionSheets);
+      } else if (!usedCompanion) {
         console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
       }
-      const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
-      console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+      if (!usedCompanion) {
+        const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
+        console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
+      }
       fileParseByName.set(fileName, {
         fileName,
         path,
