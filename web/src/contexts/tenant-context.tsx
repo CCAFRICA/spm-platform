@@ -190,11 +190,10 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         // HF-182 Fix 11: Session-scoped cookie (no max-age) — expires on browser close
         document.cookie = `vialuce-tenant-id=${tenantId}; path=/; SameSite=Lax`;
       }
-      // HF-057: VL Admin navigates to /operate (admin landing).
-      // Non-admin navigates to / (persona dashboard).
-      // Middleware redirects VL Admin from / back to /select-tenant,
-      // so VL Admin must target a concrete route.
-      router.push(isAdmin ? '/operate' : '/');
+      // OB-206 F-1 / Decision 128: every persona lands on /stream after selecting a
+      // tenant. /operate is a task surface reached from stream actions, not a landing.
+      // (Was isAdmin ? '/operate' : '/' — the admin mis-landing.)
+      router.push('/stream');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to switch tenant');
       throw err;
