@@ -99,69 +99,26 @@ export async function POST(request: NextRequest) {
     const warnings: string[] = [];
 
     if (adminEmail && typeof adminEmail === 'string' && adminEmail.includes('@')) {
+      // OB-204 A.6: the tenant-creator admin is provisioned through THE SINGLE DOOR
+      // (createUser, invite mode) — never an inline auth+profile insert. This removes the
+      // Option-B violation (per-tenant creator auto-insert) AND the object/legacy-cap path:
+      // the service derives capabilities from role and emits I-1 PII-free lifecycle events.
       try {
-        // Try inviteUserByEmail first (sends magic link via configured SMTP)
-        const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
-          adminEmail,
-          {
-            data: {
-              display_name: adminName || name.trim(),
-              tenant_id: tenant.id,
-            },
-            redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/login`,
-          }
-        );
-
-        if (inviteError) {
-          console.error('[POST /api/admin/tenants/create] Invite failed:', inviteError.message);
-          // Fallback: create user with temporary password
-          const tempPassword = `Vl${Date.now().toString(36)}!${Math.random().toString(36).slice(2, 8)}`;
-          const { data: createData, error: createError } = await supabase.auth.admin.createUser({
-            email: adminEmail,
-            password: tempPassword,
-            email_confirm: true,
-            user_metadata: {
-              display_name: adminName || name.trim(),
-              tenant_id: tenant.id,
-            },
-          });
-
-          if (createError) {
-            console.error('[POST /api/admin/tenants/create] createUser fallback failed:', createError.message);
-            warnings.push(`Admin user creation failed: ${createError.message}. User can be invited separately.`);
-          } else {
-            adminUserId = createData.user.id;
-            warnings.push('Admin user created with temporary password. A password reset email should be sent separately.');
-          }
-        } else if (inviteData?.user) {
-          adminUserId = inviteData.user.id;
-          console.log('[POST /api/admin/tenants/create] Admin invited:', adminEmail);
-        }
-
-        // Create profile record for the admin user
-        if (adminUserId) {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert({
-              auth_user_id: adminUserId,
-              tenant_id: tenant.id,
-              display_name: adminName || name.trim(),
-              email: adminEmail,
-              role: 'tenant_admin',
-              capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
-              locale: locale || 'en',
-            });
-
-          if (profileError) {
-            console.error('[POST /api/admin/tenants/create] Profile creation failed:', profileError.message);
-            warnings.push(`Profile creation failed: ${profileError.message}`);
-          } else {
-            console.log('[POST /api/admin/tenants/create] Admin profile created for:', adminEmail);
-          }
-        }
+        const { createUser } = await import('@/lib/auth/provision-user');
+        const result = await createUser({
+          email: adminEmail,
+          displayName: adminName || name.trim(),
+          role: 'admin',                 // canonical (not legacy 'tenant_admin')
+          tenantId: tenant.id,
+          mode: 'invite',
+          locale: (locale as 'en' | 'es-MX') || 'en',
+        });
+        adminUserId = result.authUserId;
+        console.log('[POST /api/admin/tenants/create] Admin provisioned via single door:', result.profileId);
+        if (result.delivery === 'dry_run') warnings.push('Admin invite was a dry-run (RESEND_API_KEY absent); resend from the Users page in production.');
       } catch (adminErr) {
-        console.error('[POST /api/admin/tenants/create] Admin user error:', adminErr);
-        warnings.push('Admin user creation encountered an error. User can be invited separately.');
+        console.error('[POST /api/admin/tenants/create] Admin provisioning error:', adminErr);
+        warnings.push('Admin user could not be provisioned through the user service. Invite them via the Users page.');
       }
     }
 
