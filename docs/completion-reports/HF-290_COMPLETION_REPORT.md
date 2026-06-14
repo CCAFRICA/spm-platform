@@ -2,7 +2,7 @@
 
 **Repo:** `CCAFRICA/spm-platform` (VP) · **Authored:** 2026-06-14 · **Type:** HF (defect-class sibling of HF-286)
 **Branch:** `hf/290-import-list-poller-terminal-stop` · **Base:** `main`
-**Status:** **HALT-3 (no polling defect) + a poll-volume reduction.** All `/api/import/sci/session-state` pollers already carry terminal stops; the one-line change below cuts the sub-cadence request volume that fills the `[import]` access log. No terminal-stop bug existed or was added.
+**Status:** **CLOSED — no-defect (HALT-3) + a poll-volume reduction.** All `/api/import/sci/session-state` pollers already carry terminal stops; the log was confirmed active-execution polling (expected, bounded). The one-line change below cuts the sub-cadence request volume that fills the `[import]` access log. No terminal-stop bug existed or was added.
 
 **SHAs:** poll-volume reduction `09f505ab` (`SCIExecution.tsx`) · original HALT-3 audit report `374f4077` (this commit folds the reduction in).
 
@@ -126,17 +126,18 @@ body no longer references `units`) **and** preserves start/stop semantics.
 
 ---
 
-## Open question (decides disposition)
+## Disposition — RESOLVED (CLOSED, no-defect)
 
-**Was the production log captured during active execution, or at idle (sitting on the "Import
-Complete" screen)?**
+**Architect confirmed (2026-06-14): the production log was captured during ACTIVE EXECUTION.**
 
-- **During active execution** → expected bounded polling. Close HF-290 as **no-defect**. Optional
-  micro-fix below.
-- **At idle, still polling** → a unit stuck non-terminal server-side. Spin a **new DIAG** on
-  server settle-completeness (which units, which session, why no terminal disposition); candidate
-  remedies are (a) server-side guarantee every unit terminalizes, or (b) a defensive wall-clock
-  max-poll cap on callers #3/#4/#6.
+That is the **expected bounded polling** path — three correct, terminal-aware pollers (#3/#4/#6)
+running concurrently *while units settle*, every one stopping at terminal. **No polling defect; no
+server settle-completeness issue.** HF-290 is **closed no-defect.** The shipped poll-volume
+reduction (`09f505ab`) stands as a quieting improvement: the per-unit-settle sub-cadence double-hits
+are eliminated, so the same active-execution window now logs at a clean 2s cadence.
+
+The idle-still-polling branch (a unit stuck non-terminal server-side → a new settle-completeness
+DIAG) did **not** materialize and is recorded here only for provenance.
 
 ---
 
@@ -157,7 +158,7 @@ Complete" screen)?**
 
 ```
 ARTIFACT SYNC
-MC: HF-290 → HALT-3 (no polling defect) + poll-volume reduction (09f505ab); [import] info log is Vercel platform, no source line to downgrade
+MC: HF-290 → CLOSED no-defect (active-execution polling confirmed); HALT-3 + poll-volume reduction (09f505ab); [import] info log is Vercel platform, no source line to downgrade
 REGISTRY: import-list polling surface audited — 7 callers, all bounded; caller #4 sub-cadence double-hit RESOLVED
 R1: D-tier operational quality — import-list log volume reduced (per-unit-settle extra polls eliminated)
 BOARD: Performance +
