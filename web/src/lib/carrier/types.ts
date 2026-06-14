@@ -60,6 +60,8 @@ export interface CarrierIntelligence {
       completedAt: string | null;
       createdAt: string;
     } | null;
+    /** HF-291 R2: the batch before latestBatch — powers the "vs prior import" reference frame. */
+    priorBatch: { rowCount: number; createdAt: string } | null;
   };
   classification: {
     avgConfidence: number | null;

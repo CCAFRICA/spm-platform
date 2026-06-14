@@ -1,91 +1,133 @@
 'use client';
 
 /**
- * OB-205 / DS-029 §4.2 — Import Health card.
+ * HF-291 §5.1/§5.2 — Data Health card (was Import Health).
  *
- * Renders when the carrier holds data (pipelineReadiness.hasData). Five Elements:
- *   Value:      rows × content units × imports
- *   Context:    entities (+ external IDs) and classification confidence
- *   Comparison: Cold tier — first-import note when only one batch exists
- *   Action:     Calculate (when plan+bindings ready) · Review Data · Import More
- *   Impact:     derived from pipeline readiness (what's ready / what's missing)
+ * A Bloodwork-style HEALTH ASSESSMENT, not a data inventory. One status dot
+ * (green/amber/red) carries the verdict; the body is two compact lines with
+ * reference frames ("vs prior import"); entity information folds in here rather
+ * than as a separate card. Admin-only (gated by the stream page).
  *
- * Korean Test: counts and labels come from the carrier (data_type, entity counts);
- * no domain literal.
+ * Bloodwork: a healthy card is muted (status tier); a problem gets the accent
+ * border (action tier) — passing checks are quiet, problems get visibility.
+ *
+ * Korean Test: every label derives from carrier data (row/entity/content-unit
+ * counts, data_type) — no domain literal.
  */
 
 import { useState } from 'react';
-import { Calculator, Table2, Upload, ArrowRight } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import { IntelligenceCard } from '@/components/intelligence/IntelligenceCard';
 import { CarrierContentUnitBrowser } from './CarrierContentUnitBrowser';
+import { CarrierEntityExplorer } from './CarrierEntityExplorer';
 import type { CarrierIntelligence } from '@/lib/carrier/types';
 
-interface Props {
-  carrier: CarrierIntelligence;
-  accentColor: string;
-  onCalculate: () => void;
-  onImportMore: () => void;
-  onReviewData?: () => void;
-  onView?: () => void;
+// HF-291 R3: status thresholds as named constants (confidence is 0–100), to be
+// calibrated against real tenant patterns as onboarding widens.
+const CONFIDENCE_GREEN = 70; // ≥ → green / High
+const CONFIDENCE_AMBER = 50; // ≥ → amber / Moderate; < → red / Low
+
+type Health = 'green' | 'amber' | 'red';
+
+function dataHealth(c: CarrierIntelligence): Health {
+  const conf = c.classification.avgConfidence;
+  if (c.entities.total === 0) return 'red';
+  if (conf != null && conf < CONFIDENCE_AMBER) return 'red';
+  if (conf != null && conf < CONFIDENCE_GREEN) return 'amber';
+  if (c.dataSnapshot.contentUnits.length === 0) return 'amber';
+  return 'green';
 }
 
-function impactText(c: CarrierIntelligence): string {
-  const r = c.pipelineReadiness;
-  if (!r.hasPlan) return 'Missing a plan — upload a compensation plan to enable calculation.';
-  if (!r.hasBindings) return 'Plan present, bindings incomplete — configure bindings to enable calculation.';
-  if (!r.hasCalculation) return `Ready to calculate for ${c.entities.total.toLocaleString()} entities.`;
-  return `Calculation ${(r.latestLifecycleState ?? 'complete').toLowerCase()} — results available in the stream.`;
+function confidenceLabel(conf: number | null): string {
+  if (conf == null) return 'Unknown';
+  if (conf >= CONFIDENCE_GREEN) return 'High';
+  if (conf >= CONFIDENCE_AMBER) return 'Moderate';
+  return 'Low';
 }
 
-export function CarrierImportHealth({ carrier, accentColor, onCalculate, onImportMore, onReviewData, onView }: Props) {
+function relativeTime(iso: string | null): string {
+  if (!iso) return '—';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '—';
+  const diff = Date.now() - then;
+  const m = Math.floor(diff / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  if (m > 0) return `${m}m ago`;
+  return 'just now';
+}
+
+/** "vs prior import" reference frame — null on the first import (no prior batch). */
+function vsPrior(c: CarrierIntelligence): string | null {
+  const latest = c.imports.latestBatch, prior = c.imports.priorBatch;
+  if (!latest || !prior) return null;
+  const d = latest.rowCount - prior.rowCount;
+  if (d > 0) return `+${d.toLocaleString()} rows`;
+  if (d < 0) return `${d.toLocaleString()} rows`;
+  return 'no change';
+}
+
+const DOT: Record<Health, string> = {
+  green: 'bg-emerald-400',
+  amber: 'bg-amber-400',
+  red: 'bg-rose-400',
+};
+
+export function CarrierImportHealth({ carrier, accentColor, onView }: { carrier: CarrierIntelligence; accentColor: string; onView?: () => void }) {
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [entitiesOpen, setEntitiesOpen] = useState(false);
   const { dataSnapshot, entities, imports, classification, pipelineReadiness } = carrier;
   if (!pipelineReadiness.hasData) return null;
 
-  const canCalculate = pipelineReadiness.hasBindings && pipelineReadiness.hasPlan && !pipelineReadiness.hasCalculation;
-  const confidence = classification.avgConfidence;
+  const health = dataHealth(carrier);
+  const bound = entities.total > 0 && entities.withExternalId === entities.total
+    ? 'all bound'
+    : `${entities.withExternalId.toLocaleString()} bound`;
+  const prior = vsPrior(carrier);
+  const conf = classification.avgConfidence;
 
   return (
-    <IntelligenceCard accentColor={accentColor} label="Import Health" elementId="carrier-import-health" fullWidth onView={onView} tier="action">
-      {/* Value */}
-      <p className="text-lg font-semibold text-slate-100">
-        {dataSnapshot.totalRows.toLocaleString()} rows across {dataSnapshot.contentUnits.length} content unit{dataSnapshot.contentUnits.length !== 1 ? 's' : ''} from {imports.totalBatches} import{imports.totalBatches !== 1 ? 's' : ''}
-      </p>
+    <IntelligenceCard accentColor={accentColor} label="Data Health" elementId="carrier-data-health" fullWidth onView={onView} tier={health === 'green' ? 'status' : 'action'}>
+      {/* Status indicator — the verdict */}
+      <span className="absolute top-5 right-5 flex items-center gap-1.5">
+        {health === 'red' && <CircleAlert className="h-3.5 w-3.5 text-rose-400" />}
+        <span className={`h-2.5 w-2.5 rounded-full ${DOT[health]}`} />
+      </span>
 
-      {/* Context */}
-      <p className="text-xs text-slate-500 mt-1">
-        {entities.total.toLocaleString()} entit{entities.total !== 1 ? 'ies' : 'y'} ({entities.withExternalId.toLocaleString()} with external ID)
-        {confidence != null && ` · Classification confidence: ${confidence}%`}
-      </p>
+      {/* Line 1 — counts + freshness */}
+      <div className="flex items-baseline justify-between gap-4 pr-6">
+        <p className="text-sm text-slate-200">
+          {dataSnapshot.totalRows.toLocaleString()} rows · {entities.total.toLocaleString()} entit{entities.total !== 1 ? 'ies' : 'y'} ({bound}) · {dataSnapshot.contentUnits.length} content unit{dataSnapshot.contentUnits.length !== 1 ? 's' : ''}
+        </p>
+        <span className="text-xs text-slate-500 whitespace-nowrap">Last import: {relativeTime(imports.latestBatch?.createdAt ?? null)}</span>
+      </div>
 
-      {/* Comparison — Cold tier */}
-      {imports.totalBatches === 1 && (
-        <p className="text-xs text-slate-500 mt-1">First import period — comparison available after next import.</p>
-      )}
+      {/* Line 2 — classification verdict + reference frame */}
+      <div className="flex items-baseline justify-between gap-4 mt-1 pr-6">
+        <p className="text-xs text-slate-500">
+          Classification: {confidenceLabel(conf)}{conf != null && ` (${Math.round(conf)}%)`}
+        </p>
+        {prior && <span className="text-xs text-slate-500 whitespace-nowrap">vs prior: {prior}</span>}
+      </div>
 
-      {/* Action */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {canCalculate && (
-          <button onClick={onCalculate} className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
-            <Calculator className="h-3.5 w-3.5" /> Calculate <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        )}
+      {/* Actions — Review Data (primary) + View Entities (secondary). Import-More lives elsewhere. */}
+      <div className="mt-3 flex items-center gap-4">
         <button
-          onClick={() => { setReviewOpen(o => !o); onReviewData?.(); }}
-          className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md bg-zinc-800/60 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors"
+          onClick={() => setReviewOpen(o => !o)}
+          className="inline-flex items-center gap-1 text-sm font-medium text-indigo-300 hover:text-indigo-200 transition-colors"
         >
-          <Table2 className="h-3.5 w-3.5" /> {reviewOpen ? 'Hide Data' : 'Review Data'}
+          {reviewOpen ? 'Hide Data' : 'Review Data'} <span aria-hidden="true">&rarr;</span>
         </button>
-        <button onClick={onImportMore} className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md bg-zinc-800/60 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
-          <Upload className="h-3.5 w-3.5" /> Import More Data
+        <button
+          onClick={() => setEntitiesOpen(o => !o)}
+          className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          {entitiesOpen ? 'Hide Entities' : 'View Entities'} <span aria-hidden="true">&rarr;</span>
         </button>
       </div>
 
-      {/* Inline expansion — Content Unit Browser (§6.1) */}
       {reviewOpen && <CarrierContentUnitBrowser contentUnits={dataSnapshot.contentUnits} />}
-
-      {/* Impact */}
-      <p className="mt-3 text-xs text-slate-500">{impactText(carrier)}</p>
+      {entitiesOpen && <CarrierEntityExplorer sample={entities.sample} total={entities.total} />}
     </IntelligenceCard>
   );
 }
