@@ -8,6 +8,7 @@ import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
+import { PrivacyNoticeFooter } from "@/components/privacy/PrivacyNoticeFooter";
 import { Toaster } from "sonner";
 import { getServerAuthState } from "@/lib/auth/server-auth";
 
@@ -47,6 +48,7 @@ export default async function RootLayout({
               <SessionProvider>
                 <ConfigProvider>
                   <AuthShell>{children}</AuthShell>
+                  <PrivacyNoticeFooter />
                   <Toaster position="top-right" richColors closeButton />
                 </ConfigProvider>
               </SessionProvider>
