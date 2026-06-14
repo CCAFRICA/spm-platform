@@ -60,6 +60,24 @@ export async function authorizeUserMgmt(target?: AuthzTarget): Promise<AuthzResu
   return { ok: true, caller: { profileId: state.profile.id, role, tenantId: state.profile.tenantId } };
 }
 
+/**
+ * Read-side authorization for the user LIST (C.1/C.2). Capability + caller identity only —
+ * NO AAL2 step-up (step-up gates management mutations, Q-C; a read does not). The route applies
+ * tenant scoping to the QUERY using the returned caller (admin → own tenant; platform → any).
+ */
+export async function authorizeUserRead(): Promise<AuthzResult> {
+  const state = await getServerAuthState();
+  if (!state.isAuthenticated || !state.profile) {
+    return { ok: false, status: 401, code: 'unauthenticated', error: 'Authentication required' };
+  }
+  const role = resolveRole(state.profile.role);
+  if (!role) return { ok: false, status: 403, code: 'forbidden', error: 'Caller role does not resolve' };
+  if (!hasCapability(role, 'tenant.manage_users')) {
+    return { ok: false, status: 403, code: 'forbidden', error: 'manage_users capability required' };
+  }
+  return { ok: true, caller: { profileId: state.profile.id, role, tenantId: state.profile.tenantId } };
+}
+
 /** Resolve a target profile's tenant_id (service-role) so the route can scope before acting. */
 export async function targetTenantId(profileId: string): Promise<{ found: boolean; tenantId: string | null }> {
   const sb = await createServiceRoleClient();
