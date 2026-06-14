@@ -9,18 +9,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import type { Capability } from '@/lib/supabase/database.types';
 
+// OB-204 A.6: the legacy ROLE_CAPABILITIES literal map is retired — capabilities are
+// derived at the single door (deriveCapabilities via changeRole). No literal here.
 const VALID_ROLES = ['platform', 'admin', 'tenant_admin', 'manager', 'viewer', 'sales_rep'];
-
-const ROLE_CAPABILITIES: Record<string, Capability[]> = {
-  platform: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments', 'import_data', 'view_audit', 'manage_tenants', 'manage_profiles'],
-  admin: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments', 'import_data', 'view_audit'],
-  tenant_admin: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
-  manager: ['view_outcomes', 'approve_outcomes', 'export_results'],
-  viewer: ['view_outcomes'],
-  sales_rep: ['view_outcomes'],
-};
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -75,29 +67,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Cannot modify users in other tenants' }, { status: 403 });
     }
 
-    // 4. Update profile role + capabilities
-    const { error: updateError } = await serviceClient
-      .from('profiles')
-      .update({
-        role: newRole,
-        capabilities: ROLE_CAPABILITIES[newRole] || [],
-      })
-      .eq('id', profileId);
-
-    if (updateError) {
-      return NextResponse.json({ error: `Update failed: ${updateError.message}` }, { status: 500 });
+    // 4. OB-204 A.6: route the role change through THE SINGLE DOOR (changeRole). Capabilities
+    // are re-derived from role (deriveCapabilities), the lockout guard applies, user_metadata
+    // is synced, and an I-1 PII-free lifecycle event is emitted — no capability literal here.
+    const { changeRole, ProvisionError } = await import('@/lib/auth/provision-user');
+    try {
+      const r = await changeRole({ targetProfileId: profileId, newRole });
+      return NextResponse.json({ success: true, profileId, newRole: r.role });
+    } catch (e) {
+      if (e instanceof ProvisionError) return NextResponse.json({ error: e.message, code: e.code }, { status: e.code === 'lockout_guard' ? 409 : 400 });
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'role change failed' }, { status: 500 });
     }
-
-    // 5. Update auth user_metadata so middleware can read role from JWT
-    if (targetProfile.auth_user_id) {
-      await serviceClient.auth.admin.updateUserById(targetProfile.auth_user_id, {
-        user_metadata: { role: newRole },
-      }).catch(err => {
-        console.error('[PATCH /api/users/update-role] user_metadata update failed:', err);
-      });
-    }
-
-    return NextResponse.json({ success: true, profileId, newRole });
   } catch (err) {
     console.error('[PATCH /api/users/update-role] Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

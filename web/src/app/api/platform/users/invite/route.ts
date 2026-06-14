@@ -8,34 +8,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { deriveCapabilities } from '@/lib/auth/permissions';
 import type { Capability } from '@/lib/supabase/database.types';
 
 // Role template → scope + capabilities mapping
-const ROLE_TEMPLATES: Record<string, {
-  scope: string;
-  role: string;
-  capabilities: Capability[];
-}> = {
-  platform_admin: {
-    scope: 'platform',
-    role: 'platform',
-    capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
-  },
-  tenant_admin: {
-    scope: 'tenant',
-    role: 'tenant_admin',
-    capabilities: ['view_outcomes', 'approve_outcomes', 'export_results', 'manage_rule_sets', 'manage_assignments'],
-  },
-  manager: {
-    scope: 'team',
-    role: 'manager',
-    capabilities: ['view_outcomes', 'approve_outcomes', 'export_results'],
-  },
-  individual: {
-    scope: 'individual',
-    role: 'individual',
-    capabilities: ['view_outcomes'],
-  },
+// OB-204 A.6: capabilities are DERIVED from role (deriveCapabilities) — the legacy
+// literal map is retired. role values are canonical (admin/member, not tenant_admin/individual).
+const ROLE_TEMPLATES: Record<string, { scope: string; role: string; capabilities: string[] }> = {
+  platform_admin: { scope: 'platform',   role: 'platform', capabilities: deriveCapabilities('platform') },
+  tenant_admin:   { scope: 'tenant',     role: 'admin',    capabilities: deriveCapabilities('admin') },
+  manager:        { scope: 'team',       role: 'manager',  capabilities: deriveCapabilities('manager') },
+  individual:     { scope: 'individual', role: 'member',   capabilities: deriveCapabilities('member') },
 };
 
 export async function POST(request: NextRequest) {
@@ -148,7 +131,7 @@ export async function POST(request: NextRequest) {
         display_name: displayName,
         email,
         role: template.role,
-        capabilities: template.capabilities,
+        capabilities: template.capabilities as unknown as Capability[],
       });
 
     if (profileError) {
