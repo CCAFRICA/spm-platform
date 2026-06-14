@@ -270,6 +270,7 @@ export function useCurrency() {
   const symbols: Record<Currency, string> = {
     USD: '$',
     MXN: 'MX$',
+    PEN: 'S/',
     EUR: '€',
     GBP: '£',
     CAD: 'CA$',

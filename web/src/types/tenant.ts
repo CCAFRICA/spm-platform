@@ -22,8 +22,8 @@ export interface TenantConfig {
 }
 
 export type TenantIndustry = 'Technology' | 'Hospitality' | 'Retail' | 'Finance' | 'Healthcare' | 'Manufacturing' | 'Other';
-export type Currency = 'USD' | 'MXN' | 'EUR' | 'GBP' | 'CAD';
-export type Locale = 'en-US' | 'es-MX' | 'en-GB' | 'fr-FR';
+export type Currency = 'USD' | 'MXN' | 'PEN' | 'EUR' | 'GBP' | 'CAD';
+export type Locale = 'en-US' | 'es-MX' | 'es-PE' | 'en-GB' | 'fr-FR';
 
 export interface TenantFeatures {
   compensation: boolean;
@@ -131,6 +131,10 @@ export interface TenantRegistry {
 }
 
 // Helper Functions
+// Canonical currency-formatting authority. Currency is data, never a branch: any valid ISO-4217
+// code (USD, MXN, PEN, …) resolves through Intl with its native symbol/locale — PEN renders S/ in
+// es-PE with the forward slash intact, no special-casing. The single conditional below is the lone
+// exception (MXN/USD ambiguity), NOT a pattern to extend per new currency (Korean Test, HF-289).
 export function formatTenantCurrency(amount: number, currency: Currency, locale: Locale): string {
   // OB-173: Suppress .00 on whole-dollar amounts. $8,698 not $8,698.00
   const isWhole = Number.isInteger(amount);
@@ -142,7 +146,7 @@ export function formatTenantCurrency(amount: number, currency: Currency, locale:
     maximumFractionDigits: fractionDigits,
   }).format(amount);
   // Distinguish MXN from USD — both use $ in native locales.
-  // Replace bare $ with MX$ for MXN to avoid ambiguity.
+  // Replace bare $ with MX$ for MXN to avoid ambiguity. (PEN uses S/, so it is unambiguous.)
   if (currency === 'MXN' && !formatted.includes('MX')) {
     return formatted.replace('$', 'MX$');
   }
