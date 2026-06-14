@@ -274,7 +274,7 @@ function ResultsDashboardPageInner() {
   // canonical field binding (no name-matching). This is what makes the attainment VALUE renderable.
   const regimeAttainment = useMemo(() => {
     const out = new Map<string, { mean: number; values: number[] }>();
-    for (const [name, cls] of regimes) {
+    for (const [name, cls] of Array.from(regimes.entries())) { // Array.from: downlevelIteration gotcha
       if (cls.regime !== 3 || !cls.attainmentFields) continue;
       const values: number[] = [];
       for (const r of results) {
