@@ -75,12 +75,15 @@ async function emitLifecycle(sb: SupabaseClient, f: LifecycleFacts): Promise<voi
     ...(f.extra ?? {}),
   };
   await emitEvent({ tenant_id: f.tenantId, event_type: f.action, actor_id: f.actorProfileId ?? undefined, entity_id: f.targetProfileId, payload });
-  await writeAuditLog(sb, {
-    // platform-target rows carry NULL tenant (passed through; writeAuditLog is non-fatal).
-    tenant_id: f.tenantId as unknown as string, profile_id: f.targetProfileId,
-    action: f.auditAction, resource_type: 'user', resource_id: f.targetProfileId,
-    changes: payload,
-  });
+  // audit_logs.tenant_id is NOT NULL — platform-target (tenant=NULL) lifecycle events live on
+  // platform_events only (the uuid spine). Tenant-scoped events also write the audit row.
+  if (f.tenantId !== null) {
+    await writeAuditLog(sb, {
+      tenant_id: f.tenantId, profile_id: f.targetProfileId,
+      action: f.auditAction, resource_type: 'user', resource_id: f.targetProfileId,
+      changes: payload,
+    });
+  }
 }
 
 // ── temp-password generation (live policy: UPPER+lower+digit+special; never logged/persisted) ──
@@ -242,12 +245,18 @@ export async function erase(input: MutateInput): Promise<void> {
   const { data: t } = await sb.from('profiles').select('id, role, tenant_id, auth_user_id').eq('id', input.targetProfileId).single();
   if (!t) throw new ProvisionError('not_found', `profile ${input.targetProfileId} not found`);
   if (resolveRole(t.role) === 'platform') await assertNotLastPlatform(sb, input.targetProfileId);
-  // tombstone: auth identity destroyed; profile row retained with PII nulled (GDPR Art 17 one-row erasure).
-  await sb.auth.admin.deleteUser(t.auth_user_id as string).catch(() => { /* may already be gone */ });
+  // GDPR Art 17 tombstone: the profile row is RETAINED with PII nulled; the auth identity is
+  // ANONYMIZED + BANNED (carries no PII, cannot authenticate). NOT auth.admin.deleteUser — the
+  // profiles.auth_user_id FK cascade-deletes the profile on auth deletion, which would destroy
+  // the tombstone (proven by the A.8 harness). True auth-row deletion is deferred to a Phase-B
+  // FK change (ON DELETE SET NULL); anonymize+ban is the GDPR-sufficient erasure today.
+  const anon = `erased+${input.targetProfileId}@anon.invalid`;
   await sb.from('profiles').update({
-    email: `erased+${input.targetProfileId}@anon.invalid`, display_name: 'Erased user',
-    avatar_url: null, capabilities: [],
+    email: anon, display_name: 'Erased user', avatar_url: null, capabilities: [],
   }).eq('id', input.targetProfileId);
+  await sb.auth.admin.updateUserById(t.auth_user_id as string, {
+    email: anon, ban_duration: '876000h', user_metadata: {},
+  }).catch(() => { /* best-effort */ });
   await emitLifecycle(sb, { action: 'user.erased', auditAction: 'user.erased', targetProfileId: input.targetProfileId, tenantId: t.tenant_id as string | null, actorProfileId: input.actorProfileId });
 }
 
