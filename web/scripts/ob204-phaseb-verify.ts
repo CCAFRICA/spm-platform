@@ -31,18 +31,25 @@ async function main() {
   const realAuthId = authIds[0];
   const MARK = 'phaseb-probe-';
 
-  async function probe(name: string, row: Record<string, unknown>) {
+  // Each probe row carries ALL required (NOT NULL) fields and isolates ONE violation, so the
+  // rejection must cite the TARGET constraint — not an incidental NOT NULL. expect = constraint
+  // name the DB error must mention; a rejection for any other reason FAILS (no false positives).
+  const base = (n: number) => ({ auth_user_id: null as string | null, email: `${MARK}${n}@x.invalid`, display_name: 'Phase B probe', role: 'member', tenant_id: tenantId, capabilities: [] as unknown });
+  async function probe(name: string, row: Record<string, unknown>, expect: string) {
     const { data, error } = await sb.from('profiles').insert(row).select('id');
-    if (error) { check(name, true, `rejected: ${error.message.slice(0, 60)}`); return; }
-    // unexpectedly accepted → constraint NOT live; clean up + FAIL
-    check(name, false, 'ACCEPTED — constraint not enforced (apply migration 017 first?)');
-    for (const r of (data ?? [])) await sb.from('profiles').delete().eq('id', r.id);
+    if (!error) {
+      check(name, false, 'ACCEPTED — constraint not enforced (apply migration 017 first?)');
+      for (const r of (data ?? [])) await sb.from('profiles').delete().eq('id', r.id);
+      return;
+    }
+    const right = error.message.toLowerCase().includes(expect.toLowerCase());
+    check(name, right, right ? `rejected by ${expect}` : `rejected for WRONG reason: ${error.message.slice(0, 90)}`);
   }
-  await probe('array CHECK rejects object capabilities', { auth_user_id: null, email: `${MARK}1@x.invalid`, role: 'member', tenant_id: tenantId, capabilities: { x: true } });
-  await probe('role canon CHECK rejects bogus role', { auth_user_id: null, email: `${MARK}2@x.invalid`, role: 'bogus', tenant_id: tenantId, capabilities: [] });
-  await probe('platform-tenant CHECK rejects platform+tenant', { auth_user_id: null, email: `${MARK}3@x.invalid`, role: 'platform', tenant_id: tenantId, capabilities: [] });
-  await probe('status CHECK rejects bogus status', { auth_user_id: null, email: `${MARK}4@x.invalid`, role: 'member', tenant_id: tenantId, capabilities: [], status: 'bogus' });
-  if (realAuthId) await probe('UNIQUE(auth_user_id) rejects duplicate', { auth_user_id: realAuthId, email: `${MARK}5@x.invalid`, role: 'member', tenant_id: tenantId, capabilities: [] });
+  await probe('array CHECK rejects object capabilities', { ...base(1), capabilities: { x: true } }, 'profiles_capabilities_array');
+  await probe('role canon CHECK rejects bogus role', { ...base(2), role: 'bogus' }, 'profiles_role_canon');
+  await probe('platform-tenant CHECK rejects platform+tenant', { ...base(3), role: 'platform' }, 'profiles_platform_tenant');
+  await probe('status CHECK rejects bogus status', { ...base(4), status: 'bogus' }, 'profiles_status_check');
+  if (realAuthId) await probe('UNIQUE(auth_user_id) rejects duplicate', { ...base(5), auth_user_id: realAuthId }, 'profiles_auth_user_id_unique');
 
   // safety net: remove any probe rows that slipped through
   await sb.from('profiles').delete().like('email', `${MARK}%`);
