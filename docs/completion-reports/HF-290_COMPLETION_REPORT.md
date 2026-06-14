@@ -4,7 +4,7 @@
 **Branch:** `hf/290-import-list-poller-terminal-stop` · **Base:** `main`
 **Status:** **HALT-3 (no polling defect) + a poll-volume reduction.** All `/api/import/sci/session-state` pollers already carry terminal stops; the one-line change below cuts the sub-cadence request volume that fills the `[import]` access log. No terminal-stop bug existed or was added.
 
-**SHAs:** poll-volume reduction `09f505ab` (`SCIExecution.tsx`) · HALT-3 report `86e622a8`.
+**SHAs:** poll-volume reduction `09f505ab` (`SCIExecution.tsx`) · original HALT-3 audit report `374f4077` (this commit folds the reduction in).
 
 ---
 
