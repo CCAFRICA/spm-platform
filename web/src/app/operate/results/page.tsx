@@ -112,7 +112,7 @@ function ResultsDashboardPageInner() {
   const [regimes, setRegimes] = useState<Map<string, RegimeClassification>>(new Map());
   const [bindingMap, setBindingMap] = useState<Map<string, FieldBinding>>(new Map());
   const [resolvedAnomalies, setResolvedAnomalies] = useState<Set<string>>(new Set());
-  const [drillAnomaly, setDrillAnomaly] = useState<{ claim: string; entityIds: string[] } | null>(null); // OB-208 D-2
+  const [drillAnomaly, setDrillAnomaly] = useState<{ claim: string; entityIds: string[]; claimedCount: number } | null>(null); // OB-208 D-2
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
@@ -132,6 +132,7 @@ function ResultsDashboardPageInner() {
     const loadData = async () => {
       setIsLoaded(false);
       setResolvedAnomalies(new Set()); // OB-207 P2 fix: clear self-cleared anomalies when the batch changes
+      setDrillAnomaly(null); // OB-208 fix: close any open drill-through on batch change
       try {
         const calcResults = await getCalculationResults(tenantId, selectedBatchId);
         if (cancelled) return;
@@ -606,7 +607,7 @@ function ResultsDashboardPageInner() {
                     {topFinding.description}
                   </span>
                   <div className="flex items-center gap-2 mt-2.5">
-                    <button onClick={() => setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [] })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                    <button onClick={() => setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                       Verify
                     </button>
                     <button onClick={() => investigateAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
@@ -645,7 +646,7 @@ function ResultsDashboardPageInner() {
                             </div>
                             {/* OB-207 P2 / OB-208 D-2: Action Proximity + claim verification */}
                             <div className="flex items-center gap-2 mt-2.5">
-                              <button onClick={() => setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [] })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                              <button onClick={() => setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                                 Verify
                               </button>
                               <button onClick={() => investigateAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
@@ -672,6 +673,7 @@ function ResultsDashboardPageInner() {
         <AnomalyDrillThrough
           claim={drillAnomaly.claim}
           entityIds={drillAnomaly.entityIds}
+          claimedCount={drillAnomaly.claimedCount}
           results={results.map(r => ({ entityId: r.entityId, entityName: r.entityName, totalPayout: r.totalPayout }))}
           populationMean={stats?.mean ?? avgPayout}
           populationTotal={totalPayout}

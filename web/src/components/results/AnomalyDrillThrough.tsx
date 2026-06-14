@@ -17,7 +17,8 @@ interface DrillEntity { entityId: string; entityName: string; totalPayout: numbe
 
 interface Props {
   claim: string;                 // the assertion being verified
-  entityIds: string[];           // the entities the claim is about
+  entityIds: string[];           // the entities the claim is about (may be capped upstream — see claimedCount)
+  claimedCount: number;          // the claim's FULL entity count (anomaly.entityCount), to reconcile honestly
   results: DrillEntity[];        // the full population (to resolve + contextualize the subset)
   populationMean: number;
   populationTotal: number;
@@ -25,7 +26,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function AnomalyDrillThrough({ claim, entityIds, results, populationMean, populationTotal, formatCurrency, onClose }: Props) {
+export function AnomalyDrillThrough({ claim, entityIds, claimedCount, results, populationMean, populationTotal, formatCurrency, onClose }: Props) {
   const idSet = new Set(entityIds);
   const subset = results.filter(r => idSet.has(r.entityId));
   const subsetTotal = subset.reduce((s, r) => s + r.totalPayout, 0);
@@ -45,7 +46,7 @@ export function AnomalyDrillThrough({ claim, entityIds, results, populationMean,
 
       {/* Five-Elements synthesis (not a raw table) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-        <Stat label="Entities" value={`${subset.length}`} sub={`of ${results.length}`} />
+        <Stat label="Entities" value={`${claimedCount}`} sub={`of ${results.length}`} />
         <Stat label="Subset payout" value={formatCurrency(subsetTotal)} sub={`${pctOfTotal.toFixed(1)}% of total`} />
         <Stat label="Subset mean" value={formatCurrency(subsetMean)} sub={`pop ${formatCurrency(populationMean)}`} />
         <Stat label="vs population" value={`${vsPop >= 0 ? '+' : ''}${vsPop.toFixed(0)}%`} sub="mean delta" tone={vsPop >= 0 ? 'pos' : 'neg'} />
@@ -62,7 +63,11 @@ export function AnomalyDrillThrough({ claim, entityIds, results, populationMean,
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-zinc-500">{subset.length} entit{subset.length === 1 ? 'y' : 'ies'} shown — the count reconciles the claim.</p>
+      <p className="mt-2 text-[11px] text-zinc-500">
+        {subset.length >= claimedCount
+          ? `${subset.length} entit${subset.length === 1 ? 'y' : 'ies'} shown — the count reconciles the claim.`
+          : `Showing ${subset.length} of ${claimedCount} (the upstream anomaly retains the first ${subset.length} contributing entities).`}
+      </p>
     </div>
   );
 }
