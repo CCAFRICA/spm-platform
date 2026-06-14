@@ -8,8 +8,10 @@
 // new surface. Zero domain vocabulary. Korean Test applies.
 
 import { useEffect, useState } from 'react';
-import { Check, XCircle, ArrowRight, Upload, AlertTriangle, RotateCcw, MinusCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Check, XCircle, ArrowRight, Upload, AlertTriangle, RotateCcw, MinusCircle, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
 import type { SessionStateView, UnitStateView, ImportTelemetry } from '@/lib/sci/comprehension-state-service';
 
@@ -45,13 +47,24 @@ function Conclusion({ label, value, accent }: { label: string; value: string; ac
 
 const sheetOf = (id: string) => id.split('::')[1] || id;
 
+// OB-205 / DS-029 §5.2 — confidence indicator from avg classification confidence (0–100).
+function confidenceNote(pct: number | null): { label: string; cls: string } | null {
+  if (pct == null) return null;
+  if (pct > 90) return { label: 'High confidence classification', cls: 'text-emerald-300' };
+  if (pct >= 70) return { label: 'Review recommended', cls: 'text-amber-300' };
+  return { label: 'Low confidence — review classifications before calculating', cls: 'text-rose-300' };
+}
+
 export function ImportReadyState({
   results, totalRowsCommitted, tenantId, importSessionId, planName, componentCount, sourceDateRange,
   onNavigateToCalculate, onImportMore, onRetryFailed,
 }: ImportReadyStateProps) {
+  const router = useRouter();
   const [sessionUnits, setSessionUnits] = useState<UnitStateView[] | null>(null);
   const [telemetry, setTelemetry] = useState<ImportTelemetry | null>(null);
   const [auditVerdict, setAuditVerdict] = useState<{ divergent: boolean; fields?: string[] } | null>(null);
+  // OB-205 / DS-029 §5: carrier intelligence briefing — same payload the stream reads.
+  const { carrier } = useCarrierIntelligence(tenantId ?? null);
 
   // D10/D18: read the full unit set AND the final telemetry from the durable surface (?telemetry=1). This
   // is the ONLY source — never the execute response (which died at Vercel's 300s cap in run-5 while the
@@ -261,6 +274,39 @@ export function ImportReadyState({
           </div>
         )}
       </div>
+
+      {/* OB-205 / DS-029 §5: carrier intelligence briefing — the confidence bridge.
+          Summary + classification confidence + a forward action derived from pipeline
+          readiness, plus a path into the stream. Augments (does not replace) the
+          existing Go-to-Calculate action below. */}
+      {carrier && (
+        <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Activity className="w-4 h-4 text-indigo-400" />
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Carrier intelligence</p>
+          </div>
+          <p className="text-sm text-zinc-200">
+            {carrier.dataSnapshot.totalRows.toLocaleString()} rows · {carrier.entities.total.toLocaleString()} entit{carrier.entities.total !== 1 ? 'ies' : 'y'} · {carrier.dataSnapshot.contentUnits.length} content unit{carrier.dataSnapshot.contentUnits.length !== 1 ? 's' : ''}
+          </p>
+          {(() => {
+            const note = confidenceNote(carrier.classification.avgConfidence);
+            return note ? <p className={cn('text-xs mt-1', note.cls)}>{carrier.classification.avgConfidence}% — {note.label}</p> : null;
+          })()}
+          <div className="mt-4 flex items-center gap-3">
+            {(() => {
+              const r = carrier.pipelineReadiness;
+              if (r.hasPlan && r.hasBindings) {
+                return <button onClick={onNavigateToCalculate} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Calculate <ArrowRight className="w-4 h-4" /></button>;
+              }
+              if (!r.hasPlan) {
+                return <button onClick={() => router.push('/operate/import')} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Upload Plan <ArrowRight className="w-4 h-4" /></button>;
+              }
+              return <button onClick={() => router.push('/operate/calculate')} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Review Bindings <ArrowRight className="w-4 h-4" /></button>;
+            })()}
+            <button onClick={() => router.push('/stream')} className="text-sm text-indigo-300 hover:text-indigo-200 transition-colors">View in Stream &rarr;</button>
+          </div>
+        </div>
+      )}
 
       {/* Actions — plan-aware (D10.2) */}
       <div className="flex items-center justify-between">
