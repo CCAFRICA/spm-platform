@@ -127,14 +127,18 @@ function ResultsDashboardPageInner() {
 
     const loadData = async () => {
       setIsLoaded(false);
+      setResolvedAnomalies(new Set()); // OB-207 P2 fix: clear self-cleared anomalies when the batch changes
       try {
         const calcResults = await getCalculationResults(tenantId, selectedBatchId);
         if (cancelled) return;
 
         // OB-207 P2: classify each component's performance regime structurally from the plan grammar.
+        // Read THIS batch's rule set (selectedBatch.ruleSetId) — not an arbitrary non-draft one.
         try {
           const sb = createClient();
-          const { data: rs } = await sb.from('rule_sets').select('components').eq('tenant_id', tenantId).neq('status', 'draft').limit(1);
+          let rsQuery = sb.from('rule_sets').select('components').eq('tenant_id', tenantId);
+          rsQuery = selectedBatch?.ruleSetId ? rsQuery.eq('id', selectedBatch.ruleSetId) : rsQuery.neq('status', 'draft');
+          const { data: rs } = await rsQuery.limit(1);
           if (!cancelled) setRegimes(classifyRuleSetRegimes(rs?.[0]?.components));
         } catch { /* regime classification is best-effort; the surface degrades to relative/payout representation */ }
 
@@ -197,7 +201,7 @@ function ResultsDashboardPageInner() {
 
     loadData();
     return () => { cancelled = true; };
-  }, [tenantId, selectedBatchId, contextLoading]);
+  }, [tenantId, selectedBatchId, selectedBatch?.ruleSetId, contextLoading]);
 
   // Component totals
   const componentTotals = useMemo((): ComponentTotal[] => {
@@ -364,19 +368,28 @@ function ResultsDashboardPageInner() {
   const anomalyCount = activeAnomalies.length;
   const investigateAnomaly = (a: Anomaly) => {
     const first = (a as { entities?: string[] }).entities?.[0];
-    if (first) {
-      setExpandedEntity(first);
-      if (typeof document !== 'undefined') document.getElementById(`entity-row-${first}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!first) return;
+    // Clear filters so the affected entity is in the rendered set, then expand + scroll to it.
+    setSearchQuery('');
+    setStoreFilter('all');
+    setExpandedEntity(first);
+    if (typeof document !== 'undefined') {
+      setTimeout(() => document.getElementById(`entity-row-${first}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
     }
   };
   const resolveAnomaly = async (a: Anomaly) => {
-    setResolvedAnomalies(prev => { const n = new Set(prev); n.add(anomalyKey(a)); return n; }); // optimistic self-clear
+    const key = anomalyKey(a);
+    setResolvedAnomalies(prev => { const n = new Set(prev); n.add(key); return n; }); // optimistic self-clear
     try {
-      await fetch('/api/results/anomaly-resolve', {
+      const res = await fetch('/api/results/anomaly-resolve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, batchId: selectedBatchId, anomalyType: a.type, description: a.description, entityCount: a.entityCount }),
       });
-    } catch { /* best-effort write; the self-clear already applied */ }
+      if (!res.ok) throw new Error(`resolve ${res.status}`);
+    } catch {
+      // revert the optimistic self-clear so the anomaly reappears for retry
+      setResolvedAnomalies(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
   };
 
   return (

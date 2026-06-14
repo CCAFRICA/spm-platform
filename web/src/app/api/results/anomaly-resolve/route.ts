@@ -20,10 +20,17 @@ export async function POST(req: NextRequest) {
   const { tenantId, batchId, anomalyType, description, entityCount } = body ?? {};
   if (!tenantId || !anomalyType) return NextResponse.json({ error: 'tenantId and anomalyType are required' }, { status: 400 });
 
-  // Resolve the actor's profile (the audit row's profile_id) from the session, scoped to the tenant.
+  // Resolve the actor's profile (the audit row's profile_id) from the session.
   const { data: profile } = await authClient
-    .from('profiles').select('id, tenant_id').eq('auth_user_id', user.id).maybeSingle();
+    .from('profiles').select('id, tenant_id, role').eq('auth_user_id', user.id).maybeSingle();
   const profileId = (profile?.id as string | undefined) ?? null;
+
+  // SR-39 isolation: never write an audit row for a tenant the caller does not belong to.
+  // A platform admin may act across tenants; everyone else is pinned to their own tenant.
+  const isPlatform = ['platform', 'vl_admin'].includes((profile?.role as string) ?? '');
+  if (!isPlatform && profile?.tenant_id !== tenantId) {
+    return NextResponse.json({ error: 'cross-tenant write refused' }, { status: 403 });
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let sb: any;
