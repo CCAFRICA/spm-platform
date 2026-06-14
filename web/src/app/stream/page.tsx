@@ -49,7 +49,6 @@ import {
 } from '@/components/intelligence';
 import {
   CarrierImportHealth,
-  CarrierEntityLandscape,
   CarrierPipelineReadiness,
 } from '@/components/stream';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
@@ -163,23 +162,20 @@ export default function StreamPage() {
     captureStreamSignal({ persona, elementId, action, tenantId });
   }, [persona, tenantId]);
 
-  // OB-205: the carrier stack — Import Health, Entity Landscape, Pipeline Readiness.
-  // Rendered ABOVE calculation elements (upstream pipeline) and as the primary
-  // surface when no calculation exists. PipelineReadiness renders even with no data.
-  const carrierStack = (
+  // HF-291: carrier cards are ADMIN-ONLY governance surfaces (DS-029 §6 persona
+  // matrix). Manager/Rep never see import metrics. Data Health folds entity info in;
+  // Next Step renders only while the pipeline is not yet calculated (Bloodwork:
+  // passing checks are silent). Placement: supplementary, BELOW the intelligence
+  // elements (F-2) — defined here, rendered after the persona streams.
+  const isAdmin = persona === 'admin';
+  const carrierAdminStack = carrier && isAdmin ? (
     <div className="space-y-4">
-      {carrier && (
-        <CarrierImportHealth
-          carrier={carrier}
-          accentColor={accentColor}
-          onCalculate={() => router.push('/operate/calculate')}
-          onImportMore={() => router.push('/operate/import')}
-        />
+      <CarrierImportHealth carrier={carrier} accentColor={accentColor} />
+      {!carrier.pipelineReadiness.hasCalculation && (
+        <CarrierPipelineReadiness carrier={carrier} accentColor={accentColor} onNavigate={(route) => router.push(route)} />
       )}
-      {carrier && <CarrierEntityLandscape carrier={carrier} accentColor={accentColor} />}
-      <CarrierPipelineReadiness carrier={carrier} accentColor={accentColor} onNavigate={(route) => router.push(route)} />
     </div>
-  );
+  ) : null;
 
   // ── Empty / Loading / Error states ──
 
@@ -218,9 +214,21 @@ export default function StreamPage() {
       );
     }
     if (carrier) {
-      const carrierSubtitle = carrier.dataSnapshot.totalRows > 0
-        ? `${carrier.dataSnapshot.totalRows.toLocaleString()} rows in the carrier${carrier.pipelineReadiness.hasCalculation ? '' : ' · calculation pending'}`
-        : 'No data yet — import to begin';
+      const hasData = carrier.pipelineReadiness.hasData;
+      // HF-291 §4.2: persona-scoped no-calculation surface. Admin gets the carrier
+      // (governance task). Manager/Rep get a SINGLE waiting message — never import
+      // metrics or pipeline state. (R1: static text until persona-scoped carrier
+      // queries exist; entity count is tenant-wide, not yet visible-scoped.)
+      const waitingCopy = persona === 'manager'
+        ? (hasData
+            ? `Data imported for ${carrier.entities.total.toLocaleString()} team member${carrier.entities.total !== 1 ? 's' : ''}. Calculation pending — your team performance will appear here once the admin runs the calculation.`
+            : 'Your team performance will appear here once data is imported and the calculation runs.')
+        : (hasData
+            ? 'Your data has been imported. Your commission statement will appear here once calculation is complete.'
+            : 'Your commission statement will appear here once your data is imported and calculated.');
+      const subtitle = isAdmin
+        ? (hasData ? `${carrier.dataSnapshot.totalRows.toLocaleString()} rows in the carrier · calculation pending` : 'No data yet — import to begin')
+        : 'Calculation pending';
       return (
         <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
           <div className="max-w-6xl mx-auto px-6 py-6 lg:py-8">
@@ -230,10 +238,14 @@ export default function StreamPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-                <p className="text-sm text-zinc-500">{carrierSubtitle}</p>
+                <p className="text-sm text-zinc-500">{subtitle}</p>
               </div>
             </div>
-            {carrierStack}
+            {isAdmin ? carrierAdminStack : (
+              <div className={`rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] ${accentColor}`}>
+                <p className="text-sm text-slate-300">{waitingCopy}</p>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -353,10 +365,6 @@ export default function StreamPage() {
           </div>
         </div>
 
-        {/* OB-205: carrier intelligence renders first — the upstream pipeline is
-            relevant before calculation elements. */}
-        <div className="mb-4">{carrierStack}</div>
-
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
           <AdminStream data={data} tenantCtx={tenantCtx} trajectoryData={trajectoryData} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
@@ -367,6 +375,10 @@ export default function StreamPage() {
         {persona === 'rep' && (
           <IndividualStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
         )}
+
+        {/* HF-291 F-2: carrier cards are supplementary context for Admin — rendered
+            BELOW the intelligence elements, not above. Manager/Rep never see them. */}
+        {carrierAdminStack && <div className="mt-4">{carrierAdminStack}</div>}
       </div>
     </div>
   );

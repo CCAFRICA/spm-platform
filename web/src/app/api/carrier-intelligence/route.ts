@@ -109,11 +109,14 @@ export async function GET(req: NextRequest) {
     })));
 
     // ── import_batches ──
-    const [totalBatches, latestBatchRow] = await Promise.all([
+    const [totalBatches, batchRows] = await Promise.all([
       hc('import_batches', tbl('import_batches')),
-      sb.from('import_batches').select('file_name, row_count, completed_at, created_at').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1)
-        .then((r: { data: Array<Record<string, unknown>> | null; error: { message: string } | null }) => { if (r.error) throw new CarrierQueryError('import_batches', r.error.message); return r.data?.[0] ?? null; }),
+      // HF-291 R2: fetch the two most recent batches so the card can show "vs prior import".
+      sb.from('import_batches').select('file_name, row_count, completed_at, created_at').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(2)
+        .then((r: { data: Array<Record<string, unknown>> | null; error: { message: string } | null }) => { if (r.error) throw new CarrierQueryError('import_batches', r.error.message); return r.data ?? []; }),
     ]);
+    const latestBatchRow = (batchRows as Array<Record<string, unknown>>)[0] ?? null;
+    const priorBatchRow = (batchRows as Array<Record<string, unknown>>)[1] ?? null;
 
     // ── classification_signals (small table — fetch + aggregate in JS) ──
     const { data: sigs, error: sigErr } = await sb.from('classification_signals')
@@ -153,6 +156,10 @@ export async function GET(req: NextRequest) {
           rowCount: (latestBatchRow.row_count as number) ?? 0,
           completedAt: (latestBatchRow.completed_at as string | null) ?? null,
           createdAt: (latestBatchRow.created_at as string) ?? '',
+        } : null,
+        priorBatch: priorBatchRow ? {
+          rowCount: (priorBatchRow.row_count as number) ?? 0,
+          createdAt: (priorBatchRow.created_at as string) ?? '',
         } : null,
       },
       classification: { avgConfidence, byClassification, byDecisionSource },
