@@ -21,6 +21,7 @@ export { OptimizationCard } from './OptimizationCard';
 export { TeamHealthCard } from './TeamHealthCard';
 export { CoachingPriorityCard } from './CoachingPriorityCard';
 export { TeamHeatmapCard } from './TeamHeatmapCard';
+export { AccelerationCards } from './AccelerationCards';
 export { BloodworkCard } from './BloodworkCard';
 
 // Individual cards

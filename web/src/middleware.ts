@@ -320,8 +320,11 @@ export async function middleware(request: NextRequest) {
     if (isPlatformAdmin) {
       const tenantCookie = request.cookies.get('vialuce-tenant-id')?.value;
       if (tenantCookie) {
+        // OB-206 F-1 / Decision 128: /stream is the canonical landing for ALL roles,
+        // including platform admin. /operate is a task surface reached from stream
+        // actions, not a landing. (Was /operate — the CLT-166-F01 mis-landing.)
         logAuthEvent('auth.redirect.tenant_cookie_present', { pathname }, user.id);
-        return noCacheResponse(NextResponse.redirect(new URL('/operate', request.url)));
+        return noCacheResponse(NextResponse.redirect(new URL('/stream', request.url)));
       }
       logAuthEvent('auth.redirect.tenant_select', { pathname }, user.id);
       return noCacheResponse(NextResponse.redirect(new URL('/select-tenant', request.url)));

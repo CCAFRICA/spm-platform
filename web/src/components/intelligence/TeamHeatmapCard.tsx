@@ -56,13 +56,17 @@ export function TeamHeatmapCard({
 }: TeamHeatmapCardProps) {
   if (entities.length === 0) return null;
 
-  // Derive component column headers from first entity
+  // Derive component column headers from the data (Korean Test). OB-206: rows arrive
+  // sorted by coaching priority; cap the displayed set (R2 pagination residual at MIR
+  // scale) so the manager sees the highest-priority cases first.
   const componentNames = entities[0]?.components.map(c => c.name) ?? [];
+  const MAX_ROWS = 20;
+  const shown = entities.slice(0, MAX_ROWS);
 
   return (
     <IntelligenceCard
       accentColor={accentColor}
-      label="Team Performance Grid"
+      label="Team Coaching Grid · sorted by coaching priority"
       elementId="team-heatmap"
       fullWidth
       onView={onView}
@@ -88,7 +92,7 @@ export function TeamHeatmapCard({
             </tr>
           </thead>
           <tbody>
-            {entities.map(entity => (
+            {shown.map(entity => (
               <tr
                 key={entity.entityId}
                 className={cn(
@@ -114,8 +118,8 @@ export function TeamHeatmapCard({
                       attainmentToIntensity(comp.attainment),
                     )}
                   >
-                    <span className="text-slate-300 font-medium">
-                      {comp.attainment > 0 ? `${comp.attainment.toFixed(0)}%` : '-'}
+                    <span className="text-slate-300 font-medium whitespace-nowrap">
+                      {formatCurrency(comp.payout)}
                     </span>
                   </td>
                 ))}
@@ -127,6 +131,10 @@ export function TeamHeatmapCard({
           </tbody>
         </table>
       </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Cell = per-component payout; intensity = performance relative to the top performer on that component.
+        {entities.length > MAX_ROWS && ` Showing top ${MAX_ROWS} of ${entities.length} by coaching priority.`}
+      </p>
     </IntelligenceCard>
   );
 }

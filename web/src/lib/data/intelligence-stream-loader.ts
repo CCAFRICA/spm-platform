@@ -821,29 +821,58 @@ function buildTeamHeatmap(
   ruleSetComponents: ComponentDef[],
   entityNameMap: Map<string, string>,
 ): NonNullable<IntelligenceStreamData['teamHeatmap']> {
+  // OB-206 F-2: the prior build keyed cells on per-component ATTAINMENT, which the
+  // engine does not persist (results carry per-component PAYOUT, not attainment) —
+  // every cell fell through to 0 and rendered "–". Fix: (1) derive columns from the
+  // actual computed componentNames (rule_sets.components is variant-nested for BCL,
+  // so it yields no usable columns); (2) cell value = per-component payout; (3) color
+  // intensity = payout relative to the component's PEER MAX (relative performance);
+  // (4) rows sorted by COACHING PRIORITY = largest aggregate gap-to-peer-max first.
+  // Korean Test: columns are the data's componentName values, whatever language.
+  const parsed = teamResults.map(r => ({ r, comps: parseResultComponents(r.components) }));
+
+  // Canonical column set — union of componentNames, first-seen order. Fall back to
+  // rule_set component names only if the results carry none.
+  const columns: string[] = [];
+  const seen = new Set<string>();
+  for (const { comps } of parsed) {
+    for (const c of comps) { if (!seen.has(c.name)) { seen.add(c.name); columns.push(c.name); } }
+  }
+  if (columns.length === 0) for (const d of ruleSetComponents) if (!seen.has(d.name)) { seen.add(d.name); columns.push(d.name); }
+
+  // Per-component peer max → drives relative color intensity.
+  const peerMax = new Map<string, number>();
+  for (const { comps } of parsed) for (const c of comps) peerMax.set(c.name, Math.max(peerMax.get(c.name) ?? 0, c.payout));
+
   const medianPayout = computeMedian(teamResults.map(r => r.total_payout));
 
-  return teamResults.map(result => {
-    const comps = parseResultComponents(result.components);
-    const entityAtt = extractAttainment(result.attainment);
-
-    const components = ruleSetComponents.map(compDef => {
-      const comp = findComponentByName(comps, compDef.name);
+  const rows = parsed.map(({ r, comps }) => {
+    const payoutByName = new Map(comps.map(c => [c.name, c.payout]));
+    let coachingScore = 0;
+    const components = columns.map(name => {
+      const payout = payoutByName.get(name) ?? 0;
+      const max = peerMax.get(name) ?? 0;
+      coachingScore += Math.max(0, max - payout);
       return {
-        name: compDef.name,
-        attainment: comp?.attainment ?? entityAtt,
-        payout: comp?.payout ?? 0,
+        name,
+        // `attainment` now carries payout-relative-to-peer-max (0–100) for color encoding.
+        attainment: max > 0 ? (payout / max) * 100 : 0,
+        payout,
       };
     });
-
     return {
-      entityName: entityNameMap.get(result.entity_id) ?? result.entity_id,
-      entityId: result.entity_id,
+      entityName: entityNameMap.get(r.entity_id) ?? r.entity_id,
+      entityId: r.entity_id,
       components,
-      totalPayout: result.total_payout,
-      isHighlight: result.total_payout >= medianPayout * 1.2 || result.total_payout <= medianPayout * 0.5,
+      totalPayout: r.total_payout,
+      isHighlight: r.total_payout >= medianPayout * 1.2 || r.total_payout <= medianPayout * 0.5,
+      _coachingScore: coachingScore,
     };
-  }).sort((a, b) => b.totalPayout - a.totalPayout);
+  });
+
+  // Coaching priority: largest aggregate gap-to-peer-max first (most room to improve).
+  rows.sort((a, b) => b._coachingScore - a._coachingScore);
+  return rows.map(({ _coachingScore, ...row }) => { void _coachingScore; return row; });
 }
 
 // ──────────────────────────────────────────────
