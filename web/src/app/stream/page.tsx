@@ -38,6 +38,7 @@ import {
   TeamHealthCard,
   CoachingPriorityCard,
   TeamHeatmapCard,
+  AccelerationCards,
   BloodworkCard,
   PersonalEarningsCard,
   AllocationCard,
@@ -601,12 +602,24 @@ function ManagerStream({
         />
       )}
 
-      {/* 3. Team Heatmap — full width */}
+      {/* OB-206 §6.2: Acceleration Cards — actionable team triage above the grid. */}
+      {data.teamHeatmap && data.teamHeatmap.length > 0 && (
+        <AccelerationCards
+          entities={data.teamHeatmap}
+          triage={data.teamHealth ? { exceeding: data.teamHealth.exceeding, onTrack: data.teamHealth.onTrack, needsAttention: data.teamHealth.needsAttention } : undefined}
+          formatCurrency={formatCurrency}
+          onEntityClick={() => onInteract('acceleration', 'act')}
+        />
+      )}
+
+      {/* OB-206 §6.1: entity × component coaching grid (real per-component payout,
+          sorted by coaching priority — replaces the all-dashes flat grid). */}
       {data.teamHeatmap && data.teamHeatmap.length > 0 && (
         <TeamHeatmapCard
           accentColor={accentColor}
           entities={data.teamHeatmap}
           formatCurrency={formatCurrency}
+          onEntityClick={() => onInteract('team_heatmap', 'act')}
         />
       )}
 
