@@ -250,8 +250,8 @@ export default function StreamPage() {
             ? `Data imported for ${carrier.entities.total.toLocaleString()} team member${carrier.entities.total !== 1 ? 's' : ''}. Calculation pending — your team performance will appear here once the admin runs the calculation.`
             : 'Your team performance will appear here once data is imported and the calculation runs.')
         : (hasData
-            ? 'Your data has been imported. Your commission statement will appear here once calculation is complete.'
-            : 'Your commission statement will appear here once your data is imported and calculated.');
+            ? 'Your data has been imported. Your statement will appear here once calculation is complete.'
+            : 'Your statement will appear here once your data is imported and calculated.');
       const subtitle = isAdmin
         ? (hasData ? `${carrier.dataSnapshot.totalRows.toLocaleString()} rows in the carrier · calculation pending` : 'No data yet — import to begin')
         : 'Calculation pending';
