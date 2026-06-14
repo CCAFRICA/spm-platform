@@ -47,6 +47,12 @@ import {
   PipelineReadinessCard,
   TrajectoryCard,
 } from '@/components/intelligence';
+import {
+  CarrierImportHealth,
+  CarrierEntityLandscape,
+  CarrierPipelineReadiness,
+} from '@/components/stream';
+import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import { Loader2, Zap } from 'lucide-react';
 
 // ──────────────────────────────────────────────
@@ -73,6 +79,11 @@ export default function StreamPage() {
   const tenantId = currentTenant?.id || '';
   const accentColor = PERSONA_ACCENT[persona] || PERSONA_ACCENT.admin;
   const personaToken = PERSONA_TOKENS[persona];
+
+  // OB-205 / DS-029 Phase 1: carrier intelligence — reads the substrate carrier
+  // (committed_data, entities, …) with no calculation prerequisite. Non-blocking;
+  // renders the moment it resolves, in both the no-calculation and calculated views.
+  const { carrier, loading: carrierLoading } = useCarrierIntelligence(tenantId);
 
   // Load intelligence stream data
   const loadData = useCallback(async () => {
@@ -152,6 +163,24 @@ export default function StreamPage() {
     captureStreamSignal({ persona, elementId, action, tenantId });
   }, [persona, tenantId]);
 
+  // OB-205: the carrier stack — Import Health, Entity Landscape, Pipeline Readiness.
+  // Rendered ABOVE calculation elements (upstream pipeline) and as the primary
+  // surface when no calculation exists. PipelineReadiness renders even with no data.
+  const carrierStack = (
+    <div className="space-y-4">
+      {carrier && (
+        <CarrierImportHealth
+          carrier={carrier}
+          accentColor={accentColor}
+          onCalculate={() => router.push('/operate/calculate')}
+          onImportMore={() => router.push('/operate/import')}
+        />
+      )}
+      {carrier && <CarrierEntityLandscape carrier={carrier} accentColor={accentColor} />}
+      <CarrierPipelineReadiness carrier={carrier} accentColor={accentColor} onNavigate={(route) => router.push(route)} />
+    </div>
+  );
+
   // ── Empty / Loading / Error states ──
 
   if (loading) {
@@ -174,6 +203,42 @@ export default function StreamPage() {
   );
 
   if (error || !data || !hasContent) {
+    // OB-205 / DS-029 Phase 1: carrier intelligence is the primary surface when no
+    // calculation exists. Wait for the carrier, then render it (the upstream pipeline)
+    // instead of the bare "No Intelligence" state. PipelineReadiness renders even with
+    // zero data; ImportHealth/EntityLandscape appear once the carrier holds data.
+    if (carrierLoading && !carrier) {
+      return (
+        <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
+          <div className="flex items-center justify-center py-32">
+            <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
+            <span className="ml-2 text-sm text-zinc-500">Loading intelligence stream...</span>
+          </div>
+        </div>
+      );
+    }
+    if (carrier) {
+      const carrierSubtitle = carrier.dataSnapshot.totalRows > 0
+        ? `${carrier.dataSnapshot.totalRows.toLocaleString()} rows in the carrier${carrier.pipelineReadiness.hasCalculation ? '' : ' · calculation pending'}`
+        : 'No data yet — import to begin';
+      return (
+        <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
+          <div className="max-w-6xl mx-auto px-6 py-6 lg:py-8">
+            <div className="flex items-center gap-3 mb-6">
+              <div className={`p-2 rounded-lg bg-gradient-to-br ${personaToken.heroGrad}`}>
+                <Zap className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
+                <p className="text-sm text-zinc-500">{carrierSubtitle}</p>
+              </div>
+            </div>
+            {carrierStack}
+          </div>
+        </div>
+      );
+    }
+
     // OB-175: Show tenant context in empty state — not bare "No Intelligence"
     const hasPlan = !!tenantCtx?.activeRuleSet;
     const hasEntities = (tenantCtx?.entityCount ?? 0) > 0;
@@ -287,6 +352,10 @@ export default function StreamPage() {
             </span>
           </div>
         </div>
+
+        {/* OB-205: carrier intelligence renders first — the upstream pipeline is
+            relevant before calculation elements. */}
+        <div className="mb-4">{carrierStack}</div>
 
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
