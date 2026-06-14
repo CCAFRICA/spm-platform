@@ -286,6 +286,27 @@ export function getCapabilities(
 }
 
 // =============================================================================
+// OB-204 A.1 — CAPABILITY DERIVATION SEAM (single source for the writer)
+// =============================================================================
+
+/**
+ * OB-204 A.1 / DS-028 §1.2 — derive a role's capabilities as a JSONB-array-ready
+ * `string[]`, drawn EXACTLY from the DS-014 §4 matrix encoded in ROLE_CAPABILITIES
+ * above. This is THE seam: the single writer (provision-user) and any future
+ * per-tenant override layer call this — `profiles.capabilities` is NEVER authored
+ * by hand, never an object, never free text (closes the OB-204 defect class).
+ *
+ * DS-028 §1.2 governs the contents: "derivation follows the matrix, not intuition"
+ * — the output is `Array.from(getCapabilities(role))`, the matrix verbatim, not a
+ * hand-curated list. Sorted so persisted rows are deterministic (stable diffs,
+ * idempotent normalization). Structural vocabulary only (Korean Test): the strings
+ * are the PDP's typed `Capability` union, never language/domain literals.
+ */
+export function deriveCapabilities(role: Role): string[] {
+  return Array.from(getCapabilities(role)).sort();
+}
+
+// =============================================================================
 // WORKSPACE → CAPABILITY MAPPING (used by middleware)
 // =============================================================================
 
