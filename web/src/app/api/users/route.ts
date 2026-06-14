@@ -72,14 +72,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const { email, displayName, role, tenantId = null, entityId, mode, locale } = body ?? {};
+  const { email, displayName, role, tenantId = null, entityId, mode, locale, notifyEmail } = body ?? {};
   if (!email || !displayName || !role || !mode) {
     return NextResponse.json({ error: 'email, displayName, role and mode are required' }, { status: 400 });
   }
   const authz = await authorizeUserMgmt({ tenantId: tenantId ?? null, assigningPlatform: role === 'platform' });
   if (!authz.ok) return NextResponse.json({ error: authz.error, code: authz.code }, { status: authz.status });
   try {
-    const result = await createUser({ email, displayName, role, tenantId: tenantId ?? null, entityId, mode, locale, actorProfileId: authz.caller.profileId });
+    const result = await createUser({ email, displayName, role, tenantId: tenantId ?? null, entityId, mode, locale, notifyEmail: notifyEmail || undefined, actorProfileId: authz.caller.profileId });
     // result.tempPassword (temp_password mode) is returned ONCE here; never logged or persisted by us.
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

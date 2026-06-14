@@ -75,7 +75,11 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
   const changeRole = (u: ApiUser, newRole: string) => act(`/api/users/${u.id}/role`, { newRole }, `Role changed to ${newRole}`);
   const reset = (u: ApiUser) => act(`/api/users/${u.id}/reset`, null, 'Password reset link sent');
   const toggle = (u: ApiUser) => u.credentialState === 'disabled' ? act(`/api/users/${u.id}/enable`, null, 'User enabled') : act(`/api/users/${u.id}/disable`, null, 'User disabled');
-  const sendCred = (u: ApiUser, type: string) => act(`/api/users/${u.id}/send-credentials`, { type }, type === 'magiclink' ? 'Sign-in link sent' : 'Invite resent');
+  const sendCred = (u: ApiUser, type: string) => {
+    // D.2 Layer 1 — optional per-send delivery override (blank = user/tenant/env routing).
+    const alt = typeof window !== 'undefined' ? window.prompt('Deliver to an alternate email? Leave blank to use the user/tenant routing.') : null;
+    return act(`/api/users/${u.id}/send-credentials`, { type, notifyEmail: alt?.trim() || undefined }, type === 'magiclink' ? 'Sign-in link sent' : 'Invite resent');
+  };
   const erase = (u: ApiUser) => act(`/api/users/${u.id}/erase`, null, 'User erased');
 
   const filtered = useMemo(() => users.filter(u => {
@@ -243,16 +247,17 @@ function InviteDialog({ scope, tenants, selectedTenant, open, setOpen, onDone }:
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState(isPlatform ? 'platform' : 'member');
   const [tenantId, setTenantId] = useState(selectedTenant);
+  const [notifyEmail, setNotifyEmail] = useState('');   // D.2 Layer 1 — deliver to alternate email
   useEffect(() => { setTenantId(selectedTenant); }, [selectedTenant]);
 
   const submit = async () => {
     const isPlatformRole = role === 'platform';
-    const body = { email, displayName, role, tenantId: isPlatformRole ? null : (tenantId || null), mode: 'invite' };
+    const body = { email, displayName, role, tenantId: isPlatformRole ? null : (tenantId || null), mode: 'invite', notifyEmail: notifyEmail.trim() || undefined };
     const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(data.error || 'Invite failed'); return; }
     toast.success(`Invited ${email}${data.delivery === 'dry_run' ? ' (email dry-run)' : ''}`);
-    setEmail(''); setDisplayName(''); setOpen(false); onDone();
+    setEmail(''); setDisplayName(''); setNotifyEmail(''); setOpen(false); onDone();
   };
 
   return (
@@ -280,6 +285,10 @@ function InviteDialog({ scope, tenants, selectedTenant, open, setOpen, onDone }:
               </Select>
             </div>
           )}
+          <div><Label className="text-slate-300">Deliver to alternate email <span className="text-slate-500">(optional)</span></Label>
+            <Input value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} className="bg-slate-800 border-slate-700 text-slate-200" placeholder="route the email to a colleague / QA inbox" />
+            <p className="text-[11px] text-slate-500 mt-1">The account still belongs to the email above — this only changes where the link is delivered.</p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>

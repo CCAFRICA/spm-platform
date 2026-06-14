@@ -124,6 +124,18 @@ export interface CreateUserInput {
   mode: 'invite' | 'temp_password';
   locale?: DispatchLocale;
   actorProfileId?: string;      // who performed it (for I-1 events)
+  notifyEmail?: string;         // D.2 Layer 1 — per-send delivery override (identity stays `email`)
+}
+
+/**
+ * D.2 Layer 2 — a tenant's notification_email (all that tenant's system emails route here).
+ * Tolerant of the pre-migration estate: if the column does not exist yet, returns null.
+ */
+async function tenantNotificationEmail(sb: SupabaseClient, tenantId: string | null): Promise<string | undefined> {
+  if (!tenantId) return undefined;
+  const { data, error } = await sb.from('tenants').select('notification_email').eq('id', tenantId).maybeSingle();
+  if (error) return undefined;   // column absent pre-migration → no tenant routing yet
+  return (data?.notification_email as string | null) ?? undefined;
 }
 export interface CreateUserResult {
   profileId: string;
@@ -174,19 +186,22 @@ export async function createUser(input: CreateUserInput): Promise<CreateUserResu
     await sb.from('entities').update({ profile_id: profileId }).eq('id', input.entityId);
   }
 
-  // invite mode: mint + send the invite link
+  // invite mode: mint + send the invite link (D.2 layered routing applied in dispatch)
   let delivery: 'sent' | 'dry_run' | undefined;
+  let redirected = false;
   if (input.mode === 'invite') {
     const { data: linkData } = await sb.auth.admin.generateLink({ type: 'invite', email: input.email });
     const link = (linkData?.properties?.action_link as string) ?? '';
-    const receipt = await sendInvite({ to: input.email, locale: input.locale, link });
-    delivery = receipt.delivery;
+    const tnEmail = await tenantNotificationEmail(sb, input.tenantId);
+    const receipt = await sendInvite({ to: input.email, locale: input.locale, link, notifyEmail: input.notifyEmail, tenantNotificationEmail: tnEmail });
+    delivery = receipt.delivery; redirected = receipt.redirected;
   }
 
   await emitLifecycle(sb, {
     action: 'user.created', auditAction: 'user.created', targetProfileId: profileId,
     tenantId: input.tenantId, actorProfileId: input.actorProfileId, role,
-    extra: { mode: input.mode, entity_linked: !!input.entityId, delivery: delivery ?? 'n/a' },
+    // I-1: email_redirected is a BOOLEAN — no addresses ever enter a payload.
+    extra: { mode: input.mode, entity_linked: !!input.entityId, delivery: delivery ?? 'n/a', email_redirected: redirected },
   });
 
   return { profileId, authUserId, role, capabilities, tempPassword, delivery };
@@ -260,7 +275,7 @@ export async function erase(input: MutateInput): Promise<void> {
   await emitLifecycle(sb, { action: 'user.erased', auditAction: 'user.erased', targetProfileId: input.targetProfileId, tenantId: t.tenant_id as string | null, actorProfileId: input.actorProfileId });
 }
 
-export async function sendCredentials(input: MutateInput & { type: 'invite_resend' | 'magiclink' | 'recovery' }): Promise<{ delivery: 'sent' | 'dry_run' }> {
+export async function sendCredentials(input: MutateInput & { type: 'invite_resend' | 'magiclink' | 'recovery'; notifyEmail?: string }): Promise<{ delivery: 'sent' | 'dry_run' }> {
   const sb = admin();
   const { data: t } = await sb.from('profiles').select('id, email, tenant_id, locale').eq('id', input.targetProfileId).single();
   if (!t) throw new ProvisionError('not_found', `profile ${input.targetProfileId} not found`);
@@ -269,13 +284,16 @@ export async function sendCredentials(input: MutateInput & { type: 'invite_resen
   const typeMap = { invite_resend: 'invite', magiclink: 'magiclink', recovery: 'recovery' } as const;
   const { data: linkData } = await sb.auth.admin.generateLink({ type: typeMap[input.type], email });
   const link = (linkData?.properties?.action_link as string) ?? '';
-  const receipt = input.type === 'recovery' ? await sendRecovery({ to: email, locale, link })
-    : input.type === 'magiclink' ? await sendSignInLink({ to: email, locale, link })
-    : await sendInvite({ to: email, locale, link });
+  // D.2 layered routing: identity stays `email`; delivery may route to override/tenant/env.
+  const tnEmail = await tenantNotificationEmail(sb, t.tenant_id as string | null);
+  const di = { to: email, locale, link, notifyEmail: input.notifyEmail, tenantNotificationEmail: tnEmail };
+  const receipt = input.type === 'recovery' ? await sendRecovery(di)
+    : input.type === 'magiclink' ? await sendSignInLink(di)
+    : await sendInvite(di);
   await emitLifecycle(sb, {
     action: 'user.credentials_sent', auditAction: 'user.credentials_sent', targetProfileId: input.targetProfileId,
     tenantId: t.tenant_id as string | null, actorProfileId: input.actorProfileId,
-    extra: { credential_type: input.type, delivery: receipt.delivery },
+    extra: { credential_type: input.type, delivery: receipt.delivery, email_redirected: receipt.redirected },
   });
   return { delivery: receipt.delivery };
 }
