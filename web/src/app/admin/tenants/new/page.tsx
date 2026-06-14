@@ -146,6 +146,7 @@ const STEP_ICONS: Record<Step, React.ComponentType<{ className?: string }>> = {
 const COUNTRIES = [
   { code: 'US', name: 'United States', nameEs: 'Estados Unidos' },
   { code: 'MX', name: 'Mexico', nameEs: 'México' },
+  { code: 'PE', name: 'Peru', nameEs: 'Perú' },
   { code: 'CA', name: 'Canada', nameEs: 'Canadá' },
   { code: 'GB', name: 'United Kingdom', nameEs: 'Reino Unido' },
   { code: 'ES', name: 'Spain', nameEs: 'España' },
@@ -154,6 +155,7 @@ const COUNTRIES = [
 const CURRENCIES: { code: Currency; name: string }[] = [
   { code: 'USD', name: 'US Dollar ($)' },
   { code: 'MXN', name: 'Mexican Peso ($)' },
+  { code: 'PEN', name: 'Sol peruano (S/)' },
   { code: 'EUR', name: 'Euro (€)' },
   { code: 'GBP', name: 'British Pound (£)' },
   { code: 'CAD', name: 'Canadian Dollar ($)' },
@@ -162,6 +164,7 @@ const CURRENCIES: { code: Currency; name: string }[] = [
 const LOCALES: { code: Locale; name: string }[] = [
   { code: 'en-US', name: 'English (US)' },
   { code: 'es-MX', name: 'Español (México)' },
+  { code: 'es-PE', name: 'Español (Perú)' },
   { code: 'en-GB', name: 'English (UK)' },
   { code: 'fr-FR', name: 'Français (France)' },
 ];
@@ -176,6 +179,7 @@ const TIMEZONES: { value: string; label: string }[] = [
   { value: 'America/Mazatlan', label: 'America/Mazatlan (GMT-7)' },
   { value: 'America/Tijuana', label: 'America/Tijuana (GMT-8)' },
   { value: 'America/Cancun', label: 'America/Cancun (GMT-5, No DST)' },
+  { value: 'America/Lima', label: 'America/Lima (GMT-5, No DST)' },
   { value: 'Europe/London', label: 'Europe/London (GMT+0)' },
   { value: 'Europe/Paris', label: 'Europe/Paris (GMT+1)' },
   { value: 'Europe/Madrid', label: 'Europe/Madrid (GMT+1)' },
