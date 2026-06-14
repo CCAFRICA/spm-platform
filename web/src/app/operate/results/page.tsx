@@ -35,6 +35,8 @@ import {
 import { detectAnomalies, type AnomalyReport, type Anomaly } from '@/lib/intelligence/anomaly-detection';
 import { createClient } from '@/lib/supabase/client';
 import { classifyRuleSetRegimes, type RegimeClassification } from '@/lib/results/performance-regime';
+import { buildFieldBindingMap, resolveAttainmentPct, type FieldBinding } from '@/lib/results/field-identity';
+import { AnomalyDrillThrough } from '@/components/results/AnomalyDrillThrough';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -108,7 +110,9 @@ function ResultsDashboardPageInner() {
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   // OB-207 P2: per-component performance regimes (structural, from rule_sets grammar) + self-clearing resolves.
   const [regimes, setRegimes] = useState<Map<string, RegimeClassification>>(new Map());
+  const [bindingMap, setBindingMap] = useState<Map<string, FieldBinding>>(new Map());
   const [resolvedAnomalies, setResolvedAnomalies] = useState<Set<string>>(new Set());
+  const [drillAnomaly, setDrillAnomaly] = useState<{ claim: string; entityIds: string[]; claimedCount: number } | null>(null); // OB-208 D-2
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
@@ -128,6 +132,7 @@ function ResultsDashboardPageInner() {
     const loadData = async () => {
       setIsLoaded(false);
       setResolvedAnomalies(new Set()); // OB-207 P2 fix: clear self-cleared anomalies when the batch changes
+      setDrillAnomaly(null); // OB-208 fix: close any open drill-through on batch change
       try {
         const calcResults = await getCalculationResults(tenantId, selectedBatchId);
         if (cancelled) return;
@@ -136,10 +141,13 @@ function ResultsDashboardPageInner() {
         // Read THIS batch's rule set (selectedBatch.ruleSetId) — not an arbitrary non-draft one.
         try {
           const sb = createClient();
-          let rsQuery = sb.from('rule_sets').select('components').eq('tenant_id', tenantId);
+          let rsQuery = sb.from('rule_sets').select('components, input_bindings').eq('tenant_id', tenantId);
           rsQuery = selectedBatch?.ruleSetId ? rsQuery.eq('id', selectedBatch.ruleSetId) : rsQuery.neq('status', 'draft');
           const { data: rs } = await rsQuery.limit(1);
-          if (!cancelled) setRegimes(classifyRuleSetRegimes(rs?.[0]?.components));
+          if (!cancelled) {
+            setRegimes(classifyRuleSetRegimes(rs?.[0]?.components));
+            setBindingMap(buildFieldBindingMap(rs?.[0]?.input_bindings)); // D-1 canonical field→column resolver
+          }
         } catch { /* regime classification is best-effort; the surface degrades to relative/payout representation */ }
 
         // Map to display format — extract L3 (component detail) and L2 (metrics)
@@ -261,6 +269,22 @@ function ResultsDashboardPageInner() {
       .map(r => r.overallAttainment)
       .filter((a): a is number => a !== null && a > 0);
   }, [results]);
+
+  // OB-208 D-1: per regime-3 component, the population attainment (actual÷target) computed via the
+  // canonical field binding (no name-matching). This is what makes the attainment VALUE renderable.
+  const regimeAttainment = useMemo(() => {
+    const out = new Map<string, { mean: number; values: number[] }>();
+    for (const [name, cls] of Array.from(regimes.entries())) { // Array.from: downlevelIteration gotcha
+      if (cls.regime !== 3 || !cls.attainmentFields) continue;
+      const values: number[] = [];
+      for (const r of results) {
+        const pct = resolveAttainmentPct(cls.attainmentFields, bindingMap, r.rawMetrics);
+        if (pct != null && Number.isFinite(pct)) values.push(pct);
+      }
+      if (values.length > 0) out.set(name, { mean: values.reduce((a, b) => a + b, 0) / values.length, values });
+    }
+    return out;
+  }, [regimes, bindingMap, results]);
 
   // OB-102: Deterministic commentary
   const resultCommentary = useMemo(() => {
@@ -463,14 +487,24 @@ function ResultsDashboardPageInner() {
             never empty), and a regime legend. Attainment-vs-target distribution renders only where the
             engine persists per-component attainment (R2). */}
         <div className="lg:col-span-4 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
-          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">Performance Distribution</p>
-          <p className="text-[10px] text-zinc-600 mb-3">payout relative to population mean</p>
           {(() => {
+            // OB-208 D-1: prefer a regime-3 ATTAINMENT distribution (actual÷target via the canonical
+            // binding — now computable); fall back to payout-vs-mean for regime-1/population.
+            const r3 = Array.from(regimeAttainment.entries())[0];
             const mean = stats?.mean ?? avgPayout;
             const vsMean = mean > 0 ? results.map(r => (r.totalPayout / mean) * 100) : [];
-            return vsMean.length > 0
-              ? <DistributionChart data={vsMean} benchmarkLine={100} />
-              : <div className="flex items-center justify-center h-32 text-xs text-zinc-500">No results</div>;
+            const data = r3 ? r3[1].values : vsMean;
+            const label = r3 ? 'Attainment Distribution' : 'Performance Distribution';
+            const sub = r3 ? `${r3[0]} · ${r3[1].mean.toFixed(0)}% avg attainment` : 'payout relative to population mean';
+            return (
+              <>
+                <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">{label}</p>
+                <p className="text-[10px] text-zinc-600 mb-3">{sub}</p>
+                {data.length > 0
+                  ? <DistributionChart data={data} benchmarkLine={100} />
+                  : <div className="flex items-center justify-center h-32 text-xs text-zinc-500">No results</div>}
+              </>
+            );
           })()}
           {regimes.size > 0 && (() => {
             const vals = Array.from(regimes.values());
@@ -573,10 +607,13 @@ function ResultsDashboardPageInner() {
                     {topFinding.description}
                   </span>
                   <div className="flex items-center gap-2 mt-2.5">
+                    <button onClick={() => setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                      Verify
+                    </button>
                     <button onClick={() => investigateAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
                       Investigate
                     </button>
-                    <button onClick={() => resolveAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                    <button onClick={() => resolveAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
                       Resolve
                     </button>
                   </div>
@@ -607,12 +644,15 @@ function ResultsDashboardPageInner() {
                               </div>
                               <span className="text-xs text-slate-400 whitespace-nowrap">{a.entityCount} ent</span>
                             </div>
-                            {/* OB-207 P2: Action Proximity — every anomaly leads to a concrete result */}
+                            {/* OB-207 P2 / OB-208 D-2: Action Proximity + claim verification */}
                             <div className="flex items-center gap-2 mt-2.5">
+                              <button onClick={() => setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                                Verify
+                              </button>
                               <button onClick={() => investigateAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
                                 Investigate
                               </button>
-                              <button onClick={() => resolveAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                              <button onClick={() => resolveAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
                                 Resolve
                               </button>
                             </div>
@@ -627,6 +667,20 @@ function ResultsDashboardPageInner() {
           </Card>
         );
       })()}
+
+      {/* OB-208 D-2/D-3: claim verification — drill a claim to the Five-Elements synthesis of its entities */}
+      {drillAnomaly && (
+        <AnomalyDrillThrough
+          claim={drillAnomaly.claim}
+          entityIds={drillAnomaly.entityIds}
+          claimedCount={drillAnomaly.claimedCount}
+          results={results.map(r => ({ entityId: r.entityId, entityName: r.entityName, totalPayout: r.totalPayout }))}
+          populationMean={stats?.mean ?? avgPayout}
+          populationTotal={totalPayout}
+          formatCurrency={formatCurrency}
+          onClose={() => setDrillAnomaly(null)}
+        />
+      )}
 
       {/* Component Breakdown — BenchmarkBar (comparison) */}
       {componentTotals.length > 0 && (
@@ -644,7 +698,9 @@ function ResultsDashboardPageInner() {
                   label={comp.componentName}
                   sublabel={`${comp.entityCount} entities${(() => {
                     const r = regimes.get(comp.componentName)?.regime;
-                    return r ? ` · ${r === 3 ? 'target-driven' : r === 2 ? 'tracked-target' : 'volume-driven'}` : '';
+                    const tag = r ? ` · ${r === 3 ? 'target-driven' : r === 2 ? 'tracked-target' : 'volume-driven'}` : '';
+                    const att = regimeAttainment.get(comp.componentName); // OB-208 D-1: attainment value
+                    return tag + (att ? ` · ${att.mean.toFixed(0)}% attainment` : '');
                   })()}`}
                   rightLabel={formatCurrency(comp.total)}
                   color="#6366f1"
