@@ -2,7 +2,9 @@
 
 **Repo:** `CCAFRICA/spm-platform` (VP) · **Authored:** 2026-06-14 · **Type:** HF (defect-class sibling of HF-286)
 **Branch:** `hf/290-import-list-poller-terminal-stop` · **Base:** `main`
-**Status:** **HALT-3 — no code change.** All `/api/import/sci/session-state` pollers already carry terminal stops.
+**Status:** **HALT-3 (no polling defect) + a poll-volume reduction.** All `/api/import/sci/session-state` pollers already carry terminal stops; the one-line change below cuts the sub-cadence request volume that fills the `[import]` access log. No terminal-stop bug existed or was added.
+
+**SHAs:** poll-volume reduction `09f505ab` (`SCIExecution.tsx`) · HALT-3 report `86e622a8`.
 
 ---
 
@@ -65,6 +67,65 @@ stop-guard onto already-terminal-aware code (DD-7: pollers that already stop are
 
 ---
 
+## Log-verbosity finding — no source `info` line exists
+
+A follow-on scope ask was to lower the `[info] [import] / status=200` line from `info` to `debug`.
+**Exhaustive grep proves the application emits no such line:** zero `console.info` in the entire
+codebase; no `instrumentation.ts`, custom server, or `next.config` logging block; no route-handler
+logging wrapper; the session-state route handler has zero `console.*`; middleware only `console.error`s
+on auth. The import routes that do log use tags `[ImportPrepare]`/`[ImportCommit]` — never `[import]`,
+never `status=`. `[info] [import] / status=200` is a **Vercel platform access log** (`[info]` = its
+level, `[import]` = its function/route grouping, `status=200` = its request outcome), not app code.
+There is no `info` log to downgrade; a fabricated `console.debug` would leave the real access log
+unchanged. The only code-side lever is to reduce the **number of requests** — done below.
+
+## Poll-volume reduction (lever 1) — SHA `09f505ab`
+
+The Vercel access log fires once per request; fewer polls = fewer lines. Caller #4 (the live
+execute-progress poll) re-subscribed on every per-unit settle and fired an extra immediate
+`void poll()` each time — the same-second double/triple hits. Gating on the **derived
+`hasActiveUnits` boolean** instead of the volatile `units` array makes the effect re-run only when
+the boolean toggles (start `false→true`, finish `true→false`), not on every per-unit flip.
+
+**Before** (`SCIExecution.tsx`):
+```ts
+useEffect(() => {
+  if (executionDone) return;
+  const hasActive = units.some(u => u.status === 'processing');
+  if (!hasActive) return;
+  // … interval @ 2000ms + immediate void poll() …
+}, [executionDone, units, tenantId, proposal.proposalId]);   // ← `units` churns every settle
+```
+
+**After:**
+```ts
+const hasActiveUnits = units.some(u => u.status === 'processing');
+useEffect(() => {
+  if (executionDone || !hasActiveUnits) return;
+  // … interval @ 2000ms + immediate void poll() …
+}, [executionDone, hasActiveUnits, tenantId, proposal.proposalId]);   // ← boolean toggles twice
+```
+
+**Why a literal `units` removal would be wrong (and the build proves the fix is correct):** the
+effect body read `units` only at the start gate, which must observe the `pending→processing`
+transition to *start*. Dropping `units` outright would either never start the poller or trip
+`react-hooks/exhaustive-deps`. Lifting the gate to the derived boolean satisfies the linter (the
+body no longer references `units`) **and** preserves start/stop semantics.
+
+**Evidence the double-hit is gone (static, deterministic — browser run is auth-gated):**
+- The effect's only re-subscription trigger was the `units` array identity. It is removed from the
+  deps; the remaining deps (`executionDone`, `hasActiveUnits`, `tenantId`, `proposal.proposalId`)
+  change at most twice over a run. Per-unit settles (N flips for N units) no longer re-run the
+  effect, so the N−1 extra immediate `void poll()` calls per run are eliminated. Steady cadence is
+  the single `setInterval(…, 2000)` — **unchanged**.
+- Terminal stop **unchanged**: effect still early-returns + clears on `executionDone` OR
+  `!hasActiveUnits` (last unit leaves `processing`), and still unmounts at phase→`complete`.
+- **Build:** `rm -rf web/.next && npm run build` → **exit 0**, no `exhaustive-deps` regression on
+  the edited effect (the only `SCIExecution.tsx` lint note is the pre-existing `rawData` dep at
+  l.609, untouched).
+
+---
+
 ## Open question (decides disposition)
 
 **Was the production log captured during active execution, or at idle (sitting on the "Import
@@ -81,12 +142,13 @@ Complete" screen)?**
 
 ## Residuals
 
-- **Active-execution double-hit (caller #4).** The live execute-progress poll lists `units` in its
-  `useEffect` deps (`SCIExecution.tsx:223`), so it tears down + recreates the interval and fires an
-  immediate `void poll()` on every unit-state change — extra sub-cadence requests during active
-  work. **Micro-optimization candidate, not a defect** (it is bounded and stops at `executionDone`).
-  Dropping `units` from the deps would silence the double-hit. **DS-029 scope** (SSE/push replacement
-  retires the polling pattern entirely).
+- **Active-execution double-hit (caller #4) — RESOLVED** in `09f505ab` (poll-volume reduction above).
+  The sub-cadence extra ticks from the `units`-array dep are eliminated; clean 2s cadence retained.
+- **The platform access log itself** is unchanged by code — only its request *count* drops. Lowering
+  Vercel's `[info]` access-log verbosity (sampling / log drains / level filter) is an infra/dashboard
+  lever, not a code change. Flagged for the architect if further suppression is wanted.
+- **DS-029** still retires the polling pattern entirely (SSE/push), which is the durable fix for all
+  interval pollers on this surface.
 - No additional import-surface pollers were discovered beyond the 7 census rows.
 
 ---
@@ -95,13 +157,13 @@ Complete" screen)?**
 
 ```
 ARTIFACT SYNC
-MC: HF-290 → HALT-3 (no code change; all pollers already terminal-aware)
-REGISTRY: import-list polling surface audited — 7 callers, all bounded
-R1: no change
-BOARD: no change
-SUBSTRATE: ICA candidate — "HALT-3 is a valid work-item outcome; the audit itself has value as durable evidence"
+MC: HF-290 → HALT-3 (no polling defect) + poll-volume reduction (09f505ab); [import] info log is Vercel platform, no source line to downgrade
+REGISTRY: import-list polling surface audited — 7 callers, all bounded; caller #4 sub-cadence double-hit RESOLVED
+R1: D-tier operational quality — import-list log volume reduced (per-unit-settle extra polls eliminated)
+BOARD: Performance +
+SUBSTRATE: ICA candidate — "HALT-3 is a valid work-item outcome; the audit itself has value as durable evidence" + "gate polling effects on derived booleans, not the volatile arrays they read — array-identity deps re-subscribe per mutation"
 ```
 
 ---
 
-*HF-290 · import-list poller audit · 2026-06-14 · vialuce.ai*
+*HF-290 · import-list poller audit + poll-volume reduction · 2026-06-14 · vialuce.ai*
