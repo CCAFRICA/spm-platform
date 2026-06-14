@@ -41,6 +41,15 @@ export type PlatformEventType =
   | 'user.invited'
   | 'user.first_login'
   | 'user.feature_used'
+  // User lifecycle (OB-204 — the single door; payloads are uuid + structural facts only, I-1)
+  | 'user.created'
+  | 'user.role_changed'
+  | 'user.disabled'
+  | 'user.enabled'
+  | 'user.erased'
+  | 'user.credentials_sent'
+  | 'user.orphan_cleanup'
+  | 'privacy_notice.presented'
   // Billing
   | 'billing.trial_started'
   | 'billing.trial_expiring'
@@ -59,7 +68,9 @@ export type PlatformEventType =
 // ---------------------------------------------------------------------------
 
 export interface PlatformEvent {
-  tenant_id: string;
+  // OB-204 F-3: nullable for platform-target rows (platform users have tenant_id NULL;
+  // Phase 0 confirmed 1934/1965 platform_events rows already carry NULL — accepted).
+  tenant_id: string | null;
   event_type: PlatformEventType;
   actor_id?: string;
   entity_id?: string;
