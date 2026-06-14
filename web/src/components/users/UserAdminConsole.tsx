@@ -29,7 +29,7 @@ interface ApiUser {
   credentialState: 'invited' | 'active' | 'disabled';
   linkedEntity: { id: string; displayName: string; externalId: string | null } | null;
 }
-interface RosterEntity { id: string; displayName: string; externalId: string | null; tenantId: string | null }
+interface RosterEntity { id: string; displayName: string; externalId: string | null; tenantId: string | null; suggestedEmail: string | null }
 interface TenantOpt { id: string; name: string }
 
 // non-platform roles assignable from the surface (platform is assigned only by F8 on the platform surface)
@@ -92,9 +92,12 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
     let ok = 0; const fails: string[] = [];
     for (const id of ids) {
       const e = roster.find(r => r.id === id); if (!e) continue;
+      // HF-288: invite email from the import classification; no email in the import → can't bulk-invite
+      // (promote individually to enter one). No fabricated placeholder address.
+      if (!e.suggestedEmail) { fails.push(`${e.displayName}: no email in import — promote individually to enter one`); continue; }
       const tenantId = (isPlatform ? selectedTenant : '') || e.tenantId || '';
       const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: `${e.externalId || e.id}@roster.invalid`, displayName: e.displayName, role: bulkRole, tenantId, entityId: e.id, mode: 'invite' }) });
+        body: JSON.stringify({ email: e.suggestedEmail, displayName: e.displayName, role: bulkRole, tenantId, entityId: e.id, mode: 'invite' }) });
       if (res.ok) ok++; else { const d = await res.json().catch(() => ({})); fails.push(`${e.displayName}: ${d.error || res.status}`); }
     }
     setPicked(new Set());
@@ -261,10 +264,12 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
 
 function PromoteButton({ entity, tenantId, onDone }: { entity: RosterEntity; tenantId: string; onDone: () => void }) {
   const [role, setRole] = useState('member');
+  // HF-288: prefill from the import-classified email; null → empty field + manual fill (no fake address).
+  const [email, setEmail] = useState(entity.suggestedEmail ?? '');
   const promote = async () => {
     const res = await fetch('/api/users', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: `${entity.externalId || entity.id}@roster.invalid`, displayName: entity.displayName, role, tenantId, entityId: entity.id, mode: 'invite' }),
+      body: JSON.stringify({ email, displayName: entity.displayName, role, tenantId, entityId: entity.id, mode: 'invite' }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(data.error || 'Promote failed'); return; }
@@ -272,11 +277,12 @@ function PromoteButton({ entity, tenantId, onDone }: { entity: RosterEntity; ten
   };
   return (
     <div className="flex items-center gap-2">
+      <Input value={email} onChange={e => setEmail(e.target.value)} placeholder={entity.suggestedEmail ? '' : 'No email in import'} className="h-7 w-[200px] text-xs bg-slate-800 border-slate-700 text-slate-200" />
       <Select value={role} onValueChange={setRole}>
-        <SelectTrigger className="w-[110px] h-7 text-xs bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-[100px] h-7 text-xs bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
         <SelectContent>{TENANT_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>)}</SelectContent>
       </Select>
-      <Button size="sm" variant="secondary" className="h-7" onClick={promote} disabled={!tenantId}>Promote</Button>
+      <Button size="sm" variant="secondary" className="h-7" onClick={promote} disabled={!tenantId || !email.trim()}>Promote</Button>
     </div>
   );
 }
