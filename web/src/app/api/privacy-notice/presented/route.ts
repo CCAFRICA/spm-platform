@@ -6,7 +6,7 @@ import { getServerAuthState } from '@/lib/auth/server-auth';
 import { emitEvent } from '@/lib/events/emitter';
 
 export const runtime = 'nodejs';
-export const PRIVACY_NOTICE_VERSION = '2026-06-13';
+const PRIVACY_NOTICE_VERSION = '2026-06-13';
 
 export async function POST() {
   const state = await getServerAuthState();
