@@ -1,16 +1,18 @@
 /**
- * Workspace Configuration — 4 Workspace Model (OB-97)
+ * Workspace Configuration — Agent-Navigation Spine (OB-207)
  *
- * Master configuration for all workspaces, their sections, and route mappings.
- * This is the source of truth for the navigation architecture.
+ * The source of truth for navigation. Reorganized around the four Capability-Board
+ * agents: three ACTS the user performs through + the always-on Platform Core
+ * foundation (resolves CLT-84-F20 metaphor-mix). Grouping only — every route path
+ * is unchanged from the prior 4-workspace model (OB-97).
  *
- * Workspaces:
- *   Perform  — See data (READ)
- *   Operate  — Do things (ACT)
- *   Configure — Set up (SETUP)
- *   Financial — Module workspace (MODULE, feature-flagged)
+ *   Decide        — performance intelligence (/stream HOME + persona results)
+ *   Calculate     — run the engine (cockpit + import + calculate)
+ *   Consolidate   — reconcile + the Financial module (committed_data via DS-029)
+ *   Platform Core — always-on foundation; Configure lives here
  *
- * Eliminated (OB-97): Investigate → Operate, Design → Configure, Govern → Configure
+ * /stream is the canonical landing for every persona (Decision 128); the active
+ * workspace when on /stream is `decide`.
  */
 
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
@@ -22,15 +24,16 @@ import { hasCapability } from '@/lib/auth/permissions';
 // =============================================================================
 
 export const WORKSPACES: Record<WorkspaceId, Workspace> = {
-  perform: {
-    id: 'perform',
-    label: 'Perform',
-    labelEs: 'Rendimiento',
-    icon: 'TrendingUp',
-    description: 'View performance and compensation',
-    descriptionEs: 'Ver rendimiento y compensación',
+  // ── DECIDE — performance intelligence (HOME for every persona) ──
+  decide: {
+    id: 'decide',
+    label: 'Decide',
+    labelEs: 'Decidir',
+    icon: 'Zap',
+    description: 'Performance intelligence and results',
+    descriptionEs: 'Inteligencia de rendimiento y resultados',
     defaultRoute: '/stream',
-    accentColor: 'hsl(142, 76%, 36%)', // Green
+    accentColor: 'hsl(239, 84%, 67%)', // Indigo
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
@@ -52,11 +55,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     ],
   },
 
-  operate: {
-    id: 'operate',
-    label: 'Operate',
-    labelEs: 'Operar',
-    icon: 'Zap',
+  // ── CALCULATE — run the deterministic engine ──
+  calculate: {
+    id: 'calculate',
+    label: 'Calculate',
+    labelEs: 'Calcular',
+    icon: 'Calculator',
     description: 'Run the current compensation cycle',
     descriptionEs: 'Ejecutar el ciclo de compensación actual',
     defaultRoute: '/operate',
@@ -64,18 +68,11 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     roles: ['platform', 'admin'],
     sections: [
       {
-        id: 'overview',
-        label: 'Overview',
-        labelEs: 'Resumen',
+        id: 'cockpit',
+        label: 'Lifecycle',
+        labelEs: 'Ciclo de Vida',
         routes: [
-          { path: '/operate', label: 'Operations Overview', labelEs: 'Resumen de Operaciones', icon: 'Activity', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
-        ],
-      },
-      {
-        id: 'lifecycle',
-        label: 'Operations',
-        labelEs: 'Operaciones',
-        routes: [
+          { path: '/operate', label: 'Lifecycle Cockpit', labelEs: 'Cabina del Ciclo', icon: 'Activity', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['platform', 'admin'], requiredCapability: 'data.advance_lifecycle' },
         ],
       },
@@ -96,6 +93,21 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'], requiredCapability: 'data.calculate' },
         ],
       },
+    ],
+  },
+
+  // ── CONSOLIDATE — reconcile + the Financial module (committed_data, A.24) ──
+  consolidate: {
+    id: 'consolidate',
+    label: 'Consolidate',
+    labelEs: 'Consolidar',
+    icon: 'GitCompare',
+    description: 'Reconciliation and financial intelligence',
+    descriptionEs: 'Conciliación e inteligencia financiera',
+    defaultRoute: '/operate/reconciliation',
+    accentColor: 'hsl(45, 93%, 47%)', // Gold
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
+    sections: [
       {
         id: 'reconciliation',
         label: 'Reconciliation',
@@ -104,28 +116,35 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'], requiredCapability: 'data.reconcile' },
         ],
       },
+      {
+        id: 'financial-network',
+        label: 'Financial',
+        labelEs: 'Finanzas',
+        featureFlag: 'financial',
+        routes: [
+          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'] },
+        ],
+      },
     ],
   },
 
-  configure: {
-    id: 'configure',
-    label: 'Configure',
-    labelEs: 'Configurar',
+  // ── PLATFORM CORE — always-on foundation (Configure lives here) ──
+  'platform-core': {
+    id: 'platform-core',
+    label: 'Platform Core',
+    labelEs: 'Núcleo de Plataforma',
     icon: 'Settings',
-    description: 'Set up and maintain the system',
-    descriptionEs: 'Configurar y mantener el sistema',
-    defaultRoute: '/configure',
-    accentColor: 'hsl(24, 95%, 53%)', // Orange
+    description: 'Foundation — configure and maintain the system',
+    descriptionEs: 'Fundamento — configurar y mantener el sistema',
+    defaultRoute: '/configure/periods',
+    accentColor: 'hsl(215, 16%, 47%)', // Slate
     roles: ['platform', 'admin'],
     sections: [
-      {
-        id: 'plans',
-        label: 'Plans',
-        labelEs: 'Planes',
-        routes: [
-          { path: '/operate/import', label: 'Plan Import', labelEs: 'Importar Plan', icon: 'FileText', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
-        ],
-      },
       {
         id: 'periods',
         label: 'Periods',
@@ -148,51 +167,6 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         labelEs: 'Sistema',
         routes: [
           { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['platform', 'admin'], requiredCapability: 'tenant.manage_users' },
-        ],
-      },
-    ],
-  },
-
-  financial: {
-    id: 'financial',
-    label: 'Financial',
-    labelEs: 'Finanzas',
-    icon: 'Activity',
-    description: 'POS analytics and financial intelligence',
-    descriptionEs: 'Analisis POS e inteligencia financiera',
-    defaultRoute: '/financial',
-    accentColor: 'hsl(45, 93%, 47%)', // Gold
-    roles: ['platform', 'admin', 'manager', 'sales_rep'],
-    featureFlag: 'financial',
-    sections: [
-      {
-        id: 'network',
-        label: 'Network',
-        labelEs: 'Red',
-        routes: [
-          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-        ],
-      },
-      {
-        id: 'analysis',
-        label: 'Analysis',
-        labelEs: 'Análisis',
-        routes: [
-          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Clock', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/summary', label: 'Monthly Summary', labelEs: 'Resumen Mensual', icon: 'FileText', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'ShoppingBag', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-        ],
-      },
-      {
-        id: 'controls',
-        label: 'Controls',
-        labelEs: 'Controles',
-        routes: [
-          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'] },
         ],
       },
     ],
@@ -224,7 +198,8 @@ export function getWorkspacesForRole(role: UserRole): Workspace[] {
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
-  return 'perform';
+  // OB-207: /stream is HOME for every persona (Decision 128); it lives under Decide.
+  return 'decide';
 }
 
 /**
@@ -264,15 +239,19 @@ export function getWorkspaceForRoute(path: string): WorkspaceId | null {
     }
   }
 
-  // OB-165: Intelligence Stream → perform workspace
-  if (path.startsWith('/stream')) return 'perform';
-
-  // OB-97: Routes under eliminated workspaces → map to new home
-  if (path.startsWith('/investigate')) return 'operate';
-  if (path.startsWith('/design')) return 'configure';
-  if (path.startsWith('/govern')) return 'configure';
-  // Admin routes live in operate/configure
-  if (path.startsWith('/admin')) return 'operate';
+  // OB-207: explicit path → agent mapping (route paths are unchanged; only grouping moved).
+  if (path.startsWith('/stream')) return 'decide';
+  if (path.startsWith('/operate/results')) return 'decide';
+  if (path.startsWith('/operate/reconciliation')) return 'consolidate';
+  if (path.startsWith('/financial')) return 'consolidate';
+  if (path.startsWith('/configure')) return 'platform-core';
+  if (path.startsWith('/operate')) return 'calculate'; // cockpit, import, calculate
+  if (path.startsWith('/perform')) return 'decide';
+  // Legacy/eliminated route prefixes → nearest agent.
+  if (path.startsWith('/investigate')) return 'calculate';
+  if (path.startsWith('/design')) return 'platform-core';
+  if (path.startsWith('/govern')) return 'platform-core';
+  if (path.startsWith('/admin')) return 'platform-core';
 
   return null;
 }

@@ -86,7 +86,7 @@ export function getSmartSuggestions(
   }
 
   // Role-based suggestions
-  if (role === 'sales_rep' && workspace !== 'perform') {
+  if (role === 'sales_rep' && workspace !== 'decide') {
     suggestions.push({
       id: 'suggest-compensation',
       type: 'tip',
