@@ -29,22 +29,25 @@ export function personaToRole(persona: PersonaKey): UserRole {
 // ROLE WORKSPACE VISIBILITY — 4 WORKSPACE MODEL
 // =============================================================================
 
+// OB-207: agent-nav access. Admin/platform reach all three acts + the foundation;
+// manager/rep reach Decide (their intelligence) + Consolidate (financial views).
 export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  platform: ['operate', 'perform', 'configure', 'financial'],
-  admin: ['operate', 'perform', 'configure', 'financial'],
-  manager: ['perform', 'financial'],
-  sales_rep: ['perform', 'financial'],
+  platform: ['decide', 'calculate', 'consolidate', 'platform-core'],
+  admin: ['decide', 'calculate', 'consolidate', 'platform-core'],
+  manager: ['decide', 'consolidate'],
+  sales_rep: ['decide', 'consolidate'],
 };
 
 // =============================================================================
 // DEFAULT WORKSPACES BY ROLE
 // =============================================================================
 
+// OB-207 / Decision 128: /stream is HOME for every persona → Decide is the default workspace.
 export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
-  platform: 'operate',
-  admin: 'operate',
-  manager: 'perform',
-  sales_rep: 'perform',
+  platform: 'decide',
+  admin: 'decide',
+  manager: 'decide',
+  sales_rep: 'decide',
 };
 
 // =============================================================================
@@ -69,7 +72,7 @@ export function getAccessibleWorkspaces(role: UserRole): WorkspaceId[] {
  * Get the default workspace for a role
  */
 export function getDefaultWorkspace(role: UserRole): WorkspaceId {
-  return DEFAULT_WORKSPACE_BY_ROLE[role] ?? 'perform';
+  return DEFAULT_WORKSPACE_BY_ROLE[role] ?? 'decide';
 }
 
 // =============================================================================
@@ -84,24 +87,24 @@ export interface WorkspaceFeatureAccess {
 
 export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<WorkspaceId, WorkspaceFeatureAccess>>> = {
   platform: {
-    operate: { canViewAll: true, canEdit: true },
-    perform: { canViewAll: true, canEdit: true },
-    configure: { canViewAll: true, canEdit: true },
-    financial: { canViewAll: true, canEdit: true },
+    calculate: { canViewAll: true, canEdit: true },
+    decide: { canViewAll: true, canEdit: true },
+    'platform-core': { canViewAll: true, canEdit: true },
+    consolidate: { canViewAll: true, canEdit: true },
   },
   admin: {
-    operate: { canViewAll: true, canEdit: true },
-    perform: { canViewAll: true, canEdit: true },
-    configure: { canViewAll: true, canEdit: true },
-    financial: { canViewAll: true, canEdit: true },
+    calculate: { canViewAll: true, canEdit: true },
+    decide: { canViewAll: true, canEdit: true },
+    'platform-core': { canViewAll: true, canEdit: true },
+    consolidate: { canViewAll: true, canEdit: true },
   },
   manager: {
-    perform: { canViewAll: true, canEdit: false },
-    financial: { canViewAll: true, canEdit: false },
+    decide: { canViewAll: true, canEdit: false },
+    consolidate: { canViewAll: true, canEdit: false },
   },
   sales_rep: {
-    perform: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation'] },
-    financial: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
+    decide: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation'] },
+    consolidate: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
   },
 };
 

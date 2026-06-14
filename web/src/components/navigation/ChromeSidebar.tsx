@@ -102,10 +102,10 @@ import {
 
 // Workspace icon map — 4 workspace model (OB-97)
 const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: string }>> = {
-  perform: TrendingUp,
-  operate: Zap,
-  configure: Settings,
-  financial: Activity,
+  decide: TrendingUp,
+  calculate: Zap,
+  'platform-core': Settings,
+  consolidate: Activity,
 };
 
 // Static icon map for route icons

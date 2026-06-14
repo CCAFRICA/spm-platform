@@ -36,10 +36,10 @@ interface WorkspaceSwitcherProps {
 
 // OB-97: 4 workspace model
 const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
-  perform: TrendingUp,
-  operate: Zap,
-  configure: Settings,
-  financial: Activity,
+  decide: TrendingUp,
+  calculate: Zap,
+  'platform-core': Settings,
+  consolidate: Activity,
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {

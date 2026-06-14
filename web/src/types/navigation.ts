@@ -16,7 +16,9 @@ import type { Capability } from '@/lib/auth/permissions';
 // WORKSPACE TYPES
 // =============================================================================
 
-export type WorkspaceId = 'perform' | 'operate' | 'configure' | 'financial';
+// OB-207: agent-navigation spine — three ACTS (Calculate/Decide/Consolidate) + the
+// always-on Platform Core foundation. (Was: perform/operate/configure/financial — OB-97.)
+export type WorkspaceId = 'decide' | 'calculate' | 'consolidate' | 'platform-core';
 
 export interface Workspace {
   id: WorkspaceId;
@@ -37,6 +39,7 @@ export interface WorkspaceSection {
   label: string;
   labelEs: string;
   routes: WorkspaceRoute[];
+  featureFlag?: string; // OB-207: tenant feature flag to gate a section (e.g. financial under Consolidate)
 }
 
 export interface WorkspaceRoute {

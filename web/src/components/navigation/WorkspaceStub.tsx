@@ -16,11 +16,12 @@ interface WorkspaceStubProps {
 }
 
 // OB-97: 4 workspace model
+// OB-207: agent id → home path (the stub redirects unmatched sub-routes to the agent home).
 const WORKSPACE_ROOTS: Record<string, string> = {
-  perform: '/perform',
-  operate: '/operate',
-  configure: '/configure',
-  financial: '/financial',
+  decide: '/stream',
+  calculate: '/operate',
+  consolidate: '/financial',
+  'platform-core': '/configure/periods',
 };
 
 export function WorkspaceStub({ workspace }: WorkspaceStubProps) {

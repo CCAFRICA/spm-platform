@@ -115,7 +115,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   // Non-admins: currentTenant comes from their profile's tenant_id.
   const tenantId = currentTenant?.id || null;
   // Core state
-  const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('perform');
+  const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceId>('decide');
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);

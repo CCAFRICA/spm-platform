@@ -84,10 +84,10 @@ export const STATE_COMMUNICATION_TOKENS = {
 
 // OB-97: 4 workspace model
 export const WORKSPACE_TOKENS = {
-  perform: { density: 'low' as const, character: 'Motivational: warm, encouraging' },
-  operate: { density: 'normal' as const, character: 'Control room: structured, sequential' },
-  configure: { density: 'normal' as const, character: 'Organizational: spatial, structural' },
-  financial: { density: 'normal' as const, character: 'Analytical: data-driven, metric-focused' },
+  decide: { density: 'low' as const, character: 'Motivational: warm, encouraging' },
+  calculate: { density: 'normal' as const, character: 'Control room: structured, sequential' },
+  'platform-core': { density: 'normal' as const, character: 'Organizational: spatial, structural' },
+  consolidate: { density: 'normal' as const, character: 'Analytical: data-driven, metric-focused' },
 } as const;
 
 export type WorkspaceKey = keyof typeof WORKSPACE_TOKENS;
