@@ -200,6 +200,31 @@ export default function StreamPage() {
   );
 
   if (error || !data || !hasContent) {
+    // OB-206 §7.2: Rep entity-linking guard. A rep whose profile is not linked to an
+    // entity (no personaEntityId, not see-all) sees a SINGLE linking message — never a
+    // blank stream, never an error. Full Rep intelligence requires DS-027 entity↔user
+    // linking (R4); this degrades gracefully until then.
+    if (persona === 'rep' && !personaEntityId && !scope.canSeeAll) {
+      return (
+        <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
+          <div className="max-w-3xl mx-auto px-6 py-6 lg:py-8">
+            <div className="flex items-center gap-3 mb-6">
+              <div className={`p-2 rounded-lg bg-gradient-to-br ${personaToken.heroGrad}`}>
+                <Zap className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
+                <p className="text-sm text-zinc-500">Account setup</p>
+              </div>
+            </div>
+            <div className="rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] border-emerald-500">
+              <p className="text-sm text-slate-300">Your entity record is not yet linked. Contact your administrator.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // OB-205 / DS-029 Phase 1: carrier intelligence is the primary surface when no
     // calculation exists. Wait for the carrier, then render it (the upstream pipeline)
     // instead of the bare "No Intelligence" state. PipelineReadiness renders even with
