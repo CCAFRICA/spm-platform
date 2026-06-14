@@ -204,21 +204,34 @@ export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
 
 /**
  * Get all routes from a workspace that are accessible to a role.
- * DS-014: Uses hasCapability for capability-based filtering with role alias support.
+ * DS-014: capability-based filtering via the single PDP (hasCapability).
+ * OB-207 Inc2: optional `enabledFeatures` (the live tenants.features map) drops sections
+ * whose featureFlag is not enabled — module gating on the live field (FP-49). When omitted,
+ * gating is capability-only (backward-compatible).
  */
-export function getWorkspaceRoutesForRole(workspaceId: WorkspaceId, role: UserRole): WorkspaceSection[] {
+export function getWorkspaceRoutesForRole(
+  workspaceId: WorkspaceId,
+  role: UserRole,
+  enabledFeatures?: Record<string, boolean>,
+): WorkspaceSection[] {
   const workspace = WORKSPACES[workspaceId];
   if (!workspace) return [];
 
-  return workspace.sections.map(section => ({
-    ...section,
-    routes: section.routes.filter(route => {
-      if (route.requiredCapability) {
-        return hasCapability(role, route.requiredCapability);
-      }
-      return route.roles.includes(role);
-    }),
-  })).filter(section => section.routes.length > 0);
+  return workspace.sections
+    .filter(section => {
+      if (!section.featureFlag) return true;        // not module-gated
+      if (!enabledFeatures) return true;            // caller didn't supply features → capability-only
+      return !!enabledFeatures[section.featureFlag]; // module gated on the live tenant feature
+    })
+    .map(section => ({
+      ...section,
+      routes: section.routes.filter(route => {
+        if (route.requiredCapability) {
+          return hasCapability(role, route.requiredCapability);
+        }
+        return route.roles.includes(role);
+      }),
+    })).filter(section => section.routes.length > 0);
 }
 
 /**

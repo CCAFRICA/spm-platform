@@ -8,6 +8,7 @@
 import type { UserRole } from '@/types/auth';
 import type { WorkspaceId } from '@/types/navigation';
 import type { PersonaKey } from '@/lib/design/tokens';
+import { WORKSPACES, getWorkspaceRoutesForRole } from './workspace-config';
 
 // =============================================================================
 // PERSONA → ROLE MAPPING (OB-94)
@@ -29,14 +30,12 @@ export function personaToRole(persona: PersonaKey): UserRole {
 // ROLE WORKSPACE VISIBILITY — 4 WORKSPACE MODEL
 // =============================================================================
 
-// OB-207: agent-nav access. Admin/platform reach all three acts + the foundation;
-// manager/rep reach Decide (their intelligence) + Consolidate (financial views).
-export const ROLE_WORKSPACE_ACCESS: Record<UserRole, WorkspaceId[]> = {
-  platform: ['decide', 'calculate', 'consolidate', 'platform-core'],
-  admin: ['decide', 'calculate', 'consolidate', 'platform-core'],
-  manager: ['decide', 'consolidate'],
-  sales_rep: ['decide', 'consolidate'],
-};
+// OB-207 Increment 2: workspace access is DERIVED from the DS-014 single PDP (hasCapability),
+// not a parallel role list. The prior ROLE_WORKSPACE_ACCESS map is RETIRED (it was the F-38
+// role-vocabulary-divergence anti-pattern — a second source of truth that drifts). Access now
+// = "the role can reach >=1 route in the workspace" computed from each route's requiredCapability,
+// optionally module-gated by the live tenants.features (FP-49). Decision 123: the sidebar a user
+// sees IS their capability set rendered.
 
 // =============================================================================
 // DEFAULT WORKSPACES BY ROLE
@@ -55,17 +54,21 @@ export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
 // =============================================================================
 
 /**
- * Check if a role can access a workspace
+ * Check if a role can access a workspace — derived from the single PDP (capabilities),
+ * optionally module-gated by the live tenants.features map. (OB-207 Inc2 binding.)
  */
-export function canAccessWorkspace(role: UserRole, workspace: WorkspaceId): boolean {
-  return ROLE_WORKSPACE_ACCESS[role]?.includes(workspace) ?? false;
+export function canAccessWorkspace(role: UserRole, workspace: WorkspaceId, enabledFeatures?: Record<string, boolean>): boolean {
+  return getWorkspaceRoutesForRole(workspace, role, enabledFeatures).length > 0;
 }
 
 /**
- * Get all workspaces a role can access
+ * Get all workspaces a role can access — a workspace is accessible if the role can reach
+ * >=1 of its routes via the capability matrix (single PDP), module-gated by tenant features.
  */
-export function getAccessibleWorkspaces(role: UserRole): WorkspaceId[] {
-  return ROLE_WORKSPACE_ACCESS[role] ?? [];
+export function getAccessibleWorkspaces(role: UserRole, enabledFeatures?: Record<string, boolean>): WorkspaceId[] {
+  return (Object.keys(WORKSPACES) as WorkspaceId[]).filter(
+    ws => getWorkspaceRoutesForRole(ws, role, enabledFeatures).length > 0,
+  );
 }
 
 /**
