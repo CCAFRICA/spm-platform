@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 import { Users, Search, UserPlus, MoreHorizontal } from 'lucide-react';
+import { HierarchyReviewPanel } from '@/components/users/HierarchyReviewPanel';
 
 interface ApiUser {
   id: string; displayName: string; email: string; role: string; status: string;
@@ -50,6 +51,8 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [eraseTarget, setEraseTarget] = useState<ApiUser | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());   // F.1 roster multi-select
+  const [bulkRole, setBulkRole] = useState('member');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +84,25 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
     return act(`/api/users/${u.id}/send-credentials`, { type, notifyEmail: alt?.trim() || undefined }, type === 'magiclink' ? 'Sign-in link sent' : 'Invite resent');
   };
   const erase = (u: ApiUser) => act(`/api/users/${u.id}/erase`, null, 'User erased');
+
+  // F.1 — bulk promotion: iterated createUser calls through the single door (no batch bypass,
+  // per-row atomicity), with a partial-failure report.
+  const bulkPromote = async () => {
+    const ids = Array.from(picked); if (ids.length === 0) return;
+    let ok = 0; const fails: string[] = [];
+    for (const id of ids) {
+      const e = roster.find(r => r.id === id); if (!e) continue;
+      const tenantId = (isPlatform ? selectedTenant : '') || e.tenantId || '';
+      const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: `${e.externalId || e.id}@roster.invalid`, displayName: e.displayName, role: bulkRole, tenantId, entityId: e.id, mode: 'invite' }) });
+      if (res.ok) ok++; else { const d = await res.json().catch(() => ({})); fails.push(`${e.displayName}: ${d.error || res.status}`); }
+    }
+    setPicked(new Set());
+    if (fails.length) { toast.error(`Promoted ${ok}/${ids.length} as ${bulkRole} · ${fails.length} failed (see console)`); console.warn('[bulk promote] failures:', fails); }
+    else toast.success(`Promoted ${ok}/${ids.length} as ${bulkRole}`);
+    await load();
+  };
+  const togglePick = (id: string) => setPicked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const filtered = useMemo(() => users.filter(u => {
     const s = !search || u.displayName?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
@@ -181,23 +203,41 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
         </CardContent>
       </Card>
 
-      {/* F7 roster — entities without platform access */}
+      {/* F7/F11 roster — entities without platform access (multi-select bulk promote) */}
       {roster.length > 0 && (
         <Card className="bg-slate-900 border-slate-800">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-slate-200">Entities without platform access</CardTitle>
-            <CardDescription className="text-slate-400">{roster.length} roster {roster.length === 1 ? 'entity' : 'entities'} not yet linked to a user — promote to grant access (F7).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {roster.slice(0, 50).map(e => (
-              <div key={e.id} className="flex items-center justify-between rounded border border-slate-800 px-3 py-2">
-                <span className="text-sm text-slate-300">{e.displayName}{e.externalId ? <span className="text-slate-500 ml-1">({e.externalId})</span> : null}</span>
-                <PromoteButton entity={e} tenantId={(isPlatform ? selectedTenant : '') || e.tenantId || ''} onDone={load} />
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base text-slate-200">Entities without platform access</CardTitle>
+                <CardDescription className="text-slate-400">{roster.length} roster {roster.length === 1 ? 'entity' : 'entities'} not yet linked to a user — select and promote to grant access (F7/F11).</CardDescription>
               </div>
+              {picked.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">{picked.size} selected as</span>
+                  <Select value={bulkRole} onValueChange={setBulkRole}>
+                    <SelectTrigger className="w-[110px] h-7 text-xs bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                    <SelectContent>{TENANT_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Button size="sm" className="h-7" onClick={bulkPromote}>Promote {picked.size}</Button>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {roster.slice(0, 100).map(e => (
+              <label key={e.id} className="flex items-center gap-3 rounded border border-slate-800 px-3 py-2 cursor-pointer hover:bg-slate-800/30">
+                <input type="checkbox" checked={picked.has(e.id)} onChange={() => togglePick(e.id)} className="accent-indigo-500" />
+                <span className="text-sm text-slate-300 flex-1">{e.displayName}{e.externalId ? <span className="text-slate-500 ml-1">({e.externalId})</span> : null}</span>
+                <PromoteButton entity={e} tenantId={(isPlatform ? selectedTenant : '') || e.tenantId || ''} onDone={load} />
+              </label>
             ))}
           </CardContent>
         </Card>
       )}
+
+      {/* F.3 hierarchy review — tenant scope (admin own-tenant; platform reviews per tenant via /configure) */}
+      {!isPlatform && <HierarchyReviewPanel />}
 
       {/* F10 erase confirmation — names destroyed vs retained */}
       <AlertDialog open={!!eraseTarget} onOpenChange={o => { if (!o) setEraseTarget(null); }}>
