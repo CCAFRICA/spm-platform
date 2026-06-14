@@ -24,6 +24,7 @@ import { resolveRole, deriveCapabilities, type Role } from '@/lib/auth/permissio
 import { emitEvent, type PlatformEventType } from '@/lib/events/emitter';
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import { sendInvite, sendSignInLink, sendRecovery, type DispatchLocale } from '@/lib/email/dispatch';
+import { materializeProfileScope } from '@/lib/entities/profile-scope';
 
 // ── service-role admin client (server-only; routes call the service, the service owns the client) ──
 function admin(): SupabaseClient {
@@ -186,6 +187,9 @@ export async function createUser(input: CreateUserInput): Promise<CreateUserResu
     await sb.from('entities').update({ profile_id: profileId }).eq('id', input.entityId);
   }
 
+  // F.4: F11 promotion of a manager-role user materializes their graph-derived scope.
+  if (role === 'manager') await materializeProfileScope(profileId, sb).catch(() => { /* best-effort */ });
+
   // invite mode: mint + send the invite link (D.2 layered routing applied in dispatch)
   let delivery: 'sent' | 'dry_run' | undefined;
   let redirected = false;
@@ -227,6 +231,8 @@ export async function changeRole(input: MutateInput & { newRole: string }): Prom
     tenantId: target.tenant_id as string | null, actorProfileId: input.actorProfileId,
     fromRole: fromRole ?? undefined, toRole: newRole,
   });
+  // F.4: role change TO or FROM manager re-materializes the graph-derived scope.
+  if (newRole === 'manager' || fromRole === 'manager') await materializeProfileScope(input.targetProfileId, sb).catch(() => { /* best-effort */ });
   return { role: newRole, capabilities };
 }
 
