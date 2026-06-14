@@ -30,7 +30,7 @@ export async function materializeProfileScope(profileId: string, sb: SupabaseCli
   const { data: linked } = await sb.from('entities').select('id').eq('profile_id', profileId).maybeSingle();
   const managerEntityId = (linked?.id as string | null) ?? null;
 
-  let visible = new Set<string>();
+  const visible = new Set<string>();
   if (managerEntityId && tenantId) {
     visible.add(managerEntityId);   // a manager sees their own entity
     const { data: edges } = await sb.from('entity_relationships')
