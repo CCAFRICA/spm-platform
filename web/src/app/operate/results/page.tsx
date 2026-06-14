@@ -32,7 +32,9 @@ import { RequireCapability } from '@/components/auth/RequireCapability';
 import {
   getCalculationResults,
 } from '@/lib/supabase/calculation-service';
-import { detectAnomalies, type AnomalyReport } from '@/lib/intelligence/anomaly-detection';
+import { detectAnomalies, type AnomalyReport, type Anomaly } from '@/lib/intelligence/anomaly-detection';
+import { createClient } from '@/lib/supabase/client';
+import { classifyRuleSetRegimes, type RegimeClassification } from '@/lib/results/performance-regime';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -104,6 +106,9 @@ function ResultsDashboardPageInner() {
   const [anomalyReport, setAnomalyReport] = useState<AnomalyReport | null>(null);
   const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
+  // OB-207 P2: per-component performance regimes (structural, from rule_sets grammar) + self-clearing resolves.
+  const [regimes, setRegimes] = useState<Map<string, RegimeClassification>>(new Map());
+  const [resolvedAnomalies, setResolvedAnomalies] = useState<Set<string>>(new Set());
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
@@ -122,9 +127,20 @@ function ResultsDashboardPageInner() {
 
     const loadData = async () => {
       setIsLoaded(false);
+      setResolvedAnomalies(new Set()); // OB-207 P2 fix: clear self-cleared anomalies when the batch changes
       try {
         const calcResults = await getCalculationResults(tenantId, selectedBatchId);
         if (cancelled) return;
+
+        // OB-207 P2: classify each component's performance regime structurally from the plan grammar.
+        // Read THIS batch's rule set (selectedBatch.ruleSetId) — not an arbitrary non-draft one.
+        try {
+          const sb = createClient();
+          let rsQuery = sb.from('rule_sets').select('components').eq('tenant_id', tenantId);
+          rsQuery = selectedBatch?.ruleSetId ? rsQuery.eq('id', selectedBatch.ruleSetId) : rsQuery.neq('status', 'draft');
+          const { data: rs } = await rsQuery.limit(1);
+          if (!cancelled) setRegimes(classifyRuleSetRegimes(rs?.[0]?.components));
+        } catch { /* regime classification is best-effort; the surface degrades to relative/payout representation */ }
 
         // Map to display format — extract L3 (component detail) and L2 (metrics)
         const rows: ResultRow[] = calcResults.map((r: CalcResultRow) => {
@@ -185,7 +201,7 @@ function ResultsDashboardPageInner() {
 
     loadData();
     return () => { cancelled = true; };
-  }, [tenantId, selectedBatchId, contextLoading]);
+  }, [tenantId, selectedBatchId, selectedBatch?.ruleSetId, contextLoading]);
 
   // Component totals
   const componentTotals = useMemo((): ComponentTotal[] => {
@@ -346,7 +362,35 @@ function ResultsDashboardPageInner() {
   const entityCount = results.length;
   const avgPayout = entityCount > 0 ? totalPayout / entityCount : 0;
   const stats = anomalyReport?.stats;
-  const anomalyCount = anomalyReport?.anomalies.length ?? 0;
+  // OB-207 P2: anomaly Action Cards — Investigate (expand the affected entity) + Resolve (audit_logs, self-clearing).
+  const anomalyKey = (a: Anomaly) => `${a.type}:${a.description}`;
+  const activeAnomalies = (anomalyReport?.anomalies ?? []).filter(a => !resolvedAnomalies.has(anomalyKey(a)));
+  const anomalyCount = activeAnomalies.length;
+  const investigateAnomaly = (a: Anomaly) => {
+    const first = (a as { entities?: string[] }).entities?.[0];
+    if (!first) return;
+    // Clear filters so the affected entity is in the rendered set, then expand + scroll to it.
+    setSearchQuery('');
+    setStoreFilter('all');
+    setExpandedEntity(first);
+    if (typeof document !== 'undefined') {
+      setTimeout(() => document.getElementById(`entity-row-${first}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+    }
+  };
+  const resolveAnomaly = async (a: Anomaly) => {
+    const key = anomalyKey(a);
+    setResolvedAnomalies(prev => { const n = new Set(prev); n.add(key); return n; }); // optimistic self-clear
+    try {
+      const res = await fetch('/api/results/anomaly-resolve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, batchId: selectedBatchId, anomalyType: a.type, description: a.description, entityCount: a.entityCount }),
+      });
+      if (!res.ok) throw new Error(`resolve ${res.status}`);
+    } catch {
+      // revert the optimistic self-clear so the anomaly reappears for retry
+      setResolvedAnomalies(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
 
   return (
     <div>
@@ -413,16 +457,29 @@ function ResultsDashboardPageInner() {
           </div>
         </div>
 
-        {/* Attainment Distribution */}
+        {/* OB-207 P2: regime-aware Performance Distribution (was the empty "Attainment Distribution").
+            Per-component regime is structural (classifier); BCL is mixed (target-driven + volume-driven).
+            For a population view we show payout-vs-mean (the correct regime-1/population representation —
+            never empty), and a regime legend. Attainment-vs-target distribution renders only where the
+            engine persists per-component attainment (R2). */}
         <div className="lg:col-span-4 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
-          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-3">Attainment Distribution</p>
-          {attainmentValues.length > 0 ? (
-            <DistributionChart data={attainmentValues} benchmarkLine={100} />
-          ) : (
-            <div className="flex items-center justify-center h-32 text-xs text-zinc-500">
-              No attainment data
-            </div>
-          )}
+          <p className="text-xs text-zinc-400 uppercase tracking-wider mb-1">Performance Distribution</p>
+          <p className="text-[10px] text-zinc-600 mb-3">payout relative to population mean</p>
+          {(() => {
+            const mean = stats?.mean ?? avgPayout;
+            const vsMean = mean > 0 ? results.map(r => (r.totalPayout / mean) * 100) : [];
+            return vsMean.length > 0
+              ? <DistributionChart data={vsMean} benchmarkLine={100} />
+              : <div className="flex items-center justify-center h-32 text-xs text-zinc-500">No results</div>;
+          })()}
+          {regimes.size > 0 && (() => {
+            const vals = Array.from(regimes.values());
+            const r3 = vals.filter(c => c.regime === 3).length;
+            const r2 = vals.filter(c => c.regime === 2).length;
+            const r1 = vals.filter(c => c.regime === 1).length;
+            const parts = [r3 ? `${r3} target-driven` : '', r2 ? `${r2} tracked-target` : '', r1 ? `${r1} volume-driven` : ''].filter(Boolean);
+            return <p className="text-[10px] text-zinc-500 mt-2">{parts.join(' · ')}</p>;
+          })()}
         </div>
 
         {/* Deterministic Commentary */}
@@ -437,7 +494,7 @@ function ResultsDashboardPageInner() {
       </div>
 
       {/* L5: Bloodwork Anomaly Display (Standing Rule 23) */}
-      {anomalyReport && anomalyReport.anomalies.length > 0 && (() => {
+      {anomalyReport && activeAnomalies.length > 0 && (() => {
         const SEVERITY_MAP: Record<string, 'critical' | 'warning' | 'info'> = {
           zero_payout: 'critical',
           missing_entity: 'critical',
@@ -450,12 +507,12 @@ function ResultsDashboardPageInner() {
           warning: { bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.25)', text: 'text-amber-400', dot: 'bg-amber-500' },
           info: { bg: 'rgba(99, 102, 241, 0.08)', border: 'rgba(99, 102, 241, 0.25)', text: 'text-indigo-400', dot: 'bg-indigo-500' },
         };
-        const grouped = { critical: [] as typeof anomalyReport.anomalies, warning: [] as typeof anomalyReport.anomalies, info: [] as typeof anomalyReport.anomalies };
-        for (const a of anomalyReport.anomalies) {
+        const grouped = { critical: [] as typeof activeAnomalies, warning: [] as typeof activeAnomalies, info: [] as typeof activeAnomalies };
+        for (const a of activeAnomalies) {
           const sev = SEVERITY_MAP[a.type] ?? 'info';
           grouped[sev].push(a);
         }
-        const topFinding = anomalyReport.anomalies[0];
+        const topFinding = activeAnomalies[0];
 
         return (
           <Card className="border-amber-500/20">
@@ -499,7 +556,7 @@ function ResultsDashboardPageInner() {
                   </span>
                 )}
                 <span className="text-[10px] text-zinc-600 ml-auto">
-                  {anomalyReport.anomalies.reduce((s, a) => s + a.entityCount, 0)} entities affected
+                  {activeAnomalies.reduce((s, a) => s + a.entityCount, 0)} entities affected
                 </span>
               </div>
 
@@ -515,6 +572,14 @@ function ResultsDashboardPageInner() {
                   <span className={`text-xs font-medium ${SEVERITY_STYLE[SEVERITY_MAP[topFinding.type] ?? 'info'].text}`}>
                     {topFinding.description}
                   </span>
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <button onClick={() => investigateAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
+                      Investigate
+                    </button>
+                    <button onClick={() => resolveAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                      Resolve
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -542,6 +607,15 @@ function ResultsDashboardPageInner() {
                               </div>
                               <span className="text-xs text-slate-400 whitespace-nowrap">{a.entityCount} ent</span>
                             </div>
+                            {/* OB-207 P2: Action Proximity — every anomaly leads to a concrete result */}
+                            <div className="flex items-center gap-2 mt-2.5">
+                              <button onClick={() => investigateAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
+                                Investigate
+                              </button>
+                              <button onClick={() => resolveAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                                Resolve
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -568,7 +642,10 @@ function ResultsDashboardPageInner() {
                   benchmark={avgPerEntity * entityCount}
                   max={Math.max(...componentTotals.map(c => c.total)) * 1.1}
                   label={comp.componentName}
-                  sublabel={`${comp.entityCount} entities`}
+                  sublabel={`${comp.entityCount} entities${(() => {
+                    const r = regimes.get(comp.componentName)?.regime;
+                    return r ? ` · ${r === 3 ? 'target-driven' : r === 2 ? 'tracked-target' : 'volume-driven'}` : '';
+                  })()}`}
                   rightLabel={formatCurrency(comp.total)}
                   color="#6366f1"
                 />
@@ -637,6 +714,7 @@ function ResultsDashboardPageInner() {
                   return (
                     <React.Fragment key={row.entityId}>
                       <TableRow
+                        id={`entity-row-${row.entityId}`}
                         className="cursor-pointer hover:bg-slate-800/50"
                         onClick={() => setExpandedEntity(isExpanded ? null : row.entityId)}
                       >
