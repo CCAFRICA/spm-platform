@@ -200,10 +200,14 @@ export function SCIExecution({
   // `bound` states AS they STREAM (execute-bulk writes one per unit the moment it commits, keyed by
   // proposalId). Without this the strip sat at 0/N for the entire bulk window even though units were
   // committing — the same spine the completion screen reads, now read live by the in-progress strip.
+  // HF-290: gate on the DERIVED boolean, not the `units` array. The array changes on every per-unit
+  // settle, which re-subscribed this effect and fired an extra immediate poll each time — the
+  // sub-cadence double/triple hits seen in the [import] access log. The boolean only toggles at start
+  // (false→true) and finish (true→false), so the poll fires once on start, holds a clean 2s cadence,
+  // and still clears on terminal (executionDone OR no active unit). Behavior preserved, volume cut.
+  const hasActiveUnits = units.some(u => u.status === 'processing');
   useEffect(() => {
-    if (executionDone) return;
-    const hasActive = units.some(u => u.status === 'processing');
-    if (!hasActive) return;
+    if (executionDone || !hasActiveUnits) return;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -220,7 +224,7 @@ export function SCIExecution({
     const interval = setInterval(() => { void poll(); }, 2000);
     void poll();
     return () => { cancelled = true; clearInterval(interval); };
-  }, [executionDone, units, tenantId, proposal.proposalId]);
+  }, [executionDone, hasActiveUnits, tenantId, proposal.proposalId]);
 
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
   // HF-140: Now accepts explicit path parameter for per-file isolation
