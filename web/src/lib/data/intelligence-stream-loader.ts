@@ -13,6 +13,7 @@
 
 import { createClient } from '@/lib/supabase/client';
 import { extractAttainment } from '@/lib/data/persona-queries';
+import { classifyComponentRegime } from '@/lib/results/performance-regime'; // OB-211 Phase D: Simulate routes on regime, not parseTiers
 import { COMPONENT_PALETTE } from '@/lib/design/tokens';
 import { LIFECYCLE_STATES, getNextAction, type DashboardLifecycleState } from '@/lib/lifecycle/lifecycle-service';
 import type { Json } from '@/lib/supabase/database.types';
@@ -54,8 +55,13 @@ export interface IntelligenceStreamData {
     // are computed over the persona's OWN result set (manager=team, rep=self, admin=full) — the
     // scope boundary IS the access control. tiers come from the plan grammar (parseTiers); the
     // projection is a client-side what-if, never an asserted payout.
+    // OB-211 Phase D: the opportunity KIND is the component's REGIME (#508). 'tiered' (regime 3) =
+    // cross-the-boundary; 'gap' (regime 2) = close-the-target-gap (nearBoundaryEntities holds the
+    // below-target entities, target = the attainment target). Reuses nearBoundaryEntities for both.
+    kind?: 'tiered' | 'gap';
     boundary?: number;
     tiers?: Array<{ min: number; max: number; rate: number; label: string }>;
+    target?: number;
     nearBoundaryEntities?: Array<{ entityId: string; value: number; currentPayout: number }>;
   }>;
 
@@ -133,7 +139,11 @@ export interface IntelligenceStreamData {
     componentName: string;
     value: number;          // the rep's own component attainment (slider start)
     currentPayout: number;  // the engine's real payout for this component (dollar anchor)
-    tiers: Array<{ min: number; max: number; rate: number; label: string }>;
+    // OB-211 Phase D: the simulation KIND is the component's REGIME (#508 classifier), not "has tiers".
+    // 'tiered' (regime 3) = cross-the-boundary (tiers); 'gap' (regime 2) = close-the-target-gap.
+    kind: 'tiered' | 'gap';
+    tiers?: Array<{ min: number; max: number; rate: number; label: string }>; // tiered (regime 3) only
+    target?: number;        // gap (regime 2) only: the attainment target (100 = full attainment)
   }>;
 
   confidenceTier: 'cold' | 'warm' | 'hot';
@@ -586,21 +596,32 @@ async function buildRepData(
     allResults, resolvedEntityId, supabase,
   );
 
-  // HF-293 FIX-2: the rep's OWN simulate inputs — tiered (regime-3) components only, where a
-  // what-if through the tier structure is meaningful (HALT-REP-TIERS: skip tier-less components
-  // rather than show an empty slider). Scoped to THIS rep's own result (SR-39 — never another's).
+  // OB-211 Phase D: the rep's simulate inputs ROUTE ON REGIME (#508 classifyComponentRegime), not
+  // "has tiers". Regime 3 → cross-the-boundary (tiered slider, HF-293). Regime 2 → close-the-target-gap
+  // (NEW — live on BCL's Colocación/Captación, which have attainment but no tier gate). Regime 1 → no
+  // slider (honest absence; the volume/relative action lives elsewhere). The gap projection needs only
+  // the engine's attainment + payout, so a null attainmentFields (HALT-SIM-REGIME) does NOT block it.
+  // Scoped to THIS rep's own result (SR-39 — never another's).
   const selfSimulations: NonNullable<IntelligenceStreamData['selfSimulations']> = [];
   for (const compDef of ruleSetComponents) {
-    const tiers = parseTiers(compDef);
-    if (tiers.length < 2) continue;
     const comp = findComponentByName(myComponents, compDef.name);
-    if (!comp || comp.attainment == null) continue; // need the rep's own attainment to slide
-    selfSimulations.push({
-      componentName: compDef.name,
-      value: comp.attainment,
-      currentPayout: comp.payout,
-      tiers,
-    });
+    if (!comp) continue;
+    // Phase-D sweep HIGH: per-component `attainment` is NOT persisted on the result component object
+    // (the engine writes it to metrics/the entity summary). Fall back to the entity-level attainment
+    // — the SAME resilience the tier-boundary path uses (loader:814) — so the what-if FIRES in prod.
+    const att = comp.attainment ?? extractAttainment(myResult.attainment);
+    const tiers = parseTiers(compDef);
+    if (tiers.length >= 2) {
+      // cross-the-boundary: ANY component with a tier structure (preserves HF-293; a tiered component
+      // that classifies non-regime-3 still keeps its slider — no regression, Phase-D sweep MEDIUM).
+      selfSimulations.push({ componentName: compDef.name, kind: 'tiered', value: att, currentPayout: comp.payout, tiers });
+    } else if (classifyComponentRegime(compDef).regime === 2 && att >= 1 && att < 100 && comp.payout > 0) {
+      // close-the-target-gap: regime-2 (attainment, no tier gate) — live on BCL. SR-38: the projection
+      // anchors to comp.payout (delta=0 at rest). att>=1 floors the recover multiplier (100/att) against
+      // degenerate near-zero attainment; payout>0 keeps the dollar anchor (HALT-SIM: else no dollar).
+      selfSimulations.push({ componentName: compDef.name, kind: 'gap', value: att, currentPayout: comp.payout, target: 100 });
+    }
+    // else: regime-1 / no tiers / can't anchor → no slider (honest absence).
   }
 
   return {
@@ -731,10 +752,45 @@ function computeOptimizationOpportunities(
   const opportunities: NonNullable<IntelligenceStreamData['optimizationOpportunities']> = [];
 
   for (const compDef of ruleSetComponents) {
-    const tiers = parseTiers(compDef);
-    if (tiers.length < 2) continue;
-
     const compName = compDef.name;
+    const tiers = parseTiers(compDef);
+
+    // OB-211 Phase D: a component WITH a tier structure → cross-the-boundary (below; preserves the
+    // tiered opportunity for any tiers-bearing component — no regression). A component with NO tier
+    // gate but REGIME 2 (attainment target) → the close-the-gap opportunity (live on BCL, which
+    // parseTiers missed — the bug). Regime 1 → none. Replaces the dead "zero payout" fallback.
+    if (tiers.length < 2) {
+      if (classifyComponentRegime(compDef).regime !== 2) continue; // regime 1 → no opportunity
+      let belowTargetCount = 0;
+      let totalRecover = 0;
+      const gapEntities: Array<{ entityId: string; value: number; currentPayout: number }> = [];
+      for (const result of allResults) {
+        const comp = findComponentByName(parseResultComponents(result.components), compName);
+        if (!comp) continue;
+        // sweep HIGH: per-component attainment isn't persisted on the component → fall back to the
+        // entity-level attainment (same as the tier path) so the gap fires in production.
+        const att = comp.attainment ?? extractAttainment(result.attainment);
+        if (att >= 1 && att < 100 && comp.payout > 0) {
+          belowTargetCount++;
+          totalRecover += comp.payout * (100 / att) - comp.payout; // recover at full target (SR-38, anchored to the real payout)
+          gapEntities.push({ entityId: result.entity_id, value: att, currentPayout: comp.payout });
+        }
+      }
+      if (belowTargetCount > 0) {
+        opportunities.push({
+          componentName: compName,
+          description: `${belowTargetCount} ${belowTargetCount === 1 ? 'entity' : 'entities'} below target — close the gap`,
+          entityCount: belowTargetCount,
+          costImpact: totalRecover,
+          actionLabel: 'Coach on attainment',
+          actionRoute: '/admin/configure/plans',
+          kind: 'gap',
+          target: 100,
+          nearBoundaryEntities: gapEntities,
+        });
+      }
+      continue;
+    }
 
     // For each tier boundary, count entities within 5% below it
     for (let t = 1; t < tiers.length; t++) {
@@ -776,6 +832,7 @@ function computeOptimizationOpportunities(
           actionLabel: 'Review tier boundaries',
           actionRoute: '/admin/configure/plans',
           // OB-211 WS-2 inc-2: Simulate inputs (scoped — `allResults` is the persona's set).
+          kind: 'tiered',
           boundary,
           tiers,
           nearBoundaryEntities,

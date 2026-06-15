@@ -21,7 +21,7 @@ import { useState } from 'react';
 import { Sparkles, ArrowRight, Info, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IntelligenceCard } from './IntelligenceCard';
-import { WhatIfSlider, PopulationWhatIf, calculatePayout } from '@/components/design-system';
+import { WhatIfSlider, PopulationWhatIf, GapWhatIf, PopulationGapWhatIf, calculatePayout } from '@/components/design-system';
 
 interface OptimizationOpportunity {
   componentName: string;
@@ -30,9 +30,12 @@ interface OptimizationOpportunity {
   costImpact: number;
   actionLabel: string;
   actionRoute: string;
-  // OB-211 WS-2 inc-2: access-scoped Simulate inputs (scoped by the loader to the persona's set).
+  // OB-211 WS-2 inc-2 + Phase D: access-scoped Simulate inputs. kind = the component's regime —
+  // 'tiered' (cross-boundary) or 'gap' (close-the-target-gap). Scoped by the loader to the persona's set.
+  kind?: 'tiered' | 'gap';
   boundary?: number;
   tiers?: Array<{ min: number; max: number; rate: number; label: string }>;
+  target?: number;
   nearBoundaryEntities?: Array<{ entityId: string; value: number; currentPayout: number }>;
 }
 
@@ -67,7 +70,10 @@ export function OptimizationCard({
       <div className="space-y-3">
         {opportunities.map((opp, i) => {
           const entities = opp.nearBoundaryEntities ?? [];
-          const hasModel = !!opp.tiers && opp.tiers.length > 0 && entities.length > 0 && opp.boundary != null;
+          const isGap = opp.kind === 'gap';
+          const hasModel = entities.length > 0 && (
+            isGap ? opp.target != null : (!!opp.tiers && opp.tiers.length > 0 && opp.boundary != null)
+          );
           const isOpen = simulatingIdx === i;
 
           return (
@@ -114,7 +120,14 @@ export function OptimizationCard({
               {/* Inline access-scoped what-if: single-entity (rep own context) or population (group). */}
               {isOpen && hasModel && (
                 <div className="mt-3 pt-3 border-t border-zinc-700/50">
-                  {entities.length === 1 ? (() => {
+                  {isGap ? (
+                    // OB-211 Phase D: regime-2 close-the-gap — single (rep own) or population (group).
+                    entities.length === 1 ? (
+                      <GapWhatIf value={entities[0].value} currentPayout={entities[0].currentPayout} target={opp.target ?? 100} formatCurrency={formatCurrency} />
+                    ) : (
+                      <PopulationGapWhatIf entities={entities} target={opp.target ?? 100} formatCurrency={formatCurrency} />
+                    )
+                  ) : entities.length === 1 ? (() => {
                     // SR-38 dollar-anchoring (RepDashboard pattern): scale the raw plan tiers by
                     // sf = currentPayout / calculatePayout(value, tiers) so the slider's at-rest
                     // payout equals the engine's real payout (delta = 0 at rest) and projections
