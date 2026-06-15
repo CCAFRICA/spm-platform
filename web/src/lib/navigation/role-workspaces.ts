@@ -93,21 +93,21 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
     calculate: { canViewAll: true, canEdit: true },
     decide: { canViewAll: true, canEdit: true },
     'platform-core': { canViewAll: true, canEdit: true },
-    consolidate: { canViewAll: true, canEdit: true },
+    finance: { canViewAll: true, canEdit: true },
   },
   admin: {
     calculate: { canViewAll: true, canEdit: true },
     decide: { canViewAll: true, canEdit: true },
     'platform-core': { canViewAll: true, canEdit: true },
-    consolidate: { canViewAll: true, canEdit: true },
+    finance: { canViewAll: true, canEdit: true },
   },
   manager: {
     decide: { canViewAll: true, canEdit: false },
-    consolidate: { canViewAll: true, canEdit: false },
+    finance: { canViewAll: true, canEdit: false },
   },
   sales_rep: {
     decide: { canViewAll: false, canEdit: false, limitedSections: ['dashboard', 'compensation'] },
-    consolidate: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
+    finance: { canViewAll: false, canEdit: false, limitedSections: ['staff'] },
   },
 };
 

@@ -105,7 +105,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   decide: TrendingUp,
   calculate: Zap,
   'platform-core': Settings,
-  consolidate: Activity,
+  finance: Layers,
 };
 
 // Static icon map for route icons
