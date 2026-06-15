@@ -125,6 +125,16 @@ export interface IntelligenceStreamData {
     belowEntities: Array<{ name: string | null; amount: number }>;
     viewerAmount: number;
   } | null;
+  // HF-293 FIX-2: the rep's OWN simulate affordance — UNCONDITIONAL on tiered (regime-3)
+  // components, independent of near-boundary populations. A rep slides THEIR OWN component
+  // attainment → projected payout (self-scoped, SR-39). Empty when the rep has no tiered
+  // component (HALT-REP-TIERS: no slider rather than an empty one).
+  selfSimulations?: Array<{
+    componentName: string;
+    value: number;          // the rep's own component attainment (slider start)
+    currentPayout: number;  // the engine's real payout for this component (dollar anchor)
+    tiers: Array<{ min: number; max: number; rate: number; label: string }>;
+  }>;
 
   confidenceTier: 'cold' | 'warm' | 'hot';
   periodCount: number;
@@ -576,6 +586,23 @@ async function buildRepData(
     allResults, resolvedEntityId, supabase,
   );
 
+  // HF-293 FIX-2: the rep's OWN simulate inputs — tiered (regime-3) components only, where a
+  // what-if through the tier structure is meaningful (HALT-REP-TIERS: skip tier-less components
+  // rather than show an empty slider). Scoped to THIS rep's own result (SR-39 — never another's).
+  const selfSimulations: NonNullable<IntelligenceStreamData['selfSimulations']> = [];
+  for (const compDef of ruleSetComponents) {
+    const tiers = parseTiers(compDef);
+    if (tiers.length < 2) continue;
+    const comp = findComponentByName(myComponents, compDef.name);
+    if (!comp || comp.attainment == null) continue; // need the rep's own attainment to slide
+    selfSimulations.push({
+      componentName: compDef.name,
+      value: comp.attainment,
+      currentPayout: comp.payout,
+      tiers,
+    });
+  }
+
   return {
     personalEarnings: {
       entityId: resolvedEntityId,
@@ -591,10 +618,11 @@ async function buildRepData(
     allocationRecommendation,
     componentBreakdown,
     relativePosition: await relativePosition,
-    // OB-211 WS-2 inc-2: access-scoped Simulate — the rep simulates their OWN context only.
-    // Opportunities computed over [myResult] (a population of one) → the rep's own near-boundary
-    // state, never anyone else's (SR-39 scope boundary = myResult).
-    optimizationOpportunities: computeOptimizationOpportunities([myResult], ruleSetComponents),
+    // HF-293 FIX-2: the rep's simulate affordance is selfSimulations (UNCONDITIONAL on tiered
+    // components), NOT a population opportunity. A rep is a population of one, so the
+    // near-boundary OptimizationCard almost never rendered for them (RC-2) — replaced by the
+    // self-slider. Scoped to THIS rep's own result (SR-39).
+    selfSimulations,
     // OB-211 WS-2 (sweep MEDIUM): the rep's OWN below-benchmark signal, via the SAME shared
     // threshold helper the admin/manager paths use (single source of truth — no duplicated
     // magic numbers). Without this the rep's Insight narrative was structurally stuck on

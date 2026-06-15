@@ -46,6 +46,7 @@ import {
   AllocationCard,
   ComponentBreakdownCard,
   RelativePositionCard,
+  SelfSimulateCard,
   ActionRequiredCard,
   PipelineReadinessCard,
   TrajectoryCard,
@@ -817,16 +818,16 @@ function IndividualStream({
         />
       )}
 
-      {/* OB-211 WS-2 inc-2: access-scoped Simulate — the rep simulates their OWN context only
-          (opportunities over [myResult]); a single near-boundary entity opens the single-entity
-          WhatIfSlider (a rep sliding their own value), never anyone else's. */}
-      {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
-        <OptimizationCard
+      {/* HF-293 FIX-2: the rep's OWN simulate affordance — UNCONDITIONAL on tiered components,
+          independent of near-boundary populations (the population OptimizationCard, a "population
+          of one" for a rep, almost never rendered). Self-scoped (loader scopes to [myResult]),
+          dollar-anchored (#515 sf). HALT-REP-TIERS: renders nothing if no tiered component. */}
+      {data.selfSimulations && data.selfSimulations.length > 0 && (
+        <SelfSimulateCard
           accentColor={accentColor}
-          opportunities={data.optimizationOpportunities}
-          confidenceTier={data.confidenceTier}
+          simulations={data.selfSimulations}
           formatCurrency={formatCurrency}
-          onSimulate={() => onInteract('optimization_simulate', 'act')}
+          onView={() => onInteract('self_simulate', 'act')}
         />
       )}
     </div>
