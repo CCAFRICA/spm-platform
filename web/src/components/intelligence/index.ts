@@ -29,6 +29,7 @@ export { PersonalEarningsCard } from './PersonalEarningsCard';
 export { AllocationCard } from './AllocationCard';
 export { ComponentBreakdownCard } from './ComponentBreakdownCard';
 export { RelativePositionCard } from './RelativePositionCard';
+export { SelfSimulateCard } from './SelfSimulateCard';
 
 // OB-170: State-driven cards
 export { ActionRequiredCard } from './ActionRequiredCard';
