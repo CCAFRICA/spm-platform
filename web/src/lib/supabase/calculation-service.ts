@@ -392,6 +392,26 @@ export async function getCalculationResults(
 }
 
 /**
+ * OB-211 Phase B (G1): the TRUE entity count for a batch via a server COUNT — not the length of
+ * the (PostgREST-default-capped ~1000) fetched array. Use this for the displayed count so a
+ * 22K-entity batch shows 22K, not 1000.
+ */
+export async function getResultCountForBatch(
+  tenantId: string,
+  batchId: string,
+): Promise<number> {
+  requireTenantId(tenantId);
+  const supabase = createClient();
+  const { count, error } = await supabase
+    .from('calculation_results')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('batch_id', batchId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
  * Get calculation results for an entity across all batches.
  */
 export async function getEntityResults(
