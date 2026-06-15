@@ -23,6 +23,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { usePersona } from '@/contexts/persona-context';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, FileText, ChevronDown, User, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { computeVelocity, classifyTrend, type TrajectoryTrend } from '@/lib/intelligence/trajectory-service';
@@ -86,6 +87,28 @@ export default function StatementsPage() {
   const { format: formatCurrency } = useCurrency();
   const tenantId = currentTenant?.id || '';
 
+  // WS7-A / HALT-ACCESS #2 (SR-39): scope the statement to what the viewer may see, enforced
+  // through the READ (not the UI). allowedEntityIds = the viewer's accessible set: admin/canSeeAll
+  // = whole tenant (null filter); manager = their team; rep = their own single entity. A param/
+  // picker can never reach an out-of-scope entity — loadOptions filters the query and loadStatement
+  // denies the read. Fail-closed while scope resolves (empty set → no statement). HALT-4: a rep
+  // resolves to their own entity only, with no picker.
+  const { scope, entityId: personaEntityId } = usePersona();
+  // WS7-A sweep MEDIUM: a rep's scope.entityIds is the STORE id (persona-context), while the
+  // statement is keyed by the rep's OWN entity id. Union the viewer's own resolved entity so the
+  // rep can always reach their own individual statement at whatever grain exists — while still
+  // never reaching ANOTHER entity (SR-39 holds: the set is scope ∪ {own}, nothing wider).
+  // Memoized on the stable scope inputs so the loadOptions/loadStatement deps don't churn.
+  const allowedEntityIds = useMemo(
+    () => scope.canSeeAll
+      ? null
+      : Array.from(new Set([...scope.entityIds, ...(personaEntityId ? [personaEntityId] : [])])),
+    [scope.canSeeAll, scope.entityIds, personaEntityId],
+  );
+  // Picker visibility reflects genuinely multi-SUBJECT viewers (admin = tenant, manager = team),
+  // NOT the read-guard union — a rep's union may be [store, self] but they still get no picker.
+  const canPickEntity = scope.canSeeAll || scope.entityIds.length > 1;
+
   const [loading, setLoading] = useState(true);
   const [entities, setEntities] = useState<EntityOption[]>([]);
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
@@ -103,12 +126,20 @@ export default function StatementsPage() {
     if (!tenantId) return;
     const supabase = createClient();
 
+    // SR-39: scope the entity list to the viewer's accessible set through the READ. A non-
+    // admin (manager/rep) only ever receives their own/team entities; admin (null) sees the
+    // whole tenant. An empty allowed set yields no entities (fail-closed).
+    let entitiesQuery = supabase
+      .from('entities')
+      .select('id, external_id, display_name')
+      .eq('tenant_id', tenantId)
+      .order('external_id');
+    if (allowedEntityIds) {
+      entitiesQuery = entitiesQuery.in('id', allowedEntityIds.length ? allowedEntityIds : ['__none__']);
+    }
+
     const [entitiesRes, periodsRes, batchesRes] = await Promise.all([
-      supabase
-        .from('entities')
-        .select('id, external_id, display_name')
-        .eq('tenant_id', tenantId)
-        .order('external_id'),
+      entitiesQuery,
       supabase
         .from('periods')
         .select('id, label, start_date')
@@ -122,13 +153,12 @@ export default function StatementsPage() {
 
     const batchPeriods = new Set(batchesRes.data?.map(b => b.period_id) || []);
 
-    setEntities(
-      (entitiesRes.data || []).map(e => ({
-        id: e.id,
-        externalId: e.external_id || '',
-        displayName: e.display_name,
-      }))
-    );
+    const scopedEntities = (entitiesRes.data || []).map(e => ({
+      id: e.id,
+      externalId: e.external_id || '',
+      displayName: e.display_name,
+    }));
+    setEntities(scopedEntities);
 
     setPeriods(
       (periodsRes.data || []).map(p => ({
@@ -139,18 +169,20 @@ export default function StatementsPage() {
       }))
     );
 
-    // Auto-select first entity if none specified
-    if (!selectedEntityId && entitiesRes.data?.length) {
-      setSelectedEntityId(entitiesRes.data[0].id);
-    }
+    // SR-39: if the requested entity (e.g. a tampered ?entityId) is OUTSIDE the viewer's scope,
+    // drop it and default to the first allowed entity (for a rep, their own — the only one).
+    setSelectedEntityId(prev =>
+      prev && scopedEntities.some(e => e.id === prev) ? prev : (scopedEntities[0]?.id ?? null),
+    );
     // Auto-select most recent period with a batch
-    if (!selectedPeriodId && periodsRes.data?.length) {
+    setSelectedPeriodId(prev => {
+      if (prev) return prev;
       const withBatch = (periodsRes.data || []).find(p => batchPeriods.has(p.id));
-      if (withBatch) setSelectedPeriodId(withBatch.id);
-    }
+      return withBatch?.id ?? null;
+    });
 
     setLoading(false);
-  }, [tenantId, selectedEntityId, selectedPeriodId]);
+  }, [tenantId, allowedEntityIds]);
 
   useEffect(() => { loadOptions(); }, [loadOptions]);
 
@@ -158,6 +190,14 @@ export default function StatementsPage() {
   const loadStatement = useCallback(async () => {
     if (!tenantId || !selectedEntityId || !selectedPeriodId) {
       setStatement(null);
+      return;
+    }
+    // SR-39 (read-layer denial): never load a statement for an entity outside the viewer's
+    // scope, even if ?entityId was tampered. A rep/manager requesting another entity is denied
+    // HERE, at the data layer — not merely hidden in the UI.
+    if (allowedEntityIds && !allowedEntityIds.includes(selectedEntityId)) {
+      setStatement(null);
+      setTransactions([]);
       return;
     }
 
@@ -298,7 +338,7 @@ export default function StatementsPage() {
     } else {
       setEntityTrajectory(null);
     }
-  }, [tenantId, selectedEntityId, selectedPeriodId, periods]);
+  }, [tenantId, selectedEntityId, selectedPeriodId, periods, allowedEntityIds]);
 
   useEffect(() => { loadStatement(); }, [loadStatement]);
 
@@ -341,9 +381,13 @@ export default function StatementsPage() {
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           {/* Entity selector */}
           <div className="relative flex-1">
+            {/* WS7-A SR-39: the picker exists only for a viewer who may see more than one entity
+                (admin = tenant, manager = team). A rep (single own entity) gets a static label —
+                no picker, no way to request another. The picker list is already scope-filtered. */}
             <button
-              onClick={() => setShowEntityPicker(!showEntityPicker)}
-              className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 hover:bg-zinc-800 transition-colors"
+              onClick={canPickEntity ? () => setShowEntityPicker(!showEntityPicker) : undefined}
+              disabled={!canPickEntity}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 transition-colors ${canPickEntity ? 'hover:bg-zinc-800 cursor-pointer' : 'cursor-default'}`}
             >
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4 text-zinc-500" />
@@ -351,10 +395,10 @@ export default function StatementsPage() {
                   ? `${selectedEntity.externalId} — ${selectedEntity.displayName}`
                   : 'Select entity...'}
               </div>
-              <ChevronDown className="h-4 w-4 text-zinc-500" />
+              {canPickEntity && <ChevronDown className="h-4 w-4 text-zinc-500" />}
             </button>
 
-            {showEntityPicker && (
+            {canPickEntity && showEntityPicker && (
               <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg bg-zinc-900 border border-zinc-700 shadow-xl max-h-64 overflow-y-auto">
                 <div className="p-2">
                   <input
