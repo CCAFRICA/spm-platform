@@ -37,6 +37,8 @@ import { createClient } from '@/lib/supabase/client';
 import { classifyRuleSetRegimes, type RegimeClassification } from '@/lib/results/performance-regime';
 import { buildFieldBindingMap, resolveAttainmentPct, type FieldBinding } from '@/lib/results/field-identity';
 import { AnomalyDrillThrough } from '@/components/results/AnomalyDrillThrough';
+// OB-209: leverage the EXISTING canonical interaction-capture (writes through writeSignal); no new hook.
+import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -116,6 +118,39 @@ function ResultsDashboardPageInner() {
 
   const hasAccess = user && isVLAdmin(user);
   const tenantId = currentTenant?.id || '';
+
+  // OB-209: extend the EXISTING canonical capture (captureStreamSignal → writeSignal, signal_type
+  // 'lifecycle:stream', HF-219 open vocabulary) to the Decide-Results surface. NO new hook/path.
+  const captureResults = (elementId: string, action: 'drill' | 'act' | 'expand' | 'collapse', metadata?: Record<string, unknown>) => {
+    if (!tenantId) return;
+    captureStreamSignal({ persona: 'admin', elementId, action, tenantId, metadata: { actorId: user?.id, batchId: selectedBatchId, ...metadata } });
+  };
+
+  // OB-209 capture-and-react (L1, Observation IS Action): read THIS user's own prior interaction signals
+  // for the anomaly section; if they habitually EXPAND it, default it expanded (the surface reacts to the
+  // individual's captured history). Tenant-scoped read via the browser RLS client; per-user grain via the
+  // open signalValue.actorId (classification_signals has no per-user column — leverage, not a schema add).
+  useEffect(() => {
+    if (!tenantId || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sb = createClient();
+        const { data } = await sb.from('classification_signals').select('signal_value').eq('tenant_id', tenantId).eq('signal_type', 'lifecycle:stream').limit(1000);
+        let expand = 0, collapse = 0;
+        for (const r of (data ?? [])) {
+          const v = (r.signal_value ?? {}) as Record<string, unknown>;
+          if (v.element_id !== 'results:anomaly_summary' || v.actorId !== user.id) continue;
+          if (v.action === 'expand') expand++; else if (v.action === 'collapse') collapse++;
+        }
+        if (!cancelled && expand > collapse && expand >= 2) setAnomalyExpanded(true); // react: habitual expander
+      } catch { /* react is best-effort; default (collapsed) stands */ }
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId, user?.id]);
+
+  // OB-209: flush captured interaction signals on unmount (existing batched-flush API).
+  useEffect(() => () => { flushPendingStreamSignals(); }, []);
 
   // OB-92: Load results for the batch selected in OperateContext
   useEffect(() => {
@@ -391,6 +426,7 @@ function ResultsDashboardPageInner() {
   const activeAnomalies = (anomalyReport?.anomalies ?? []).filter(a => !resolvedAnomalies.has(anomalyKey(a)));
   const anomalyCount = activeAnomalies.length;
   const investigateAnomaly = (a: Anomaly) => {
+    captureResults('results:anomaly', 'act', { interaction: 'investigate', anomaly_type: a.type });
     const first = (a as { entities?: string[] }).entities?.[0];
     if (!first) return;
     // Clear filters so the affected entity is in the rendered set, then expand + scroll to it.
@@ -402,6 +438,7 @@ function ResultsDashboardPageInner() {
     }
   };
   const resolveAnomaly = async (a: Anomaly) => {
+    captureResults('results:anomaly', 'act', { interaction: 'resolve', anomaly_type: a.type });
     const key = anomalyKey(a);
     setResolvedAnomalies(prev => { const n = new Set(prev); n.add(key); return n; }); // optimistic self-clear
     try {
@@ -557,7 +594,7 @@ function ResultsDashboardPageInner() {
                   Anomaly Summary
                 </CardTitle>
                 <button
-                  onClick={() => setAnomalyExpanded(!anomalyExpanded)}
+                  onClick={() => { const next = !anomalyExpanded; setAnomalyExpanded(next); captureResults('results:anomaly_summary', next ? 'expand' : 'collapse'); }}
                   className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1"
                 >
                   {anomalyExpanded ? (
@@ -607,7 +644,7 @@ function ResultsDashboardPageInner() {
                     {topFinding.description}
                   </span>
                   <div className="flex items-center gap-2 mt-2.5">
-                    <button onClick={() => setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                    <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: topFinding.type }); setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                       Verify
                     </button>
                     <button onClick={() => investigateAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
@@ -646,7 +683,7 @@ function ResultsDashboardPageInner() {
                             </div>
                             {/* OB-207 P2 / OB-208 D-2: Action Proximity + claim verification */}
                             <div className="flex items-center gap-2 mt-2.5">
-                              <button onClick={() => setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount })} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                              <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: a.type }); setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                                 Verify
                               </button>
                               <button onClick={() => investigateAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">

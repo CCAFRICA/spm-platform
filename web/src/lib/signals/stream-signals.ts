@@ -18,8 +18,10 @@ import { writeSignalBatchWithClient, CanonicalWriteError, type CanonicalSignalIn
 
 export interface StreamSignal {
   persona: 'admin' | 'manager' | 'rep';
-  elementId: string;    // 'system_health' | 'coaching_priority' | 'allocation' | etc.
-  action: 'view' | 'click' | 'expand' | 'act';
+  elementId: string;    // 'system_health' | 'coaching_priority' | 'results:anomaly_summary' | etc.
+  // OB-209: 'collapse'/'drill' extend the existing action set (still one canonical writeSignal path,
+  // HF-219 open-vocabulary signalValue.action) — for the Decide-surface capture-and-react loop.
+  action: 'view' | 'click' | 'expand' | 'collapse' | 'drill' | 'act';
   tenantId: string;
   metadata?: Record<string, unknown>;
   timestamp: string;
