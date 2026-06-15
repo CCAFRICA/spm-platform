@@ -101,11 +101,15 @@ export function ObservatoryTab() {
       // HF-283 Phase 4.2: observable entry — exactly one event per selection
       // (handleSelectTenant runs once per card click), via the HF-282 plumbing.
       logAuthEventClient('tenant.entered', { tenantId, tenantName });
-      // HF-057: Explicit navigation after tenant selection.
-      // setTenant calls router.push('/') but middleware may redirect VL Admin
-      // back to /select-tenant. Navigate to a concrete route instead.
-      const destination = targetRoute || '/operate';
-      router.push(destination);
+      // HF-292 / OB-211 WS-1: tenant-card entry lands on /stream. setTenant already
+      // pushed /stream (tenant-context.tsx — Decision 128 / OB-206 F-1), and middleware
+      // converges every role on /stream. Only override when the caller supplies an
+      // EXPLICIT deep-link target — the Operations Queue action buttons pass a concrete
+      // route (preserved). A plain card click leaves setTenant's /stream standing instead
+      // of clobbering it with /operate (the SR-34 fix-at-source; no counter-redirect).
+      if (targetRoute) {
+        router.push(targetRoute);
+      }
       router.refresh();
     } catch (err) {
       // HF-283 Phase 4.1: surface the failure (was a silent spinner-reset that
