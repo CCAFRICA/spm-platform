@@ -28,6 +28,8 @@ import {
   type IntelligenceStreamData,
 } from '@/lib/data/intelligence-stream-loader';
 import { getStateReader, loadTrajectoryData, type TenantContext } from '@/lib/intelligence/state-reader';
+import { InsightNarrative } from '@/components/results/InsightNarrative';
+import { buildInsightNarrative, type InsightNarrative as InsightNarrativeData } from '@/lib/results/insight-narrative';
 import { computePopulationTrajectory, type PopulationTrajectory } from '@/lib/intelligence/trajectory-service';
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
 import {
@@ -63,6 +65,63 @@ const PERSONA_ACCENT: Record<string, string> = {
   manager: 'border-amber-500',
   rep: 'border-emerald-500',
 };
+
+// ──────────────────────────────────────────────
+// OB-211 WS-2 / B2: the Insight Agent narrative for /stream.
+// Maps the surface's ALREADY-LOADED, persona-shaped stream state into the same
+// deterministic builder that leads /operate/results (OB-210 Unit A) — leverage, not
+// rebuild. No LLM, no per-entity call (Synaptic scale litmus). Regime classification is
+// not loaded on the stream surface, so targetDrivenComponents is 0 here (the builder
+// degrades to a component-count note). Anomalies come from bloodworkItems (the stream's
+// attention list); a clean state affirms health quietly (Bloodwork tone).
+// ──────────────────────────────────────────────
+function buildStreamInsight(
+  data: IntelligenceStreamData,
+  formatCurrency: (n: number) => string,
+): InsightNarrativeData | null {
+  const bloodwork = data.bloodworkItems ?? [];
+  const topAnomaly = bloodwork[0]
+    ? { description: bloodwork[0].issue, severity: bloodwork[0].severity }
+    : null;
+
+  if (data.persona === 'admin' && data.systemHealth) {
+    return buildInsightNarrative({
+      persona: 'admin',
+      totalPayout: data.systemHealth.totalPayout,
+      entityCount: data.systemHealth.entityCount,
+      componentCount: data.systemHealth.componentCount,
+      anomalyCount: bloodwork.length,
+      topAnomaly,
+      targetDrivenComponents: 0,
+      formatCurrency,
+    });
+  }
+  if (data.persona === 'manager' && data.teamHealth) {
+    return buildInsightNarrative({
+      persona: 'manager',
+      totalPayout: data.teamHealth.teamTotal,
+      entityCount: data.teamHealth.teamSize,
+      componentCount: data.teamHeatmap?.[0]?.components.length ?? 0,
+      anomalyCount: bloodwork.length,
+      topAnomaly,
+      targetDrivenComponents: 0,
+      formatCurrency,
+    });
+  }
+  if (data.persona === 'rep' && data.personalEarnings) {
+    return buildInsightNarrative({
+      persona: 'rep',
+      totalPayout: data.personalEarnings.totalPayout,
+      entityCount: 1,
+      componentCount: data.componentBreakdown?.length ?? 0,
+      anomalyCount: bloodwork.length,
+      topAnomaly,
+      targetDrivenComponents: 0,
+      formatCurrency,
+    });
+  }
+  return null;
+}
 
 export default function StreamPage() {
   const router = useRouter();
@@ -358,6 +417,11 @@ export default function StreamPage() {
       ? { label: 'Warm', color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' }
       : { label: 'Hot', color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' };
 
+  // OB-211 WS-2 / B2: build the lead Insight narrative from loaded stream state (data is
+  // guaranteed non-null past the empty/error guard above). Closes the B4 "AI-front absent
+  // on /stream" gap — the narrative becomes the first element, as on /operate/results.
+  const streamNarrative = buildStreamInsight(data, formatCurrency);
+
   return (
     <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
       <div className="max-w-6xl mx-auto px-6 py-6 lg:py-8">
@@ -390,6 +454,14 @@ export default function StreamPage() {
             </span>
           </div>
         </div>
+
+        {/* OB-211 WS-2 / B2: the Insight Agent narrative LEADS the surface (AI front-and-center,
+            DS-013 — the narrative is the first element). Bloodwork-toned via the shared component. */}
+        {streamNarrative && (
+          <div className="mb-4">
+            <InsightNarrative narrative={streamNarrative} />
+          </div>
+        )}
 
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
