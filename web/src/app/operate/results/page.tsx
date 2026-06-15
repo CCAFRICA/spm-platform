@@ -27,10 +27,10 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
-import { isVLAdmin } from '@/types/auth';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import {
   getCalculationResults,
+  getResultCountForBatch,
 } from '@/lib/supabase/calculation-service';
 import { detectAnomalies, type AnomalyReport, type Anomaly } from '@/lib/intelligence/anomaly-detection';
 import { createClient } from '@/lib/supabase/client';
@@ -39,6 +39,7 @@ import { buildFieldBindingMap, resolveAttainmentPct, type FieldBinding } from '@
 import { AnomalyDrillThrough } from '@/components/results/AnomalyDrillThrough';
 // OB-209: leverage the EXISTING canonical interaction-capture (writes through writeSignal); no new hook.
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
+import { useDrillThrough } from '@/hooks/useDrillThrough'; // OB-211 Phase B: shared drill mechanism (WS-3 enabler)
 import { buildInsightNarrative } from '@/lib/results/insight-narrative';
 import { InsightNarrative } from '@/components/results/InsightNarrative';
 import { OperateSelector } from '@/components/operate/OperateSelector';
@@ -110,15 +111,25 @@ function ResultsDashboardPageInner() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [isLoaded, setIsLoaded] = useState(false);
   const [anomalyReport, setAnomalyReport] = useState<AnomalyReport | null>(null);
-  const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
+  // OB-211 Phase B (G1): the TRUE entity count from a server COUNT (not results.length, which the
+  // PostgREST default caps at ~1000 — wrong for a 22K-entity batch).
+  const [resultCount, setResultCount] = useState<number | null>(null);
+  // OB-211 Phase B: the two inline drill states unified onto the shared useDrillThrough hook
+  // (auto-resets on batch change; the WS-3 enabler). Row drill = the entity id.
+  const rowDrill = useDrillThrough<string>(selectedBatchId);
   const [anomalyExpanded, setAnomalyExpanded] = useState(false);
   // OB-207 P2: per-component performance regimes (structural, from rule_sets grammar) + self-clearing resolves.
   const [regimes, setRegimes] = useState<Map<string, RegimeClassification>>(new Map());
   const [bindingMap, setBindingMap] = useState<Map<string, FieldBinding>>(new Map());
   const [resolvedAnomalies, setResolvedAnomalies] = useState<Set<string>>(new Set());
-  const [drillAnomaly, setDrillAnomaly] = useState<{ claim: string; entityIds: string[]; claimedCount: number } | null>(null); // OB-208 D-2
+  // Anomaly claim drill = { claim, entityIds, claimedCount } (OB-208 D-2), via the same shared hook.
+  const anomalyDrill = useDrillThrough<{ claim: string; entityIds: string[]; claimedCount: number }>(selectedBatchId);
 
-  const hasAccess = user && isVLAdmin(user);
+  // OB-211 Phase B: the page is wrapped in RequireCapability('view.all_results') (the authority,
+  // granted to platform AND tenant admin). The prior inner isVLAdmin (platform-only) double-gate
+  // BLOCKED a tenant admin the capability matrix says CAN view results. Collapse to the capability:
+  // a present user who passed the wrapper is admitted (tenant-bounded; SR-39 holds — no widening).
+  const hasAccess = !!user;
   const tenantId = currentTenant?.id || '';
 
   // OB-209: extend the EXISTING canonical capture (captureStreamSignal → writeSignal, signal_type
@@ -169,10 +180,14 @@ function ResultsDashboardPageInner() {
     const loadData = async () => {
       setIsLoaded(false);
       setResolvedAnomalies(new Set()); // OB-207 P2 fix: clear self-cleared anomalies when the batch changes
-      setDrillAnomaly(null); // OB-208 fix: close any open drill-through on batch change
+      // OB-211 Phase B: drill reset on batch change is automatic (useDrillThrough resetKey).
       try {
-        const calcResults = await getCalculationResults(tenantId, selectedBatchId);
+        const [calcResults, count] = await Promise.all([
+          getCalculationResults(tenantId, selectedBatchId),
+          getResultCountForBatch(tenantId, selectedBatchId).catch(() => null), // G1: true server count (best-effort)
+        ]);
         if (cancelled) return;
+        setResultCount(count);
 
         // OB-207 P2: classify each component's performance regime structurally from the plan grammar.
         // Read THIS batch's rule set (selectedBatch.ruleSetId) — not an arbitrary non-draft one.
@@ -380,7 +395,7 @@ function ResultsDashboardPageInner() {
           <CardHeader className="text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>VL Admin access required.</CardDescription>
+            <CardDescription>Results-view access required.</CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => router.push('/')} className="w-full">Return to Dashboard</Button>
@@ -420,8 +435,14 @@ function ResultsDashboardPageInner() {
     );
   }
 
-  const entityCount = results.length;
-  const avgPayout = entityCount > 0 ? totalPayout / entityCount : 0;
+  const entityCount = resultCount ?? results.length; // G1: server COUNT, falling back to length while loading
+  // OB-211 Phase B (sweep MEDIUM): the average stays on the FETCHED population so its numerator
+  // (totalPayout, summed from the fetched rows) and denominator agree — never the capped sum over the
+  // TRUE server count (which would understate the average ~Nx for >1000-entity batches). The displayed
+  // entity COUNT uses the true server count (entityCount); the average uses results.length.
+  // (Residual R5: totalPayout/avg are over the fetched population at >1000 entities — a server SUM
+  // aggregate would make them true; same class as G1.)
+  const avgPayout = results.length > 0 ? totalPayout / results.length : 0;
   const stats = anomalyReport?.stats;
   // OB-207 P2: anomaly Action Cards — Investigate (expand the affected entity) + Resolve (audit_logs, self-clearing).
   const anomalyKey = (a: Anomaly) => `${a.type}:${a.description}`;
@@ -444,7 +465,7 @@ function ResultsDashboardPageInner() {
     // Clear filters so the affected entity is in the rendered set, then expand + scroll to it.
     setSearchQuery('');
     setStoreFilter('all');
-    setExpandedEntity(first);
+    rowDrill.open(first);
     if (typeof document !== 'undefined') {
       setTimeout(() => document.getElementById(`entity-row-${first}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
     }
@@ -659,7 +680,7 @@ function ResultsDashboardPageInner() {
                     {topFinding.description}
                   </span>
                   <div className="flex items-center gap-2 mt-2.5">
-                    <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: topFinding.type }); setDrillAnomaly({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                    <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: topFinding.type }); anomalyDrill.open({ claim: topFinding.description, entityIds: (topFinding as { entities?: string[] }).entities ?? [], claimedCount: topFinding.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                       Verify
                     </button>
                     <button onClick={() => investigateAnomaly(topFinding)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
@@ -698,7 +719,7 @@ function ResultsDashboardPageInner() {
                             </div>
                             {/* OB-207 P2 / OB-208 D-2: Action Proximity + claim verification */}
                             <div className="flex items-center gap-2 mt-2.5">
-                              <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: a.type }); setDrillAnomaly({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
+                              <button onClick={() => { captureResults('results:anomaly', 'drill', { anomaly_type: a.type }); anomalyDrill.open({ claim: a.description, entityIds: (a as { entities?: string[] }).entities ?? [], claimedCount: a.entityCount }); }} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors">
                                 Verify
                               </button>
                               <button onClick={() => investigateAnomaly(a)} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-800 text-slate-300 border border-zinc-700 transition-colors">
@@ -721,16 +742,16 @@ function ResultsDashboardPageInner() {
       })()}
 
       {/* OB-208 D-2/D-3: claim verification — drill a claim to the Five-Elements synthesis of its entities */}
-      {drillAnomaly && (
+      {anomalyDrill.target && (
         <AnomalyDrillThrough
-          claim={drillAnomaly.claim}
-          entityIds={drillAnomaly.entityIds}
-          claimedCount={drillAnomaly.claimedCount}
+          claim={anomalyDrill.target.claim}
+          entityIds={anomalyDrill.target.entityIds}
+          claimedCount={anomalyDrill.target.claimedCount}
           results={results.map(r => ({ entityId: r.entityId, entityName: r.entityName, totalPayout: r.totalPayout }))}
           populationMean={stats?.mean ?? avgPayout}
           populationTotal={totalPayout}
           formatCurrency={formatCurrency}
-          onClose={() => setDrillAnomaly(null)}
+          onClose={anomalyDrill.close}
         />
       )}
 
@@ -818,13 +839,13 @@ function ResultsDashboardPageInner() {
               </TableHeader>
               <TableBody>
                 {filteredResults.slice(0, 100).map(row => {
-                  const isExpanded = expandedEntity === row.entityId;
+                  const isExpanded = rowDrill.target === row.entityId;
                   return (
                     <React.Fragment key={row.entityId}>
                       <TableRow
                         id={`entity-row-${row.entityId}`}
                         className="cursor-pointer hover:bg-slate-800/50"
-                        onClick={() => setExpandedEntity(isExpanded ? null : row.entityId)}
+                        onClick={() => isExpanded ? rowDrill.close() : rowDrill.open(row.entityId)}
                       >
                         <TableCell>
                           <div className="flex items-center gap-2">
