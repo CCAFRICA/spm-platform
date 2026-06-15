@@ -50,6 +50,13 @@ export interface IntelligenceStreamData {
     costImpact: number;
     actionLabel: string;
     actionRoute: string;
+    // OB-211 WS-2 inc-2: access-scoped population Simulate inputs. The near-boundary entities
+    // are computed over the persona's OWN result set (manager=team, rep=self, admin=full) — the
+    // scope boundary IS the access control. tiers come from the plan grammar (parseTiers); the
+    // projection is a client-side what-if, never an asserted payout.
+    boundary?: number;
+    tiers?: Array<{ min: number; max: number; rate: number; label: string }>;
+    nearBoundaryEntities?: Array<{ entityId: string; value: number; currentPayout: number }>;
   }>;
 
   // Manager elements
@@ -478,6 +485,10 @@ async function buildManagerData(
     coachingPriority,
     teamHeatmap,
     bloodworkItems: await bloodworkItems,
+    // OB-211 WS-2 inc-2: access-scoped Simulate — opportunities (and their near-boundary
+    // entities) computed over teamResults ONLY, so a manager simulates their TEAM, never
+    // another team's entities (SR-39 scope boundary = teamResults).
+    optimizationOpportunities: computeOptimizationOpportunities(teamResults, ruleSetComponents),
   };
 }
 
@@ -580,6 +591,10 @@ async function buildRepData(
     allocationRecommendation,
     componentBreakdown,
     relativePosition: await relativePosition,
+    // OB-211 WS-2 inc-2: access-scoped Simulate — the rep simulates their OWN context only.
+    // Opportunities computed over [myResult] (a population of one) → the rep's own near-boundary
+    // state, never anyone else's (SR-39 scope boundary = myResult).
+    optimizationOpportunities: computeOptimizationOpportunities([myResult], ruleSetComponents),
     // OB-211 WS-2 (sweep MEDIUM): the rep's OWN below-benchmark signal, via the SAME shared
     // threshold helper the admin/manager paths use (single source of truth — no duplicated
     // magic numbers). Without this the rep's Insight narrative was structurally stuck on
@@ -705,6 +720,7 @@ function computeOptimizationOpportunities(
       const threshold = boundary * 0.95;
       let nearBoundaryCount = 0;
       let totalImpact = 0;
+      const nearBoundaryEntities: Array<{ entityId: string; value: number; currentPayout: number }> = [];
 
       for (const result of allResults) {
         const comps = parseResultComponents(result.components);
@@ -717,6 +733,9 @@ function computeOptimizationOpportunities(
           nearBoundaryCount++;
           // Estimated impact: crossing the tier would apply the rate delta
           totalImpact += comp.payout * (rateDelta / (lowerRate || 1));
+          // OB-211 WS-2 inc-2: carry the near-boundary entity for the access-scoped Simulate.
+          // `allResults` is already the persona's scoped set, so this never leaks cross-scope.
+          nearBoundaryEntities.push({ entityId: result.entity_id, value: compAttainment, currentPayout: comp.payout });
         }
       }
 
@@ -728,6 +747,10 @@ function computeOptimizationOpportunities(
           costImpact: totalImpact,
           actionLabel: 'Review tier boundaries',
           actionRoute: '/admin/configure/plans',
+          // OB-211 WS-2 inc-2: Simulate inputs (scoped — `allResults` is the persona's set).
+          boundary,
+          tiers,
+          nearBoundaryEntities,
         });
       }
     }

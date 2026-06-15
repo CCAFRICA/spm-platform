@@ -14,10 +14,15 @@ interface WhatIfSliderProps {
   currentPayout: number;
   tiers: TierConfig[];
   currency?: string;
+  // OB-211 WS-2 inc-2: optional full formatter (additive, backward-compatible). When provided
+  // (e.g. the tenant's useCurrency formatter), it overrides the `currency`-symbol formatting.
+  formatCurrency?: (n: number) => string;
   onChange?: (projectedValue: number, projectedPayout: number) => void;
 }
 
-function calculatePayout(value: number, tiers: TierConfig[]): number {
+// OB-211 WS-2 inc-2: exported so the population variant (PopulationWhatIf) composes the SAME
+// tier math (SR-34 — no parallel payout computation). The projection is a client-side what-if.
+export function calculatePayout(value: number, tiers: TierConfig[]): number {
   let payout = 0;
   for (const tier of tiers) {
     if (value <= tier.min) continue;
@@ -34,6 +39,7 @@ export function WhatIfSlider({
   currentPayout,
   tiers,
   currency = '$',
+  formatCurrency,
   onChange,
 }: WhatIfSliderProps) {
   const maxSlider = currentValue * 2 || 100;
@@ -46,10 +52,10 @@ export function WhatIfSlider({
   const delta = projectedPayout - currentPayout;
   const deltaPercent = currentPayout > 0 ? ((delta / currentPayout) * 100).toFixed(1) : '0.0';
 
-  const fmtAmt = (v: number) => {
+  const fmtAmt = formatCurrency ?? ((v: number) => {
     const fd = Math.abs(v) >= 10_000 ? 0 : 2;
     return `${currency}${v.toLocaleString(undefined, { minimumFractionDigits: fd, maximumFractionDigits: fd })}`;
-  };
+  });
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
