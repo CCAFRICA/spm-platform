@@ -286,8 +286,16 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          // Fallback: manager with no brand data sees all
-          const mgrFallbackScope = { entityIds: [] as string[], canSeeAll: true };
+          // OB-211 WS7 Stage 1 (root SR-39 fix): a manager with NO derivable scope (no
+          // profile_scope row, no brand data) FAILS CLOSED — least privilege, not most. Was
+          // { canSeeAll: true } (fail-OPEN), which skipped every scope guard (the WS7-A
+          // membership check, buildManagerData's team filter, Simulate's teamResults, the
+          // financial pages) and let an unscoped manager view/aggregate the WHOLE tenant. This
+          // gap was surfaced twice (OB-211 Simulate sweep, WS7-A sweep) and is the root beneath
+          // WS7-A's surface closures. Absence of a derivable scope MUST default to least privilege.
+          // (HALT-SCOPE-DEMO: a demo manager relying on the old fail-open now sees only their own
+          // entity — the fix is to seed their profile_scope, NOT to restore fail-open.)
+          const mgrFallbackScope = { entityIds: [] as string[], canSeeAll: false };
           setEntityId(linkedEntityId);
           setScope(mgrFallbackScope);
           setCachedScope(user!.id, currentTenant!.id, effectivePersona, mgrFallbackScope, profile?.id ?? null, linkedEntityId);

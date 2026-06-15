@@ -62,8 +62,8 @@ export default function RevenueTimelinePage() {
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (personaScope.canSeeAll) return undefined;
-    if (personaScope.entityIds.length > 0) return { scopeEntityIds: personaScope.entityIds };
-    return undefined;
+    // WS7 Stage 1 (SR-39 fail-closed): explicit scope even when empty.
+    return { scopeEntityIds: personaScope.entityIds };
   }, [personaScope]);
 
   const [granularity, setGranularity] = useState<Granularity>('week');
