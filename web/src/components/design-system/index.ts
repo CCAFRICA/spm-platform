@@ -34,6 +34,7 @@ export * from './DataReadinessPanel';
 // Advanced visualization components (OB-46B Phase 3)
 export * from './PacingCone';
 export * from './WhatIfSlider';
+export * from './PopulationWhatIf';
 export * from './CalculationWaterfall';
 export * from './BudgetGauge';
 

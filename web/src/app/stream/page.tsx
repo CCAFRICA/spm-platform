@@ -626,6 +626,7 @@ function AdminStream({
             opportunities={data.optimizationOpportunities}
             confidenceTier={data.confidenceTier}
             formatCurrency={formatCurrency}
+            onSimulate={() => onInteract('optimization_simulate', 'act')}
           />
         )}
 
@@ -720,6 +721,18 @@ function ManagerStream({
         />
       )}
 
+      {/* OB-211 WS-2 inc-2: access-scoped Simulate — opportunities over the manager's TEAM only.
+          Recognize/Coach over the near-boundary team set; the slider never includes other teams. */}
+      {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
+        <OptimizationCard
+          accentColor={accentColor}
+          opportunities={data.optimizationOpportunities}
+          confidenceTier={data.confidenceTier}
+          formatCurrency={formatCurrency}
+          onSimulate={() => onInteract('optimization_simulate', 'act')}
+        />
+      )}
+
       {/* 4. Bloodwork — only if items exist */}
       {data.bloodworkItems && data.bloodworkItems.length > 0 && (
         <BloodworkCard
@@ -801,6 +814,19 @@ function IndividualStream({
           belowEntities={data.relativePosition.belowEntities}
           viewerAmount={data.relativePosition.viewerAmount}
           formatCurrency={formatCurrency}
+        />
+      )}
+
+      {/* OB-211 WS-2 inc-2: access-scoped Simulate — the rep simulates their OWN context only
+          (opportunities over [myResult]); a single near-boundary entity opens the single-entity
+          WhatIfSlider (a rep sliding their own value), never anyone else's. */}
+      {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
+        <OptimizationCard
+          accentColor={accentColor}
+          opportunities={data.optimizationOpportunities}
+          confidenceTier={data.confidenceTier}
+          formatCurrency={formatCurrency}
+          onSimulate={() => onInteract('optimization_simulate', 'act')}
         />
       )}
     </div>
