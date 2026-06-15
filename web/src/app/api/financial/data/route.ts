@@ -1302,7 +1302,12 @@ export async function POST(request: NextRequest) {
     // OB-99 Phase 4: Persona scope filtering
     // When scopeEntityIds is provided, only include cheques for those entities
     // and only include those entities in the entity list
-    const scopedRaw = scopeEntityIds && scopeEntityIds.length > 0
+    // OB-211 WS7 Stage 1 (SR-39 fail-closed): an EXPLICIT scopeEntityIds (an array, even empty)
+    // means "only these entities" — an EMPTY array DENIES (zero cheques) rather than falling open
+    // to the whole tenant. Only an ABSENT scope (undefined — admin/canSeeAll) returns the full
+    // tenant. Previously `&& scopeEntityIds.length > 0` collapsed empty→all, letting an unscoped
+    // manager (now canSeeAll:false, entityIds:[]) aggregate every tenant's financials.
+    const scopedRaw = scopeEntityIds !== undefined
       ? {
           cheques: raw.cheques.filter(c => scopeEntityIds.includes(c.entity_id)),
           entities: raw.entities.filter(e =>

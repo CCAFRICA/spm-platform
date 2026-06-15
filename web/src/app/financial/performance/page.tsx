@@ -59,8 +59,9 @@ export default function LocationBenchmarksPage() {
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
-    if (scope.entityIds.length > 0) return { scopeEntityIds: scope.entityIds };
-    return undefined;
+    // WS7 Stage 1 (SR-39 fail-closed): non-admin sends an EXPLICIT scope (even empty) so the
+    // server denies an unscoped manager instead of falling open to the whole tenant.
+    return { scopeEntityIds: scope.entityIds };
   }, [scope]);
 
   const [sortField, setSortField] = useState<SortField>('rank');
