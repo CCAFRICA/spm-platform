@@ -580,6 +580,13 @@ async function buildRepData(
     allocationRecommendation,
     componentBreakdown,
     relativePosition: await relativePosition,
+    // OB-211 WS-2 (sweep MEDIUM): the rep's OWN below-benchmark signal, via the SAME shared
+    // threshold helper the admin/manager paths use (single source of truth — no duplicated
+    // magic numbers). Without this the rep's Insight narrative was structurally stuck on
+    // "healthy" (a struggling rep told they're on track). Reuses myResult + nameMap already
+    // loaded (no new query). Consumed by the narrative via issue/severity; IndividualStream
+    // renders no BloodworkCard, so there is no UI duplication for reps.
+    bloodworkItems: await buildBloodworkItems([myResult], nameMap),
   };
 }
 
