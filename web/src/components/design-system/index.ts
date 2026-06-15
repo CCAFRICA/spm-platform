@@ -35,6 +35,8 @@ export * from './DataReadinessPanel';
 export * from './PacingCone';
 export * from './WhatIfSlider';
 export * from './PopulationWhatIf';
+export * from './GapWhatIf';
+export * from './PopulationGapWhatIf';
 export * from './CalculationWaterfall';
 export * from './BudgetGauge';
 
