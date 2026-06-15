@@ -1,18 +1,19 @@
 /**
- * Workspace Configuration — Agent-Navigation Spine (OB-207)
+ * Workspace Configuration — Agent-Governed Navigation (OB-211 Phase A)
  *
- * The source of truth for navigation. Reorganized around the four Capability-Board
- * agents: three ACTS the user performs through + the always-on Platform Core
- * foundation (resolves CLT-84-F20 metaphor-mix). Grouping only — every route path
- * is unchanged from the prior 4-workspace model (OB-97).
+ * The source of truth for navigation, governed by the four capability-map AGENTS. The
+ * user-facing identity is the agent (label); internal IDs are retained for minimal blast
+ * radius (SR-34). Grouping only — every route path is unchanged.
  *
- *   Decide        — performance intelligence (/stream HOME + persona results)
- *   Calculate     — run the engine (cockpit + import + calculate)
- *   Consolidate   — reconcile + the Financial module (committed_data via DS-029)
- *   Platform Core — always-on foundation; Configure lives here
+ *   Performance (decide)   — performance intelligence (/stream HOME + persona surfaces)
+ *   Calculation (calculate)— run the engine, reconcile, sign off, results, export
+ *   Finance (finance)      — LICENSABLE agent: the Financial module, gated per tenant via
+ *                            tenants.features (a non-Finance tenant never sees it)
+ *   Platform Core          — always-on foundation; Configure (periods/people/users) lives here
  *
- * /stream is the canonical landing for every persona (Decision 128); the active
- * workspace when on /stream is `decide`.
+ * "Consolidate" (OB-207's false three-verb peer) is REMOVED: reconciliation → Calculation,
+ * financial → the Finance agent. /operate/results → Calculation (the sign-off→export flow).
+ * /stream is the canonical landing for every persona (Decision 128); its workspace is `decide`.
  */
 
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
@@ -20,18 +21,18 @@ import type { UserRole } from '@/types/auth';
 import { hasCapability } from '@/lib/auth/permissions';
 
 // =============================================================================
-// WORKSPACE DEFINITIONS
+// WORKSPACE DEFINITIONS (agent-governed)
 // =============================================================================
 
 export const WORKSPACES: Record<WorkspaceId, Workspace> = {
-  // ── DECIDE — performance intelligence (HOME for every persona) ──
+  // ── PERFORMANCE (decide) — performance intelligence (HOME for every persona) ──
   decide: {
     id: 'decide',
-    label: 'Decide',
-    labelEs: 'Decidir',
+    label: 'Performance',
+    labelEs: 'Rendimiento',
     icon: 'Zap',
-    description: 'Performance intelligence and results',
-    descriptionEs: 'Inteligencia de rendimiento y resultados',
+    description: 'Performance intelligence — see, benchmark, act',
+    descriptionEs: 'Inteligencia de rendimiento — ver, comparar, actuar',
     defaultRoute: '/stream',
     accentColor: 'hsl(239, 84%, 67%)', // Indigo
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
@@ -44,25 +45,17 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.intelligence_stream' },
         ],
       },
-      {
-        id: 'results',
-        label: 'Results',
-        labelEs: 'Resultados',
-        routes: [
-          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
-        ],
-      },
     ],
   },
 
-  // ── CALCULATE — run the deterministic engine ──
+  // ── CALCULATION (calculate) — run the engine; reconcile; sign off; results; export ──
   calculate: {
     id: 'calculate',
-    label: 'Calculate',
-    labelEs: 'Calcular',
+    label: 'Calculation',
+    labelEs: 'Cálculo',
     icon: 'Calculator',
-    description: 'Run the current compensation cycle',
-    descriptionEs: 'Ejecutar el ciclo de compensación actual',
+    description: 'Run the engine, reconcile, sign off, and export results',
+    descriptionEs: 'Ejecutar el motor, conciliar, aprobar y exportar resultados',
     defaultRoute: '/operate',
     accentColor: 'hsl(262, 83%, 58%)', // Purple
     roles: ['platform', 'admin'],
@@ -93,21 +86,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'], requiredCapability: 'data.calculate' },
         ],
       },
-    ],
-  },
-
-  // ── CONSOLIDATE — reconcile + the Financial module (committed_data, A.24) ──
-  consolidate: {
-    id: 'consolidate',
-    label: 'Consolidate',
-    labelEs: 'Consolidar',
-    icon: 'GitCompare',
-    description: 'Reconciliation and financial intelligence',
-    descriptionEs: 'Conciliación e inteligencia financiera',
-    defaultRoute: '/operate/reconciliation',
-    accentColor: 'hsl(45, 93%, 47%)', // Gold
-    roles: ['platform', 'admin', 'manager', 'sales_rep'],
-    sections: [
+      // OB-211 Phase A: Results moved here (decide→Calculation) — the sign-off context that leads to export.
+      {
+        id: 'results',
+        label: 'Results',
+        labelEs: 'Resultados',
+        routes: [
+          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
+        ],
+      },
+      // OB-211 Phase A: Reconciliation moved here (consolidate→Calculation).
       {
         id: 'reconciliation',
         label: 'Reconciliation',
@@ -116,11 +104,29 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'], requiredCapability: 'data.reconcile' },
         ],
       },
+    ],
+  },
+
+  // ── FINANCE (finance) — LICENSABLE agent; gated per tenant via tenants.features ──
+  finance: {
+    id: 'finance',
+    label: 'Finance',
+    labelEs: 'Finanzas',
+    icon: 'Layers',
+    description: 'Financial intelligence — licensed module',
+    descriptionEs: 'Inteligencia financiera — módulo licenciado',
+    defaultRoute: '/financial',
+    accentColor: 'hsl(45, 93%, 47%)', // Gold
+    // OB-211 Phase A: WORKSPACE-level gate — ChromeSidebar (the existing ws.featureFlag check)
+    // drops the WHOLE Finance agent for a tenant without the feature (the menu reflection of
+    // WS7-A's route gate). A non-Finance tenant never sees Finance in the nav.
+    featureFlag: 'financial',
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
+    sections: [
       {
         id: 'financial-network',
         label: 'Financial',
         labelEs: 'Finanzas',
-        featureFlag: 'financial',
         routes: [
           { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
           { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
@@ -133,7 +139,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     ],
   },
 
-  // ── PLATFORM CORE — always-on foundation (Configure lives here) ──
+  // ── PLATFORM CORE — always-on substrate (Configure-as-settings lives here) ──
   'platform-core': {
     id: 'platform-core',
     label: 'Platform Core',
@@ -198,7 +204,7 @@ export function getWorkspacesForRole(role: UserRole): Workspace[] {
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
-  // OB-207: /stream is HOME for every persona (Decision 128); it lives under Decide.
+  // /stream is HOME for every persona (Decision 128); it lives under Performance (decide).
   return 'decide';
 }
 
@@ -207,7 +213,9 @@ export function getDefaultWorkspaceForRole(role: UserRole): WorkspaceId {
  * DS-014: capability-based filtering via the single PDP (hasCapability).
  * OB-207 Inc2: optional `enabledFeatures` (the live tenants.features map) drops sections
  * whose featureFlag is not enabled — module gating on the live field (FP-49). When omitted,
- * gating is capability-only (backward-compatible).
+ * gating is capability-only (backward-compatible). NOTE (OB-211 Phase A): the Finance agent
+ * is gated at the WORKSPACE level (ChromeSidebar's ws.featureFlag check), so the whole agent
+ * drops for a non-Finance tenant regardless of this section-level path.
  */
 export function getWorkspaceRoutesForRole(
   workspaceId: WorkspaceId,
@@ -252,14 +260,14 @@ export function getWorkspaceForRoute(path: string): WorkspaceId | null {
     }
   }
 
-  // OB-207: explicit path → agent mapping (route paths are unchanged; only grouping moved).
-  if (path.startsWith('/stream')) return 'decide';
-  if (path.startsWith('/operate/results')) return 'decide';
-  if (path.startsWith('/operate/reconciliation')) return 'consolidate';
-  if (path.startsWith('/financial')) return 'consolidate';
+  // OB-211 Phase A: explicit path → agent mapping (route paths unchanged; only grouping moved).
+  if (path.startsWith('/stream')) return 'decide';                          // Performance
+  if (path.startsWith('/operate/results')) return 'calculate';             // → Calculation (sign-off→export)
+  if (path.startsWith('/operate/reconciliation')) return 'calculate';      // → Calculation
+  if (path.startsWith('/financial')) return 'finance';                     // → the licensable Finance agent
   if (path.startsWith('/configure')) return 'platform-core';
-  if (path.startsWith('/operate')) return 'calculate'; // cockpit, import, calculate
-  if (path.startsWith('/perform')) return 'decide';
+  if (path.startsWith('/operate')) return 'calculate';                     // cockpit, import, calculate
+  if (path.startsWith('/perform')) return 'decide';                        // Performance
   // Legacy/eliminated route prefixes → nearest agent.
   if (path.startsWith('/investigate')) return 'calculate';
   if (path.startsWith('/design')) return 'platform-core';

@@ -16,9 +16,11 @@ import type { Capability } from '@/lib/auth/permissions';
 // WORKSPACE TYPES
 // =============================================================================
 
-// OB-207: agent-navigation spine — three ACTS (Calculate/Decide/Consolidate) + the
-// always-on Platform Core foundation. (Was: perform/operate/configure/financial — OB-97.)
-export type WorkspaceId = 'decide' | 'calculate' | 'consolidate' | 'platform-core';
+// OB-211 Phase A: agent-governed nav. The user-facing identity is the AGENT (label):
+// decide→Performance, calculate→Calculation, finance→Finance (licensable), platform-core→Platform
+// Core. Internal IDs retained for minimal blast radius (SR-34). "Consolidate" removed — its
+// reconciliation moved to Calculation, its financial routes to the licensable Finance agent.
+export type WorkspaceId = 'decide' | 'calculate' | 'finance' | 'platform-core';
 
 export interface Workspace {
   id: WorkspaceId;

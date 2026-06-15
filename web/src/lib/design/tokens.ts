@@ -87,7 +87,7 @@ export const WORKSPACE_TOKENS = {
   decide: { density: 'low' as const, character: 'Motivational: warm, encouraging' },
   calculate: { density: 'normal' as const, character: 'Control room: structured, sequential' },
   'platform-core': { density: 'normal' as const, character: 'Organizational: spatial, structural' },
-  consolidate: { density: 'normal' as const, character: 'Analytical: data-driven, metric-focused' },
+  finance: { density: 'normal' as const, character: 'Analytical: data-driven, metric-focused' },
 } as const;
 
 export type WorkspaceKey = keyof typeof WORKSPACE_TOKENS;

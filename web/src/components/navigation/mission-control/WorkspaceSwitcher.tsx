@@ -39,7 +39,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   decide: TrendingUp,
   calculate: Zap,
   'platform-core': Settings,
-  consolidate: Activity,
+  finance: Activity,
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {

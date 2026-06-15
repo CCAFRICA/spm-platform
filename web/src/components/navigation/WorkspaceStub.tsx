@@ -20,7 +20,7 @@ interface WorkspaceStubProps {
 const WORKSPACE_ROOTS: Record<string, string> = {
   decide: '/stream',
   calculate: '/operate',
-  consolidate: '/financial',
+  finance: '/financial',
   'platform-core': '/configure/periods',
 };
 
