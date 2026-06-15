@@ -39,6 +39,8 @@ import { buildFieldBindingMap, resolveAttainmentPct, type FieldBinding } from '@
 import { AnomalyDrillThrough } from '@/components/results/AnomalyDrillThrough';
 // OB-209: leverage the EXISTING canonical interaction-capture (writes through writeSignal); no new hook.
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
+import { buildInsightNarrative } from '@/lib/results/insight-narrative';
+import { InsightNarrative } from '@/components/results/InsightNarrative';
 import { OperateSelector } from '@/components/operate/OperateSelector';
 import type { Database } from '@/lib/supabase/database.types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -425,6 +427,16 @@ function ResultsDashboardPageInner() {
   const anomalyKey = (a: Anomaly) => `${a.type}:${a.description}`;
   const activeAnomalies = (anomalyReport?.anomalies ?? []).filter(a => !resolvedAnomalies.has(anomalyKey(a)));
   const anomalyCount = activeAnomalies.length;
+  // OB-210 Unit A: the Insight Agent narrative — deterministic synthesis of THIS surface's loaded state.
+  const ANOM_SEVERITY: Record<string, 'critical' | 'warning' | 'info'> = { zero_payout: 'critical', missing_entity: 'critical', outlier_high: 'warning', outlier_low: 'warning', identical_values: 'info' };
+  const topA = activeAnomalies[0];
+  const insight = buildInsightNarrative({
+    persona: 'admin',
+    totalPayout, entityCount, componentCount: componentTotals.length, anomalyCount,
+    topAnomaly: topA ? { description: topA.description, severity: ANOM_SEVERITY[topA.type] ?? 'info' } : null,
+    targetDrivenComponents: Array.from(regimes.values()).filter(r => r.regime === 3).length,
+    formatCurrency,
+  });
   const investigateAnomaly = (a: Anomaly) => {
     captureResults('results:anomaly', 'act', { interaction: 'investigate', anomaly_type: a.type });
     const first = (a as { entities?: string[] }).entities?.[0];
@@ -471,6 +483,9 @@ function ResultsDashboardPageInner() {
           </p>
         </div>
       </div>
+
+      {/* OB-210 Unit A: Insight Agent narrative leads the surface (AI front-and-center, Bloodwork-toned) */}
+      <InsightNarrative narrative={insight} />
 
       {/* Reference Frame — context banner */}
       <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
