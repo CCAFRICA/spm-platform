@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 // OB-182: convergeBindings removed from import — runs at calc time
@@ -596,108 +597,123 @@ export async function POST(req: NextRequest) {
 
     trace('unit-loop-end');
 
-    // HF-196 Phase 1: post-commit construction — entity resolution + back-link.
-    trace('post-commit-construction-start');
-    await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
-    trace('post-commit-construction-end');
-
-    // HF-269 Phase C (OB-195 cache invalidation): new data was just imported, so any persisted
-    // input_bindings are stale — they may bind columns that no longer resolve against the new data,
-    // and the HF-165 calc gate would skip convergence and re-use them, producing zero. Clear them
-    // (write {} — rule_sets.input_bindings is jsonb NOT NULL) so convergence RE-DERIVES on the next
-    // calculation (Decision 92 keeps binding at calc time; it re-runs because the bindings are empty,
-    // not because the gate changed). Scoped STRICTLY to the importing tenant's active/draft rule_sets —
-    // never touches other tenants. (HF-239 deleted a BLANKET wipe that masked stale bindings; this is
-    // the scoped OB-195-correct form, now that Phase B's filter-carrying bindings re-derive correctly.)
-    try {
-      const { data: clearedRs, error: clearErr } = await supabase
-        .from('rule_sets')
-        .update({ input_bindings: {} })
-        .eq('tenant_id', tenantId)
-        .in('status', ['active', 'draft'])
-        .select('id');
-      if (clearErr) {
-        console.error('[SCI Bulk] input_bindings invalidation failed (non-blocking):', clearErr.message);
-      } else {
-        console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRs?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
-      }
-    } catch (err) {
-      console.error('[SCI Bulk] input_bindings invalidation threw (non-blocking):', err instanceof Error ? err.message : String(err));
-    }
-
-    trace('binding-clear-end');
-
-    // HF-239 Phase 0.3: HF-126 rule_set_assignments creation. Calculation
-    // engine requires assignments to route entities to plans. Fire-and-forget
-    // at the surface level — failures are logged but do not block.
-    try {
-      await createMissingAssignments(supabase, tenantId);
-    } catch (err) {
-      console.error('[SCI Bulk] Assignment creation failed (non-blocking):', err);
-    }
-    trace('assignments-end');
-
-    // HF-239 Phase 0.2: flywheel signal emission. Build a per-content-unit
-    // row sample (first 5 rows of the matched sheet) so the fingerprint
-    // hash matches what the analyze step wrote. Fire-and-forget: never
-    // blocks import.
-    const rowsByContentUnitId = new Map<string, Record<string, unknown>[]>();
-    for (const unit of sortedUnits) {
-      const sheetDataMap = resolveParse(unit).sheetDataMap;  // HF-256: per-file sheet map
-      const parts = unit.contentUnitId.split('::');
-      const tabName = parts[1] || 'Sheet1';
-      let sheetData = sheetDataMap.get(tabName);
-      if (!sheetData) {
-        const match = Array.from(sheetDataMap.entries()).find(
-          ([n]) => n.toLowerCase() === tabName.toLowerCase(),
-        );
-        if (match) sheetData = match[1];
-        else if (sheetDataMap.size === 1) sheetData = Array.from(sheetDataMap.values())[0];
-      }
-      if (sheetData && sheetData.rows.length > 0) {
-        rowsByContentUnitId.set(unit.contentUnitId, sheetData.rows.slice(0, 5));
-      }
-    }
-    emitFlywheelSignals({
-      contentUnits: contentUnits,
-      tenantId,
-      tenantDomainId,
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      rowsByContentUnitId,
-    });
-    trace('flywheel-emitted');
-
+    // ── DIAG-070 FIX: respond BEFORE post-commit; defer post-commit to a background task. ──
+    // The per-unit commit loop is DONE and every unit's `bound` state was already streamed to the
+    // spine in-loop, so the response is fully determined NOW. Build and return it immediately.
+    // Everything below — entity resolution, assignment creation, input-binding clearance, flywheel,
+    // the redundant end-of-run bound re-emit — is tenant-level POST-COMMIT bookkeeping the client
+    // does not need in the response. Holding the response for it made the client's fetch await the
+    // full ~300s post-commit window and time out (DIAG-070 trace: post-commit-construction-start
+    // with no -end; client DISPATCH-START with no further lines, fetch never returned).
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
-    console.log(`[SCI Bulk] Complete: ${totalProcessed} rows in ${totalMs}ms (${(totalMs / 1000).toFixed(1)}s)`);
-
-    // OB-203 Phase 3: `bound` — committed rows are durable; the unit reaches the terminal spine
-    // state. importSessionId aliases proposalId (SAME comprehension session as analyze), kept
-    // distinct from the per-unit import_batch_id minted at commit (HF-213 supersession lineage).
-    const cuById = new Map(contentUnits.map(u => [u.contentUnitId, u]));
-    await emitUnitStates(
-      results.filter(r => r.success).map(r => {
-        const cu = cuById.get(r.contentUnitId);
-        return {
-          tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
-          sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
-          sourceFileName: cu?.sourceFile ?? null,
-          state: 'bound' as const, seq: 5, classification: cu?.confirmedClassification ?? null,
-        };
-      }),
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
-
-    trace('bound-states-emitted');
+    console.log(`[SCI Bulk] Commit complete: ${totalProcessed} rows in ${totalMs}ms (${(totalMs / 1000).toFixed(1)}s) — post-commit deferred to background`);
     const response: SCIExecutionResult = {
       proposalId,
       results,
       overallSuccess: results.every(r => r.success),
     };
-
     trace('response');
+
+    // Run post-commit construction AFTER the response is flushed. waitUntil keeps the Vercel
+    // function alive for this background work WITHOUT blocking the client. (A bare un-awaited promise
+    // would be frozen when the lambda returns, silently dropping entity resolution that calculation
+    // later depends on — so waitUntil, not fire-and-forget.) Once the client has its 200 and stops
+    // polling, the DB contention that was slowing post-commit clears.
+    const postCommitWork = (async () => {
+      // HF-196 Phase 1: post-commit construction — entity resolution + entity_id back-link.
+      try {
+        trace('post-commit-construction-start');
+        await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
+        trace('post-commit-construction-end');
+      } catch (err) {
+        console.error('[SCI Bulk] post-commit-construction failed (background, non-blocking):', err instanceof Error ? err.message : err);
+      }
+
+      // HF-269 Phase C (OB-195 cache invalidation): clear stale input_bindings so convergence
+      // RE-DERIVES on the next calculation. Scoped STRICTLY to the importing tenant's active/draft rule_sets.
+      try {
+        const { data: clearedRs, error: clearErr } = await supabase
+          .from('rule_sets')
+          .update({ input_bindings: {} })
+          .eq('tenant_id', tenantId)
+          .in('status', ['active', 'draft'])
+          .select('id');
+        if (clearErr) {
+          console.error('[SCI Bulk] input_bindings invalidation failed (non-blocking):', clearErr.message);
+        } else {
+          console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRs?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
+        }
+      } catch (err) {
+        console.error('[SCI Bulk] input_bindings invalidation threw (non-blocking):', err instanceof Error ? err.message : String(err));
+      }
+      trace('binding-clear-end');
+
+      // HF-239 Phase 0.3: HF-126 rule_set_assignments creation (calc routes entities → plans).
+      try {
+        await createMissingAssignments(supabase, tenantId);
+      } catch (err) {
+        console.error('[SCI Bulk] Assignment creation failed (non-blocking):', err);
+      }
+      trace('assignments-end');
+
+      // HF-239 Phase 0.2: flywheel signal emission. Per-content-unit row sample (first 5 rows of the
+      // matched sheet) so the fingerprint hash matches what analyze wrote.
+      const rowsByContentUnitId = new Map<string, Record<string, unknown>[]>();
+      for (const unit of sortedUnits) {
+        const sheetDataMap = resolveParse(unit).sheetDataMap;  // HF-256: per-file sheet map
+        const parts = unit.contentUnitId.split('::');
+        const tabName = parts[1] || 'Sheet1';
+        let sheetData = sheetDataMap.get(tabName);
+        if (!sheetData) {
+          const match = Array.from(sheetDataMap.entries()).find(
+            ([n]) => n.toLowerCase() === tabName.toLowerCase(),
+          );
+          if (match) sheetData = match[1];
+          else if (sheetDataMap.size === 1) sheetData = Array.from(sheetDataMap.values())[0];
+        }
+        if (sheetData && sheetData.rows.length > 0) {
+          rowsByContentUnitId.set(unit.contentUnitId, sheetData.rows.slice(0, 5));
+        }
+      }
+      emitFlywheelSignals({
+        contentUnits: contentUnits,
+        tenantId,
+        tenantDomainId,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        rowsByContentUnitId,
+      });
+      trace('flywheel-emitted');
+
+      // OB-203 Phase 3: end-of-run batch `bound` re-emit — idempotent backstop; the per-unit emits
+      // already streamed in-loop, so the client's response path never depended on this.
+      try {
+        const cuById = new Map(contentUnits.map(u => [u.contentUnitId, u]));
+        await emitUnitStates(
+          results.filter(r => r.success).map(r => {
+            const cu = cuById.get(r.contentUnitId);
+            return {
+              tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
+              sheetName: cu?.tabName ?? r.contentUnitId.split('::')[1] ?? null,
+              sourceFileName: cu?.sourceFile ?? null,
+              state: 'bound' as const, seq: 5, classification: cu?.confirmedClassification ?? null,
+            };
+          }),
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        );
+      } catch (err) {
+        console.error('[SCI Bulk] end-of-run bound re-emit failed (background, non-blocking):', err instanceof Error ? err.message : err);
+      }
+      trace('bound-states-emitted');
+      trace('post-commit-background-done');
+    })();
+    // On Vercel, waitUntil extends the function lifetime to await postCommitWork after the response
+    // is flushed. Off-Vercel (local dev) it may be unavailable — the detached promise still runs to
+    // completion because the dev process stays alive. Either way the response is already returned.
+    try { waitUntil(postCommitWork); } catch { /* non-Vercel context — promise runs detached */ }
+
     return NextResponse.json(response);
 
   } catch (err) {
