@@ -220,4 +220,38 @@ export const AI_CONFIDENCE = {
 
 export interface AIProviderAdapter {
   execute(request: AIRequest): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'model' | 'latencyMs' | 'timestamp' | 'signalId'>>;
+  // OB-212: tools-capable SINGLE turn for the agent runtime. The multi-turn
+  // tool_use/tool_result loop is owned by agent-runner; this performs one model
+  // turn (with tools) through the same provider seam. Provider-agnostic.
+  executeAgentTurn(request: AgentTurnRequest): Promise<AgentTurnResponse>;
+}
+
+// === AGENT RUNTIME (OB-212) — structural, provider-agnostic ===
+
+/** A tool the model may call. Names/descriptions are structural (Korean Test). */
+export interface AgentToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** One message in the agent conversation. `content` is a string (the kickoff) or
+ *  an array of provider content blocks (assistant turn / tool_result user turn). */
+export interface AgentTurnMessage {
+  role: 'user' | 'assistant';
+  content: unknown;
+}
+
+export interface AgentTurnRequest {
+  system: string;
+  messages: AgentTurnMessage[];
+  tools: AgentToolDefinition[];
+  model?: string;      // optional override; default = adapter's resolved model
+  maxTokens?: number;
+}
+
+export interface AgentTurnResponse {
+  content: Array<Record<string, unknown>>; // raw provider content blocks (text / tool_use)
+  stopReason: string | null;
+  tokenUsage: { input: number; output: number };
 }

@@ -14,7 +14,7 @@
  * Bilingual: en-US / es-MX
  */
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
@@ -290,6 +290,12 @@ export default function ReconciliationPage() {
   const [isAdvancing, setIsAdvancing] = useState(false);
   const [advanceSuccess, setAdvanceSuccess] = useState(false);
 
+  // OB-212 N5: inline Diagnose action (reconciliation_diagnosis agent)
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<{ key: string; entityId: string; component: string | null; text: string; cached: boolean } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+
   // Load page data
   // OB-92/OB-131: Load page data, prefer URL planId > OperateContext batch > most recent
   useEffect(() => {
@@ -340,6 +346,45 @@ export default function ReconciliationPage() {
     load();
     return () => { cancelled = true; };
   }, [tenantId, searchParams, contextBatchId]);
+
+  // OB-212 N9: restore a SAVED reconciliation session from ?sessionId=… so the inbox deep-link and
+  // the keystone proof open directly into the results view (with inline Diagnose). The page is
+  // otherwise a live-workflow tool; this hydrates compResult/report/sessionId from the stored row.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    const urlSessionId = searchParams.get('sessionId');
+    if (!urlSessionId || !tenantId || restoredRef.current) return;
+    restoredRef.current = true;
+    setRestoring(true);
+    (async () => {
+      try {
+        const resp = await fetch(`/api/reconciliation/session?sessionId=${encodeURIComponent(urlSessionId)}&tenantId=${encodeURIComponent(tenantId)}`);
+        const j = await resp.json().catch(() => ({}));
+        if (!resp.ok) { setError(`Could not load saved session: ${j?.error ?? resp.status}`); return; }
+        const s = j.session ?? {};
+        const results = s.results ?? {};
+        const summary = s.summary ?? {};
+        const config = s.config ?? {};
+        const hydrated: ComparisonResultData = {
+          employees: results.employees ?? [],
+          summary,
+          falseGreenCount: summary.falseGreenCount ?? 0,
+          findings: results.findings ?? [],
+          periodsCompared: config.periodsCompared ?? [],
+          depthAchieved: config.depthAchieved ?? 2,
+        };
+        setCompResult(hydrated);
+        setReport(generateReconciliationReport(hydrated as ComparisonResultInput, { periodLabel: j.periodLabel ?? 'Saved session', tenantName: currentTenant?.name ?? '' }));
+        setSelectedBatchId(s.batch_id ?? null);
+        setSessionId(s.id ?? urlSessionId);
+        setStep('results');
+      } catch (e) {
+        setError(`Could not load saved session: ${e instanceof Error ? e.message : 'error'}`);
+      } finally {
+        setRestoring(false);
+      }
+    })();
+  }, [searchParams, tenantId, currentTenant]);
 
   // Plan options
   const planOptions: PlanOption[] = useMemo(() => {
@@ -541,7 +586,7 @@ export default function ReconciliationPage() {
       );
       setReport(rpt);
 
-      // Save session (fire-and-forget)
+      // Save session — capture sessionId so the inline Diagnose action (N5) can target it.
       fetch('/api/reconciliation/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -568,13 +613,37 @@ export default function ReconciliationPage() {
             falseGreenCount: data.result.falseGreenCount,
           },
         }),
-      }).catch(err => console.warn('[Reconciliation] Save failed:', err));
+      })
+        .then(async (r) => { if (r.ok) { const j = await r.json(); if (j?.sessionId) setSessionId(j.sessionId); } })
+        .catch(err => console.warn('[Reconciliation] Save failed:', err));
     } catch (err) {
       setError(`Comparison failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setComparing(false);
     }
   }, [parsedFile, selectedBatchId, tenantId, userId, entityIdCol, totalPayoutCol, analysis, periodMatch]);
+
+  // OB-212 N5: run the reconciliation_diagnosis agent for one entity (optionally one component).
+  const handleDiagnose = useCallback(async (entityId: string, component: string | null) => {
+    if (!sessionId || !tenantId || !entityId) return;
+    const key = component ? `${entityId}::${component}` : entityId;
+    setDiagnosing(key);
+    setError(null);
+    try {
+      const resp = await fetch('/api/ai/agent/reconcile-diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, userId, reconciliationSessionId: sessionId, entityId, component: component ?? undefined }),
+      });
+      const j = await resp.json();
+      if (!resp.ok) { setError(`Diagnosis failed: ${j?.error ?? resp.status}`); return; }
+      setDiagnosis({ key, entityId, component, text: j?.result?.diagnosis ?? '(no diagnosis returned)', cached: !!j?.cached });
+    } catch (e) {
+      setError(`Diagnosis failed: ${e instanceof Error ? e.message : 'error'}`);
+    } finally {
+      setDiagnosing(null);
+    }
+  }, [sessionId, tenantId, userId]);
 
   // Sort and filter matched results
   const matchedRows = useMemo(() => {
@@ -675,13 +744,17 @@ export default function ReconciliationPage() {
     }
   };
 
-  // ── LOADING ──
-  if (loading) {
+  // ── LOADING ── (also covers OB-212 N9 saved-session restore, to avoid a batch-selector flash)
+  if (loading || restoring) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-zinc-400">{isSpanish ? 'Cargando datos de reconciliacion...' : 'Loading reconciliation data...'}</p>
+          <p className="text-sm text-zinc-400">
+            {restoring
+              ? (isSpanish ? 'Cargando sesión guardada...' : 'Loading saved session...')
+              : (isSpanish ? 'Cargando datos de reconciliacion...' : 'Loading reconciliation data...')}
+          </p>
         </div>
       </div>
     );
@@ -1368,12 +1441,13 @@ export default function ReconciliationPage() {
                       </button>
                     </th>
                     <th className="px-3 py-2 text-center text-zinc-400">Flag</th>
+                    {sessionId && <th className="px-3 py-2 text-center text-zinc-400">{isSpanish ? 'Diagnóstico' : 'Diagnose'}</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {matchedRows.slice(0, 200).map((row) => (
+                    <Fragment key={row.entityId}>
                     <tr
-                      key={row.entityId}
                       className={`border-t border-zinc-800 hover:bg-zinc-800/30 ${row.components.length > 0 ? 'cursor-pointer' : ''}`}
                       onClick={() => row.components.length > 0 && setExpandedEntity(expandedEntity === row.entityId ? null : row.entityId)}
                     >
@@ -1390,7 +1464,31 @@ export default function ReconciliationPage() {
                         {row.components.length > 0 && <span className="ml-1 text-zinc-400">{expandedEntity === row.entityId ? '▼' : '▶'}</span>}
                       </td>
                       <td className="px-3 py-2 text-center text-base">{flagIcon(row.totalFlag)}</td>
+                      {sessionId && (
+                        <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDiagnose(row.entityId, null); }}
+                            disabled={diagnosing === row.entityId}
+                            title={isSpanish ? 'Diagnosticar con el agente' : 'Diagnose with the reconciliation agent'}
+                            className="px-2 py-0.5 rounded text-[10px] font-medium"
+                            style={{ backgroundColor: diagnosing === row.entityId ? '#3f3f46' : '#7c3aed', color: '#fff' }}
+                          >
+                            {diagnosing === row.entityId ? '…' : '🔍'}
+                          </button>
+                        </td>
+                      )}
                     </tr>
+                    {diagnosis && diagnosis.entityId === row.entityId && diagnosis.component === null && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-3" style={{ backgroundColor: '#0f172a' }}>
+                          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+                            {isSpanish ? 'Diagnóstico del agente' : 'Agent diagnosis'}{diagnosis.cached ? ' · cache' : ''}
+                          </div>
+                          <div className="text-xs whitespace-pre-wrap text-zinc-300">{diagnosis.text}</div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
