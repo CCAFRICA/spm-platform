@@ -181,7 +181,7 @@ function buildComprehensionFromLLM(
       interpretations,
       crossSheetInsights,
       llmCallDuration: duration,
-      llmModel: 'claude-sonnet-4-20250514',
+      llmModel: 'claude-sonnet-4-6',
       fromVocabularyBinding: false,
     });
   }
@@ -250,7 +250,7 @@ export async function comprehendHeaders(
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: true,
     llmCallDuration: llmResponse.duration,
-    llmModel: 'claude-sonnet-4-20250514',
+    llmModel: 'claude-sonnet-4-6',
     columnsInterpreted: allColumns.length,
     columnsFromBindings: 0,
     columnsFromLLM: allColumns.length,
@@ -388,7 +388,7 @@ export async function runDecomposedComprehension(
       interpretations,
       crossSheetInsights: [],
       llmCallDuration: 0,
-      llmModel: r.status === 'comprehended' ? 'claude-sonnet-4-20250514' : 'flywheel-atom',
+      llmModel: r.status === 'comprehended' ? 'claude-sonnet-4-6' : 'flywheel-atom',
       fromVocabularyBinding: false,
     };
     for (const [colName, interp] of Array.from(interpretations.entries())) {
@@ -427,7 +427,7 @@ export async function runDecomposedComprehension(
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: llmDispatches > 0,
     llmCallDuration: totalLlmDuration, // sum of per-sheet residue dispatch durations (metric fix)
-    llmModel: llmDispatches > 0 ? 'claude-sonnet-4-20250514' : null,
+    llmModel: llmDispatches > 0 ? 'claude-sonnet-4-6' : null,
     columnsInterpreted,
     columnsFromBindings: 0,
     columnsFromLLM: columnsInterpreted,

@@ -9,9 +9,22 @@
 
 export type AIProvider = 'anthropic' | 'openai' | 'azure_openai' | 'local';
 
+/**
+ * AUD-009 (HF-294): an error thrown by a provider adapter because the provider
+ * HARD-FAILED — a non-2xx HTTP status, or a connectivity failure after retries.
+ * The AIService uses this marker to keep an infrastructure failure LOUD and
+ * DISTINGUISHABLE from a legitimate low-confidence classification. General marker,
+ * not a per-status catalog. Provider-agnostic (no Anthropic-specific shape).
+ */
+export interface ProviderHardError extends Error {
+  providerError: true;
+  status?: number;        // HTTP status when the provider returned non-2xx
+  providerModel?: string; // the model string in play (so a future sunset names itself)
+}
+
 export interface AIServiceConfig {
   provider: AIProvider;
-  model: string;                    // e.g., 'claude-sonnet-4-20250514', 'gpt-4o'
+  model: string;                    // e.g., 'claude-sonnet-4-6', 'gpt-4o'
   apiKey?: string;                  // From env var, never hardcoded
   baseUrl?: string;                 // For Azure OpenAI or local models
   maxTokens?: number;
