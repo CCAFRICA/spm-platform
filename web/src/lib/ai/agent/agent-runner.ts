@@ -17,24 +17,44 @@ import { getAIService } from '../ai-service';
 import type { AgentToolDefinition, AgentTurnMessage } from '../types';
 
 /** Thrown when an agent exhausts maxTurns without a final text turn (HALT-RUNAWAY).
- *  The route catches this and writes the invocation row as status='failed'. */
+ *  The route catches this and writes the invocation row as status='failed'. Carries the
+ *  partial trajectory + token usage so the failed row stays debuggable (additive). */
 export class AgentRunawayError extends Error {
-  constructor(message: string) {
+  turns: AgentTurn[];
+  turnCount: number;
+  tokenUsage: { input: number; output: number };
+  constructor(message: string, turns: AgentTurn[] = [], turnCount = 0, tokenUsage: { input: number; output: number } = { input: 0, output: 0 }) {
     super(message);
     this.name = 'AgentRunawayError';
+    this.turns = turns;
+    this.turnCount = turnCount;
+    this.tokenUsage = tokenUsage;
   }
 }
 
 /** A turn that cannot be trusted as a clean answer: a refusal, an empty/blocked
  *  turn, a max_tokens truncation mid-tool_use, or a malformed tool_use block. The
  *  route catches this and writes the invocation row as status='failed' — an
- *  above-DCB agent must never return a truncated/refused turn as a diagnosis. */
+ *  above-DCB agent must never return a truncated/refused turn as a diagnosis. Carries
+ *  the partial trajectory + token usage (additive) for the failed row. */
 export class AgentTurnError extends Error {
   reason: 'refusal' | 'empty' | 'max_tokens' | 'malformed';
-  constructor(message: string, reason: 'refusal' | 'empty' | 'max_tokens' | 'malformed') {
+  turns: AgentTurn[];
+  turnCount: number;
+  tokenUsage: { input: number; output: number };
+  constructor(
+    message: string,
+    reason: 'refusal' | 'empty' | 'max_tokens' | 'malformed',
+    turns: AgentTurn[] = [],
+    turnCount = 0,
+    tokenUsage: { input: number; output: number } = { input: 0, output: 0 },
+  ) {
     super(message);
     this.name = 'AgentTurnError';
     this.reason = reason;
+    this.turns = turns;
+    this.turnCount = turnCount;
+    this.tokenUsage = tokenUsage;
   }
 }
 
@@ -126,7 +146,7 @@ export async function runAgent(
     // an empty turn must surface, not masquerade as a successful empty diagnosis.
     if (toolUses.length === 0) {
       if (resp.stopReason === 'refusal') {
-        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} was refused (stop_reason=refusal)`, 'refusal');
+        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} was refused (stop_reason=refusal)`, 'refusal', turns, turn, { input: inputTokens, output: outputTokens });
       }
       const finalText = resp.content
         .filter((b) => (b as { type?: string }).type === 'text')
@@ -137,6 +157,9 @@ export async function runAgent(
         throw new AgentTurnError(
           `Agent "${def.name}" turn ${turn} produced no text (stop_reason=${resp.stopReason ?? 'unknown'})`,
           'empty',
+          turns,
+          turn,
+          { input: inputTokens, output: outputTokens },
         );
       }
       return { finalText, turns, turnCount: turn, tokenUsage: { input: inputTokens, output: outputTokens } };
@@ -148,6 +171,9 @@ export async function runAgent(
       throw new AgentTurnError(
         `Agent "${def.name}" turn ${turn} truncated at max_tokens mid-tool_use`,
         'max_tokens',
+        turns,
+        turn,
+        { input: inputTokens, output: outputTokens },
       );
     }
 
@@ -160,7 +186,7 @@ export async function runAgent(
       // Every tool_use must carry an id, or its tool_result is un-matchable and the
       // next request 400s. Anthropic always sends one; guard defensively.
       if (!tu.id) {
-        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} emitted a tool_use without an id`, 'malformed');
+        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} emitted a tool_use without an id`, 'malformed', turns, turn, { input: inputTokens, output: outputTokens });
       }
       const handler = tu.name ? def.handlers[tu.name] : undefined;
       let result: unknown;
@@ -188,5 +214,8 @@ export async function runAgent(
 
   throw new AgentRunawayError(
     `Agent "${def.name}" exceeded maxTurns=${def.maxTurns} without a final text turn`,
+    turns,
+    def.maxTurns,
+    { input: inputTokens, output: outputTokens },
   );
 }

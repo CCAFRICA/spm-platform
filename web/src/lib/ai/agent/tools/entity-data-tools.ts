@@ -158,6 +158,18 @@ async function getEntityCommittedData(ctx: ToolContext, input: Record<string, un
   if (input.data_type) q = q.eq('data_type', str(input.data_type));
   const { data, error } = await q.limit(25);
   if (error) return { error: `committed_data read failed: ${error.message}` };
+  // Anti-fishing: if a data_type filter returned nothing, tell the agent which data_types exist
+  // for this entity so it stops guessing.
+  if ((data?.length ?? 0) === 0 && input.data_type) {
+    const { data: all } = await ctx.supabase
+      .from('committed_data')
+      .select('data_type')
+      .eq('tenant_id', ctx.tenantId)
+      .eq('entity_id', ent.id)
+      .limit(50);
+    const available = Array.from(new Set(asArr(all).map((r) => asRec(r).data_type).filter(Boolean)));
+    return { entity: { external_id: ent.external_id }, count: 0, rows: [], available_data_types: available };
+  }
   return { entity: { external_id: ent.external_id }, count: data?.length ?? 0, rows: data ?? [] };
 }
 

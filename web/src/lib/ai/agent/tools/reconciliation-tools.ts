@@ -28,12 +28,13 @@ async function getBenchmarkValue(ctx: ToolContext, input: Record<string, unknown
 
   const { data, error } = await ctx.supabase
     .from('reconciliation_sessions')
-    .select('results')
+    .select('results, batch_id, period_id')
     .eq('tenant_id', ctx.tenantId)
     .eq('id', sessionId)
     .limit(1);
   if (error) return { error: `reconciliation_sessions read failed: ${error.message}` };
-  const employees = asArr(asRec(asRec(data?.[0]).results).employees).map(asRec);
+  const sessionRow = asRec(data?.[0]);
+  const employees = asArr(asRec(sessionRow.results).employees).map(asRec);
 
   let emp = employees.find((e) => str(e.entityId) === entityRef);
   if (!emp && UUID_RE.test(entityRef)) {
@@ -55,6 +56,8 @@ async function getBenchmarkValue(ctx: ToolContext, input: Record<string, unknown
 
   return {
     entityId: emp.entityId,
+    batch_id: sessionRow.batch_id ?? null, // the platform batch — pass to get_entity_calculation_trace
+    period_id: sessionRow.period_id ?? null,
     population: emp.population,
     fileTotal: emp.fileTotal,
     vlTotal: emp.vlTotal,
@@ -62,7 +65,7 @@ async function getBenchmarkValue(ctx: ToolContext, input: Record<string, unknown
     totalDeltaPercent: emp.totalDeltaPercent,
     totalFlag: emp.totalFlag,
     components: comps,
-    note: 'fileValue = uploaded expected/benchmark; vlValue = engine (platform) calculation.',
+    note: 'fileValue = uploaded expected/benchmark; vlValue = engine (platform) calculation. Use batch_id with get_entity_calculation_trace to drill into the engine forensic.',
   };
 }
 

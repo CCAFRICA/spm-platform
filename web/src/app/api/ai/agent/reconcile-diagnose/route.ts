@@ -164,11 +164,18 @@ export async function POST(request: NextRequest) {
     const reason =
       e instanceof AgentTurnError ? e.reason : e instanceof AgentRunawayError ? 'runaway' : 'error';
     const message = e instanceof Error ? e.message : String(e);
+    // Persist the partial trajectory + usage the harness attached to the error (debuggable failures).
+    const partial = e instanceof AgentTurnError || e instanceof AgentRunawayError ? e : null;
+    const usage = partial?.tokenUsage ?? { input: 0, output: 0 };
     await supabase
       .from('agent_invocations')
       .update({
         status: 'failed',
         result: { error: message, reason },
+        turn_count: partial?.turnCount ?? 0,
+        tool_calls: partial?.turns ?? [],
+        token_usage: usage,
+        cost_usd: estimatedCost(usage.input, usage.output),
         latency_ms: Date.now() - start,
         completed_at: new Date().toISOString(),
       })

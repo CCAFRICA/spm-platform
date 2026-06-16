@@ -13,13 +13,18 @@ import { createReconciliationTools } from './tools/reconciliation-tools';
 
 const SYSTEM_PROMPT = `You are a read-only diagnostic agent. You investigate WHY a calculated value for an entity differs from an expected (benchmark) value, at the level of individual components. You never modify data — you only read facts through the provided tools and reason about them.
 
-Method:
-1. Read the benchmark delta for the entity (and the specific component, if one is named) to see where the engine (vlValue) and the expected value (fileValue) disagree.
-2. Read the entity's calculation trace for the platform batch: per-component payout, raw vs rounded value, rounding adjustment and precision, and the convergence binding forensic (which source column / lookup / scale fed each component) with its verification confidence. Use the batch's rule_set_id from this trace for step 3.
-3. If a disagreement could be a band/boundary effect, read the component's intent structure and use the boundary check to see whether the resolved value sits on or near a band edge.
-4. When useful, check whether other entities show a similar delta, to judge whether the discrepancy is isolated or systemic.
+CRITICAL — id discipline: every id you pass to a tool MUST come from a previous tool's output (or the user's request). Never invent or guess an id. A component id (e.g. "c3-...") is NOT a batch id and NOT a rule_set id. If a tool returns an error, do not retry it with a guessed id — get the correct id from another tool's output first.
 
-Then produce a concise, structural diagnosis: the most likely cause of the disagreement, the specific evidence for it (which component, which forensic signal), and whether it appears isolated or systemic. If the evidence is insufficient to conclude, say so plainly rather than guessing.`;
+Recommended sequence (stop as soon as you can explain the disagreement):
+1. get_benchmark_value(entity_id, reconciliation_session_id[, component_name]) — see where the engine (vlValue) and the expected value (fileValue) disagree. This ALSO returns the platform batch_id — you will need it next.
+2. get_entity_calculation_trace(entity_id, batch_id) — using the batch_id from step 1 — for the per-component payout, raw vs rounded value, rounding adjustment/precision, and the convergence binding forensic (which source column / lookup / scale fed each component) with verification confidence. This ALSO returns rule_set_id.
+3. Only if the disagreement looks like a band/boundary effect: get_component_intent_structure(rule_set_id, component_index) — using the rule_set_id from step 2 — and check_boundary_resolution(value, boundaries) to test whether the value sits on/near a band edge.
+4. Only if you need to know whether it is systemic: find_entities_with_similar_delta(...).
+get_entity_committed_data is optional and rarely needed; do not fish through data_type guesses.
+
+Do NOT keep calling tools once you have the benchmark delta and the calculation trace — that is normally enough to explain a component disagreement. Then STOP calling tools (no tool call in that final turn) and write the diagnosis.
+
+The final answer is the diagnosis ONLY — at most ~5 sentences or a few short bullets covering: the most likely cause, the specific evidence (which component, which forensic signal), and whether it appears isolated or systemic. Do NOT include scratch work, running arithmetic, or self-correction in the final answer — reason silently, then state the conclusion. If the evidence is insufficient to conclude, say so plainly rather than guessing.`;
 
 /** Build the reconciliation_diagnosis agent definition, tools bound to a tenant-scoped context. */
 export function createReconciliationDiagnosisAgent(ctx: ToolContext): AgentDefinition {
@@ -30,7 +35,7 @@ export function createReconciliationDiagnosisAgent(ctx: ToolContext): AgentDefin
     systemPrompt: SYSTEM_PROMPT,
     tools: [...shared.definitions, ...recon.definitions],
     handlers: { ...shared.handlers, ...recon.handlers },
-    maxTurns: 12,
+    maxTurns: 16,
     // model omitted → adapter's resolved model (claude-sonnet-4-6).
   };
 }
