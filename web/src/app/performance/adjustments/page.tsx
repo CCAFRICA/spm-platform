@@ -49,6 +49,14 @@ const categoryLabels: Record<string, { label: string; color: string }> = {
   dispute: { label: "Dispute", color: "bg-purple-100 text-purple-700" },
 };
 
+// OB-213 2A: resolve the current user's profile id for filed_by / resolved_by (audit trail).
+async function currentProfileId(supabase: ReturnType<typeof createClient>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data: profile } = await supabase.from('profiles').select('id').eq('auth_user_id', user.id).maybeSingle();
+  return profile?.id ?? null;
+}
+
 export default function AdjustmentsPage() {
   const { format: fmt } = useCurrency();
   const { currentTenant } = useTenant();
@@ -80,12 +88,14 @@ export default function AdjustmentsPage() {
   const handleApprove = async (id: string) => {
     setProcessing(id);
     const supabase = createClient();
+    const profileId = await currentProfileId(supabase); // OB-213 2A: capture who resolved
     const { error } = await supabase
       .from('disputes')
       .update({
         status: 'resolved',
         resolution: 'Approved',
         resolved_at: new Date().toISOString(),
+        resolved_by: profileId,
       })
       .eq('id', id)
       .eq('tenant_id', tenantId);
@@ -102,12 +112,14 @@ export default function AdjustmentsPage() {
   const handleReject = async (id: string) => {
     setProcessing(id);
     const supabase = createClient();
+    const profileId = await currentProfileId(supabase); // OB-213 2A: capture who rejected
     const { error } = await supabase
       .from('disputes')
       .update({
         status: 'rejected',
         resolution: 'Rejected',
         resolved_at: new Date().toISOString(),
+        resolved_by: profileId,
       })
       .eq('id', id)
       .eq('tenant_id', tenantId);
@@ -126,17 +138,8 @@ export default function AdjustmentsPage() {
     setProcessing('new');
     const supabase = createClient();
 
-    // Get current user for filed_by
-    const { data: { user } } = await supabase.auth.getUser();
-    let profileId: string | null = null;
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('auth_user_id', user.id)
-        .maybeSingle();
-      profileId = profile?.id || null;
-    }
+    // OB-213 2A: current user's profile id for filed_by (shared helper).
+    const profileId = await currentProfileId(supabase);
 
     // Get active period
     const { data: period } = await supabase
