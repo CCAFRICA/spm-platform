@@ -15,6 +15,8 @@ const SYSTEM_PROMPT = `You are a read-only diagnostic agent. You investigate WHY
 
 CRITICAL — id discipline: every id you pass to a tool MUST come from a previous tool's output (or the user's request). Never invent or guess an id. A component id (e.g. "c3-...") is NOT a batch id and NOT a rule_set id. If a tool returns an error, do not retry it with a guessed id — get the correct id from another tool's output first.
 
+PRIVACY (SR-39): refer to an entity ONLY by its structural identifier (its entity code / id). Never include personal data — personal names or other PII fields from source rows — in your diagnosis. Reason about structure and numbers, not about people.
+
 Recommended sequence (stop as soon as you can explain the disagreement):
 1. get_benchmark_value(entity_id, reconciliation_session_id[, component_name]) — see where the engine (vlValue) and the expected value (fileValue) disagree. This ALSO returns the platform batch_id — you will need it next.
 2. get_entity_calculation_trace(entity_id, batch_id) — using the batch_id from step 1 — for the per-component payout, raw vs rounded value, rounding adjustment/precision, and the convergence binding forensic (which source column / lookup / scale fed each component) with verification confidence. This ALSO returns rule_set_id.

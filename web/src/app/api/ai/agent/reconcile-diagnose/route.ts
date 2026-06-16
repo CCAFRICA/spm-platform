@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   if (cached?.length) {
     const prior = cached[0] as Record<string, unknown>;
-    const { data: row } = await supabase
+    const { data: row, error: cacheErr } = await supabase
       .from('agent_invocations')
       .insert({
         tenant_id: tenantId,
@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
       })
       .select('id')
       .single();
+    if (cacheErr) console.error(`[reconcile-diagnose] cached-row insert failed (fingerprint ${requestFingerprint.slice(0, 12)}): ${cacheErr.message}`);
     return NextResponse.json({
       success: true,
       cached: true,
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
 
     const run = await runAgent(agentDef, kickoff);
 
-    await supabase
+    const { error: doneErr } = await supabase
       .from('agent_invocations')
       .update({
         status: 'completed',
@@ -152,6 +153,8 @@ export async function POST(request: NextRequest) {
         completed_at: new Date().toISOString(),
       })
       .eq('id', invocationId);
+    // Capture-completeness: a failed close-out would orphan the row in 'running' — surface it loudly.
+    if (doneErr) console.error(`[reconcile-diagnose] FAILED to close invocation ${invocationId} to 'completed' (orphaned running row): ${doneErr.message}`);
 
     const diagnosisText = run.finalText ?? '';
     const costUsd = estimatedCost(run.tokenUsage.input, run.tokenUsage.output);
@@ -209,7 +212,7 @@ export async function POST(request: NextRequest) {
     // Persist the partial trajectory + usage the harness attached to the error (debuggable failures).
     const partial = e instanceof AgentTurnError || e instanceof AgentRunawayError ? e : null;
     const usage = partial?.tokenUsage ?? { input: 0, output: 0 };
-    await supabase
+    const { error: failErr } = await supabase
       .from('agent_invocations')
       .update({
         status: 'failed',
@@ -222,6 +225,8 @@ export async function POST(request: NextRequest) {
         completed_at: new Date().toISOString(),
       })
       .eq('id', invocationId);
+    // Capture-completeness: a failed close-out would orphan the row in 'running' — surface it loudly.
+    if (failErr) console.error(`[reconcile-diagnose] FAILED to close invocation ${invocationId} to 'failed' (orphaned running row): ${failErr.message}`);
     console.error(`[reconcile-diagnose] agent failed (${reason}): ${message}`);
     return NextResponse.json({ success: false, invocationId, error: message, reason }, { status: 500 });
   }
