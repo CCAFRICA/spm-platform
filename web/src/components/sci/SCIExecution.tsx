@@ -233,35 +233,13 @@ export function SCIExecution({
     return false; // stalled with non-terminal units — the resume loop decides what's next
   }, [tenantId, proposal.proposalId]);
 
-  // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
-  // `bound` states AS they STREAM. Now that the HF-296 keystone advances units directly from the 200
-  // response, this is a thin best-effort strip aid.
-  // HF-296 (Stream A): ONE clean execute-phase lifecycle — start on mount, stop definitively at
-  // executionDone (the single dispatch-completion signal). Previously gated on the per-file-toggling
-  // `hasActiveUnits` boolean, which re-subscribed the effect and fired an extra poll PER FILE (the
-  // HF-290 "double/triple hits" in the [import] access log). Keyed only on executionDone now: the poll
-  // can never outlive the execute phase, and there is exactly one terminal stop.
-  useEffect(() => {
-    if (executionDone) return;
-    let cancelled = false;
-    console.log('[TRACE-POLL] live-progress START'); // DIAG-070
-    const poll = async () => {
-      try {
-        const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}`);
-        if (!r.ok || cancelled) return;
-        const view = await r.json() as { units: Array<{ unitId: string; state: string }> };
-        const boundIds = new Set(view.units.filter(u => u.state === 'bound').map(u => u.unitId));
-        console.log(`[TRACE-POLL] live-progress TICK bound=${boundIds.size}`); // DIAG-070
-        if (boundIds.size === 0) return;
-        setUnits(prev => prev.some(u => u.status === 'processing' && boundIds.has(u.contentUnitId))
-          ? prev.map(u => (u.status === 'processing' && boundIds.has(u.contentUnitId) ? { ...u, status: 'complete' as const } : u))
-          : prev);
-      } catch { /* best-effort: the fetch return is the source of truth; this only advances the strip */ }
-    };
-    const interval = setInterval(() => { void poll(); }, 2000);
-    void poll();
-    return () => { cancelled = true; clearInterval(interval); console.log('[TRACE-POLL] live-progress STOP'); }; // DIAG-070
-  }, [executionDone, tenantId, proposal.proposalId]);
+  // HF-298: the execute-phase live-progress session-state poller is REMOVED.
+  // SCIExecution renders ONLY during the executing phase, so this poller was an execute-only
+  // ~2s session-state poll. Since HF-296/HF-297 the client advances each unit directly from the
+  // execute-bulk HTTP 200 response (executeBulk → seedFromResults) — and settleFromSurface covers
+  // the lost-response recovery case — so this poll was vestigial. Worse, it ran continuously between
+  // execute-bulk calls and contended with the deferred post-commit work (DIAG-070). Per-unit progress
+  // is now driven entirely by the HTTP responses; nothing polls session-state during a healthy execute.
 
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
   // HF-140: Now accepts explicit path parameter for per-file isolation
