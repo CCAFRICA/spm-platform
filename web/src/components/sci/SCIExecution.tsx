@@ -231,17 +231,15 @@ export function SCIExecution({
   }, [tenantId, proposal.proposalId]);
 
   // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
-  // `bound` states AS they STREAM (execute-bulk writes one per unit the moment it commits, keyed by
-  // proposalId). Without this the strip sat at 0/N for the entire bulk window even though units were
-  // committing — the same spine the completion screen reads, now read live by the in-progress strip.
-  // HF-290: gate on the DERIVED boolean, not the `units` array. The array changes on every per-unit
-  // settle, which re-subscribed this effect and fired an extra immediate poll each time — the
-  // sub-cadence double/triple hits seen in the [import] access log. The boolean only toggles at start
-  // (false→true) and finish (true→false), so the poll fires once on start, holds a clean 2s cadence,
-  // and still clears on terminal (executionDone OR no active unit). Behavior preserved, volume cut.
-  const hasActiveUnits = units.some(u => u.status === 'processing');
+  // `bound` states AS they STREAM. Now that the HF-296 keystone advances units directly from the 200
+  // response, this is a thin best-effort strip aid.
+  // HF-296 (Stream A): ONE clean execute-phase lifecycle — start on mount, stop definitively at
+  // executionDone (the single dispatch-completion signal). Previously gated on the per-file-toggling
+  // `hasActiveUnits` boolean, which re-subscribed the effect and fired an extra poll PER FILE (the
+  // HF-290 "double/triple hits" in the [import] access log). Keyed only on executionDone now: the poll
+  // can never outlive the execute phase, and there is exactly one terminal stop.
   useEffect(() => {
-    if (executionDone || !hasActiveUnits) return;
+    if (executionDone) return;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -258,7 +256,7 @@ export function SCIExecution({
     const interval = setInterval(() => { void poll(); }, 2000);
     void poll();
     return () => { cancelled = true; clearInterval(interval); };
-  }, [executionDone, hasActiveUnits, tenantId, proposal.proposalId]);
+  }, [executionDone, tenantId, proposal.proposalId]);
 
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
   // HF-140: Now accepts explicit path parameter for per-file isolation
@@ -266,8 +264,7 @@ export function SCIExecution({
     const effectivePath = bulkStoragePath || storagePath;
     // HF-295 Part 2: settle is scoped to THIS file's unit ids — the keystone of the fix.
     const groupUnitIds = dataUnits.map(u => u.contentUnitId);
-    // Capture the last observed failure signal so a file that never settles can explain itself.
-    let lastHttpStatus: number | null = null;
+    // Capture the last lost-response detail so a file that never recovers can explain itself.
     let lastErrText: string | null = null;
     // Mark all data units as processing
     setElapsedSeconds(0);
@@ -299,17 +296,41 @@ export function SCIExecution({
       };
     }).filter(Boolean);
 
-    // OB-203 Phase B: the POST + settle pair runs in a bounded RESUME loop. The
-    // route is idempotent (it skips spine-terminal units and respects the
-    // in-flight lease), so a re-POST after a stall reprocesses exactly the
-    // units a dead response orphaned — response death at any point cannot
-    // orphan unprocessed units.
-    const MAX_EXECUTE_ATTEMPTS = 3;
-    let settled = false;
-    for (let attempt = 1; attempt <= MAX_EXECUTE_ATTEMPTS && !settled; attempt++) {
-      if (attempt > 1) {
-        console.warn(`[SCIExecution] Phase B resume: re-POST attempt ${attempt}/${MAX_EXECUTE_ATTEMPTS} (settle stalled with non-terminal units)`);
-      }
+    // HF-296: HTTP-RESPONSE-BASED SETTLE (keystone). The execute-bulk 200 response IS the truth —
+    // it is constructed only AFTER every per-unit and batch spine emission completes
+    // (execute-bulk/route.ts:658-678), so a LIVE 200 needs no confirmation poll. We trust it and
+    // advance immediately (zero polling). settleFromSurface is retained ONLY as RECOVERY for a
+    // genuinely lost response (timeout / abort / network) — the run-5 case where Vercel's 300s cap
+    // fired mid-commit while the server finished. This removes the ~298s/file settle stall (the
+    // DIAG-069 mechanism cost) and the auth-starving poll load. D18 resilience is preserved: a lost
+    // response still falls to settle-recovery; only a live response now short-circuits the poll.
+    const MAX_EXECUTE_ATTEMPTS = 3; // re-POSTs on a LOST response only — never on a 200-with-failures
+
+    const finalize = (outcome: FileDispatchOutcome): FileDispatchOutcome => {
+      // OB-203 Phase D: once-per-session settle audit (idempotent; ImportReadyState backstops on mount).
+      void fetch('/api/import/sci/settle-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, importSessionId: proposal.proposalId }),
+      }).catch(() => { /* completion-screen invocation is the backstop */ });
+      return outcome;
+    };
+
+    // Seed per-unit disposition from the authoritative results. A failed unit carries the HF-295
+    // user-understandable payload (translated by error class), never a raw dump.
+    const seedFromResults = (resultList: ContentUnitResult[]) => {
+      const byId = new Map(resultList.map(r => [r.contentUnitId, r]));
+      setUnits(prev => prev.map(u => {
+        const r = byId.get(u.contentUnitId);
+        if (!r) return u;
+        if (r.success) return { ...u, status: 'complete' as const, result: r, error: undefined, failure: undefined };
+        const errorClass = classifyImportError({ failureClass: r.error, rawError: r.error });
+        return { ...u, status: 'error' as const, result: r, error: errorClass, failure: toImportFileFailure(deriveFileLabel(u.contentUnitId, u.tabName), errorClass, r.error ?? undefined) };
+      }));
+    };
+
+    for (let attempt = 1; attempt <= MAX_EXECUTE_ATTEMPTS; attempt++) {
+      if (attempt > 1) console.warn(`[SCIExecution] HF-296 re-POST attempt ${attempt}/${MAX_EXECUTE_ATTEMPTS} (prior response was lost)`);
       try {
         const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
           method: 'POST',
@@ -322,54 +343,51 @@ export function SCIExecution({
           }),
         });
 
-        // D18: the response is a BONUS, not the truth. A non-OK / dead response is a NON-EVENT — the server
-        // may still be committing (run-5: Vercel's 300s cap fired mid-Ventas while the server finished). We
-        // log and fall through to read the durable data surface, which is authoritative.
-        if (!res.ok) {
-          const errBody = await res.text().catch(() => '');
-          lastHttpStatus = res.status;
-          lastErrText = errBody.slice(0, 600) || `HTTP ${res.status}`;
-          console.warn(`[SCIExecution] execute-bulk responded ${res.status} (reading durable surface): ${errBody.slice(0, 160)}`);
-        } else {
-          // Optimistic fast-path: seed from the response, but the surface settle below is the final word.
-          try {
-            const bulkResult: SCIExecutionResult = await res.json();
-            for (const result of bulkResult.results) {
-              setUnits(prev => prev.map(u => u.contentUnitId === result.contentUnitId
-                ? { ...u, status: result.success ? 'complete' as const : 'error' as const, result, error: result.success ? undefined : result.error }
-                : u));
+        if (res.ok) {
+          // LIVE 200 — authoritative. Trust it, advance immediately. ZERO POLLING.
+          let bulkResult: SCIExecutionResult | null = null;
+          try { bulkResult = await res.json() as SCIExecutionResult; } catch { bulkResult = null; }
+          if (bulkResult && Array.isArray(bulkResult.results)) {
+            seedFromResults(bulkResult.results);
+            const present = new Set(bulkResult.results.map(r => r.contentUnitId));
+            if (groupUnitIds.every(id => present.has(id))) {
+              return finalize({ settled: true, unitIds: groupUnitIds }); // every unit accounted for — no poll
             }
-          } catch { /* malformed body — the surface settle is authoritative anyway */ }
+            // Rare: some units absent from the body (e.g. resume-skipped) → ONE recovery settle for the remainder.
+            const settled = await settleFromSurface(groupUnitIds);
+            return finalize(settled
+              ? { settled: true, unitIds: groupUnitIds }
+              : { settled: false, unitIds: groupUnitIds, errorClass: 'not_finalized', technicalDetail: 'some units missing from the execute-bulk response' });
+          }
+          // 200 with an unparseable/empty body — treat as a lost response → recovery settle.
+          lastErrText = 'execute-bulk returned 200 with no parseable results';
+          const settled = await settleFromSurface(groupUnitIds);
+          return finalize(settled
+            ? { settled: true, unitIds: groupUnitIds }
+            : { settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ rawError: lastErrText, stalled: true }), technicalDetail: lastErrText });
         }
-      } catch (err) {
-        // D18: timeout / network drop is also a non-event — do NOT mark units failed. Read the surface.
-        lastErrText = (err instanceof Error ? err.message : String(err)).slice(0, 600);
-        console.warn('[SCIExecution] execute-bulk response did not return (reading durable surface):', err instanceof Error ? err.message : err);
-      }
-      // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
-      // HF-295 Part 2: settle on THIS file's unit ids only.
-      settled = await settleFromSurface(groupUnitIds);
-    }
-    // OB-203 Phase D: trigger the once-per-session settle audit (idempotent —
-    // first audit wins; ImportReadyState also invokes it on mount as a backstop).
-    // Fire-and-forget: the audit verdict surfaces on the completion screen.
-    void fetch('/api/import/sci/settle-audit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, importSessionId: proposal.proposalId }),
-    }).catch(() => { /* completion-screen invocation is the backstop */ });
 
-    // HF-295 Part 2: report this file's disposition to the dispatch loop. On a stall the
-    // loop marks this file's still-non-terminal units failed and continues to siblings.
-    if (!settled) {
-      return {
-        settled: false,
-        unitIds: groupUnitIds,
-        errorClass: classifyImportError({ httpStatus: lastHttpStatus, rawError: lastErrText, stalled: true }),
-        technicalDetail: lastErrText ?? (lastHttpStatus != null ? `HTTP ${lastHttpStatus}` : undefined),
-      };
+        // HTTP 4xx/5xx — a RECEIVED error response. Per §2: mark failed, return immediately, ZERO POLLING.
+        // (Per-file isolation + the "Retry failed" action recover a falsely-failed file; not polling is
+        // what relieves the auth starvation.)
+        const errBody = await res.text().catch(() => '');
+        const detail = errBody.slice(0, 600) || `HTTP ${res.status}`;
+        console.warn(`[SCIExecution] execute-bulk responded ${res.status} (definitive file failure, no poll): ${detail.slice(0, 160)}`);
+        return finalize({ settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ httpStatus: res.status, rawError: errBody }), technicalDetail: detail });
+
+      } catch (err) {
+        // LOST RESPONSE (timeout / abort / network) — the ONLY case that justifies recovery polling AND a
+        // POST retry. The server may have committed despite the dead connection (D18 preserved).
+        lastErrText = (err instanceof Error ? err.message : String(err)).slice(0, 600);
+        console.warn('[SCIExecution] execute-bulk response was lost (recovery settle):', lastErrText);
+        const settled = await settleFromSurface(groupUnitIds);
+        if (settled) return finalize({ settled: true, unitIds: groupUnitIds });
+        if (attempt < MAX_EXECUTE_ATTEMPTS) continue; // idempotent route — re-POST the lost work
+        return finalize({ settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ rawError: lastErrText, stalled: true }), technicalDetail: lastErrText ?? undefined });
+      }
     }
-    return { settled: true, unitIds: groupUnitIds };
+    // Attempts exhausted without a definitive disposition.
+    return finalize({ settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ rawError: lastErrText, stalled: true }), technicalDetail: lastErrText ?? undefined });
   }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, settleFromSurface]);
 
   // Legacy execution — used for plan units (document-based) and fallback when no storagePath

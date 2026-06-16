@@ -59,24 +59,34 @@ export function ImportTelemetryPanel({
     if (!tenantId || !sessionId) return;
     let cancelled = false;
     let id: ReturnType<typeof setInterval> | null = null;
+    const stop = () => { if (id !== null) { clearInterval(id); id = null; } };
+    // HF-296 (Stream B): hard stall-timeout. The HF-286 allUnitsSettled stop never fires if a unit is
+    // orphaned on the spine (never reaches a terminal state) — this interval would then poll FOREVER,
+    // adding to the auth-starving execute-phase load. Bound it: if telemetry shows no forward progress
+    // (totalSignalsWritten, monotonic) for STALL_MS, stop. Normal completion still stops immediately
+    // via allUnitsSettled AND via the page unmounting this panel at the executing -> complete transition.
+    const STALL_MS = 30_000;
+    let lastSignals = -1;
+    let lastProgressAt = Date.now();
     const poll = async () => {
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(sessionId)}&telemetry=1`);
         if (!r.ok || cancelled) return;
         const data = await r.json();
         if (data?.telemetry) setT(data.telemetry as ImportTelemetry);
+        const signals = Number(data?.telemetry?.totalSignalsWritten ?? 0);
+        if (signals > lastSignals) { lastSignals = signals; lastProgressAt = Date.now(); }
         // HF-286: the telemetry=1 response spreads ...view, so data.units is present.
         // Stop once every unit is settled (same settled-set predicate as the proposal poller).
         const units = (data?.units ?? []) as Array<{ state: UnitComprehensionState }>;
-        if (allUnitsSettled(units) && id !== null) {
-          clearInterval(id);
-          id = null;
-        }
+        if (units.length > 0 && allUnitsSettled(units)) { stop(); return; }
+        // HF-296 backstop: no forward progress for the stall window — stop (orphaned-unit guard).
+        if (Date.now() - lastProgressAt > STALL_MS) stop();
       } catch { /* best-effort — durable record is the source; a missed poll self-corrects next tick */ }
     };
     id = setInterval(poll, 2000);
     void poll();
-    return () => { cancelled = true; if (id !== null) clearInterval(id); };
+    return () => { cancelled = true; stop(); };
   }, [tenantId, sessionId]);
 
   if (!t) return null;
