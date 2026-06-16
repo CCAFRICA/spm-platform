@@ -459,6 +459,22 @@ export default function OperateImportPage() {
     const successResults = result.results.filter(r => r.success);
     const totalRows = successResults.reduce((s, r) => s + r.rowsProcessed, 0);
 
+    // HF-300 (C3, DIAG-071): trigger the CRITICAL post-commit work ONCE, in a dedicated LIVE request —
+    // entity resolution + entity_id back-link, input_bindings invalidation, and rule_set_assignments.
+    // This is the work DIAG-071 found dying in execute-bulk's per-file waitUntil background on Vercel
+    // (99% of committed_data left NULL entity_id; active plan 0 assignments). Fire-and-forget: once the
+    // POST is dispatched the server runs it to completion in its own request/maxDuration regardless of
+    // this client; the endpoint is idempotent so a retry is safe. Runs after data AND plan imports.
+    if (tenantId) {
+      void fetch('/api/import/sci/finalize-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, proposalId: result.proposalId }),
+      })
+        .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
+        .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
+    }
+
     setPostImportData({
       totalRowsCommitted: totalRows,
       results: result.results,
@@ -466,7 +482,7 @@ export default function OperateImportPage() {
     });
 
     setState({ phase: 'complete', executionResult: result });
-  }, []);
+  }, [tenantId]);
 
   // ── Fetch post-import enrichment data ──
 
