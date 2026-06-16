@@ -384,6 +384,69 @@ function buildOperationsQueue(
 // AI Intelligence Tab
 // ═══════════════════════════════════════════════
 
+// OB-212 N8a: AI Substrate (read-only). One row per AI surface — the single-call
+// surfaces from classification_signals cost:event (purpose x provider x model) and
+// the agents from agent_invocations (agent_name x provider x model). No new capture;
+// cost:event signals already flow. Surfacing only — no mutation controls anywhere.
+type AgentInvRow = { agent_name: string | null; provider: string | null; model: string | null; cost_usd: number | null; cache_hit: boolean | null };
+const round4 = (n: number): number => Math.round(n * 10000) / 10000;
+
+async function computeAISubstrate(supabase: ServiceClient): Promise<NonNullable<AIIntelligenceData['aiSubstrate']>> {
+  const surfaces: NonNullable<AIIntelligenceData['aiSubstrate']>['surfaces'] = [];
+
+  // single-call surfaces from cost:event (signal_type written as 'cost:event' by toPrefixSignalType)
+  const { data: costRows } = await supabase
+    .from('classification_signals')
+    .select('signal_value')
+    .eq('signal_type', 'cost:event')
+    .limit(5000);
+  const sc = new Map<string, { surface: string; provider: string | null; model: string | null; calls: number; cost: number }>();
+  for (const r of costRows ?? []) {
+    const v = (r.signal_value ?? {}) as Record<string, unknown>;
+    const surface = String(v.purpose ?? 'unknown');
+    const provider = (v.provider as string) ?? null;
+    const model = (v.model as string) ?? null;
+    const key = `${surface}|${provider}|${model}`;
+    const cur = sc.get(key) ?? { surface, provider, model, calls: 0, cost: 0 };
+    cur.calls++;
+    cur.cost += Number(v.estimatedCostUSD) || 0;
+    sc.set(key, cur);
+  }
+  for (const d of Array.from(sc.values())) {
+    surfaces.push({ surface: d.surface, kind: 'single_call', provider: d.provider, model: d.model, calls: d.calls, totalCostUSD: round4(d.cost), avgCostUSD: d.calls ? round4(d.cost / d.calls) : 0 });
+  }
+
+  // agent surfaces from agent_invocations. The table may not exist yet (HALT-MIG
+  // pending) and is not in the generated DB types — relaxed access + guarded so the
+  // panel renders the single-call rows now; agent rows populate post-migration/runs.
+  try {
+    const relaxed = supabase as unknown as { from: (t: string) => { select: (c: string) => { limit: (n: number) => Promise<{ data: AgentInvRow[] | null; error: unknown }> } } };
+    const agentRes = await relaxed.from('agent_invocations').select('agent_name, provider, model, cost_usd, cache_hit').limit(5000);
+    if (!agentRes.error) {
+      const ag = new Map<string, { surface: string; provider: string | null; model: string | null; calls: number; cost: number; cacheHits: number }>();
+      for (const r of agentRes.data ?? []) {
+        const surface = String(r.agent_name ?? 'unknown');
+        const provider = r.provider ?? null;
+        const model = r.model ?? null;
+        const key = `${surface}|${provider}|${model}`;
+        const cur = ag.get(key) ?? { surface, provider, model, calls: 0, cost: 0, cacheHits: 0 };
+        cur.calls++;
+        cur.cost += Number(r.cost_usd) || 0;
+        if (r.cache_hit) cur.cacheHits++;
+        ag.set(key, cur);
+      }
+      for (const d of Array.from(ag.values())) {
+        surfaces.push({ surface: d.surface, kind: 'agent', provider: d.provider, model: d.model, calls: d.calls, totalCostUSD: round4(d.cost), avgCostUSD: d.calls ? round4(d.cost / d.calls) : 0, cacheHitRate: d.calls ? d.cacheHits / d.calls : 0 });
+      }
+    }
+  } catch {
+    /* agent_invocations not yet applied — agent rows populate post-migration */
+  }
+
+  surfaces.sort((a, b) => (a.kind === b.kind ? b.calls - a.calls : a.kind === 'agent' ? -1 : 1));
+  return { surfaces };
+}
+
 async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntelligenceData> {
   const { data: signals, error } = await supabase
     .from('classification_signals')
@@ -436,7 +499,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     })
   ) || tenantIds[0] || '';
 
-  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo] = await Promise.all([
+  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo, aiSubstrate] = await Promise.all([
     computeAccuracyMetrics().catch(() => null),
     computeCalibrationMetrics().catch(() => null),
     computeFlywheelTrend().catch(() => null),
@@ -445,6 +508,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     sciTenantId ? computeSCIFlywheelTrend(sciTenantId).catch(() => null) : Promise.resolve(null),
     sciTenantId ? computeSCICostCurve(sciTenantId).catch(() => null) : Promise.resolve(null),
     sciTenantId ? computeWeightEvolution(sciTenantId).catch(() => null) : Promise.resolve(null),
+    computeAISubstrate(supabase).catch(() => null),
   ]);
 
   return {
@@ -462,6 +526,8 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
       avgConfidence: d.count > 0 ? d.totalConf / d.count : 0,
     })),
     tableExists: true,
+    // OB-212: AI Substrate (read-only)
+    aiSubstrate: aiSubstrate ?? undefined,
     // OB-86: Enhanced metrics
     accuracyByType: accuracy?.byType ?? undefined,
     overallAccuracy: accuracy?.overall ?? undefined,

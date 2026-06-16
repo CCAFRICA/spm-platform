@@ -79,6 +79,20 @@ export interface AIIntelligenceData {
     confidence: number;
     hasEnoughData: boolean;
   } | null;
+  // OB-212: AI Substrate (read-only) — every AI surface with provider/model/cost.
+  // single-call surfaces from classification_signals cost:event; agents from agent_invocations.
+  aiSubstrate?: {
+    surfaces: Array<{
+      surface: string;                  // structural: AITaskType purpose, or agent_name
+      kind: 'single_call' | 'agent';
+      provider: string | null;
+      model: string | null;
+      calls: number;
+      totalCostUSD: number;
+      avgCostUSD: number;
+      cacheHitRate?: number;            // agents only
+    }>;
+  } | null;
 }
 
 export interface TenantBillingData {

@@ -264,6 +264,30 @@ export function AIIntelligenceTab() {
           </div>
         </div>
       )}
+
+      {/* ── OB-212: AI Substrate (READ-ONLY — no mutation controls) ── */}
+      {data.aiSubstrate && data.aiSubstrate.surfaces.length > 0 && (
+        <div className="rounded-2xl" style={CARD_STYLE}>
+          <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>AI Substrate</h3>
+          <div className="space-y-2">
+            {data.aiSubstrate.surfaces.map((s, i) => (
+              <div key={`${s.surface}-${i}`} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
+                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(s.surface)}</span>
+                <span style={{ color: s.kind === 'agent' ? '#34d399' : '#94A3B8', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.kind === 'agent' ? 'agent' : 'single call'}</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.provider ?? '—'} / {s.model ?? '—'}</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.calls} calls</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${s.totalCostUSD.toFixed(4)}</span>
+                {typeof s.cacheHitRate === 'number' && (
+                  <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(s.cacheHitRate * 100)}% cache</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p style={{ color: '#64748B', fontSize: '11px', marginTop: '10px' }}>
+            Read-only. Provider/model/cost per AI surface — single-call from cost events, agents from agent_invocations.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
