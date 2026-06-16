@@ -294,6 +294,7 @@ export default function ReconciliationPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [diagnosing, setDiagnosing] = useState<string | null>(null);
   const [diagnosis, setDiagnosis] = useState<{ key: string; entityId: string; component: string | null; text: string; cached: boolean } | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   // Load page data
   // OB-92/OB-131: Load page data, prefer URL planId > OperateContext batch > most recent
@@ -345,6 +346,45 @@ export default function ReconciliationPage() {
     load();
     return () => { cancelled = true; };
   }, [tenantId, searchParams, contextBatchId]);
+
+  // OB-212 N9: restore a SAVED reconciliation session from ?sessionId=… so the inbox deep-link and
+  // the keystone proof open directly into the results view (with inline Diagnose). The page is
+  // otherwise a live-workflow tool; this hydrates compResult/report/sessionId from the stored row.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    const urlSessionId = searchParams.get('sessionId');
+    if (!urlSessionId || !tenantId || restoredRef.current) return;
+    restoredRef.current = true;
+    setRestoring(true);
+    (async () => {
+      try {
+        const resp = await fetch(`/api/reconciliation/session?sessionId=${encodeURIComponent(urlSessionId)}&tenantId=${encodeURIComponent(tenantId)}`);
+        const j = await resp.json().catch(() => ({}));
+        if (!resp.ok) { setError(`Could not load saved session: ${j?.error ?? resp.status}`); return; }
+        const s = j.session ?? {};
+        const results = s.results ?? {};
+        const summary = s.summary ?? {};
+        const config = s.config ?? {};
+        const hydrated: ComparisonResultData = {
+          employees: results.employees ?? [],
+          summary,
+          falseGreenCount: summary.falseGreenCount ?? 0,
+          findings: results.findings ?? [],
+          periodsCompared: config.periodsCompared ?? [],
+          depthAchieved: config.depthAchieved ?? 2,
+        };
+        setCompResult(hydrated);
+        setReport(generateReconciliationReport(hydrated as ComparisonResultInput, { periodLabel: j.periodLabel ?? 'Saved session', tenantName: currentTenant?.name ?? '' }));
+        setSelectedBatchId(s.batch_id ?? null);
+        setSessionId(s.id ?? urlSessionId);
+        setStep('results');
+      } catch (e) {
+        setError(`Could not load saved session: ${e instanceof Error ? e.message : 'error'}`);
+      } finally {
+        setRestoring(false);
+      }
+    })();
+  }, [searchParams, tenantId, currentTenant]);
 
   // Plan options
   const planOptions: PlanOption[] = useMemo(() => {
@@ -704,13 +744,17 @@ export default function ReconciliationPage() {
     }
   };
 
-  // ── LOADING ──
-  if (loading) {
+  // ── LOADING ── (also covers OB-212 N9 saved-session restore, to avoid a batch-selector flash)
+  if (loading || restoring) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-zinc-400">{isSpanish ? 'Cargando datos de reconciliacion...' : 'Loading reconciliation data...'}</p>
+          <p className="text-sm text-zinc-400">
+            {restoring
+              ? (isSpanish ? 'Cargando sesión guardada...' : 'Loading saved session...')
+              : (isSpanish ? 'Cargando datos de reconciliacion...' : 'Loading reconciliation data...')}
+          </p>
         </div>
       </div>
     );
