@@ -15,6 +15,14 @@ import type {
 } from '@/lib/sci/sci-types';
 import type { ParsedFileData } from './SCIUpload';
 import { ExecutionProgress, toProgressItems } from './ExecutionProgress';
+// HF-295 Part 2: per-file failure contract + the one error-class → user-payload translation.
+import {
+  type ImportFileFailure,
+  type ImportErrorClass,
+  classifyImportError,
+  toImportFileFailure,
+  deriveFileLabel,
+} from '@/lib/sci/import-failure';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
   plan: 0,
@@ -41,6 +49,20 @@ interface ExecutionUnit {
   status: UnitStatus;
   result?: ContentUnitResult;
   error?: string;
+  // HF-295 Part 2: structured, user-understandable failure payload (preferred over `error`
+  // for rendering). Carried on any unit whose file stalled or whose interpretation failed.
+  failure?: ImportFileFailure;
+}
+
+// HF-295 Part 2: the per-file dispatch outcome the loop records. `settled` true means the
+// file's own units all reached a terminal disposition; on false the loop marks this file's
+// still-non-terminal units failed (with `errorClass`/`technicalDetail`) and continues to the
+// next file — per-file isolation, no cross-file waiting, no indefinite spinner.
+interface FileDispatchOutcome {
+  settled: boolean;
+  unitIds: string[];
+  errorClass?: ImportErrorClass;
+  technicalDetail?: string;
 }
 
 interface SCIExecutionProps {
@@ -160,10 +182,13 @@ export function SCIExecution({
   // disposition, FALSE on a stall — the caller's resume loop re-POSTs
   // execute-bulk (idempotent: the route skips spine-terminal and in-flight
   // units) until truth settles or the attempt budget is spent.
-  const settleFromSurface = useCallback(async (): Promise<boolean> => {
+  // HF-295 Part 2: the tracked set is now the CALLER's file group (its unit ids), not the
+  // import-wide `confirmedUnits`. A file settles when ITS OWN units reach a terminal
+  // disposition — so the dispatch loop advances to the next file immediately instead of
+  // stalling 90s waiting for files that have not been dispatched yet (DIAG-069 / H5).
+  const settleFromSurface = useCallback(async (trackedIds: string[]): Promise<boolean> => {
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     const STALL_MS = 90_000;
-    const trackedIds = confirmedUnits.map(u => u.contentUnitId);
     let lastSettled = -1, lastProgressAt = Date.now();
     while (Date.now() - lastProgressAt < STALL_MS) {
       try {
@@ -179,7 +204,16 @@ export function SCIExecution({
               return { ...u, status: 'complete' as const, result: { contentUnitId: u.contentUnitId, classification: u.classification, success: true, rowsProcessed: rowsBySheet.get(su.sheetName) ?? u.result?.rowsProcessed ?? 0, pipeline: u.classification } };
             }
             if (su.state === 'failed_interpretation') {
-              return { ...u, status: 'error' as const, error: su.failureClass ?? u.error ?? 'interpretation failed' };
+              // HF-295 Part 2: translate the raw server failureClass into a user-understandable
+              // payload (the one translation function). The raw class is retained as the
+              // collapsible technical detail — never the primary display.
+              const errorClass = classifyImportError({ failureClass: su.failureClass });
+              const failure = toImportFileFailure(
+                deriveFileLabel(u.contentUnitId, u.tabName),
+                errorClass,
+                su.failureClass ?? undefined,
+              );
+              return { ...u, status: 'error' as const, failure, error: errorClass };
             }
             return u;
           }));
@@ -194,7 +228,7 @@ export function SCIExecution({
       await sleep(2000);
     }
     return false; // stalled with non-terminal units — the resume loop decides what's next
-  }, [tenantId, proposal.proposalId, confirmedUnits]);
+  }, [tenantId, proposal.proposalId]);
 
   // D16/execute-progress: poll the durable session-state spine during execution and reflect per-unit
   // `bound` states AS they STREAM (execute-bulk writes one per unit the moment it commits, keyed by
@@ -228,8 +262,13 @@ export function SCIExecution({
 
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
   // HF-140: Now accepts explicit path parameter for per-file isolation
-  const executeBulk = useCallback(async (dataUnits: ExecutionUnit[], bulkStoragePath?: string) => {
+  const executeBulk = useCallback(async (dataUnits: ExecutionUnit[], bulkStoragePath?: string): Promise<FileDispatchOutcome> => {
     const effectivePath = bulkStoragePath || storagePath;
+    // HF-295 Part 2: settle is scoped to THIS file's unit ids — the keystone of the fix.
+    const groupUnitIds = dataUnits.map(u => u.contentUnitId);
+    // Capture the last observed failure signal so a file that never settles can explain itself.
+    let lastHttpStatus: number | null = null;
+    let lastErrText: string | null = null;
     // Mark all data units as processing
     setElapsedSeconds(0);
     setUnits(prev => prev.map(u =>
@@ -288,6 +327,8 @@ export function SCIExecution({
         // log and fall through to read the durable data surface, which is authoritative.
         if (!res.ok) {
           const errBody = await res.text().catch(() => '');
+          lastHttpStatus = res.status;
+          lastErrText = errBody.slice(0, 600) || `HTTP ${res.status}`;
           console.warn(`[SCIExecution] execute-bulk responded ${res.status} (reading durable surface): ${errBody.slice(0, 160)}`);
         } else {
           // Optimistic fast-path: seed from the response, but the surface settle below is the final word.
@@ -302,10 +343,12 @@ export function SCIExecution({
         }
       } catch (err) {
         // D18: timeout / network drop is also a non-event — do NOT mark units failed. Read the surface.
+        lastErrText = (err instanceof Error ? err.message : String(err)).slice(0, 600);
         console.warn('[SCIExecution] execute-bulk response did not return (reading durable surface):', err instanceof Error ? err.message : err);
       }
       // D18: finalize per-unit disposition from the DURABLE DATA SURFACE, never the (possibly dead) response.
-      settled = await settleFromSurface();
+      // HF-295 Part 2: settle on THIS file's unit ids only.
+      settled = await settleFromSurface(groupUnitIds);
     }
     // OB-203 Phase D: trigger the once-per-session settle audit (idempotent —
     // first audit wins; ImportReadyState also invokes it on mount as a backstop).
@@ -315,6 +358,18 @@ export function SCIExecution({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenantId, importSessionId: proposal.proposalId }),
     }).catch(() => { /* completion-screen invocation is the backstop */ });
+
+    // HF-295 Part 2: report this file's disposition to the dispatch loop. On a stall the
+    // loop marks this file's still-non-terminal units failed and continues to siblings.
+    if (!settled) {
+      return {
+        settled: false,
+        unitIds: groupUnitIds,
+        errorClass: classifyImportError({ httpStatus: lastHttpStatus, rawError: lastErrText, stalled: true }),
+        technicalDetail: lastErrText ?? (lastHttpStatus != null ? `HTTP ${lastHttpStatus}` : undefined),
+      };
+    }
+    return { settled: true, unitIds: groupUnitIds };
   }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, settleFromSurface]);
 
   // Legacy execution — used for plan units (document-based) and fallback when no storagePath
@@ -534,7 +589,26 @@ export function SCIExecution({
 
         if (filePath) {
           console.log(`[HF-142] Executing bulk for "${sourceFile}" → ${filePath} (${groupUnits.length} units)`);
-          await executeBulk(groupUnits, filePath);
+          // HF-295 Part 2: per-file isolation. A file's failure (stall or thrown error) is
+          // recorded against THIS file's units only — never break/return — so every sibling
+          // file still processes to completion. No unit is left as an indefinite spinner:
+          // any of this file's units not already terminal becomes an explained failure.
+          const fileLabel = deriveFileLabel(groupUnits[0]?.contentUnitId ?? '', sourceFile);
+          const markFileFailed = (failure: ImportFileFailure) => {
+            setUnits(prev => prev.map(u =>
+              groupUnits.some(g => g.contentUnitId === u.contentUnitId) && (u.status === 'processing' || u.status === 'pending')
+                ? { ...u, status: 'error' as const, error: failure.errorClass, failure }
+                : u));
+          };
+          try {
+            const outcome = await executeBulk(groupUnits, filePath);
+            if (!outcome.settled) {
+              markFileFailed(toImportFileFailure(fileLabel, outcome.errorClass ?? 'unknown', outcome.technicalDetail));
+            }
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            markFileFailed(toImportFileFailure(fileLabel, classifyImportError({ rawError: detail }), detail));
+          }
         } else {
           // HF-141: No storage path for this specific file — legacy fallback per unit
           console.warn(`[HF-141] No storage path for "${sourceFile}" — using legacy execution`);
