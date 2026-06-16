@@ -8,6 +8,8 @@ import { Check, XCircle, Loader2, RefreshCw, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
+import type { ImportFileFailure } from '@/lib/sci/import-failure';
+import { useLocale } from '@/contexts/locale-context';
 
 const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   plan: 'Plan Rules',
@@ -43,6 +45,13 @@ export interface ProgressItem {
     skippedFromPrior?: boolean;
   }>;
   partialSuccess?: boolean;
+  /**
+   * HF-295 Part 2: structured, user-understandable failure for a file that stalled or
+   * whose interpretation failed. When present, the row renders an explained failure
+   * (stage · reason · expected · recommendation · blocks) via i18n — never a raw dump,
+   * never an indefinite spinner.
+   */
+  failure?: ImportFileFailure;
 }
 
 interface ExecutionProgressProps {
@@ -66,6 +75,7 @@ export function ExecutionProgress({
   elapsedSeconds = 0,
   isRetrying = false,
 }: ExecutionProgressProps) {
+  const { t } = useLocale();
   const doneCount = items.filter(i => i.status === 'done').length;
   const failedCount = items.filter(i => i.status === 'failed').length;
   const hasActive = items.some(i => i.status === 'active');
@@ -199,10 +209,37 @@ export function ExecutionProgress({
                   : item.status === 'active'
                     ? 'processing...'
                     : item.status === 'failed'
-                      ? (item.error || 'Failed')
+                      ? (item.failure ? t(`sci.import.stage.${item.failure.stageKey}`) : (item.error || 'Failed'))
                       : ''}
               </span>
             </div>
+
+            {/* HF-295 Part 2: explained per-file failure. Renders when a file stalled or its
+                interpretation failed — distinct terminal state, user-understandable, never a
+                spinner. Strings via i18n (es-MX for the MIR persona). */}
+            {item.status === 'failed' && item.failure && (
+              <div className="px-5 pb-3.5 pl-12 space-y-1.5 border-l-2 border-red-500/30 ml-5">
+                <p className="text-sm text-zinc-200">{t(item.failure.reasonKey)}</p>
+                <p className="text-xs text-zinc-500">{t(item.failure.expectedKey)}</p>
+                <p className="text-xs text-amber-300/90">
+                  <span className="text-amber-400 font-medium">{t('sci.import.failure.recommendationLabel')}:</span>{' '}
+                  {t(item.failure.recommendationKey)}
+                </p>
+                <p className="text-xs text-zinc-600">
+                  {t(item.failure.blocksKey, { successCount: doneCount, totalCount })}
+                </p>
+                {item.failure.technicalDetail && (
+                  <details className="text-xs text-zinc-700">
+                    <summary className="cursor-pointer hover:text-zinc-500">
+                      {t('sci.import.failure.technicalLabel')}
+                    </summary>
+                    <code className="block mt-1 whitespace-pre-wrap break-all text-zinc-600 text-[11px]">
+                      {item.failure.technicalDetail}
+                    </code>
+                  </details>
+                )}
+              </div>
+            )}
 
             {/* HF-248 Phase 3: per-component outcome rows for plan imports.
                 Renders only when componentOutcomes is populated (plan
@@ -252,7 +289,7 @@ export function ExecutionProgress({
           </p>
           {items.filter(i => i.status === 'failed').map(item => (
             <p key={item.contentUnitId} className="text-xs text-red-400 mt-1">
-              {item.tabName} &mdash; {item.error || 'Processing failed'}
+              {item.tabName} &mdash; {item.failure ? t(item.failure.reasonKey) : (item.error || 'Processing failed')}
             </p>
           ))}
           <div className="flex items-center gap-3 mt-4">
@@ -297,6 +334,7 @@ export function toProgressItems(
     status: 'pending' | 'processing' | 'complete' | 'error';
     result?: ContentUnitResult;
     error?: string;
+    failure?: ImportFileFailure;
   }>
 ): ProgressItem[] {
   return units.map(u => ({
@@ -309,6 +347,8 @@ export function toProgressItems(
             'pending',
     rowsProcessed: u.result?.rowsProcessed,
     error: u.error,
+    // HF-295 Part 2: forward the structured failure payload to the render layer.
+    failure: u.failure,
     // HF-248 Phase 3: forward per-component outcomes when the plan
     // orchestrator populated them. Falls through to undefined for
     // non-plan classifications.

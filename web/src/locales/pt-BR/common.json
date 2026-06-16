@@ -135,5 +135,51 @@
     "goalAttainment": "Atingimento de Metas",
     "leaderboard": "Classificacao",
     "organizationalStructure": "Estrutura Organizacional"
+  },
+  "sci": {
+    "import": {
+      "stage": {
+        "reading": "Lendo o arquivo",
+        "understanding": "Entendendo as colunas",
+        "matching": "Associando registros a pessoas",
+        "saving": "Salvando os dados",
+        "finalizing": "Finalizando"
+      },
+      "failure": {
+        "recommendationLabel": "O que fazer",
+        "technicalLabel": "Detalhe técnico",
+        "blocks": "Isto afetou apenas este arquivo — {{successCount}} de {{totalCount}} arquivos foram importados com sucesso.",
+        "file_unreadable": {
+          "reason": "Não foi possível abrir este arquivo.",
+          "expected": "Esperava-se uma planilha legível (.xlsx ou .csv); o arquivo não pôde ser baixado ou lido.",
+          "recommendation": "Exporte o arquivo novamente como .xlsx e faça o upload de novo. Se ele abrir no seu computador, tente remover a proteção por senha ou a formatação especial."
+        },
+        "columns_not_understood": {
+          "reason": "Não reconhecemos as colunas deste arquivo como dados para importar.",
+          "expected": "Esperavam-se registros de origem (por exemplo, linhas de vendas ou cobrança com identificadores e valores); as colunas pareciam um resumo ou relatório de resultados.",
+          "recommendation": "Verifique se este arquivo contém dados de origem, não totais já calculados nem uma referência de reconciliação. Se for um relatório de resultados, remova-o da importação."
+        },
+        "records_unmatched": {
+          "reason": "Não foi possível associar os registros deste arquivo a nenhuma pessoa ou entidade.",
+          "expected": "Esperavam-se identificadores correspondentes à sua lista de equipe; nenhuma linha foi vinculada a uma entidade conhecida.",
+          "recommendation": "Importe primeiro o arquivo da lista de equipe, ou verifique se a coluna de identificador usa os mesmos códigos da sua lista."
+        },
+        "data_not_saved": {
+          "reason": "Entendemos este arquivo, mas não foi possível salvar seus dados.",
+          "expected": "Esperava-se gravar as linhas no seu armazenamento de dados; a etapa de salvamento não foi concluída.",
+          "recommendation": "Tente a importação novamente. Se continuar falhando, o arquivo pode ter linhas com valores inválidos ou conflitantes — verifique identificadores em branco ou chaves duplicadas."
+        },
+        "not_finalized": {
+          "reason": "Este arquivo começou a ser importado, mas não terminou.",
+          "expected": "Esperava-se que cada linha chegasse a um estado final salvo; o processamento parou antes de concluir.",
+          "recommendation": "Tente importar este arquivo separadamente. Se for muito grande, divida-o em arquivos menores e importe-os separadamente."
+        },
+        "unknown": {
+          "reason": "Não foi possível processar este arquivo.",
+          "expected": "A importação parou antes que este arquivo pudesse ser processado, por um motivo que não conseguimos categorizar.",
+          "recommendation": "Tente a importação novamente. Se continuar falhando, remova este arquivo e importe o restante, e compartilhe o detalhe técnico abaixo com o suporte."
+        }
+      }
+    }
   }
 }

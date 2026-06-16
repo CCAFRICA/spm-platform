@@ -135,5 +135,51 @@
     "goalAttainment": "Goal Attainment",
     "leaderboard": "Leaderboard",
     "organizationalStructure": "Organizational Structure"
+  },
+  "sci": {
+    "import": {
+      "stage": {
+        "reading": "Reading the file",
+        "understanding": "Understanding the columns",
+        "matching": "Matching records to people",
+        "saving": "Saving the data",
+        "finalizing": "Finalizing"
+      },
+      "failure": {
+        "recommendationLabel": "What to do",
+        "technicalLabel": "Technical detail",
+        "blocks": "This affected only this file — {{successCount}} of {{totalCount}} files imported successfully.",
+        "file_unreadable": {
+          "reason": "We couldn't open this file.",
+          "expected": "Expected a readable spreadsheet (.xlsx or .csv); the file could not be downloaded or read.",
+          "recommendation": "Re-export the file as .xlsx and upload it again. If it opens on your computer, try removing password protection or special formatting."
+        },
+        "columns_not_understood": {
+          "reason": "We couldn't recognize the columns in this file as data to import.",
+          "expected": "Expected source records (for example sales or collection rows with identifiers and amounts); the columns looked like a summary or results report instead.",
+          "recommendation": "Check that this file contains raw source data, not pre-calculated totals or a reconciliation reference. If it's a results report, remove it from the import."
+        },
+        "records_unmatched": {
+          "reason": "We couldn't match the records in this file to any people or entities.",
+          "expected": "Expected identifiers that match your roster; none of the rows linked to a known entity.",
+          "recommendation": "Import the roster file first, or check that the identifier column uses the same codes as your team list."
+        },
+        "data_not_saved": {
+          "reason": "We understood this file but couldn't save its data.",
+          "expected": "Expected the rows to be written to your data store; the save step did not complete.",
+          "recommendation": "Try the import again. If it keeps failing, the file may have rows with conflicting or invalid values — check for blank identifiers or duplicate keys."
+        },
+        "not_finalized": {
+          "reason": "This file started importing but didn't finish.",
+          "expected": "Expected every row to reach a final saved state; processing stalled before completing.",
+          "recommendation": "Try importing this file on its own. If it's very large, split it into smaller files and import them separately."
+        },
+        "unknown": {
+          "reason": "This file couldn't be processed.",
+          "expected": "The import stopped before this file could be processed, for a reason we couldn't categorize.",
+          "recommendation": "Try the import again. If it keeps failing, remove this file and import the rest, then share the technical detail below with support."
+        }
+      }
+    }
   }
 }
