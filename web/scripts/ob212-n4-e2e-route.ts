@@ -61,12 +61,40 @@ async function main() {
   console.log('\n--- agent_invocations rows for this fingerprint ---');
   const rows = await showRows(fp);
 
+  // N5: inbox item written on completion
+  console.log('\n--- N5: agent_inbox item ---');
+  const { data: inbox } = await sb
+    .from('agent_inbox')
+    .select('id, agent_id, type, title, severity, action_url, metadata, created_at')
+    .eq('tenant_id', BCL)
+    .eq('agent_id', 'reconciliation_diagnosis')
+    .eq('title', `Diagnosis: ${BODY.entityId} · ${BODY.component}`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const inboxItem: any = inbox?.[0];
+  if (inboxItem) console.log(`  inbox: type=${inboxItem.type} severity=${inboxItem.severity} title="${inboxItem.title}" action=${inboxItem.action_url} meta.invocationId=${inboxItem.metadata?.invocationId}`);
+  else console.log('  (no inbox item found)');
+
+  // N6: convergence:diagnosis_complete signal written
+  console.log('\n--- N6: classification_signals (convergence:diagnosis_complete) ---');
+  const { data: sig } = await sb
+    .from('classification_signals')
+    .select('id, signal_type, signal_value, source, created_at')
+    .eq('tenant_id', BCL)
+    .eq('signal_type', 'convergence:diagnosis_complete')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const sigRow: any = sig?.[0];
+  if (sigRow) console.log(`  signal: type=${sigRow.signal_type} source=${sigRow.source} value=${JSON.stringify(sigRow.signal_value).slice(0, 200)}`);
+  else console.log('  (no diagnosis_complete signal found)');
+
   const completed = rows.find((r: any) => r.status === 'completed');
   const cached = rows.find((r: any) => r.status === 'cached');
   const ok =
     !!completed && (completed as any).turn_count > 1 && Array.isArray((completed as any).tool_calls) && (completed as any).tool_calls.length > 0 &&
-    !!cached && (cached as any).cache_hit === true && Number((cached as any).cost_usd) === 0;
-  console.log(`\n================ ${ok ? 'PASS — running→completed (turns>1, tool_calls populated) + cached(cost 0)' : 'CHECK FAILED — inspect rows above'} ================`);
+    !!cached && (cached as any).cache_hit === true && Number((cached as any).cost_usd) === 0 &&
+    !!inboxItem && !!sigRow;
+  console.log(`\n================ ${ok ? 'PASS — invocation(completed)+cached(cost0) + N5 inbox + N6 signal' : 'CHECK FAILED — inspect above'} ================`);
   process.exit(ok ? 0 : 1);
 }
 main().catch((e) => { console.error('SCRIPT ERROR:', e); process.exit(1); });
