@@ -25,6 +25,19 @@ export class AgentRunawayError extends Error {
   }
 }
 
+/** A turn that cannot be trusted as a clean answer: a refusal, an empty/blocked
+ *  turn, a max_tokens truncation mid-tool_use, or a malformed tool_use block. The
+ *  route catches this and writes the invocation row as status='failed' — an
+ *  above-DCB agent must never return a truncated/refused turn as a diagnosis. */
+export class AgentTurnError extends Error {
+  reason: 'refusal' | 'empty' | 'max_tokens' | 'malformed';
+  constructor(message: string, reason: 'refusal' | 'empty' | 'max_tokens' | 'malformed') {
+    super(message);
+    this.name = 'AgentTurnError';
+    this.reason = reason;
+  }
+}
+
 export interface AgentDefinition {
   /** structural agent id, persisted to agent_invocations.agent_name */
   name: string;
@@ -108,14 +121,34 @@ export async function runAgent(
       (b): b is RawToolUseBlock => (b as RawToolUseBlock)?.type === 'tool_use',
     );
 
-    // No tool call -> the model produced its final answer. Done.
+    // No tool call -> the model produced its final answer (or refused / was blocked).
+    // Branch on stop_reason BEFORE trusting content as a clean answer — a refusal or
+    // an empty turn must surface, not masquerade as a successful empty diagnosis.
     if (toolUses.length === 0) {
+      if (resp.stopReason === 'refusal') {
+        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} was refused (stop_reason=refusal)`, 'refusal');
+      }
       const finalText = resp.content
         .filter((b) => (b as { type?: string }).type === 'text')
         .map((b) => String((b as { text?: string }).text ?? ''))
         .join('\n')
         .trim();
+      if (finalText === '') {
+        throw new AgentTurnError(
+          `Agent "${def.name}" turn ${turn} produced no text (stop_reason=${resp.stopReason ?? 'unknown'})`,
+          'empty',
+        );
+      }
       return { finalText, turns, turnCount: turn, tokenUsage: { input: inputTokens, output: outputTokens } };
+    }
+
+    // There ARE tool_use blocks. If the turn hit max_tokens, the tool_use JSON is
+    // truncated/partial — executing it (or threading it back) is unsafe. Surface it.
+    if (resp.stopReason === 'max_tokens') {
+      throw new AgentTurnError(
+        `Agent "${def.name}" turn ${turn} truncated at max_tokens mid-tool_use`,
+        'max_tokens',
+      );
     }
 
     // Thread the assistant turn (full content, so tool_use ids resolve) then the
@@ -124,6 +157,11 @@ export async function runAgent(
 
     const toolResults: Array<Record<string, unknown>> = [];
     for (const tu of toolUses) {
+      // Every tool_use must carry an id, or its tool_result is un-matchable and the
+      // next request 400s. Anthropic always sends one; guard defensively.
+      if (!tu.id) {
+        throw new AgentTurnError(`Agent "${def.name}" turn ${turn} emitted a tool_use without an id`, 'malformed');
+      }
       const handler = tu.name ? def.handlers[tu.name] : undefined;
       let result: unknown;
       try {

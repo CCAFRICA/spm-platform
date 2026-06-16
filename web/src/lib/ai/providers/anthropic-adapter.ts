@@ -1163,10 +1163,12 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('Anthropic API key not configured');
     }
 
+    // No `temperature`: the agent model is an advertised per-agent override, and the
+    // current default-tier models (Opus 4.7/4.8, Fable 5) 400 on sampling params.
+    // Sonnet 4.6 (the env default) does not require it. Omitting it works across all.
     const requestBody = JSON.stringify({
       model: req.model || this.config.model || 'claude-sonnet-4-6',
       max_tokens: req.maxTokens || 4096,
-      temperature: 0.1,
       system: req.system,
       tools: req.tools,            // <-- the only behavioral delta vs execute(): tools are sent
       messages: req.messages,      // full multi-turn history (assistant + tool_result turns)
