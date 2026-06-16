@@ -57,6 +57,12 @@ export function ImportTelemetryPanel({
 
   useEffect(() => {
     if (!tenantId || !sessionId) return;
+    // HF-298: do NOT poll during the EXECUTE phase. Per-unit commit progress is now driven by the
+    // execute-bulk HTTP 200 responses (rendered by ExecutionProgress); a telemetry=1 poll here only
+    // adds session-state load that contends with the deferred post-commit work (DIAG-070). The panel
+    // stays a live telemetry surface during ANALYZE (phase='analyzing'), where there is no
+    // response-driven progress to read and the poll is the only source.
+    if (phase === 'executing') return;
     let cancelled = false;
     let id: ReturnType<typeof setInterval> | null = null;
     const stop = (reason: string) => { if (id !== null) { clearInterval(id); id = null; console.log(`[TRACE-POLL] ImportTelemetryPanel STOP reason=${reason}`); } }; // DIAG-070
@@ -89,7 +95,7 @@ export function ImportTelemetryPanel({
     id = setInterval(poll, 2000);
     void poll();
     return () => { cancelled = true; stop('unmount'); };
-  }, [tenantId, sessionId]);
+  }, [tenantId, sessionId, phase]);
 
   if (!t) return null;
 
