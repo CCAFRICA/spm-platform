@@ -93,6 +93,34 @@ export interface AIIntelligenceData {
       cacheHitRate?: number;            // agents only
     }>;
   } | null;
+  // OB-212 N7: Agent Operations — agent_invocations runtime view (read-only).
+  agentOps?: {
+    totalRuns: number;
+    statusCounts: Record<string, number>;   // running | completed | failed | cached
+    totalCostUSD: number;
+    cacheHitRate: number;
+    agents: Array<{
+      agentName: string;
+      runs: number;
+      completed: number;
+      failed: number;
+      cached: number;
+      totalCostUSD: number;
+      avgLatencyMs: number;             // mean latency of non-cached runs
+      cacheHitRate: number;
+      lastRunAt: string | null;
+    }>;
+    recent: Array<{
+      agentName: string;
+      invocationType: string | null;
+      status: string;
+      turnCount: number;
+      latencyMs: number | null;
+      costUsd: number | null;
+      cacheHit: boolean;
+      createdAt: string;
+    }>;
+  } | null;
 }
 
 export interface TenantBillingData {

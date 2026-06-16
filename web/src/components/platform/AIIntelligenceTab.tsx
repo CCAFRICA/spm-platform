@@ -288,8 +288,73 @@ export function AIIntelligenceTab() {
           </p>
         </div>
       )}
+
+      {/* ── OB-212 N7: Agent Operations (READ-ONLY) ── */}
+      {data.agentOps && data.agentOps.totalRuns > 0 && (
+        <div className="rounded-2xl" style={CARD_STYLE}>
+          <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
+            <h3 style={LABEL_STYLE}>Agent Operations</h3>
+            <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
+              {data.agentOps.totalRuns} runs · ${data.agentOps.totalCostUSD.toFixed(4)} · {Math.round(data.agentOps.cacheHitRate * 100)}% cache
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2" style={{ marginBottom: '14px', flexWrap: 'wrap' }}>
+            {Object.entries(data.agentOps.statusCounts).map(([st, n]) => (
+              <span key={st} className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ backgroundColor: `${agentStatusColor(st)}20`, color: agentStatusColor(st) }}>
+                {st}: {n}
+              </span>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            {data.agentOps.agents.map((a) => (
+              <div key={a.agentName} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
+                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(a.agentName)}</span>
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{a.runs} runs</span>
+                <span style={{ color: '#34d399', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.completed} ok</span>
+                {a.failed > 0 && <span style={{ color: '#f87171', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.failed} fail</span>}
+                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${a.totalCostUSD.toFixed(4)}</span>
+                <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.avgLatencyMs}ms</span>
+                <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(a.cacheHitRate * 100)}% cache</span>
+              </div>
+            ))}
+          </div>
+
+          {data.agentOps.recent.length > 0 && (
+            <div style={{ marginTop: '14px' }}>
+              <div style={{ color: '#64748B', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>Recent runs</div>
+              <div className="space-y-1">
+                {data.agentOps.recent.slice(0, 10).map((r, i) => (
+                  <div key={i} className="flex items-center gap-3 px-2 py-1 text-[12px]" style={{ color: '#94A3B8', fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ color: agentStatusColor(r.status), fontWeight: 600, width: '64px' }}>{r.status}</span>
+                    <span style={{ flex: 1, color: '#CBD5E1' }}>{formatSignalType(r.agentName)}</span>
+                    <span>{r.turnCount} turns</span>
+                    <span>{r.cacheHit ? 'cache' : `${r.latencyMs ?? '—'}ms`}</span>
+                    <span>${(r.costUsd ?? 0).toFixed(4)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <p style={{ color: '#64748B', fontSize: '11px', marginTop: '10px' }}>
+            Read-only. agent_invocations runtime — status mix, cost, cache-hit rate, latency per agent.
+          </p>
+        </div>
+      )}
     </div>
   );
+}
+
+/** OB-212 N7: status → color for agent run badges. */
+function agentStatusColor(status: string): string {
+  switch (status) {
+    case 'completed': return '#34d399';
+    case 'failed': return '#f87171';
+    case 'cached': return '#60a5fa';
+    case 'running': return '#fbbf24';
+    default: return '#94A3B8';
+  }
 }
 
 /* ──── Sub-components ──── */

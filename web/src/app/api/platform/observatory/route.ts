@@ -447,6 +447,65 @@ async function computeAISubstrate(supabase: ServiceClient): Promise<NonNullable<
   return { surfaces };
 }
 
+// OB-212 N7: Agent Operations — runtime view of agent_invocations (read-only). Status mix, cost,
+// cache-hit rate, per-agent metrics + recent runs. Relaxed/guarded access (table not in generated types).
+type AgentOpsRow = {
+  agent_name: string | null; invocation_type: string | null; status: string | null;
+  turn_count: number | null; latency_ms: number | null; cost_usd: number | null;
+  cache_hit: boolean | null; created_at: string | null;
+};
+async function computeAgentOps(supabase: ServiceClient): Promise<NonNullable<AIIntelligenceData['agentOps']>> {
+  const empty: NonNullable<AIIntelligenceData['agentOps']> = { totalRuns: 0, statusCounts: {}, totalCostUSD: 0, cacheHitRate: 0, agents: [], recent: [] };
+  try {
+    const relaxed = supabase as unknown as {
+      from: (t: string) => { select: (c: string) => { order: (col: string, o: { ascending: boolean }) => { limit: (n: number) => Promise<{ data: AgentOpsRow[] | null; error: unknown }> } } };
+    };
+    const res = await relaxed
+      .from('agent_invocations')
+      .select('agent_name, invocation_type, status, turn_count, latency_ms, cost_usd, cache_hit, created_at')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (res.error || !res.data) return empty;
+    const rows = res.data;
+    const statusCounts: Record<string, number> = {};
+    let totalCost = 0;
+    let cacheHits = 0;
+    const ag = new Map<string, { agentName: string; runs: number; completed: number; failed: number; cached: number; cost: number; latencySum: number; latencyN: number; cacheHits: number; lastRunAt: string | null }>();
+    for (const r of rows) {
+      const status = String(r.status ?? 'unknown');
+      statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+      totalCost += Number(r.cost_usd) || 0;
+      if (r.cache_hit) cacheHits++;
+      const name = String(r.agent_name ?? 'unknown');
+      const cur = ag.get(name) ?? { agentName: name, runs: 0, completed: 0, failed: 0, cached: 0, cost: 0, latencySum: 0, latencyN: 0, cacheHits: 0, lastRunAt: null };
+      cur.runs++;
+      if (status === 'completed') cur.completed++;
+      else if (status === 'failed') cur.failed++;
+      else if (status === 'cached') cur.cached++;
+      cur.cost += Number(r.cost_usd) || 0;
+      if (!r.cache_hit && r.latency_ms != null) { cur.latencySum += Number(r.latency_ms); cur.latencyN++; }
+      if (r.cache_hit) cur.cacheHits++;
+      if (r.created_at && (!cur.lastRunAt || r.created_at > cur.lastRunAt)) cur.lastRunAt = r.created_at;
+      ag.set(name, cur);
+    }
+    const agents = Array.from(ag.values())
+      .map((a) => ({
+        agentName: a.agentName, runs: a.runs, completed: a.completed, failed: a.failed, cached: a.cached,
+        totalCostUSD: round4(a.cost), avgLatencyMs: a.latencyN ? Math.round(a.latencySum / a.latencyN) : 0,
+        cacheHitRate: a.runs ? a.cacheHits / a.runs : 0, lastRunAt: a.lastRunAt,
+      }))
+      .sort((x, y) => y.runs - x.runs);
+    const recent = rows.slice(0, 25).map((r) => ({
+      agentName: String(r.agent_name ?? 'unknown'), invocationType: r.invocation_type ?? null,
+      status: String(r.status ?? 'unknown'), turnCount: Number(r.turn_count) || 0,
+      latencyMs: r.latency_ms ?? null, costUsd: r.cost_usd ?? null, cacheHit: !!r.cache_hit, createdAt: String(r.created_at ?? ''),
+    }));
+    return { totalRuns: rows.length, statusCounts, totalCostUSD: round4(totalCost), cacheHitRate: rows.length ? cacheHits / rows.length : 0, agents, recent };
+  } catch {
+    return empty;
+  }
+}
+
 async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntelligenceData> {
   const { data: signals, error } = await supabase
     .from('classification_signals')
@@ -499,7 +558,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     })
   ) || tenantIds[0] || '';
 
-  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo, aiSubstrate] = await Promise.all([
+  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo, aiSubstrate, agentOps] = await Promise.all([
     computeAccuracyMetrics().catch(() => null),
     computeCalibrationMetrics().catch(() => null),
     computeFlywheelTrend().catch(() => null),
@@ -509,6 +568,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     sciTenantId ? computeSCICostCurve(sciTenantId).catch(() => null) : Promise.resolve(null),
     sciTenantId ? computeWeightEvolution(sciTenantId).catch(() => null) : Promise.resolve(null),
     computeAISubstrate(supabase).catch(() => null),
+    computeAgentOps(supabase).catch(() => null),
   ]);
 
   return {
@@ -528,6 +588,8 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     tableExists: true,
     // OB-212: AI Substrate (read-only)
     aiSubstrate: aiSubstrate ?? undefined,
+    // OB-212 N7: Agent Operations
+    agentOps: agentOps ?? null,
     // OB-86: Enhanced metrics
     accuracyByType: accuracy?.byType ?? undefined,
     overallAccuracy: accuracy?.overall ?? undefined,
