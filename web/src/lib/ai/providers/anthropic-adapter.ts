@@ -11,6 +11,7 @@ import {
   AIProviderAdapter,
   AIServiceConfig,
   AITaskType,
+  ProviderHardError,
 } from '../types';
 import { generatePromptGrammarSection } from '../../calculation/prime-grammar';
 
@@ -1088,12 +1089,23 @@ export class AnthropicAdapter implements AIProviderAdapter {
     }
 
     if (!response) {
-      throw new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+      // AUD-009: connectivity hard-failure after retries — tag it so the AIService
+      // surfaces it loudly rather than degrading it into silent low confidence.
+      const err = new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`) as ProviderHardError;
+      err.providerError = true;
+      err.providerModel = this.config.model || 'claude-sonnet-4-6';
+      throw err;
     }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errorData)}`);
+      // AUD-009: provider returned non-2xx (e.g. 404 sunset model, 401 bad key,
+      // 429 rate limit) — tag as a provider hard-error with the HTTP status.
+      const err = new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errorData)}`) as ProviderHardError;
+      err.providerError = true;
+      err.status = response.status;
+      err.providerModel = this.config.model || 'claude-sonnet-4-6';
+      throw err;
     }
 
     const data = await response.json();

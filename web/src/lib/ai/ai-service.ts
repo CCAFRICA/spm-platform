@@ -19,6 +19,7 @@ import {
   FieldMappingResult,
   PlanInterpretationResult,
   AnomalyDetectionResult,
+  ProviderHardError,
 } from './types';
 import { AnthropicAdapter } from './providers/anthropic-adapter';
 import { getTrainingSignalService } from './training-signal-service';
@@ -69,8 +70,48 @@ export class AIService {
       // Execute through adapter
       adapterResponse = await this.adapter.execute(request);
     } catch (error) {
-      // Graceful degradation: return a zero-confidence response instead of throwing
+      // Graceful degradation: return a zero-confidence response instead of throwing.
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // AUD-009 (HF-294): a provider HARD-failure (non-2xx HTTP, or connectivity
+      // failure after retries — tagged by the adapter) must be LOUD and
+      // DISTINGUISHABLE from a legitimate low-confidence classification. This is a
+      // single general guard (any tagged provider hard-error), NOT a per-status
+      // catalog. Behavior-preserving: we still return the degraded zero-confidence
+      // response (no throw, no fall-through change) — we only add a structural marker
+      // (providerError/errorClass) and an error-level log. Recoverable/parse failures
+      // keep the prior warn-and-degrade path below unchanged, which is exactly what
+      // keeps the two cases distinguishable.
+      const hardError =
+        error && typeof error === 'object' && (error as { providerError?: unknown }).providerError === true
+          ? (error as ProviderHardError)
+          : null;
+      if (hardError) {
+        const errorClass =
+          typeof hardError.status === 'number' ? `provider_http_${hardError.status}` : 'provider_unreachable';
+        console.error(
+          `[AIService] PROVIDER HARD-ERROR on ${request.task}: ${errorMessage} (model=${this.config.model}, class=${errorClass})`
+        );
+        return {
+          task: request.task,
+          result: {
+            error: errorMessage,
+            fallback: true,
+            confidence: 0,
+            providerError: true,
+            errorClass,
+          },
+          confidence: 0,
+          tokenUsage: { input: 0, output: 0 },
+          requestId,
+          provider: this.config.provider,
+          model: this.config.model,
+          latencyMs: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Recoverable / non-provider failure: graceful degradation (unchanged behavior).
       console.warn(`[AIService] ${request.task} failed: ${errorMessage}`);
       return {
         task: request.task,
