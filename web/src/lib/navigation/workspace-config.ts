@@ -220,7 +220,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Configure',
         labelEs: 'Configurar',
         routes: [
-          { path: '/design/plans', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' },
+          { path: '/design', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' },
           { path: '/configure/people', label: 'Entities', labelEs: 'Entidades', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
           { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'], requiredCapability: 'tenant.configure_periods' },
           { path: '/configuration/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
@@ -267,15 +267,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/notifications', label: 'Notification Center', labelEs: 'Centro de Notificaciones', icon: 'Bell', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
-      // Govern (existing).
-      {
-        id: 'govern',
-        label: 'Govern',
-        labelEs: 'Gobernar',
-        routes: [
-          { path: '/govern', label: 'Governance Center', labelEs: 'Centro de Gobernanza', icon: 'Landmark', roles: ['platform', 'admin'] },
-        ],
-      },
+      // OB-213 3C: Govern section removed — /govern is a redirect stub to /configure (OB-97 folded
+      // governance into Configure), so a "Governance Center" nav item would be a redirect shell.
       // Integrations (KEEP).
       {
         id: 'integrations',
