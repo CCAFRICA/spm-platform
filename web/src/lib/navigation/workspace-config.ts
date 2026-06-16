@@ -38,11 +38,36 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
-        id: 'intelligence',
-        label: 'Intelligence',
-        labelEs: 'Inteligencia',
+        id: 'dashboards',
+        label: 'Dashboards',
+        labelEs: 'Tableros',
         routes: [
           { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.intelligence_stream' },
+          { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+        ],
+      },
+      // OB-213 Phase 1: Insights suite (KEEP) — Overview + 6 sub-pages under Performance.
+      {
+        id: 'insights',
+        label: 'Insights',
+        labelEs: 'Perspectivas',
+        routes: [
+          { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/performance', label: 'Performance', labelEs: 'Rendimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/my-team', label: 'My Team', labelEs: 'Mi Equipo', icon: 'Users', roles: ['platform', 'admin', 'manager'] },
+          { path: '/insights/sales-finance', label: 'Sales & Finance', labelEs: 'Ventas y Finanzas', icon: 'Briefcase', roles: ['platform', 'admin', 'manager'] },
+        ],
+      },
+      // OB-213 Phase 1: Acceleration (KEEP).
+      {
+        id: 'acceleration',
+        label: 'Acceleration',
+        labelEs: 'Aceleración',
+        routes: [
+          { path: '/acceleration', label: 'Accelerator Participants', labelEs: 'Participantes', icon: 'Rocket', roles: ['platform', 'admin', 'manager'] },
         ],
       },
     ],
@@ -69,39 +94,55 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/lifecycle', label: 'Operations Center', labelEs: 'Centro de Operaciones', icon: 'Zap', roles: ['platform', 'admin'], requiredCapability: 'data.advance_lifecycle' },
         ],
       },
+      // OB-213 Phase 1: Import Data + History moved to Platform Core > Data Integration (§1A).
       {
-        id: 'import',
-        label: 'Import',
-        labelEs: 'Importar',
+        id: 'calculate-results',
+        label: 'Calculate & Results',
+        labelEs: 'Calcular y Resultados',
         routes: [
-          { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
-          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/operate/calculate', label: 'Run Calculations', labelEs: 'Ejecutar Cálculos', icon: 'Calculator', roles: ['platform', 'admin'], requiredCapability: 'data.calculate' },
+          { path: '/operate/results', label: 'Results Table', labelEs: 'Tabla de Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
         ],
       },
-      {
-        id: 'calculate',
-        label: 'Calculate',
-        labelEs: 'Calcular',
-        routes: [
-          { path: '/operate/calculate', label: 'Calculate', labelEs: 'Calcular', icon: 'Calculator', roles: ['platform', 'admin'], requiredCapability: 'data.calculate' },
-        ],
-      },
-      // OB-211 Phase A: Results moved here (decide→Calculation) — the sign-off context that leads to export.
-      {
-        id: 'results',
-        label: 'Results',
-        labelEs: 'Resultados',
-        routes: [
-          { path: '/operate/results', label: 'Results', labelEs: 'Resultados', icon: 'BarChart3', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.all_results' },
-        ],
-      },
-      // OB-211 Phase A: Reconciliation moved here (consolidate→Calculation).
       {
         id: 'reconciliation',
-        label: 'Reconciliation',
-        labelEs: 'Conciliación',
+        label: 'Reconcile',
+        labelEs: 'Conciliar',
         routes: [
           { path: '/operate/reconciliation', label: 'Reconciliation', labelEs: 'Conciliación', icon: 'GitCompare', roles: ['platform', 'admin'], requiredCapability: 'data.reconcile' },
+        ],
+      },
+      // OB-213 Phase 1: Calculation vertical slices (KEEP).
+      {
+        id: 'statements',
+        label: 'Statements',
+        labelEs: 'Estados de Cuenta',
+        routes: [
+          { path: '/perform/statements', label: 'Commission Statement', labelEs: 'Estado de Comisiones', icon: 'FileText', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'statement.view' },
+        ],
+      },
+      {
+        id: 'disputes',
+        label: 'Dispute Resolution',
+        labelEs: 'Resolución de Disputas',
+        routes: [
+          { path: '/performance/adjustments', label: 'Credits & Corrections', labelEs: 'Créditos y Correcciones', icon: 'Scale', roles: ['platform', 'admin', 'manager'], requiredCapability: 'dispute.resolve' },
+        ],
+      },
+      {
+        id: 'approvals',
+        label: 'Payout Approvals',
+        labelEs: 'Aprobaciones de Pago',
+        routes: [
+          { path: '/approvals', label: 'Approval Center', labelEs: 'Centro de Aprobación', icon: 'CheckCircle', roles: ['platform', 'admin'], requiredCapability: 'data.approve_results' },
+        ],
+      },
+      {
+        id: 'payroll',
+        label: 'Payroll Reports',
+        labelEs: 'Reportes de Nómina',
+        routes: [
+          { path: '/operate/pay', label: 'Payroll Overview', labelEs: 'Resumen de Nómina', icon: 'Wallet', roles: ['platform', 'admin'], requiredCapability: 'view.all_results' },
         ],
       },
     ],
@@ -136,6 +177,17 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'] },
         ],
       },
+      // OB-213 Phase 1: Financial Analytics (KEEP) — gated with the whole Finance agent.
+      {
+        id: 'financial-analytics',
+        label: 'Financial Analytics',
+        labelEs: 'Analítica Financiera',
+        routes: [
+          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'Package', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/summary', label: 'Operating Summary', labelEs: 'Resumen Operativo', icon: 'ClipboardList', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+        ],
+      },
     ],
   },
 
@@ -151,28 +203,97 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     accentColor: 'hsl(215, 16%, 47%)', // Slate
     roles: ['platform', 'admin'],
     sections: [
+      // OB-213 Phase 1: Data Integration (Import moved here from Calculation per §1A) + Quarantine (KEEP).
       {
-        id: 'periods',
-        label: 'Periods',
-        labelEs: 'Períodos',
+        id: 'data-integration',
+        label: 'Data Integration',
+        labelEs: 'Integración de Datos',
         routes: [
+          { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/operate/import/quarantine', label: 'Quarantine Resolution', labelEs: 'Resolución de Cuarentena', icon: 'ShieldAlert', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+        ],
+      },
+      // Configure: plans/canvas, entities, periods, terminology, locations.
+      {
+        id: 'configure',
+        label: 'Configure',
+        labelEs: 'Configurar',
+        routes: [
+          { path: '/design/plans', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' },
+          { path: '/configure/people', label: 'Entities', labelEs: 'Entidades', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
           { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'], requiredCapability: 'tenant.configure_periods' },
+          { path: '/configuration/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
+          { path: '/configuration/locations', label: 'Locations', labelEs: 'Ubicaciones', icon: 'MapPin', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
         ],
       },
+      // People & Access: user management + RBAC editor (KEEP).
       {
-        id: 'people',
-        label: 'People',
-        labelEs: 'Personas',
+        id: 'people-access',
+        label: 'People & Access',
+        labelEs: 'Personas y Acceso',
         routes: [
-          { path: '/configure/people', label: 'Personnel', labelEs: 'Personal', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
+          { path: '/configure/users', label: 'User Management', labelEs: 'Gestión de Usuarios', icon: 'Shield', roles: ['platform', 'admin'], requiredCapability: 'tenant.manage_users' },
+          { path: '/admin/access-control', label: 'RBAC Editor', labelEs: 'Editor de RBAC', icon: 'KeyRound', roles: ['platform', 'admin'], requiredCapability: 'tenant.manage_users' },
         ],
       },
+      // Audit Trail (KEEP).
       {
-        id: 'system',
-        label: 'System',
-        labelEs: 'Sistema',
+        id: 'audit',
+        label: 'Audit Trail',
+        labelEs: 'Registro de Auditoría',
         routes: [
-          { path: '/configure/users', label: 'Users', labelEs: 'Usuarios', icon: 'Shield', roles: ['platform', 'admin'], requiredCapability: 'tenant.manage_users' },
+          { path: '/admin/audit', label: 'Audit Trail', labelEs: 'Registro de Auditoría', icon: 'ScrollText', roles: ['platform', 'admin'], requiredCapability: 'view.audit_trail' },
+        ],
+      },
+      // Data Visibility (KEEP) — Data Console aliases the /data hub (page exists).
+      {
+        id: 'data-visibility',
+        label: 'Data Visibility',
+        labelEs: 'Visibilidad de Datos',
+        routes: [
+          { path: '/data', label: 'Data Console', labelEs: 'Consola de Datos', icon: 'Database', roles: ['platform', 'admin', 'manager'] },
+          { path: '/data/quality', label: 'Data Quality', labelEs: 'Calidad de Datos', icon: 'CheckSquare', roles: ['platform', 'admin'] },
+          { path: '/data/transactions', label: 'Transactions', labelEs: 'Transacciones', icon: 'Receipt', roles: ['platform', 'admin', 'manager'] },
+          { path: '/data/reports', label: 'Reports', labelEs: 'Reportes', icon: 'FileBarChart', roles: ['platform', 'admin', 'manager'] },
+        ],
+      },
+      // Notifications (KEEP).
+      {
+        id: 'notifications',
+        label: 'Notifications',
+        labelEs: 'Notificaciones',
+        routes: [
+          { path: '/notifications', label: 'Notification Center', labelEs: 'Centro de Notificaciones', icon: 'Bell', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+        ],
+      },
+      // Govern (existing).
+      {
+        id: 'govern',
+        label: 'Govern',
+        labelEs: 'Gobernar',
+        routes: [
+          { path: '/govern', label: 'Governance Center', labelEs: 'Centro de Gobernanza', icon: 'Landmark', roles: ['platform', 'admin'] },
+        ],
+      },
+      // Integrations (KEEP).
+      {
+        id: 'integrations',
+        label: 'Integrations',
+        labelEs: 'Integraciones',
+        routes: [
+          { path: '/integrations/catalog', label: 'Integrations Catalog', labelEs: 'Catálogo de Integraciones', icon: 'Plug', roles: ['platform', 'admin'] },
+        ],
+      },
+      // Operations (KEEP) — Messaging, Rollback, New Tenant (VL Admin only).
+      {
+        id: 'operations',
+        label: 'Operations',
+        labelEs: 'Operaciones',
+        routes: [
+          { path: '/operations/messaging', label: 'Messaging', labelEs: 'Mensajería', icon: 'MessageSquare', roles: ['platform', 'admin'] },
+          { path: '/operations/rollback', label: 'Rollback', labelEs: 'Reversión', icon: 'Undo2', roles: ['platform', 'admin'] },
+          { path: '/admin/tenants/new', label: 'New Tenant', labelEs: 'Nuevo Inquilino', icon: 'Building2', roles: ['platform'], requiredCapability: 'platform.provision_tenant' },
         ],
       },
     ],
