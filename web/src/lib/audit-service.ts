@@ -32,6 +32,22 @@ class AuditService {
 
     this.queue.push(entry);
 
+    // OB-213 3A (AUD-009 class fix): persist to audit_logs via the API so every emit site is
+    // durable. Client-only fire-and-forget; the route resolves identity from the session.
+    if (typeof window !== 'undefined') {
+      void fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: params.action,
+          entityType: params.entityType,
+          entityId: params.entityId,
+          changes: params.changes,
+          metadata: params.metadata,
+        }),
+      }).catch(() => {});
+    }
+
     // Console log in development
     if (process.env.NODE_ENV === 'development') {
       console.log(`[AUDIT] ${entry.action} ${entry.entityType}`, entry.entityId || '');

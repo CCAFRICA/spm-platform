@@ -3140,6 +3140,18 @@ export async function POST(request: NextRequest) {
 
   addLog(`COMPLETE: batch=${batch.id}, entities=${entityResults.length}, total=${grandTotal}`);
 
+  // OB-213 3A: persist a calculation-run audit event (resource_type/resource_id per audit_logs).
+  await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
+    .from('audit_logs')
+    .insert({
+      tenant_id: tenantId,
+      action: 'calculate',
+      resource_type: 'calculation_batch',
+      resource_id: batch.id,
+      metadata: { periodId, ruleSetId, calculationRunId, entityCount: entityResults.length, totalPayout: grandTotal },
+    })
+    .then((r) => { if (r.error) addLog(`audit insert failed: ${r.error.message}`); });
+
   return NextResponse.json({
     success: true,
     batchId: batch.id,
