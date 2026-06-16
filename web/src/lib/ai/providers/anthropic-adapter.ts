@@ -12,6 +12,8 @@ import {
   AIServiceConfig,
   AITaskType,
   ProviderHardError,
+  AgentTurnRequest,
+  AgentTurnResponse,
 } from '../types';
 import { generatePromptGrammarSection } from '../../calculation/prime-grammar';
 
@@ -1148,6 +1150,66 @@ export class AnthropicAdapter implements AIProviderAdapter {
       result,
       confidence,
       tokenUsage,
+    };
+  }
+
+  // OB-212: tools-capable SINGLE turn for the agent runtime. Separate from
+  // execute() (which serves the 20 single-call surfaces and is intentionally
+  // left untouched). Same provider seam (one fetch to ANTHROPIC_API_URL), same
+  // auth + retry + ProviderHardError discipline as execute(). The multi-turn
+  // tool_use/tool_result loop lives in agent-runner; this returns the raw turn.
+  async executeAgentTurn(req: AgentTurnRequest): Promise<AgentTurnResponse> {
+    if (!this.apiKey) {
+      throw new Error('Anthropic API key not configured');
+    }
+
+    const requestBody = JSON.stringify({
+      model: req.model || this.config.model || 'claude-sonnet-4-6',
+      max_tokens: req.maxTokens || 4096,
+      temperature: 0.1,
+      system: req.system,
+      tools: req.tools,            // <-- the only behavioral delta vs execute(): tools are sent
+      messages: req.messages,      // full multi-turn history (assistant + tool_result turns)
+    });
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      'x-api-key': this.apiKey,
+      'anthropic-version': ANTHROPIC_VERSION,
+    };
+
+    const MAX_RETRIES = 3;
+    let response: Response | undefined;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        response = await fetch(ANTHROPIC_API_URL, { method: 'POST', headers: requestHeaders, body: requestBody });
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < MAX_RETRIES) await new Promise(resolve => setTimeout(resolve, attempt * 2000));
+      }
+    }
+
+    if (!response) {
+      const e = new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`) as ProviderHardError;
+      e.providerError = true;
+      e.providerModel = req.model || this.config.model || 'claude-sonnet-4-6';
+      throw e;
+    }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const e = new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errorData)}`) as ProviderHardError;
+      e.providerError = true;
+      e.status = response.status;
+      e.providerModel = req.model || this.config.model || 'claude-sonnet-4-6';
+      throw e;
+    }
+
+    const data = await response.json();
+    return {
+      content: Array.isArray(data.content) ? data.content : [],
+      stopReason: data.stop_reason ?? null,
+      tokenUsage: { input: data.usage?.input_tokens || 0, output: data.usage?.output_tokens || 0 },
     };
   }
 

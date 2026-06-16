@@ -20,6 +20,8 @@ import {
   PlanInterpretationResult,
   AnomalyDetectionResult,
   ProviderHardError,
+  AgentTurnRequest,
+  AgentTurnResponse,
 } from './types';
 import { AnthropicAdapter } from './providers/anthropic-adapter';
 import { getTrainingSignalService } from './training-signal-service';
@@ -176,6 +178,13 @@ export class AIService {
     }
 
     return response;
+  }
+
+  // OB-212: one tools-capable model turn for the agent runtime, through the
+  // configured provider adapter (the AIService mandate — agent-runner never opens
+  // its own fetch). The multi-turn loop is owned by agent-runner.
+  async executeAgentTurn(request: AgentTurnRequest): Promise<AgentTurnResponse> {
+    return this.adapter.executeAgentTurn(request);
   }
 
   // === CONVENIENCE METHODS ===
