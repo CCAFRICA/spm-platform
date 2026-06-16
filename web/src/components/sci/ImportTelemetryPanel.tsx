@@ -59,7 +59,7 @@ export function ImportTelemetryPanel({
     if (!tenantId || !sessionId) return;
     let cancelled = false;
     let id: ReturnType<typeof setInterval> | null = null;
-    const stop = () => { if (id !== null) { clearInterval(id); id = null; } };
+    const stop = (reason: string) => { if (id !== null) { clearInterval(id); id = null; console.log(`[TRACE-POLL] ImportTelemetryPanel STOP reason=${reason}`); } }; // DIAG-070
     // HF-296 (Stream B): hard stall-timeout. The HF-286 allUnitsSettled stop never fires if a unit is
     // orphaned on the spine (never reaches a terminal state) — this interval would then poll FOREVER,
     // adding to the auth-starving execute-phase load. Bound it: if telemetry shows no forward progress
@@ -68,6 +68,7 @@ export function ImportTelemetryPanel({
     const STALL_MS = 30_000;
     let lastSignals = -1;
     let lastProgressAt = Date.now();
+    console.log(`[TRACE-POLL] ImportTelemetryPanel START phase=${phase}`); // DIAG-070
     const poll = async () => {
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(sessionId)}&telemetry=1`);
@@ -79,14 +80,15 @@ export function ImportTelemetryPanel({
         // HF-286: the telemetry=1 response spreads ...view, so data.units is present.
         // Stop once every unit is settled (same settled-set predicate as the proposal poller).
         const units = (data?.units ?? []) as Array<{ state: UnitComprehensionState }>;
-        if (units.length > 0 && allUnitsSettled(units)) { stop(); return; }
+        console.log(`[TRACE-POLL] ImportTelemetryPanel TICK signals=${signals} units=${units.length}`); // DIAG-070
+        if (units.length > 0 && allUnitsSettled(units)) { stop('allSettled'); return; }
         // HF-296 backstop: no forward progress for the stall window — stop (orphaned-unit guard).
-        if (Date.now() - lastProgressAt > STALL_MS) stop();
+        if (Date.now() - lastProgressAt > STALL_MS) stop('stall-timeout');
       } catch { /* best-effort — durable record is the source; a missed poll self-corrects next tick */ }
     };
     id = setInterval(poll, 2000);
     void poll();
-    return () => { cancelled = true; stop(); };
+    return () => { cancelled = true; stop('unmount'); };
   }, [tenantId, sessionId]);
 
   if (!t) return null;

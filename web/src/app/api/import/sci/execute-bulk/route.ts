@@ -133,6 +133,12 @@ export async function POST(req: NextRequest) {
     const body: BulkRequest = await req.json();
     const { proposalId, tenantId, storagePath, storagePaths, contentUnits } = body;
 
+    // DIAG-070: per-phase timing trace. Instrumentation ONLY — no behavior change. `startTime` is t0.
+    // Each phase logs cumulative +ms so deltas between consecutive lines = that phase's cost.
+    const traceLabel = (storagePath ? storagePath.split('/').pop() : proposalId) ?? 'bulk';
+    const trace = (phase: string) => console.log(`[TRACE-SERVER] ${traceLabel} | ${phase} | +${Date.now() - startTime}ms`);
+    trace('body-parsed');
+
     // HF-256: accept either the per-file map (storagePaths) or the single path (storagePath).
     const haveAnyPath = (storagePaths && Object.keys(storagePaths).length > 0) || !!storagePath;
     if (!tenantId || !proposalId || !haveAnyPath || !contentUnits?.length) {
@@ -163,6 +169,7 @@ export async function POST(req: NextRequest) {
     // marked `failed` truthfully, and any orphan rows it left — here or in a `failed` batch whose
     // host-killed rollback never ran — are deleted while the host is healthy. The platform self-heals at
     // the next import; nothing partial survives into this import as live data.
+    trace('reconcile-start');
     try {
       const recon = await reconcileStaleBatches(supabase, tenantId);
       if (recon.reconciledProcessing || recon.rowsReclaimed || recon.failedSwept) {
@@ -171,6 +178,7 @@ export async function POST(req: NextRequest) {
     } catch (reconErr) {
       console.error('[SCI Bulk] D16.1 reconcile failed (non-blocking):', reconErr instanceof Error ? reconErr.message : reconErr);
     }
+    trace('reconcile-end');
 
     // ── Step 1+2 (HF-256, Decision 82 multi-file): per-file download + format-aware parse ──
     // Every file in the import is downloaded and parsed by its OWN format. The per-file
@@ -190,6 +198,7 @@ export async function POST(req: NextRequest) {
         : [{ fileName: (storagePath!.split('/').pop()?.replace(/^\d+_/, '') || 'unknown'), path: storagePath! }];
 
     const fileParseByName = new Map<string, FileParse>();
+    trace(`download-parse-start files=${fileEntries.length}`);
     for (const { fileName, path } of fileEntries) {
       const parseStart = Date.now();
       console.log(`[SCI Bulk] Downloading from Storage: ${path}`);
@@ -260,6 +269,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    trace('download-parse-end');
     // Resolve which file's parse a content unit belongs to. A single-file import (one
     // parse) ALWAYS resolves to that one parse — byte-identical to the pre-HF path.
     const allParses = Array.from(fileParseByName.values());
@@ -421,6 +431,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    trace(`unit-loop-start units=${sortedUnits.length}`);
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
 
@@ -500,12 +511,14 @@ export async function POST(req: NextRequest) {
         const rows = sheetData?.rows || [];
         const effectiveUnit = filterFieldsForPartialClaim(unit, rows);
 
+        trace(`unit:${tabName}:process-start rows=${rows.length}`);
         const result = await processContentUnit(
           supabase, tenantId, proposalId, profileId,
           effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
           parse.fileHash,
         );
         results.push(result);
+        trace(`unit:${tabName}:process-end committed=${result.rowsProcessed} ok=${result.success}`);
         // D16 truthful completion: emit this unit's terminal `bound` state AS it commits — durable
         // per-unit, not batched at end-of-run. A mid-run infra failure (run-3's chunk-8/81 502 killed the
         // request before the end-batch ran) then still leaves a truthful durable record for every unit
@@ -581,8 +594,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    trace('unit-loop-end');
+
     // HF-196 Phase 1: post-commit construction — entity resolution + back-link.
+    trace('post-commit-construction-start');
     await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
+    trace('post-commit-construction-end');
 
     // HF-269 Phase C (OB-195 cache invalidation): new data was just imported, so any persisted
     // input_bindings are stale — they may bind columns that no longer resolve against the new data,
@@ -608,6 +625,8 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Bulk] input_bindings invalidation threw (non-blocking):', err instanceof Error ? err.message : String(err));
     }
 
+    trace('binding-clear-end');
+
     // HF-239 Phase 0.3: HF-126 rule_set_assignments creation. Calculation
     // engine requires assignments to route entities to plans. Fire-and-forget
     // at the surface level — failures are logged but do not block.
@@ -616,6 +635,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[SCI Bulk] Assignment creation failed (non-blocking):', err);
     }
+    trace('assignments-end');
 
     // HF-239 Phase 0.2: flywheel signal emission. Build a per-content-unit
     // row sample (first 5 rows of the matched sheet) so the fingerprint
@@ -646,6 +666,7 @@ export async function POST(req: NextRequest) {
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
       rowsByContentUnitId,
     });
+    trace('flywheel-emitted');
 
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
@@ -669,12 +690,14 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
+    trace('bound-states-emitted');
     const response: SCIExecutionResult = {
       proposalId,
       results,
       overallSuccess: results.every(r => r.success),
     };
 
+    trace('response');
     return NextResponse.json(response);
 
   } catch (err) {

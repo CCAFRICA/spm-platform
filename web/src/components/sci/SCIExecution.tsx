@@ -190,6 +190,7 @@ export function SCIExecution({
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     const STALL_MS = 90_000;
     let lastSettled = -1, lastProgressAt = Date.now();
+    console.log(`[TRACE-POLL] settleFromSurface START tracked=${trackedIds.length}`); // DIAG-070
     while (Date.now() - lastProgressAt < STALL_MS) {
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}&telemetry=1`);
@@ -221,12 +222,14 @@ export function SCIExecution({
             const su = sUnits.find(x => x.unitId === id);
             return su && ['bound', 'resolved', 'failed_interpretation'].includes(su.state);
           }).length;
+          console.log(`[TRACE-POLL] settleFromSurface TICK settled=${settledCount}/${trackedIds.length}`); // DIAG-070
           if (settledCount > lastSettled) { lastSettled = settledCount; lastProgressAt = Date.now(); }
-          if (settledCount >= trackedIds.length) return true; // every tracked unit has a terminal disposition
+          if (settledCount >= trackedIds.length) { console.log('[TRACE-POLL] settleFromSurface STOP reason=allSettled'); return true; } // every tracked unit has a terminal disposition
         }
       } catch { /* keep polling — the surface is the truth, a missed poll self-corrects */ }
       await sleep(2000);
     }
+    console.log('[TRACE-POLL] settleFromSurface STOP reason=stall-timeout'); // DIAG-070
     return false; // stalled with non-terminal units — the resume loop decides what's next
   }, [tenantId, proposal.proposalId]);
 
@@ -241,12 +244,14 @@ export function SCIExecution({
   useEffect(() => {
     if (executionDone) return;
     let cancelled = false;
+    console.log('[TRACE-POLL] live-progress START'); // DIAG-070
     const poll = async () => {
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}`);
         if (!r.ok || cancelled) return;
         const view = await r.json() as { units: Array<{ unitId: string; state: string }> };
         const boundIds = new Set(view.units.filter(u => u.state === 'bound').map(u => u.unitId));
+        console.log(`[TRACE-POLL] live-progress TICK bound=${boundIds.size}`); // DIAG-070
         if (boundIds.size === 0) return;
         setUnits(prev => prev.some(u => u.status === 'processing' && boundIds.has(u.contentUnitId))
           ? prev.map(u => (u.status === 'processing' && boundIds.has(u.contentUnitId) ? { ...u, status: 'complete' as const } : u))
@@ -255,7 +260,7 @@ export function SCIExecution({
     };
     const interval = setInterval(() => { void poll(); }, 2000);
     void poll();
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => { cancelled = true; clearInterval(interval); console.log('[TRACE-POLL] live-progress STOP'); }; // DIAG-070
   }, [executionDone, tenantId, proposal.proposalId]);
 
   // OB-156/HF-140: Bulk execution — sends storagePath to server, no row data in HTTP body
@@ -305,6 +310,7 @@ export function SCIExecution({
     // DIAG-069 mechanism cost) and the auth-starving poll load. D18 resilience is preserved: a lost
     // response still falls to settle-recovery; only a live response now short-circuits the poll.
     const MAX_EXECUTE_ATTEMPTS = 3; // re-POSTs on a LOST response only — never on a 200-with-failures
+    const ebLabel = (bulkStoragePath ? bulkStoragePath.split('/').pop() : undefined) ?? groupUnitIds[0] ?? 'group'; // DIAG-070 trace label
 
     const finalize = (outcome: FileDispatchOutcome): FileDispatchOutcome => {
       // OB-203 Phase D: once-per-session settle audit (idempotent; ImportReadyState backstops on mount).
@@ -332,6 +338,7 @@ export function SCIExecution({
     for (let attempt = 1; attempt <= MAX_EXECUTE_ATTEMPTS; attempt++) {
       if (attempt > 1) console.warn(`[SCIExecution] HF-296 re-POST attempt ${attempt}/${MAX_EXECUTE_ATTEMPTS} (prior response was lost)`);
       try {
+        const fetchStart = Date.now(); // DIAG-070
         const res = await fetchWithTimeout('/api/import/sci/execute-bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -342,6 +349,7 @@ export function SCIExecution({
             contentUnits: bulkUnits,
           }),
         });
+        console.log(`[TRACE-CLIENT] ${ebLabel} FETCH-RETURNED http=${res.status} ok=${res.ok} at +${Date.now() - fetchStart}ms`); // DIAG-070
 
         if (res.ok) {
           // LIVE 200 — authoritative. Trust it, advance immediately. ZERO POLLING.
@@ -351,15 +359,18 @@ export function SCIExecution({
             seedFromResults(bulkResult.results);
             const present = new Set(bulkResult.results.map(r => r.contentUnitId));
             if (groupUnitIds.every(id => present.has(id))) {
+              console.log(`[TRACE-CLIENT] ${ebLabel} PATH=immediate-return units=${groupUnitIds.length}`); // DIAG-070 — proves HF-296 happy path is live
               return finalize({ settled: true, unitIds: groupUnitIds }); // every unit accounted for — no poll
             }
             // Rare: some units absent from the body (e.g. resume-skipped) → ONE recovery settle for the remainder.
+            console.log(`[TRACE-CLIENT] ${ebLabel} PATH=settle-recovery reason=units-missing-from-200`); // DIAG-070
             const settled = await settleFromSurface(groupUnitIds);
             return finalize(settled
               ? { settled: true, unitIds: groupUnitIds }
               : { settled: false, unitIds: groupUnitIds, errorClass: 'not_finalized', technicalDetail: 'some units missing from the execute-bulk response' });
           }
           // 200 with an unparseable/empty body — treat as a lost response → recovery settle.
+          console.log(`[TRACE-CLIENT] ${ebLabel} PATH=settle-recovery reason=unparseable-200`); // DIAG-070
           lastErrText = 'execute-bulk returned 200 with no parseable results';
           const settled = await settleFromSurface(groupUnitIds);
           return finalize(settled
@@ -372,6 +383,7 @@ export function SCIExecution({
         // what relieves the auth starvation.)
         const errBody = await res.text().catch(() => '');
         const detail = errBody.slice(0, 600) || `HTTP ${res.status}`;
+        console.log(`[TRACE-CLIENT] ${ebLabel} PATH=fail-fast reason=http-${res.status}`); // DIAG-070
         console.warn(`[SCIExecution] execute-bulk responded ${res.status} (definitive file failure, no poll): ${detail.slice(0, 160)}`);
         return finalize({ settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ httpStatus: res.status, rawError: errBody }), technicalDetail: detail });
 
@@ -379,6 +391,7 @@ export function SCIExecution({
         // LOST RESPONSE (timeout / abort / network) — the ONLY case that justifies recovery polling AND a
         // POST retry. The server may have committed despite the dead connection (D18 preserved).
         lastErrText = (err instanceof Error ? err.message : String(err)).slice(0, 600);
+        console.log(`[TRACE-CLIENT] ${ebLabel} PATH=settle-recovery reason=lost-response`); // DIAG-070
         console.warn('[SCIExecution] execute-bulk response was lost (recovery settle):', lastErrText);
         const settled = await settleFromSurface(groupUnitIds);
         if (settled) return finalize({ settled: true, unitIds: groupUnitIds });
@@ -595,6 +608,7 @@ export function SCIExecution({
       console.log(`[HF-142] File groups (${fileGroups.size}): ${Array.from(fileGroups.keys()).join(', ')}`);
       console.log(`[HF-142] Storage paths available: ${JSON.stringify(storagePaths || {})}`);
 
+      const loopStart = Date.now(); // DIAG-070: measures the gap between files (the architect's 5-min symptom)
       for (const [sourceFile, groupUnits] of Array.from(fileGroups.entries())) {
         // HF-141: Strict per-file path resolution — NO cross-file fallback.
         // Only use storagePaths[sourceFile] (exact match). If missing and only
@@ -618,13 +632,16 @@ export function SCIExecution({
                 ? { ...u, status: 'error' as const, error: failure.errorClass, failure }
                 : u));
           };
+          console.log(`[TRACE-CLIENT] DISPATCH-START file=${sourceFile} at +${Date.now() - loopStart}ms`); // DIAG-070
           try {
             const outcome = await executeBulk(groupUnits, filePath);
+            console.log(`[TRACE-CLIENT] DISPATCH-END file=${sourceFile} settled=${outcome.settled} at +${Date.now() - loopStart}ms`); // DIAG-070
             if (!outcome.settled) {
               markFileFailed(toImportFileFailure(fileLabel, outcome.errorClass ?? 'unknown', outcome.technicalDetail));
             }
           } catch (err) {
             const detail = err instanceof Error ? err.message : String(err);
+            console.log(`[TRACE-CLIENT] DISPATCH-END file=${sourceFile} settled=THREW at +${Date.now() - loopStart}ms`); // DIAG-070
             markFileFailed(toImportFileFailure(fileLabel, classifyImportError({ rawError: detail }), detail));
           }
         } else {
