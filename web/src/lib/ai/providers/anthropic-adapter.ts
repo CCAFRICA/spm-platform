@@ -1049,7 +1049,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
     // OB-155: Retry with backoff — fetch() can fail transiently in Next.js dev server
     const MAX_RETRIES = 3;
     const requestBody = JSON.stringify({
-      model: this.config.model || 'claude-sonnet-4-20250514',
+      model: this.config.model || 'claude-sonnet-4-6',
       max_tokens: request.options?.maxTokens || 8192,
       temperature: request.options?.temperature ?? 0.1,
       system: systemPrompt,

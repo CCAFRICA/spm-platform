@@ -11,7 +11,7 @@ export type AIProvider = 'anthropic' | 'openai' | 'azure_openai' | 'local';
 
 export interface AIServiceConfig {
   provider: AIProvider;
-  model: string;                    // e.g., 'claude-sonnet-4-20250514', 'gpt-4o'
+  model: string;                    // e.g., 'claude-sonnet-4-6', 'gpt-4o'
   apiKey?: string;                  // From env var, never hardcoded
   baseUrl?: string;                 // For Azure OpenAI or local models
   maxTokens?: number;

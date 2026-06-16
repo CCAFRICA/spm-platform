@@ -31,7 +31,7 @@ export class AIService {
   constructor(config?: Partial<AIServiceConfig>) {
     this.config = {
       provider: (process.env.NEXT_PUBLIC_AI_PROVIDER as AIProvider) || 'anthropic',
-      model: process.env.NEXT_PUBLIC_AI_MODEL || 'claude-sonnet-4-20250514',
+      model: process.env.NEXT_PUBLIC_AI_MODEL || 'claude-sonnet-4-6',
       ...config,
     };
     this.adapter = this.createAdapter(this.config.provider);
