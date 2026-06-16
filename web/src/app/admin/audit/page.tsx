@@ -20,7 +20,8 @@ import {
   LogIn, LogOut, Plus, Pencil, Trash, FileText, Check, X, Clock
 } from 'lucide-react';
 import { audit } from '@/lib/audit-service';
-import { AuditLogEntry, AuditAction } from '@/types/audit';
+import { createClient } from '@/lib/supabase/client';
+import { AuditLogEntry, AuditAction, EntityType, AuditChange } from '@/types/audit';
 import { formatDistanceToNow, format } from 'date-fns';
 import { pageVariants, containerVariants, itemVariants, modalVariants } from '@/lib/animations';
 import { TableSkeleton } from '@/components/ui/skeleton-loaders';
@@ -60,14 +61,31 @@ function AuditPageContent() {
       setIsLoading(true);
     }
 
-    // Simulate network delay for demo
-    await new Promise(r => setTimeout(r, showRefresh ? 500 : 800));
-
-    // Filter audit logs by current tenant
-    const allLogs = audit.getAuditLogs({ limit: 500 });
-    const tenantFilteredLogs = currentTenant
-      ? allLogs.filter(log => !log.metadata?.tenantId || log.metadata.tenantId === currentTenant.id)
-      : allLogs;
+    // OB-213 3A: read persisted audit_logs (DB) for the current tenant, mapping the DB columns
+    // (resource_type/resource_id/profile_id/created_at) → the UI AuditLogEntry shape.
+    let tenantFilteredLogs: AuditLogEntry[] = [];
+    if (currentTenant?.id) {
+      const supabase = createClient();
+      const relaxed = supabase as unknown as {
+        from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { order: (k: string, o: { ascending: boolean }) => { limit: (n: number) => Promise<{ data: Array<Record<string, unknown>> | null }> } } } };
+      };
+      const { data } = await relaxed.from('audit_logs')
+        .select('id, action, resource_type, resource_id, changes, metadata, profile_id, ip_address, created_at')
+        .eq('tenant_id', currentTenant.id)
+        .order('created_at', { ascending: false })
+        .limit(500);
+      tenantFilteredLogs = (data ?? []).map((r) => ({
+        id: String(r.id),
+        timestamp: String(r.created_at ?? ''),
+        userId: (r.profile_id as string) ?? 'system',
+        userName: (r.profile_id as string) ?? 'system',
+        action: r.action as AuditAction,
+        entityType: r.resource_type as EntityType,
+        entityId: (r.resource_id as string) ?? undefined,
+        changes: (r.changes as AuditChange[] | null) ?? undefined,
+        metadata: (r.metadata as Record<string, unknown> | null) ?? undefined,
+      }));
+    }
 
     setLogs(tenantFilteredLogs);
     setIsLoading(false);

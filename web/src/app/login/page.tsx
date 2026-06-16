@@ -39,6 +39,12 @@ export default function LoginPage() {
       toast.success(t('auth.welcomeBack', { name: emailInput }), {
         description: 'Signed in',
       });
+      // OB-213 3A: persist a login audit event (route resolves identity from the new session).
+      void fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', entityType: 'user', metadata: { email: emailInput } }),
+      }).catch(() => {});
     } else {
       setLoginError(result.error || 'Login failed. Please try again.');
       setIsLoading(false);
