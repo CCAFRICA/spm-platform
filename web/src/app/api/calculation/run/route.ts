@@ -38,9 +38,9 @@ import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findCom
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
 // HF-196 Phase 2: calc-time entity resolution per Decision 92 + OB-182 stated intent.
-// Closes Break #2 (entity binding gap) by populating committed_data.entity_id at
-// calc time for any rows where the import-time path didn't already resolve.
-import { resolveEntitiesAtCalcTime } from '@/lib/sci/calc-time-entity-resolution';
+// HF-301 (AUD-006 RC-1): resolveEntitiesAtCalcTime import REMOVED — its whole-tenant scan timed out
+// the calc at MIR scale. OB-183 resolves entity_id in-memory from period rows; the durable back-link
+// is the import's job (HF-300 finalize-import). The calc-time-entity-resolution module is unchanged.
 // HF-219 Component R2: bidirectional flywheel loop wiring at structural_exception path.
 import { decrementFingerprintConfidence } from '@/lib/sci/fingerprint-flywheel';
 import { loadDensity, persistDensityUpdates } from '@/lib/calculation/synaptic-density';
@@ -161,30 +161,18 @@ export async function POST(request: NextRequest) {
   // iteration. Read by Tier 2 emission line. Push from any Tier 3 emission site.
   let currentEntityFlags: string[] = [];
 
-  // ── HF-196 Phase 2: Calc-time entity resolution (Break #2 closure) ──
-  // Per Decision 92 + OB-182 stated intent. Idempotent — does nothing if all
-  // rows already have entity_id resolved. Surfaces unmatched rows as a data-
-  // quality signal but does not halt the calc run.
-  try {
-    const entityResolution = await resolveEntitiesAtCalcTime(tenantId, supabase);
-    addLog(
-      `Calc-time entity resolution: tenant=${tenantId} ` +
-      `null_rows_before=${entityResolution.totalNullRowsBefore} ` +
-      `matched=${entityResolution.matched} ` +
-      `unmatched=${entityResolution.unmatched} ` +
-      `(${entityResolution.durationMs}ms)`,
-    );
-    if (entityResolution.unmatched > 0) {
-      addLog(
-        `[DATA QUALITY] ${entityResolution.unmatched} committed_data rows still have ` +
-        `entity_id NULL after calc-time resolution; calc will skip these rows`,
-      );
-    }
-  } catch (err) {
-    // Non-blocking: calc proceeds even if resolution fails. Engine will
-    // attribute only resolved rows to entities; unresolved rows skipped.
-    addLog(`Calc-time entity resolution failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // ── HF-301 (AUD-006 RC-1): whole-tenant calc-time entity resolution REMOVED from the hot path. ──
+  // This previously called `resolveEntitiesAtCalcTime(tenantId, supabase)` → `resolveEntitiesFromCommittedData`,
+  // a WHOLE-TENANT scan of every committed_data row (165,897 on the MIR tenant) plus an entity_id back-link
+  // UPDATE. Above ~50k rows it dominated the 300s budget and timed out the calc function (AUD-006).
+  //
+  // It is NOT needed at calc time: OB-183 resolves entity_id IN-MEMORY from row_data[metadata.entity_id_field]
+  // against extIdToUuid using only the PERIOD-scoped rows already loaded (the `calcTimeResolved` loop in
+  // Phase 4 below). The DURABLE entity_id back-link is the IMPORT's responsibility now — HF-300 moved it to
+  // the /api/import/sci/finalize-import endpoint (a live request), so the calc must not redo a whole-tenant
+  // write. Korean Test: OB-183 keys on the structural metadata.entity_id_field the SCI classification wrote
+  // at import time — no field-name matching here. (Was: HF-196 Phase 2 / Decision 92 / OB-182 intent.)
+  addLog('HF-301: whole-tenant calc-time entity resolution skipped — OB-183 resolves period-scoped entity_id in-memory (Phase 4)');
 
   // ── 1. Fetch rule set ──
   const { data: ruleSet, error: rsErr } = await supabase
