@@ -26,10 +26,9 @@ import { computeFileHashSha256 } from '@/lib/sci/file-content-hash';
 import { isSpreadsheetPath, extensionOf } from '@/lib/sci/file-format';
 // HF-285-D: parse-once companion (read + best-effort write-through).
 import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-companion';
-// HF-196 Phase 1: post-commit construction unified across both import endpoints.
-// Closes Break #3 (import surface fragmentation): execute-bulk now runs the same
-// post-commit work as execute (entity resolution + entity_id back-link).
-import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
+// HF-300 (DIAG-071): executePostCommitConstruction (entity resolution + entity_id back-link) MOVED
+// to /api/import/sci/finalize-import — it runs once in a live request; the per-file waitUntil
+// background here did not complete on Vercel (99% of committed_data left NULL entity_id).
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
@@ -53,8 +52,7 @@ import { executeBatchedPlanInterpretation } from '@/lib/sci/plan-interpretation'
 // to write zero flywheel signals; this restores fingerprint / classification
 // / foundational / domain emission for every import.
 import { emitFlywheelSignals } from '@/lib/sci/flywheel-signal-emission';
-// HF-239 Phase 0.3: rule_set_assignments creation extracted (HF-126 block).
-import { createMissingAssignments } from '@/lib/sci/assignment-creation';
+// HF-300 (DIAG-071): createMissingAssignments MOVED to /api/import/sci/finalize-import (live request).
 // HF-239 Phase 0.4: store metadata population extracted from execute's
 // per-pipeline postCommitConstruction (OB-146 Step 1b block).
 import { populateStoreMetadata } from '@/lib/sci/store-metadata-population';
@@ -607,7 +605,7 @@ export async function POST(req: NextRequest) {
     // with no -end; client DISPATCH-START with no further lines, fetch never returned).
     const totalMs = Date.now() - startTime;
     const totalProcessed = results.reduce((s, r) => s + r.rowsProcessed, 0);
-    console.log(`[SCI Bulk] Commit complete: ${totalProcessed} rows in ${totalMs}ms (${(totalMs / 1000).toFixed(1)}s) — post-commit deferred to background`);
+    console.log(`[SCI Bulk] Commit complete: ${totalProcessed} rows in ${totalMs}ms (${(totalMs / 1000).toFixed(1)}s) — critical post-commit via finalize-import endpoint`);
     const response: SCIExecutionResult = {
       proposalId,
       results,
@@ -615,48 +613,21 @@ export async function POST(req: NextRequest) {
     };
     trace('response');
 
-    // Run post-commit construction AFTER the response is flushed. waitUntil keeps the Vercel
-    // function alive for this background work WITHOUT blocking the client. (A bare un-awaited promise
-    // would be frozen when the lambda returns, silently dropping entity resolution that calculation
-    // later depends on — so waitUntil, not fire-and-forget.) Once the client has its 200 and stops
-    // polling, the DB contention that was slowing post-commit clears.
-    const postCommitWork = (async () => {
-      // HF-196 Phase 1: post-commit construction — entity resolution + entity_id back-link.
-      try {
-        trace('post-commit-construction-start');
-        await executePostCommitConstruction({ supabase, tenantId, source: 'sci-bulk' });
-        trace('post-commit-construction-end');
-      } catch (err) {
-        console.error('[SCI Bulk] post-commit-construction failed (background, non-blocking):', err instanceof Error ? err.message : err);
-      }
-
-      // HF-269 Phase C (OB-195 cache invalidation): clear stale input_bindings so convergence
-      // RE-DERIVES on the next calculation. Scoped STRICTLY to the importing tenant's active/draft rule_sets.
-      try {
-        const { data: clearedRs, error: clearErr } = await supabase
-          .from('rule_sets')
-          .update({ input_bindings: {} })
-          .eq('tenant_id', tenantId)
-          .in('status', ['active', 'draft'])
-          .select('id');
-        if (clearErr) {
-          console.error('[SCI Bulk] input_bindings invalidation failed (non-blocking):', clearErr.message);
-        } else {
-          console.log(`[SCI Bulk] Cleared input_bindings on ${clearedRs?.length ?? 0} rule_sets (new data imported — convergence will re-derive)`);
-        }
-      } catch (err) {
-        console.error('[SCI Bulk] input_bindings invalidation threw (non-blocking):', err instanceof Error ? err.message : String(err));
-      }
-      trace('binding-clear-end');
-
-      // HF-239 Phase 0.3: HF-126 rule_set_assignments creation (calc routes entities → plans).
-      try {
-        await createMissingAssignments(supabase, tenantId);
-      } catch (err) {
-        console.error('[SCI Bulk] Assignment creation failed (non-blocking):', err);
-      }
-      trace('assignments-end');
-
+    // HF-300 (C3, DIAG-071): the CRITICAL post-commit work — entity resolution + entity_id back-link
+    // (executePostCommitConstruction), input_bindings invalidation, and rule_set_assignments
+    // (createMissingAssignments) — has MOVED OUT of this per-file response tail to the dedicated
+    // /api/import/sci/finalize-import endpoint, which the client calls ONCE after the whole import.
+    // Reason: DIAG-071 proved this waitUntil background does NOT complete on Vercel (99% of
+    // committed_data left with NULL entity_id; active plan 0 assignments — `TypeError: fetch failed`
+    // after response flush). finalize runs that work in a LIVE request (reliable) and exactly once
+    // (retiring DIAG-070's per-file 15× redundancy). PR #530's import-speed win is preserved — the
+    // per-file response still returns immediately below.
+    //
+    // What remains here is BEST-EFFORT only (NOT calc-critical): flywheel learning signals (which need
+    // the per-file parsed rows that only this route holds) and the idempotent end-of-run `bound`
+    // re-emit (the per-unit emits already streamed in-loop). If the background is frozen these degrade
+    // gracefully — learning is skipped; the spine already carries every committed unit's state.
+    const bestEffortPostCommit = (async () => {
       // HF-239 Phase 0.2: flywheel signal emission. Per-content-unit row sample (first 5 rows of the
       // matched sheet) so the fingerprint hash matches what analyze wrote.
       const rowsByContentUnitId = new Map<string, Record<string, unknown>[]>();
@@ -707,12 +678,8 @@ export async function POST(req: NextRequest) {
         console.error('[SCI Bulk] end-of-run bound re-emit failed (background, non-blocking):', err instanceof Error ? err.message : err);
       }
       trace('bound-states-emitted');
-      trace('post-commit-background-done');
     })();
-    // On Vercel, waitUntil extends the function lifetime to await postCommitWork after the response
-    // is flushed. Off-Vercel (local dev) it may be unavailable — the detached promise still runs to
-    // completion because the dev process stays alive. Either way the response is already returned.
-    try { waitUntil(postCommitWork); } catch { /* non-Vercel context — promise runs detached */ }
+    try { waitUntil(bestEffortPostCommit); } catch { /* non-Vercel context — promise runs detached */ }
 
     return NextResponse.json(response);
 

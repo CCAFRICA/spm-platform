@@ -360,10 +360,19 @@ export async function executeBatchedPlanInterpretation(
   // logged the error and proceeded to upsert anyway — this is how BCL ended
   // up with two active rule_sets 60 seconds apart on 2026-05-21. If we can't
   // supersede prior rows, we don't insert a new active row.
+  // HF-300 (C1, DIAG-071): supersede only PRIOR VERSIONS OF THE SAME PLAN, identified by `name`
+  // (the plan's identity across re-exports). content_hash is the FILE identity and is already handled
+  // by the HF-259 exact-duplicate REUSE earlier in this function. The pre-HF query archived EVERY
+  // non-archived rule_set for the tenant (no plan-identity filter), so importing N distinct plans left
+  // only the LAST active (DIAG-071 C1: 1 active / 11 archived on the MIR tenant). Scoping to `name`
+  // archives only this plan's prior version, leaves the OTHER plans active, and converges a reimport of
+  // the same N plans to exactly N active — the "idempotent on plan name" intent the comment below
+  // already claimed but the code never enforced. Scale-by-Design: holds for any N, no per-count assumption.
   const { error: supersedeError, data: supersededRows } = await supabase
     .from('rule_sets')
     .update({ status: 'archived', updated_at: new Date().toISOString() })
     .eq('tenant_id', tenantId)
+    .eq('name', planName)
     .neq('status', 'archived')
     .select('id, name, status');
   if (supersedeError) {
