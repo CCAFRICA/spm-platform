@@ -820,21 +820,78 @@ export async function POST(request: NextRequest) {
     const entityCol: string | undefined = knownEntityCols[0];
 
     if (entityCol) {
+      // HF-302 (RC-3, DIAG-072): assigned-entity external_id set for structural secondary-key discovery.
+      // extIdToUuid was built above from the assigned (paying) entities. Korean Test: value-overlap, not names.
+      const entityExtIdSet = new Set(Array.from(extIdToUuid.keys()));
+
+      // Pre-pass: per batch, discover ONE secondary rollup column — the column (≠ entityCol) whose VALUES
+      // most overlap the assigned-entity external_ids (majority). This recovers transaction rows keyed by a
+      // non-entity primary (e.g. a client id) that carry the paying entity's id in another column, so they
+      // roll up to the entity. Discovered by value-overlap, never by column name.
+      const batchRollupCol = new Map<string, string>();
+      {
+        const perBatchColHits = new Map<string, Map<string, { hit: number; total: number }>>();
+        for (const row of committedData) {
+          const batchId = row.import_batch_id;
+          if (!batchId) continue;
+          const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
+            ? row.row_data as Record<string, unknown> : {};
+          let cm = perBatchColHits.get(batchId);
+          if (!cm) { cm = new Map(); perBatchColHits.set(batchId, cm); }
+          for (const [col, val] of Object.entries(rd)) {
+            if (col === entityCol) continue; // primary key handled by the main loop; don't double-index
+            const v = String(val ?? '').trim();
+            if (!v) continue;
+            let s = cm.get(col); if (!s) { s = { hit: 0, total: 0 }; cm.set(col, s); }
+            s.total++;
+            if (entityExtIdSet.has(v)) s.hit++;
+          }
+        }
+        for (const [batchId, cm] of Array.from(perBatchColHits.entries())) {
+          let best: string | undefined; let bestRate = 0;
+          for (const [col, s] of Array.from(cm.entries())) {
+            if (s.total < 1) continue;
+            const rate = s.hit / s.total;
+            if (rate > bestRate) { bestRate = rate; best = col; }
+          }
+          if (best && bestRate >= 0.5) batchRollupCol.set(batchId, best); // majority: the column's values ARE entity external_ids
+        }
+      }
+
       for (const row of committedData) {
         const batchId = row.import_batch_id;
         if (!batchId) continue;
 
         const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
           ? row.row_data as Record<string, unknown> : {};
-        const entityKey = String(rd[entityCol] ?? '').trim();
-        if (!entityKey) continue;
 
         if (!dataByBatch.has(batchId)) dataByBatch.set(batchId, new Map());
         const entityMap = dataByBatch.get(batchId)!;
-        if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
-        entityMap.get(entityKey)!.push(rd);
+
+        // Primary index: by the binding's entity_identifier column value (unchanged).
+        const entityKey = String(rd[entityCol] ?? '').trim();
+        if (entityKey) {
+          if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
+          entityMap.get(entityKey)!.push(rd);
+          continue; // primary-indexed — do NOT also secondary-index this row (no double-count)
+        }
+
+        // HF-302 (RC-3): secondary rollup — the row lacks the primary entity column; if this batch has a
+        // discovered rollup column whose value is a known entity external_id, index the row under it so
+        // client/transaction-keyed rows reach the paying entity.
+        const rollupCol = batchRollupCol.get(batchId);
+        if (rollupCol) {
+          const rollupKey = String(rd[rollupCol] ?? '').trim();
+          if (rollupKey && entityExtIdSet.has(rollupKey)) {
+            if (!entityMap.has(rollupKey)) entityMap.set(rollupKey, []);
+            entityMap.get(rollupKey)!.push(rd);
+          }
+        }
       }
       addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
+      if (batchRollupCol.size > 0) {
+        addLog(`HF-302 RC-3: ${batchRollupCol.size} batch(es) indexed by a secondary rollup key (value-overlap with entities.external_id)`);
+      }
     }
   }
 
@@ -1536,17 +1593,28 @@ export async function POST(request: NextRequest) {
     entityExternalId: string,
     filters?: MetricDerivationRule['filters'],
   ): number | null {
+    // HF-302 (RC-2, DIAG-072): select the batch whose rows actually CARRY `column` (non-null) for this
+    // entity — not merely the first batch with ANY rows. After RC-3 an entity can have rows in multiple
+    // batches (roster + transactions); first-with-rows could pick a batch that lacks the bound column →
+    // null → silent $0 (the DIAG-072 failure). Column-presence selection resolves the bound column from
+    // the file it actually lives in. No source_batch_id needed (the persisted binding carries none).
+    // Single-batch (single-file) tenants are unaffected: the one batch is selected exactly as before.
     let entityRows: Array<Record<string, unknown>> | undefined;
+    let anyRowsForEntity = false;
     for (const [, map] of Array.from(dataByBatch.entries())) {
       const rows = map.get(entityExternalId);
-      if (rows && rows.length > 0) {
-        entityRows = rows;
+      if (!rows || rows.length === 0) continue;
+      anyRowsForEntity = true;
+      if (rows.some(rd => rd[column] !== null && rd[column] !== undefined)) {
+        entityRows = rows;   // this batch carries the column for the entity
         break;
       }
     }
     if (!entityRows) {
+      // Structured failure (never a silent 0): distinguish "entity has rows but none carry this column"
+      // (a mis-binding or cross-file gap) from "entity has no rows at all".
       if (shouldEmitTrace(entityExternalId)) {
-        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reason=no_rows | returned=null`);
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reason=${anyRowsForEntity ? 'column_in_no_batch' : 'no_rows'} | returned=null`);
       }
       return null;
     }
