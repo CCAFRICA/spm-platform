@@ -848,13 +848,31 @@ export async function POST(request: NextRequest) {
           }
         }
         for (const [batchId, cm] of Array.from(perBatchColHits.entries())) {
-          let best: string | undefined; let bestRate = 0;
+          // HF-303 (Decision 110 / HF-218): the rollup key is the column with the STRONGEST membership in
+          // the assigned-entity external_id set, evaluated RELATIVE to the other candidate columns (argmax) —
+          // never against a developer-set cutoff. The only bare number is 0, the structural floor ("is this
+          // column an entity foreign key at all"), not a tuned threshold. A tie at the maximum is a real
+          // ambiguity: surface it, never pick by iteration order (no silent fallback).
+          let maxMembership = 0;
+          let winners: string[] = [];
           for (const [col, s] of Array.from(cm.entries())) {
             if (s.total < 1) continue;
-            const rate = s.hit / s.total;
-            if (rate > bestRate) { bestRate = rate; best = col; }
+            const membership = s.hit / s.total;        // ratio of set-membership counts — a structural observation
+            if (membership > maxMembership) { maxMembership = membership; winners = [col]; }
+            else if (membership === maxMembership && maxMembership > 0) { winners.push(col); }
           }
-          if (best && bestRate >= 0.5) batchRollupCol.set(batchId, best); // majority: the column's values ARE entity external_ids
+          if (maxMembership === 0 || winners.length === 0) {
+            addLog(`HF-303: no rollup key for batch ${batchId} — no column's values are entity external_ids`);
+            continue;
+          }
+          if (winners.length > 1) {
+            // Two+ columns equally, maximally entity-id-like — a genuine ambiguity. Surface it and select
+            // NONE (rows reach entities via the primary key only); never guess by iteration order.
+            addLog(`HF-303: ambiguous rollup key for batch ${batchId} — ${winners.length} columns tie at max membership; none selected (surface for review)`);
+            continue;
+          }
+          batchRollupCol.set(batchId, winners[0]);
+          addLog(`HF-303: rollup key for batch ${batchId} selected by strongest membership=${maxMembership.toFixed(2)} (argmax over ${cm.size} candidate columns)`);
         }
       }
 
