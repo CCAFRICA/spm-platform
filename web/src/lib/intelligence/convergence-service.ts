@@ -2748,33 +2748,18 @@ async function generateAllComponentBindings(
   // — it serves Call 1's structural column mapping for plans whose metrics
   // span multiple capability data types.
 
-  // HF-228 — cross-data-type column discovery. Pre-HF-228 `measureColumns`
-  // was built only from capabilities whose data_type appears in `matches`;
-  // unmatched capabilities contributed no columns and were invisible to
-  // resolveColumnMappingsViaAI. For plans that combine transaction-style
-  // measures with reference/target-style metrics from a different data_type
-  // (e.g., a per-entity quota living on `target` data alongside revenue on
-  // `transaction` data), the cross-source metric could not be resolved.
-  // The cross-source columns are tagged `contextualIdentity: 'cross_source_numeric'`
-  // with lower confidence (0.4) so the AI naturally prefers primary
-  // (matched-capability) columns for principal metrics and uses cross-source
-  // columns only for supplementary metrics.
-  // Korean Test: structural type classification + numeric-field discovery,
-  // no column-name matching.
-  const matchedDataTypes = new Set(matches.map(m => m.dataType));
-  for (const cap of capabilities) {
-    if (matchedDataTypes.has(cap.dataType)) continue;
-    for (const nf of cap.numericFields) {
-      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
-        measureColumns.push({
-          name: nf.field,
-          fi: { structuralType: 'measure', contextualIdentity: 'cross_source_numeric', confidence: 0.4 },
-          stats: cap.columnStats[nf.field],
-          batchId: cap.batchIds[0] || '',
-        });
-      }
-    }
-  }
+  // HF-302 (RC-1, DIAG-072): the HF-228 cross-data-type column add-loop is REMOVED.
+  // HF-228 pushed EVERY unmatched data_type's numeric columns into `measureColumns` as
+  // `cross_source_numeric` (confidence 0.4) — a SOFT discriminator only. After HF-269 Phase A
+  // removed the HARD cross-source guard (HF-263 P3.2), that flat pool let the AI bind a plan's
+  // component inputs to columns from a DIFFERENT data file than the plan's own (DIAG-072: a
+  // collections-file column bound to a sales-plan input → null → $0). The candidate pool is now
+  // scoped to the data_type(s) the BOUNDARY MATCHER
+  // associated with this plan's components (`measureColumns` above, built only from matched
+  // capabilities) — deterministic file affinity, keyed on data_type/batchId, no magnitude proxy,
+  // no name matching (Korean Test). A genuine cross-data_type need must surface through the
+  // component's declared cross-reference (boundary-matcher output), NOT a blanket add-all loop.
+  // (Do NOT restore HF-263 P3.2 — the magnitude-proxy redirect was deliberately deleted.)
 
   // HF-275: compute each measure column's null-rate over the CALCULATION POPULATION
   // (committed_data rows with entity_id IS NOT NULL — the individual payees HF-263 keeps;

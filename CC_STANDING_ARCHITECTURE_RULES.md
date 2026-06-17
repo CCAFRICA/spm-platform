@@ -229,6 +229,7 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 3. Final step of every OB/HF/SD: `gh pr create --base main --head dev` with descriptive title and body
 4. Git commit messages: ASCII only
 5. Completion reports and proof gates saved to docs/completion-reports/
+6. HF-303: run `scripts/no-developer-numbers-scan.sh` before every completion report touching `convergence-service.ts` or `run/route.ts`. A bare numeric threshold (a float used in a comparison) without a `// RATIFIED: <reason>` justification is a Decision-110 / OB-IGF-25 #5 violation — halt and surface, do not ship a developer-assigned authority value.
 
 ### Supabase
 6. **Supabase migrations MUST be executed live** (SQL Editor or `supabase db push`) AND verified with a database query. File existence ≠ applied. Proof gate = live DB query showing changes exist.
