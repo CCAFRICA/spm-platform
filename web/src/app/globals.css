@@ -98,63 +98,81 @@
   }
 
   /* ============================================================
-     OB-201 BLISS THEME — overrides the SAME shadcn tokens with the bliss palette.
-     html[data-theme="bliss"] (specificity 0,1,1) wins over the hardcoded .dark (0,1,0).
-     Bliss hex → HSL for the shadcn token consumers (hsl(var(--token)) in tailwind.config).
+     BLISS THEME (HF-307 authoritative correction) — values from the production marketing
+     styles.css (OKLCH). The shadcn tokens below carry the authoritative OKLCH CONVERTED to
+     HSL triples, because tailwind.config consumes them via hsl(var(--token)) and 18 chart/
+     tooltip components also read hsl(var(--token)) directly — keeping the v3 pipeline intact
+     is what guarantees zero current-theme regression (HALT-1). The RAW OKLCH values live in
+     the brand tokens + design vocabulary below and are used directly (§4.2). Each HSL triple
+     is annotated with its authoritative oklch() source.
+     html[data-theme="bliss"] (0,1,1) wins over .dark (0,1,0).
      ============================================================ */
   html[data-theme="bliss"] {
-    --background: 240 100% 99%;        /* offwhite #F8F8FF */
-    --foreground: 255 50% 8%;          /* ink #0F0A1E */
-    --card: 0 0% 100%;                 /* white */
-    --card-foreground: 255 50% 8%;
+    --background: 0 0% 100%;             /* oklch(1 0 0) — pure white (§1: NOT offwhite) */
+    --foreground: 239.5 62.5% 19.7%;     /* ink oklch(0.24 0.11 274) — indigo-tinted, NOT black */
+    --card: 0 0% 100%;                   /* oklch(1 0 0) */
+    --card-foreground: 239.5 62.5% 19.7%;
     --popover: 0 0% 100%;
-    --popover-foreground: 255 50% 8%;
-    --primary: 239 52% 37%;            /* indigo #2D2F8F */
+    --popover-foreground: 239.5 62.5% 19.7%;
+    --primary: 240.2 57.9% 33.8%;        /* indigo oklch(0.34 0.16 274) */
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 50% 96%;          /* indigo-soft #F0F0FA */
-    --secondary-foreground: 239 52% 37%;
-    --muted: 240 50% 96%;
-    --muted-foreground: 251 14% 44%;   /* muted #666080 */
-    --accent: 38 79% 56%;              /* gold #E8A838 */
-    --accent-foreground: 255 50% 8%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 221.1 100% 97%;         /* indigo-soft oklch(0.97 0.025 274) */
+    --secondary-foreground: 240.2 57.9% 33.8%;
+    --muted: 232.7 58.7% 98.6%;          /* offwhite oklch(0.985 0.005 280) */
+    --muted-foreground: 228.6 19.7% 45.8%; /* oklch(0.52 0.06 274) — indigo cast */
+    --accent: 37.2 82.9% 59.8%;          /* gold oklch(0.79 0.14 76) */
+    --accent-foreground: 239.5 62.5% 19.7%;
+    --destructive: 358.1 88% 44.2%;      /* oklch(0.55 0.22 28) */
     --destructive-foreground: 0 0% 100%;
-    --border: 240 23% 91%;             /* border #E4E4EE */
-    --input: 240 23% 91%;
-    --ring: 239 52% 37%;
-    --chart-1: 239 52% 37%;            /* indigo */
-    --chart-2: 38 79% 56%;             /* gold */
+    --border: 227.2 19% 90.5%;           /* oklch(0.92 0.01 274) — indigo-tinted */
+    --input: 227.2 19% 90.5%;
+    --ring: 240.2 57.9% 33.8%;
+    --chart-1: 240.2 57.9% 33.8%;        /* indigo */
+    --chart-2: 37.2 82.9% 59.8%;         /* gold */
     --chart-3: 160 60% 45%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --radius: 0.625rem;                /* bliss lg 10px */
+    --radius: 0.25rem;                   /* authoritative line-precision radius */
 
-    /* app-shell */
-    --app-bg: #F8F8FF;
-    --app-fg: #0F0A1E;
+    /* app-shell — bliss page is pure WHITE (§1), ink text */
+    --app-bg: oklch(1 0 0);
+    --app-fg: var(--ink);
 
-    /* HF-306 card surface/border under bliss — white card on offwhite page, hairline border */
-    --card-surface: #FFFFFF;
-    --card-bd: #E4E4EE;
+    /* card surface/border under bliss — white card, indigo-tinted hairline border */
+    --card-surface: oklch(1 0 0);
+    --card-bd: var(--border-oklch);
 
-    /* bliss brand tokens (raw hex — consumed by bliss-scoped primitive CSS only) */
-    --color-indigo: #2D2F8F;
-    --color-indigo-dark: #1E2070;
-    --color-indigo-soft: #F0F0FA;
-    --color-gold: #E8A838;
-    --color-gold-deep: #B07A15;
-    --color-gold-soft: #FAF6E8;
-    --color-ink: #0F0A1E;
-    --color-ink-bg: #08090F;
-    --color-ink-panel: #13162A;
-    --color-offwhite: #F8F8FF;
-    --color-muted: #666080;
-    --color-border: #E4E4EE;
+    /* HF-307 authoritative brand tokens — RAW OKLCH (used directly by the design vocabulary).
+       --color-* aliases keep the existing consumers (.eyebrow/.vl-card/sidebar/nav) working. */
+    --ink: oklch(0.24 0.11 274);
+    --indigo: oklch(0.34 0.16 274);
+    --indigo-dark: oklch(0.28 0.16 274);
+    --indigo-soft: oklch(0.97 0.025 274);
+    --gold: oklch(0.79 0.14 76);
+    --gold-deep: oklch(0.58 0.16 65);
+    --gold-soft: oklch(0.97 0.05 86);
+    --offwhite: oklch(0.985 0.005 280);
+    --muted2: oklch(0.86 0.012 274);
+    --border-oklch: oklch(0.92 0.01 274);
+    --color-indigo: var(--indigo);
+    --color-indigo-dark: var(--indigo-dark);
+    --color-indigo-soft: var(--indigo-soft);
+    --color-gold: var(--gold);
+    --color-gold-deep: var(--gold-deep);
+    --color-gold-soft: var(--gold-soft);
+    --color-ink: var(--ink);
+    --color-ink-bg: var(--ink);
+    --color-ink-panel: var(--indigo-dark);
+    --color-offwhite: var(--offwhite);
+    --color-muted: oklch(0.52 0.06 274);   /* muted-foreground (sidebar labels) */
+    --color-border: var(--border-oklch);
 
-    /* typography */
+    /* typography — authoritative names: --font-sans (Inter) is the body font; --font-body
+       kept as an alias so HF-306 rules (body, .vl-card) keep working. */
     --font-display: "Urbanist", system-ui, sans-serif;
-    --font-body: "Inter", system-ui, sans-serif;
-    --font-mono: "DM Mono", monospace;
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-body: var(--font-sans);
+    --font-mono: "DM Mono", ui-monospace, monospace;
 
     /* spacing scale (8→64) */
     --sp-2: 8px;
@@ -167,10 +185,10 @@
     --sp-12: 48px;
     --sp-16: 64px;
 
-    /* radii */
+    /* radii — authoritative line-precision scale (--radius 0.25rem) */
     --radius-default: 4px;
-    --radius-lg: 10px;
-    --radius-xl: 14px;
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
     --radius-full: 9999px;
 
     /* shadows */
@@ -182,17 +200,18 @@
        Inverts the dark Tailwind scales to bliss light surfaces / ink text. Defined ONLY
        here (under bliss) — at data-theme="current" these are unset and the config fallbacks
        (exact original hex) apply, so current is byte-for-byte unchanged. Shared bliss roles: */
-    --bliss-ink: 15 10 30;          /* #0F0A1E primary text */
-    --bliss-ink-2: 26 21 48;        /* #1A1530 */
-    --bliss-ink-3: 42 36 64;        /* #2A2440 */
-    --bliss-muted: 102 96 128;      /* #666080 secondary text */
-    --bliss-muted-2: 133 128 160;   /* #8580A0 */
-    --bliss-bd: 228 228 238;        /* #E4E4EE borders */
-    --bliss-soft: 240 240 250;      /* #F0F0FA soft surface */
-    --bliss-surface: 248 248 255;   /* #F8F8FF page/card surface */
-    --bliss-wht: 255 255 255;
-    --bliss-indigo: 45 47 143;      /* #2D2F8F */
-    --bliss-indigo-dk: 30 32 112;   /* #1E2070 */
+    /* HF-307: authoritative OKLCH → sRGB (indigo-tinted neutrals, not neutral gray/near-black) */
+    --bliss-ink: 19 19 82;          /* ink oklch(0.24 0.11 274) */
+    --bliss-ink-2: 38 45 96;        /* oklch(0.32 0.09 274) */
+    --bliss-ink-3: 60 68 109;       /* oklch(0.40 0.07 274) */
+    --bliss-muted: 94 103 140;      /* muted-foreground oklch(0.52 0.06 274) */
+    --bliss-muted-2: 125 133 162;   /* oklch(0.62 0.045 274) */
+    --bliss-bd: 226 228 235;        /* border oklch(0.92 0.01 274) */
+    --bliss-soft: 240 244 255;      /* indigo-soft oklch(0.97 0.025 274) */
+    --bliss-surface: 249 250 253;   /* offwhite oklch(0.985 0.005 280) */
+    --bliss-wht: 255 255 255;       /* white oklch(1 0 0) */
+    --bliss-indigo: 37 36 136;      /* indigo oklch(0.34 0.16 274) */
+    --bliss-indigo-dk: 26 14 117;   /* indigo-dark oklch(0.28 0.16 274) */
 
     /* low steps (were light text on dark) → dark ink; high steps (were dark surfaces) → light */
     --c-slate-50: var(--bliss-ink);   --c-zinc-50: var(--bliss-ink);   --c-gray-50: var(--bliss-ink);
