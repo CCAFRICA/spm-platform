@@ -396,7 +396,7 @@ html[data-theme="bliss"] .app-navbar {
 
 /* ════════════════════════════════════════════════════════════════════════════
    HF-307 §3 — Bliss design vocabulary (verbatim from the authoritative styles.css,
-   scoped to [data-theme="bliss"]). Note: the iap-*/vl-* keyframes named in §3 were
+   scoped to [data-theme="bliss"]). Note: the iap- and vl- keyframes named in §3 were
    NOT included in the provided source text (only their names were listed) and are
    §6-out-of-scope marketing-icon animations — omitted (see HF-307 report G7).
    ════════════════════════════════════════════════════════════════════════════ */
