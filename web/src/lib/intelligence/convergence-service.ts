@@ -1765,6 +1765,18 @@ export function deriveNeededType(field: string, calculationIntent: unknown): Nee
   return 'numeric';
 }
 
+// OB-216 §2-S3: a binding candidate column, LABELED with its sheet (partitionKey) and role tags.
+// The sheet label is the discriminator the old unlabeled cross-sheet measure pool lacked (DIAG-073).
+type LabeledCandidate = {
+  column: string;
+  partitionKey: string;        // structural sheet identity
+  structuralType: string;
+  contextualIdentity: string;
+  fi: FieldIdentity;
+  stats?: ColumnValueStats;
+  batchId: string;
+};
+
 /**
  * The tokens a component binding actually RESOLVED — roles whose entry carries a
  * real column and was not rejected (match_pass !== 'failed'). A token that is
@@ -2785,43 +2797,49 @@ async function generateAllComponentBindings(
     return;
   }
 
-  // Collect all measure columns across matched capabilities
-  const measureColumns: Array<{
-    name: string;
-    fi: FieldIdentity;
-    stats: ColumnValueStats;
-    batchId: string;
-  }> = [];
-  let primaryCap: DataCapability | undefined;
-
-  for (const match of matches) {
-    const cap = capabilities.find(c => c.dataType === match.dataType);
-    if (!cap) continue;
-    if (!primaryCap) {
-      primaryCap = cap;
-    }
-
+  // OB-216 §2-S3: labeled, role-aware candidate set from ALL sheet capabilities — not measure-only,
+  // not match-scoped. Each column carries its sheet (partitionKey), structuralType, contextualIdentity,
+  // and stats. The sheet LABEL is the discriminator the old unlabeled cross-sheet pool lacked
+  // (DIAG-073 §2.3). ALL role-bearing columns are candidates (attributes admitted, role-tagged),
+  // so an attribute requirement (e.g. a verified-flag) can bind its attribute column.
+  const labeledCandidates: LabeledCandidate[] = [];
+  const seenCand = new Set<string>();
+  for (const cap of capabilities) {
     for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
-      if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
-        if (!measureColumns.some(mc => mc.name === colName)) {
-          measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '' });
-        }
-      }
+      const k = `${cap.partitionKey} ${colName}`;
+      if (seenCand.has(k)) continue;
+      seenCand.add(k);
+      labeledCandidates.push({
+        column: colName, partitionKey: cap.partitionKey,
+        structuralType: fi.structuralType, contextualIdentity: fi.contextualIdentity,
+        fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '',
+      });
     }
-    // Also include numeric columns with stats but no field identity
-    for (const nf of cap.numericFields) {
-      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
-        measureColumns.push({
-          name: nf.field,
-          fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
-          stats: cap.columnStats[nf.field],
-          batchId: cap.batchIds[0] || '',
-        });
-      }
+    // numeric columns with stats but no field identity → inferred measure
+    for (const colName of Object.keys(cap.columnStats)) {
+      const k = `${cap.partitionKey} ${colName}`;
+      if (cap.fieldIdentities[colName] || seenCand.has(k)) continue;
+      seenCand.add(k);
+      const inferred: FieldIdentity = { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 };
+      labeledCandidates.push({
+        column: colName, partitionKey: cap.partitionKey,
+        structuralType: 'measure', contextualIdentity: 'inferred_numeric',
+        fi: inferred, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '',
+      });
     }
   }
+  if (labeledCandidates.length === 0) return;
+  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => c.structuralType === 'attribute').map(c => c.column).join(', ') || 'none'}]`);
 
-  if (measureColumns.length === 0 || !primaryCap) return;
+  // §2-S3 compile-staging SHIM (REMOVED in §2-S5): derive the old measure-only `measureColumns`
+  // shape from labeledCandidates so the still-old resolveColumnMappingsViaAI call and boundary loop
+  // compile UNCHANGED until §2-S4/§2-S5 replace them. This is a scaffold, not a dual path — deleted
+  // in §2-S5 when the binding loop consumes `labeledCandidates` directly.
+  const measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats; batchId: string }> =
+    labeledCandidates
+      .filter(c => c.structuralType === 'measure' && c.stats)
+      .map(c => ({ name: c.column, fi: c.fi, stats: c.stats as ColumnValueStats, batchId: c.batchId }));
+  if (measureColumns.length === 0) return;
 
   // HF-112 / HF-199 D2: AI-assisted column mapping with metric_comprehension
   // signals as authoritative semantic intent.
