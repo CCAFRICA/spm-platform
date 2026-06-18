@@ -14,6 +14,16 @@ import { createServiceRoleClientSafe } from '@/lib/supabase/service-role';
 
 export type AppTheme = 'current' | 'bliss';
 
+/**
+ * HF-309: three-level resolution. `explicit` is the per-context preference — the authed user's
+ * profiles.preferences->>'theme' (root layout), or the vl-theme cookie (pre-auth/login). If set,
+ * it wins; otherwise fall through to the global platform_settings default, then 'current'.
+ */
+export async function getResolvedTheme(explicit?: AppTheme | null | string): Promise<AppTheme> {
+  if (explicit === 'bliss' || explicit === 'current') return explicit;
+  return getActiveTheme(); // global default → 'current'
+}
+
 export async function getActiveTheme(): Promise<AppTheme> {
   try {
     const sb = await createServiceRoleClientSafe();
