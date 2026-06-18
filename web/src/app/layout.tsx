@@ -10,8 +10,9 @@ import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { PrivacyNoticeFooter } from "@/components/privacy/PrivacyNoticeFooter";
 import { Toaster } from "sonner";
+import { cookies } from "next/headers";
 import { getServerAuthState } from "@/lib/auth/server-auth";
-import { getActiveTheme } from "@/lib/theme/active-theme";
+import { getResolvedTheme, type AppTheme } from "@/lib/theme/active-theme";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -36,8 +37,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const authState = await getServerAuthState();
-  // OB-201: read the global theme server-side and emit data-theme in the initial HTML (no FOUC).
-  const activeTheme = await getActiveTheme();
+  // HF-309: three-level theme resolution. Authenticated → the user's profiles.preferences theme;
+  // pre-auth (login) → the vl-theme cookie; else the global platform_settings default, else 'current'.
+  // Emitted server-side as data-theme in the initial HTML (no FOUC, OB-201 mechanism).
+  const cookieTheme = (await cookies()).get("vl-theme")?.value as AppTheme | undefined;
+  const explicitTheme = authState.isAuthenticated
+    ? authState.profile?.themePreference ?? null
+    : cookieTheme ?? null;
+  const activeTheme = await getResolvedTheme(explicitTheme);
 
   return (
     <html
