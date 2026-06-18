@@ -200,3 +200,13 @@ export function computeCallCostUSD(model: string, tokensIn: number, tokensOut: n
   const cost = (tokensIn * price.inputPer1M) / 1_000_000 + (tokensOut * price.outputPer1M) / 1_000_000;
   return Math.round(cost * 1_000_000) / 1_000_000;
 }
+
+// ── Model inventory (Observatory dropdown) ───────────────────────────────────
+// The models the platform can be configured to use. A live /v1/models fetch is the
+// residual upgrade (OB-215 §12); this cached list covers what we run today, each
+// flagged for whether it rejects sampling params (so the UI can warn the operator).
+export const AVAILABLE_MODELS: readonly string[] = [
+  OPUS_MODEL,        // claude-opus-4-8 — plan family default
+  DEFAULT_MODEL,     // claude-sonnet-4-6 — general default
+  'claude-haiku-4-5',
+];

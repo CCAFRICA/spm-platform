@@ -29,6 +29,8 @@ import { captureSCISignal } from '@/lib/sci/signal-capture-service';
 // OB-215: model selection is owned by the single resolver. The service no longer
 // hardcodes a model fallback — resolveModel(task) decides per request at the adapter.
 import { resolveModel, defaultModel } from './model-policy';
+import { ensureModelPolicyLoaded } from './model-policy-loader';
+import { recordAICallMetric } from './ai-metrics-writer';
 
 export class AIService {
   private config: AIServiceConfig;
@@ -73,6 +75,10 @@ export class AIService {
     const startTime = Date.now();
     const requestId = crypto.randomUUID();
 
+    // OB-215: load operator-set per-task model overrides (cached per process) before
+    // the resolver runs, so an Observatory model change governs without a code deploy.
+    await ensureModelPolicyLoaded();
+
     let adapterResponse;
     try {
       // Execute through adapter
@@ -100,6 +106,16 @@ export class AIService {
         console.error(
           `[AIService] PROVIDER HARD-ERROR on ${request.task}: ${errorMessage} (model=${resolveModel(request.task, { configModel: this.config.model })}, class=${errorClass})`
         );
+        recordAICallMetric({
+          tenantId: signalContext?.tenantId || 'unknown',
+          task: request.task,
+          provider: this.config.provider,
+          model: resolveModel(request.task, { configModel: this.config.model }),
+          tokensIn: 0,
+          tokensOut: 0,
+          latencyMs: Date.now() - startTime,
+          status: 'provider_error',
+        });
         return {
           task: request.task,
           result: {
@@ -121,6 +137,16 @@ export class AIService {
 
       // Recoverable / non-provider failure: graceful degradation (unchanged behavior).
       console.warn(`[AIService] ${request.task} failed: ${errorMessage}`);
+      recordAICallMetric({
+        tenantId: signalContext?.tenantId || 'unknown',
+        task: request.task,
+        provider: this.config.provider,
+        model: resolveModel(request.task, { configModel: this.config.model }),
+        tokensIn: 0,
+        tokensOut: 0,
+        latencyMs: Date.now() - startTime,
+        status: 'degraded',
+      });
       return {
         task: request.task,
         result: {
@@ -149,6 +175,18 @@ export class AIService {
       latencyMs: Date.now() - startTime,
       timestamp: new Date().toISOString(),
     };
+
+    // OB-215: per-call metrics capture (fire-and-forget; never blocks/throws).
+    recordAICallMetric({
+      tenantId: signalContext?.tenantId || 'unknown',
+      task: request.task,
+      provider: response.provider,
+      model: response.model,
+      tokensIn: response.tokenUsage?.input || 0,
+      tokensOut: response.tokenUsage?.output || 0,
+      latencyMs: response.latencyMs,
+      status: 'success',
+    });
 
     // Capture training signal if enabled
     if (captureSignal) {
