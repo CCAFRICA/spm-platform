@@ -169,6 +169,41 @@
     --shadow-card: 0 1px 3px 0 rgba(15,10,30,0.06), 0 1px 2px -1px rgba(15,10,30,0.06);
     --shadow-panel: 0 4px 16px 0 rgba(15,10,30,0.12);
     --shadow-hero: 0 20px 60px -10px rgba(15,10,30,0.3);
+
+    /* ── HF-305: theme-aware neutral scale (RGB triplets consumed by tailwind.config) ──
+       Inverts the dark Tailwind scales to bliss light surfaces / ink text. Defined ONLY
+       here (under bliss) — at data-theme="current" these are unset and the config fallbacks
+       (exact original hex) apply, so current is byte-for-byte unchanged. Shared bliss roles: */
+    --bliss-ink: 15 10 30;          /* #0F0A1E primary text */
+    --bliss-ink-2: 26 21 48;        /* #1A1530 */
+    --bliss-ink-3: 42 36 64;        /* #2A2440 */
+    --bliss-muted: 102 96 128;      /* #666080 secondary text */
+    --bliss-muted-2: 133 128 160;   /* #8580A0 */
+    --bliss-bd: 228 228 238;        /* #E4E4EE borders */
+    --bliss-soft: 240 240 250;      /* #F0F0FA soft surface */
+    --bliss-surface: 248 248 255;   /* #F8F8FF page/card surface */
+    --bliss-wht: 255 255 255;
+    --bliss-indigo: 45 47 143;      /* #2D2F8F */
+    --bliss-indigo-dk: 30 32 112;   /* #1E2070 */
+
+    /* low steps (were light text on dark) → dark ink; high steps (were dark surfaces) → light */
+    --c-slate-50: var(--bliss-ink);   --c-zinc-50: var(--bliss-ink);   --c-gray-50: var(--bliss-ink);
+    --c-slate-100: var(--bliss-ink);  --c-zinc-100: var(--bliss-ink);  --c-gray-100: var(--bliss-ink);
+    --c-slate-200: var(--bliss-ink-2);--c-zinc-200: var(--bliss-ink-2);--c-gray-200: var(--bliss-ink-2);
+    --c-slate-300: var(--bliss-ink-3);--c-zinc-300: var(--bliss-ink-3);--c-gray-300: var(--bliss-ink-3);
+    --c-slate-400: var(--bliss-muted);--c-zinc-400: var(--bliss-muted);--c-gray-400: var(--bliss-muted);
+    --c-slate-500: var(--bliss-muted);--c-zinc-500: var(--bliss-muted);--c-gray-500: var(--bliss-muted);
+    --c-slate-600: var(--bliss-muted-2);--c-zinc-600: var(--bliss-muted-2);--c-gray-600: var(--bliss-muted-2);
+    --c-slate-700: var(--bliss-bd);   --c-zinc-700: var(--bliss-bd);   --c-gray-700: var(--bliss-bd);
+    --c-slate-800: var(--bliss-soft); --c-zinc-800: var(--bliss-soft); --c-gray-800: var(--bliss-soft);
+    --c-slate-900: var(--bliss-surface);--c-zinc-900: var(--bliss-surface);--c-gray-900: var(--bliss-surface);
+    --c-slate-950: var(--bliss-wht);  --c-zinc-950: var(--bliss-wht);  --c-gray-950: var(--bliss-wht);
+
+    /* navy (brand blue) → indigo family under bliss */
+    --c-navy-50: var(--bliss-soft);   --c-navy-100: var(--bliss-soft);  --c-navy-200: 224 224 246;
+    --c-navy-300: 200 200 235;        --c-navy-400: 120 122 200;        --c-navy-500: var(--bliss-indigo);
+    --c-navy-600: var(--bliss-indigo);--c-navy-700: var(--bliss-indigo-dk);--c-navy-800: var(--bliss-indigo-dk);
+    --c-navy-900: var(--bliss-indigo-dk);--c-navy-950: 20 22 80;
   }
 }
 
