@@ -26,6 +26,11 @@ import {
 import { AnthropicAdapter } from './providers/anthropic-adapter';
 import { getTrainingSignalService } from './training-signal-service';
 import { captureSCISignal } from '@/lib/sci/signal-capture-service';
+// OB-215: model selection is owned by the single resolver. The service no longer
+// hardcodes a model fallback — resolveModel(task) decides per request at the adapter.
+import { resolveModel, defaultModel } from './model-policy';
+import { ensureModelPolicyLoaded } from './model-policy-loader';
+import { recordAICallMetric } from './ai-metrics-writer';
 
 export class AIService {
   private config: AIServiceConfig;
@@ -34,7 +39,10 @@ export class AIService {
   constructor(config?: Partial<AIServiceConfig>) {
     this.config = {
       provider: (process.env.NEXT_PUBLIC_AI_PROVIDER as AIProvider) || 'anthropic',
-      model: process.env.NEXT_PUBLIC_AI_MODEL || 'claude-sonnet-4-6',
+      // OB-215: the env/default model is the NON-PLAN default only — resolveModel(task)
+      // at the adapter overrides it per request (plan family → Opus). No hardcoded
+      // model literal lives here anymore (the constant moved to model-policy.ts).
+      model: defaultModel(),
       ...config,
     };
     this.adapter = this.createAdapter(this.config.provider);
@@ -67,6 +75,10 @@ export class AIService {
     const startTime = Date.now();
     const requestId = crypto.randomUUID();
 
+    // OB-215: load operator-set per-task model overrides (cached per process) before
+    // the resolver runs, so an Observatory model change governs without a code deploy.
+    await ensureModelPolicyLoaded();
+
     let adapterResponse;
     try {
       // Execute through adapter
@@ -92,8 +104,18 @@ export class AIService {
         const errorClass =
           typeof hardError.status === 'number' ? `provider_http_${hardError.status}` : 'provider_unreachable';
         console.error(
-          `[AIService] PROVIDER HARD-ERROR on ${request.task}: ${errorMessage} (model=${this.config.model}, class=${errorClass})`
+          `[AIService] PROVIDER HARD-ERROR on ${request.task}: ${errorMessage} (model=${resolveModel(request.task, { configModel: this.config.model })}, class=${errorClass})`
         );
+        recordAICallMetric({
+          tenantId: signalContext?.tenantId || 'unknown',
+          task: request.task,
+          provider: this.config.provider,
+          model: resolveModel(request.task, { configModel: this.config.model }),
+          tokensIn: 0,
+          tokensOut: 0,
+          latencyMs: Date.now() - startTime,
+          status: 'provider_error',
+        });
         return {
           task: request.task,
           result: {
@@ -107,7 +129,7 @@ export class AIService {
           tokenUsage: { input: 0, output: 0 },
           requestId,
           provider: this.config.provider,
-          model: this.config.model,
+          model: resolveModel(request.task, { configModel: this.config.model }),
           latencyMs: Date.now() - startTime,
           timestamp: new Date().toISOString(),
         };
@@ -115,6 +137,16 @@ export class AIService {
 
       // Recoverable / non-provider failure: graceful degradation (unchanged behavior).
       console.warn(`[AIService] ${request.task} failed: ${errorMessage}`);
+      recordAICallMetric({
+        tenantId: signalContext?.tenantId || 'unknown',
+        task: request.task,
+        provider: this.config.provider,
+        model: resolveModel(request.task, { configModel: this.config.model }),
+        tokensIn: 0,
+        tokensOut: 0,
+        latencyMs: Date.now() - startTime,
+        status: 'degraded',
+      });
       return {
         task: request.task,
         result: {
@@ -126,7 +158,7 @@ export class AIService {
         tokenUsage: { input: 0, output: 0 },
         requestId,
         provider: this.config.provider,
-        model: this.config.model,
+        model: resolveModel(request.task, { configModel: this.config.model }),
         latencyMs: Date.now() - startTime,
         timestamp: new Date().toISOString(),
       };
@@ -137,10 +169,24 @@ export class AIService {
       ...adapterResponse,
       requestId,
       provider: this.config.provider,
-      model: this.config.model,
+      // OB-215: report the model the adapter ACTUALLY sent (resolved per task), not the
+      // constructor default — so cost/telemetry name Opus on plan tasks, Sonnet elsewhere.
+      model: adapterResponse.model || resolveModel(request.task, { configModel: this.config.model }),
       latencyMs: Date.now() - startTime,
       timestamp: new Date().toISOString(),
     };
+
+    // OB-215: per-call metrics capture (fire-and-forget; never blocks/throws).
+    recordAICallMetric({
+      tenantId: signalContext?.tenantId || 'unknown',
+      task: request.task,
+      provider: response.provider,
+      model: response.model,
+      tokensIn: response.tokenUsage?.input || 0,
+      tokensOut: response.tokenUsage?.output || 0,
+      latencyMs: response.latencyMs,
+      status: 'success',
+    });
 
     // Capture training signal if enabled
     if (captureSignal) {

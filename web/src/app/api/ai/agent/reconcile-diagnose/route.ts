@@ -19,6 +19,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runAgent, AgentTurnError, AgentRunawayError } from '@/lib/ai/agent/agent-runner';
 import { createReconciliationDiagnosisAgent } from '@/lib/ai/agent/reconciliation-diagnosis-agent';
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+import { defaultModel } from '@/lib/ai/model-policy';
 
 const AGENT = 'reconciliation_diagnosis';
 
@@ -51,7 +52,11 @@ export async function POST(request: NextRequest) {
   }
 
   const provider = process.env.NEXT_PUBLIC_AI_PROVIDER || 'anthropic';
-  const model = process.env.NEXT_PUBLIC_AI_MODEL || 'claude-sonnet-4-6';
+  // OB-215: route through the single resolver instead of a parallel env read. This is the
+  // agent-runtime path (no AITaskType), so it takes the env/default model — the same value
+  // the harness resolves for an agent turn with no per-agent override. (Divergence from the
+  // directive's `resolveModel('reconciliation_diagnosis')`: there is no such AITaskType.)
+  const model = defaultModel();
 
   const subjectRef = { reconciliation_session_id: reconciliationSessionId, entity_id: entityId, component };
   const requestFingerprint = createHash('sha256')

@@ -24,7 +24,7 @@ export interface ProviderHardError extends Error {
 
 export interface AIServiceConfig {
   provider: AIProvider;
-  model: string;                    // e.g., 'claude-sonnet-4-6', 'gpt-4o'
+  model: string;                    // non-plan default model id (resolved via model-policy.ts)
   apiKey?: string;                  // From env var, never hardcoded
   baseUrl?: string;                 // For Azure OpenAI or local models
   maxTokens?: number;
@@ -219,7 +219,10 @@ export const AI_CONFIDENCE = {
 // === PROVIDER ADAPTER INTERFACE ===
 
 export interface AIProviderAdapter {
-  execute(request: AIRequest): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'model' | 'latencyMs' | 'timestamp' | 'signalId'>>;
+  // OB-215: the adapter resolves the model per-task (resolveModel) and now returns it,
+  // so AIService reports the model actually sent (not the constructor default) — fixing
+  // the telemetry mislabel AUD-018 File A flagged for plan tasks routed to Opus.
+  execute(request: AIRequest): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'latencyMs' | 'timestamp' | 'signalId'>>;
   // OB-212: tools-capable SINGLE turn for the agent runtime. The multi-turn
   // tool_use/tool_result loop is owned by agent-runner; this performs one model
   // turn (with tools) through the same provider seam. Provider-agnostic.

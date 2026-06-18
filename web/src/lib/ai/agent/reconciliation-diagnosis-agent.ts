@@ -38,6 +38,6 @@ export function createReconciliationDiagnosisAgent(ctx: ToolContext): AgentDefin
     tools: [...shared.definitions, ...recon.definitions],
     handlers: { ...shared.handlers, ...recon.handlers },
     maxTurns: 16,
-    // model omitted → adapter's resolved model (claude-sonnet-4-6).
+    // model omitted → the harness resolves it (model-policy defaultModel / per-agent override).
   };
 }

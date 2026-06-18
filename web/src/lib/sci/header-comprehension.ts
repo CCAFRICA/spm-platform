@@ -15,6 +15,8 @@ import type {
   ComprehensionFailureClass,
 } from './sci-types';
 import { getAIService } from '@/lib/ai/ai-service';
+// OB-215 (Agent D): telemetry labels reflect the resolver's decision, not a stale literal.
+import { resolveModel } from '@/lib/ai/model-policy';
 import { lookupAtoms, writeAtoms } from './atom-flywheel';
 import { computeAtomFingerprint } from './atom-fingerprint';
 import { decomposeComprehension, type ResidueComprehender, type ComprehendedInterpretation } from './decomposed-comprehension';
@@ -181,7 +183,7 @@ function buildComprehensionFromLLM(
       interpretations,
       crossSheetInsights,
       llmCallDuration: duration,
-      llmModel: 'claude-sonnet-4-6',
+      llmModel: resolveModel('header_comprehension'),
       fromVocabularyBinding: false,
     });
   }
@@ -250,7 +252,7 @@ export async function comprehendHeaders(
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: true,
     llmCallDuration: llmResponse.duration,
-    llmModel: 'claude-sonnet-4-6',
+    llmModel: resolveModel('header_comprehension'),
     columnsInterpreted: allColumns.length,
     columnsFromBindings: 0,
     columnsFromLLM: allColumns.length,
@@ -388,7 +390,7 @@ export async function runDecomposedComprehension(
       interpretations,
       crossSheetInsights: [],
       llmCallDuration: 0,
-      llmModel: r.status === 'comprehended' ? 'claude-sonnet-4-6' : 'flywheel-atom',
+      llmModel: r.status === 'comprehended' ? resolveModel('header_comprehension') : 'flywheel-atom',
       fromVocabularyBinding: false,
     };
     for (const [colName, interp] of Array.from(interpretations.entries())) {
@@ -427,7 +429,7 @@ export async function runDecomposedComprehension(
   const metrics: HeaderComprehensionMetrics = {
     llmCalled: llmDispatches > 0,
     llmCallDuration: totalLlmDuration, // sum of per-sheet residue dispatch durations (metric fix)
-    llmModel: llmDispatches > 0 ? 'claude-sonnet-4-6' : null,
+    llmModel: llmDispatches > 0 ? resolveModel('header_comprehension') : null,
     columnsInterpreted,
     columnsFromBindings: 0,
     columnsFromLLM: columnsInterpreted,
