@@ -21,6 +21,7 @@ export interface ServerAuthState {
     capabilities: string[];
     locale: string | null;
     avatarUrl: string | null;
+    themePreference: 'current' | 'bliss' | null; // HF-309: per-user theme preference
   } | null;
   isAuthenticated: boolean;
 }
@@ -57,6 +58,7 @@ export async function getServerAuthState(): Promise<ServerAuthState> {
         capabilities: identity.capabilities,
         locale: identity.locale,
         avatarUrl: identity.avatarUrl,
+        themePreference: identity.themePreference,
       },
       isAuthenticated: true,
     };
