@@ -281,8 +281,8 @@
   html[data-theme="bliss"] .uppercase.tracking-wider,
   html[data-theme="bliss"] .uppercase.tracking-wide {
     font-family: var(--font-mono);
-    letter-spacing: 0.22em;
-    color: var(--color-gold-deep);
+    letter-spacing: 0.18em;
+    color: var(--color-indigo); /* HF-307 §3: eyebrow base is INDIGO (gold is the .eyebrow-gold variant) */
   }
 
   /* HF-306 §3.3: grid-pattern backdrop on the main content area (32×32, 6% indigo). */
@@ -393,3 +393,64 @@ html[data-theme="bliss"] .app-navbar {
   background-color: rgba(248, 248, 255, 0.85);
   border-bottom-color: var(--color-border);
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-307 §3 — Bliss design vocabulary (verbatim from the authoritative styles.css,
+   scoped to [data-theme="bliss"]). Note: the iap-*/vl-* keyframes named in §3 were
+   NOT included in the provided source text (only their names were listed) and are
+   §6-out-of-scope marketing-icon animations — omitted (see HF-307 report G7).
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="bliss"] .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-indigo);
+}
+html[data-theme="bliss"] .eyebrow-gold { color: var(--color-gold); }
+html[data-theme="bliss"] .eyebrow-muted { color: var(--color-muted); }
+
+html[data-theme="bliss"] .hairline {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.34 0.16 274 / 0.25) 30%,
+    oklch(0.79 0.14 76 / 0.5) 50%,
+    oklch(0.34 0.16 274 / 0.25) 70%,
+    transparent
+  );
+}
+
+html[data-theme="bliss"] .lift {
+  transition: transform 350ms cubic-bezier(.2,.7,.2,1), box-shadow 350ms ease, border-color 250ms ease;
+}
+html[data-theme="bliss"] .lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 40px -28px oklch(0.24 0.11 274 / 0.45);
+}
+
+html[data-theme="bliss"] .tint-a { background: oklch(0.985 0.005 280); }
+html[data-theme="bliss"] .tint-b { background: oklch(0.97 0.025 274); }
+html[data-theme="bliss"] .tint-c { background: oklch(0.97 0.05 86); }
+html[data-theme="bliss"] .tint-d { background: linear-gradient(135deg, oklch(0.97 0.025 274) 0%, oklch(0.985 0.005 280) 100%); }
+
+html[data-theme="bliss"] .shimmer { position: relative; overflow: hidden; }
+html[data-theme="bliss"] .shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(120deg, transparent 30%, oklch(1 0 0 / 0.18) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 900ms cubic-bezier(.2,.7,.2,1);
+  pointer-events: none;
+}
+html[data-theme="bliss"] .shimmer:hover::after { transform: translateX(120%); }
+
+html[data-theme="bliss"] .underline-wipe {
+  background-image: linear-gradient(var(--color-gold), var(--color-gold));
+  background-repeat: no-repeat;
+  background-size: 0% 2px;
+  background-position: 0 100%;
+  transition: background-size 500ms cubic-bezier(.2,.7,.2,1);
+}
+html[data-theme="bliss"] .underline-wipe:hover { background-size: 100% 2px; }
