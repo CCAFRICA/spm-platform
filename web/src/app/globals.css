@@ -61,6 +61,11 @@
     --card-surface: rgba(24, 24, 27, 0.8);
     --card-bd: rgba(39, 39, 42, 0.6);
 
+    /* HF-308: theme-aware straggler vars for inline-hex dark surfaces (current = EXACT prior hex) */
+    --strag-deep: #020617;    /* page-bg slate-950 (upgrade, root) */
+    --strag-panel: #0F172A;   /* dark card/panel slate-900 (upgrade) */
+    --strag-violet: #7c3aed;  /* reconcile action buttons (violet) */
+
     /* OB-201 font tokens — current maps to the in-use DM Sans / DM Mono (parity set) */
     --font-display: var(--font-dm-sans), system-ui, sans-serif;
     --font-body: var(--font-dm-sans), system-ui, sans-serif;
@@ -149,6 +154,11 @@
     /* card surface/border under bliss — white card, indigo-tinted hairline border */
     --card-surface: oklch(1 0 0);
     --card-bd: var(--border-oklch);
+
+    /* HF-308: stragglers go light/indigo under bliss */
+    --strag-deep: oklch(1 0 0);        /* white page bg */
+    --strag-panel: oklch(0.985 0.005 280); /* offwhite panel */
+    --strag-violet: oklch(0.34 0.16 274);  /* indigo action */
 
     /* HF-307 authoritative brand tokens — RAW OKLCH (used directly by the design vocabulary).
        --color-* aliases keep the existing consumers (.eyebrow/.vl-card/sidebar/nav) working. */
@@ -462,3 +472,16 @@ html[data-theme="bliss"] .underline-wipe {
   transition: background-size 500ms cubic-bezier(.2,.7,.2,1);
 }
 html[data-theme="bliss"] .underline-wipe:hover { background-size: 100% 2px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-308 Cat 3 — light-context palette classes. In the dark app these are used as
+   LIGHT fills / DARK text on light elements; the HF-305 scale inversion flips them
+   the wrong way under bliss. These bliss-scoped overrides re-point them to the
+   correct light/dark semantic value (higher specificity than the utility, so they
+   also win over any `dark:` pair). current is untouched (not data-theme="bliss").
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="bliss"] .bg-slate-100,
+html[data-theme="bliss"] .bg-gray-100 { background-color: oklch(var(--secondary)); }
+html[data-theme="bliss"] .bg-slate-200 { background-color: oklch(var(--muted)); }
+html[data-theme="bliss"] .text-slate-900 { color: oklch(var(--foreground)); }
+html[data-theme="bliss"] .text-slate-700 { color: oklch(var(--muted-foreground)); }

@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 const config: Config = {
     darkMode: ["class"],
@@ -177,6 +178,13 @@ const config: Config = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // HF-308: `bliss:` variant — applies only under [data-theme="bliss"]. Lets stragglers carry a
+    // bliss-only override (e.g. `text-white bliss:text-foreground`) while `current` is byte-identical.
+    plugin(({ addVariant }) => {
+      addVariant("bliss", '&:is([data-theme="bliss"] *)');
+    }),
+  ],
 };
 export default config;

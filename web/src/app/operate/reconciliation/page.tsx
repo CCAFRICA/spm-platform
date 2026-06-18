@@ -771,7 +771,7 @@ export default function ReconciliationPage() {
         <p className="text-sm text-zinc-400 max-w-md mb-6">
           {isSpanish ? 'Ejecuta un calculo desde el Centro de Operaciones primero.' : 'Run a calculation from the Operations Center first.'}
         </p>
-        <button onClick={() => router.push('/operate')} className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: '#7c3aed' }}>
+        <button onClick={() => router.push('/operate')} className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: 'var(--strag-violet)' }}>
           {isSpanish ? 'Ir a Operaciones' : 'Go to Operations'}
         </button>
       </div>
@@ -908,7 +908,7 @@ export default function ReconciliationPage() {
             <div
               className="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center cursor-pointer hover:border-zinc-500"
               onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#7c3aed'; }}
+              onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--strag-violet)'; }}
               onDragLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
               onDrop={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = ''; const file = e.dataTransfer.files[0]; if (file) parseFile(file); }}
             >
@@ -961,7 +961,7 @@ export default function ReconciliationPage() {
                   onClick={handleAnalyze}
                   disabled={analyzing}
                   className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40"
-                  style={{ backgroundColor: analyzing ? '#3f3f46' : '#7c3aed', boxShadow: analyzing ? 'none' : '0 0 16px rgba(124, 58, 237, 0.3)' }}
+                  style={{ backgroundColor: analyzing ? '#3f3f46' : 'var(--strag-violet)', boxShadow: analyzing ? 'none' : '0 0 16px rgba(124, 58, 237, 0.3)' }}
                 >
                   {analyzing
                     ? (isSpanish ? 'Analizando...' : 'Analyzing benchmark...')
@@ -1471,7 +1471,7 @@ export default function ReconciliationPage() {
                             disabled={diagnosing === row.entityId}
                             title={isSpanish ? 'Diagnosticar con el agente' : 'Diagnose with the reconciliation agent'}
                             className="px-2 py-0.5 rounded text-[10px] font-medium"
-                            style={{ backgroundColor: diagnosing === row.entityId ? '#3f3f46' : '#7c3aed', color: '#fff' }}
+                            style={{ backgroundColor: diagnosing === row.entityId ? '#3f3f46' : 'var(--strag-violet)', color: '#fff' }}
                           >
                             {diagnosing === row.entityId ? '…' : '🔍'}
                           </button>
