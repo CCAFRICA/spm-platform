@@ -145,7 +145,7 @@ function PerformContent() {
       <div className="p-6 max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-white bliss:text-foreground">
             {performTitle}
             {currentTenant?.name ? ` \u2014 ${currentTenant.name}` : ''}
           </h1>
