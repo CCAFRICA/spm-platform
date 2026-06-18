@@ -16,23 +16,13 @@ import {
   AgentTurnResponse,
 } from '../types';
 import { generatePromptGrammarSection } from '../../calculation/prime-grammar';
+// OB-215: model selection, the sampling-param deprecation guard, and the resolved
+// model are all owned by model-policy.ts now. HF-304's plan→Opus routing and the
+// scattered default-model fallbacks that used to live here all moved there.
+import { resolveModel, defaultModel, modelRejectsSamplingParams } from '../model-policy';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-
-// HF-304 (AUD-017): plan interpretation is the highest-reasoning step in the pipeline — it must emit a
-// structurally COMPLETE, exact rate table (e.g. all 20 cells of a 5×4 banded_lookup). The prior model
-// under-emitted one cell (19 vs 20) → the constructor's exact-match check aborted the import. Route the
-// plan-interpretation TASK FAMILY to Opus; every other AI task keeps its configured model (DD-7).
-// Single named constant + structural task-set so the future Observatory per-task model control (CLT)
-// lifts these from one seam, not scattered literals. Opus id confirmed live via /v1/models (HF-304 §5).
-const PLAN_INTERPRETATION_MODEL = 'claude-opus-4-8';
-// The four typed task discriminants that constitute plan interpretation (HF-248/HF-249). The c1-senior
-// regression is in plan_component (Phase B emission); routing only the legacy 'plan_interpretation'
-// would not fix it, so the whole reasoning family is routed (one model, not a per-task map).
-const PLAN_INTERPRETATION_TASKS: ReadonlySet<AITaskType> = new Set<AITaskType>([
-  'plan_interpretation', 'plan_skeleton', 'plan_component', 'plan_component_with_chunking',
-]);
 
 // === FOUNDATIONAL PRIMITIVE VOCABULARY (OB-196 E1 / Decision 155) ===
 //
@@ -993,7 +983,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
 
   async execute(
     request: AIRequest
-  ): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'model' | 'latencyMs' | 'timestamp' | 'signalId'>> {
+  ): Promise<Omit<AIResponse, 'requestId' | 'provider' | 'latencyMs' | 'timestamp' | 'signalId'>> {
     if (!this.apiKey) {
       throw new Error('Anthropic API key not configured');
     }
@@ -1065,21 +1055,17 @@ export class AnthropicAdapter implements AIProviderAdapter {
 
     // OB-155: Retry with backoff — fetch() can fail transiently in Next.js dev server
     const MAX_RETRIES = 3;
-    const requestBody = JSON.stringify({
-      // HF-304 (AUD-017): plan-interpretation tasks → Opus (structural rate-table completeness); every
-      // other task keeps its configured model. Keyed on the typed task discriminant (Korean Test).
-      model: PLAN_INTERPRETATION_TASKS.has(request.task)
-        ? PLAN_INTERPRETATION_MODEL
-        : (this.config.model || 'claude-sonnet-4-6'),
-      max_tokens: request.options?.maxTokens || 8192,
-      temperature: request.options?.temperature ?? 0.1,
+    // OB-215: one resolver decides the model per task (plan family → Opus, else the
+    // configured/env default). The shared body-builder omits `temperature` for models
+    // that 400 on sampling params (Opus/Fable) — closing the AUD-018 File B import
+    // blocker that HF-304 exposed by routing plan tasks to Opus without dropping it.
+    const resolvedModel = resolveModel(request.task, { configModel: this.config.model });
+    const requestBody = this.buildRequestBody({
+      model: resolvedModel,
+      maxTokens: request.options?.maxTokens || 8192,
       system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: messageContent,
-        },
-      ],
+      messages: [{ role: 'user', content: messageContent }],
+      temperature: request.options?.temperature ?? 0.1,
     });
     const requestHeaders = {
       'Content-Type': 'application/json',
@@ -1113,7 +1099,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
       // surfaces it loudly rather than degrading it into silent low confidence.
       const err = new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`) as ProviderHardError;
       err.providerError = true;
-      err.providerModel = this.config.model || 'claude-sonnet-4-6';
+      err.providerModel = resolvedModel; // OB-215: the model actually sent (Opus for plan tasks), not the config default
       throw err;
     }
 
@@ -1124,7 +1110,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
       const err = new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errorData)}`) as ProviderHardError;
       err.providerError = true;
       err.status = response.status;
-      err.providerModel = this.config.model || 'claude-sonnet-4-6';
+      err.providerModel = resolvedModel; // OB-215: name the model actually in play
       throw err;
     }
 
@@ -1168,6 +1154,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
       result,
       confidence,
       tokenUsage,
+      model: resolvedModel, // OB-215: report the model actually sent so AIService telemetry is accurate
     };
   }
 
@@ -1181,15 +1168,17 @@ export class AnthropicAdapter implements AIProviderAdapter {
       throw new Error('Anthropic API key not configured');
     }
 
-    // No `temperature`: the agent model is an advertised per-agent override, and the
-    // current default-tier models (Opus 4.7/4.8, Fable 5) 400 on sampling params.
-    // Sonnet 4.6 (the env default) does not require it. Omitting it works across all.
-    const requestBody = JSON.stringify({
-      model: req.model || this.config.model || 'claude-sonnet-4-6',
-      max_tokens: req.maxTokens || 4096,
+    // OB-215: the agent turn carries no AITaskType, so the model is the per-agent
+    // override (req.model) or the env/default model. The shared body-builder sends no
+    // `temperature` (none passed) — preserving the prior behavior (the current
+    // default-tier models 400 on sampling params; omitting works across all tiers).
+    const resolvedModel = req.model || defaultModel();
+    const requestBody = this.buildRequestBody({
+      model: resolvedModel,
+      maxTokens: req.maxTokens || 4096,
       system: req.system,
-      tools: req.tools,            // <-- the only behavioral delta vs execute(): tools are sent
       messages: req.messages,      // full multi-turn history (assistant + tool_result turns)
+      tools: req.tools,            // <-- the only behavioral delta vs execute(): tools are sent
     });
     const requestHeaders = {
       'Content-Type': 'application/json',
@@ -1213,7 +1202,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
     if (!response) {
       const e = new Error(`Anthropic API fetch failed after ${MAX_RETRIES} attempts: ${lastError?.message}`) as ProviderHardError;
       e.providerError = true;
-      e.providerModel = req.model || this.config.model || 'claude-sonnet-4-6';
+      e.providerModel = resolvedModel; // OB-215
       throw e;
     }
     if (!response.ok) {
@@ -1221,7 +1210,7 @@ export class AnthropicAdapter implements AIProviderAdapter {
       const e = new Error(`Anthropic API error: ${response.status} ${JSON.stringify(errorData)}`) as ProviderHardError;
       e.providerError = true;
       e.status = response.status;
-      e.providerModel = req.model || this.config.model || 'claude-sonnet-4-6';
+      e.providerModel = resolvedModel; // OB-215
       throw e;
     }
 
@@ -1231,6 +1220,36 @@ export class AnthropicAdapter implements AIProviderAdapter {
       stopReason: data.stop_reason ?? null,
       tokenUsage: { input: data.usage?.input_tokens || 0, output: data.usage?.output_tokens || 0 },
     };
+  }
+
+  // OB-215: the single request-body builder shared by execute() and executeAgentTurn().
+  // It omits sampling params (temperature/top_p/top_k) for models that 400 on them
+  // (Opus/Fable tier — modelRejectsSamplingParams), so the deprecation guard is written
+  // ONCE. `tools` is included only when provided (the one structural delta between the
+  // single-call and agent-turn bodies). Headers differ per method and stay at each site.
+  private buildRequestBody(opts: {
+    model: string;
+    maxTokens: number;
+    system: string;
+    messages: unknown;
+    temperature?: number;
+    tools?: unknown;
+  }): string {
+    const body: Record<string, unknown> = {
+      model: opts.model,
+      max_tokens: opts.maxTokens,
+      system: opts.system,
+      messages: opts.messages,
+    };
+    // temperature:0 is the deterministic default every task relies on; omitting it where
+    // the model rejects it is lossless (AUD-018 File B). Sonnet 4.6 keeps it.
+    if (opts.temperature !== undefined && !modelRejectsSamplingParams(opts.model)) {
+      body.temperature = opts.temperature;
+    }
+    if (opts.tools !== undefined) {
+      body.tools = opts.tools;
+    }
+    return JSON.stringify(body);
   }
 
   private buildUserPrompt(request: AIRequest): string {
