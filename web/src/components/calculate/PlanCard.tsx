@@ -306,7 +306,7 @@ export function PlanCard({
         {plan.lastBatchDate && (
           <Link
             href={`/operate/reconciliation?planId=${plan.planId}`}
-            className="flex items-center justify-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 mt-2 px-3 py-1.5 rounded-md border border-violet-500/30 hover:border-violet-500/50 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 text-xs font-medium mt-2 px-4 py-1.5 rounded-full border border-border text-foreground hover:bg-muted transition-colors"
             onClick={(e) => e.stopPropagation()}
           >
             <ClipboardCheck className="w-3.5 h-3.5" />
@@ -329,7 +329,7 @@ export function PlanCard({
         {calcSuccess && componentBreakdown && (
           <Link
             href="/stream"
-            className="flex items-center justify-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-2 px-3 py-1.5 rounded-md border border-indigo-500/30 hover:border-indigo-500/50 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 text-xs font-medium mt-2 px-4 py-1.5 rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
             onClick={(e) => e.stopPropagation()}
           >
             View Intelligence

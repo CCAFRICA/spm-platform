@@ -224,8 +224,8 @@
      ============================================================ */
   html[data-theme="bliss"] body {
     font-family: var(--font-body);
-    /* diamond-texture backdrop (28×28, indigo stroke at 4% opacity) */
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M14 1L27 14L14 27L1 14Z' fill='none' stroke='%232D2F8F' stroke-opacity='0.04'/%3E%3C/svg%3E");
+    /* HF-305 §3: grid-pattern backdrop (32×32, indigo stroke at 6% opacity) */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M32 0H0V32' fill='none' stroke='%232D2F8F' stroke-opacity='0.06'/%3E%3C/svg%3E");
     background-repeat: repeat;
   }
   html[data-theme="bliss"] h1,
