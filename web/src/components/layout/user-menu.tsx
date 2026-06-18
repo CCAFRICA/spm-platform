@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DropdownMenu,
@@ -13,7 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { LogOut, Settings, User, Shield, ChevronDown, Palette } from 'lucide-react';
+import { LogOut, Settings, User, Shield, ChevronDown } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { usePermissions } from '@/hooks/use-permissions';
 import { isVLAdmin, isTenantUser } from '@/types/auth';
@@ -22,35 +21,6 @@ export function UserMenu() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { isAdmin, canViewAudit } = usePermissions();
-
-  // HF-309: per-user theme preference. Read the current data-theme (server-rendered) on mount,
-  // then POST changes to /api/user/theme (persists to profiles.preferences + sets vl-theme cookie)
-  // and reload so the server re-renders under the new theme.
-  const [theme, setThemeState] = useState<'current' | 'bliss'>('current');
-  const [themeSaving, setThemeSaving] = useState(false);
-  useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme') === 'bliss' ? 'bliss' : 'current';
-    setThemeState(t);
-    // HF-309 §3.3: on every authenticated render (incl. just-after-login) sync the vl-theme cookie
-    // to the resolved theme so pre-auth surfaces (login page) reflect it. HALT-2: theme name only.
-    document.cookie = `vl-theme=${t}; Path=/; SameSite=Lax; Secure; Max-Age=31536000`;
-  }, []);
-
-  const setTheme = async (next: 'current' | 'bliss') => {
-    if (next === theme || themeSaving) return;
-    setThemeSaving(true);
-    try {
-      const res = await fetch('/api/user/theme', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: next }),
-      });
-      if (res.ok) window.location.reload();
-      else setThemeSaving(false);
-    } catch {
-      setThemeSaving(false);
-    }
-  };
 
   if (!user) {
     return null;
@@ -164,29 +134,6 @@ export function UserMenu() {
                 Audit Log
               </DropdownMenuItem>
             )}
-
-            <DropdownMenuSeparator />
-
-            {/* HF-309: per-user theme preference */}
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground flex items-center gap-2 pb-1">
-              <Palette className="h-3.5 w-3.5" /> Theme
-            </DropdownMenuLabel>
-            <div className="px-2 pb-1.5">
-              <div className="inline-flex w-full rounded-md border border-border overflow-hidden text-xs">
-                {(['current', 'bliss'] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTheme(t)}
-                    disabled={themeSaving}
-                    className={`flex-1 px-2 py-1.5 capitalize transition-colors ${
-                      theme === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
-                    } ${themeSaving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
-                  >
-                    {t === 'current' ? 'Current' : 'Bliss'}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <DropdownMenuSeparator />
 

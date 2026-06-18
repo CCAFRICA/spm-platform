@@ -23,7 +23,6 @@ const identity: ResolvedIdentity = {
   capabilities: ['admin'],
   locale: 'es-MX',
   avatarUrl: null,
-  themePreference: null, // HF-309
 };
 
 test('getUser-null -> SESSION_ABSENT (NOT profile-missing null)', () => {
