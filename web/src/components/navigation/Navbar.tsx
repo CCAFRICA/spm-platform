@@ -22,6 +22,7 @@ import {
 import {
   Search,
   Bell,
+  Settings,
   HelpCircle,
   Menu,
   X,
@@ -341,9 +342,10 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
           {/* Tenant Switcher (VL Admin only) */}
           <TenantSwitcher />
 
-          {/* HF-310: removed the dead Settings gear button — it had no onClick/href (clicking did
-              nothing) and the class `hidden md:flex` wrongly SHOWED it on desktop. Settings access
-              is the rail user menu (UserIdentity); a real Settings page is a separate OB (§6A). */}
+          {/* Settings - Hidden on desktop as Rail has user menu */}
+          <Button variant="ghost" size="icon" className="hidden md:flex">
+            <Settings className="h-5 w-5 text-zinc-400" />
+          </Button>
 
           {/* User Menu - Only show on mobile since Rail has UserIdentity on desktop */}
           <div className="md:hidden">
