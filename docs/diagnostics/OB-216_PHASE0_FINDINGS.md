@@ -7,7 +7,23 @@
 
 ## Decision 1 — Partition key (§3.1, resolves DIAG-073 UNKNOWN #3)
 
-**DECISION: partition key = `import_batch_id`.** Every batch maps 1:1 to exactly one `_sheetName`; `_sheetName` null-rate = 0/75,227. A real structural column → Korean-Test-clean.
+**DECISION (REFINED after multi-tenant probe): partition key = `(data_type, column-signature)`** — the schema signature `sigOf(rd)=Object.keys(rd).filter(!_).sort().join(',')` that HF-228 already computes (`convergence-service.ts:1072-1073`), grouped within `data_type`. NOT raw `import_batch_id`. Structural, Korean-Test-clean (column-key signature, no name/value semantics).
+
+**Why refined (regression guard, HALT-2):** `import_batch_id` is 1:1 with `_sheetName` (confirmed below), but `_sheetName` embeds the MONTH, so MIR's 6 `Cobranza_*` batches share one schema yet are 6 batches. Partitioning by raw `import_batch_id` would over-fragment one logical sheet into 6 capabilities and, worse, fragment any monthly single-file tenant — tripping the regression guard. Partitioning by `(data_type, column-signature)` groups same-schema batches (months) into one capability and separates genuinely different schemas. Multi-tenant evidence (live, ordered pagination):
+```
+BCL  5035b1e8 (regression tenant): 3 batches, 3 data_types, each 1 schema
+   transaction(Datos_Rendimiento, 201)  entity(Plantilla roster, 67)  reference(Datos_Flota_Hub, 36)
+   → 3 capabilities by data_type OR by import_batch_id OR by (data_type,signature) — IDENTICAL. No regression any way.
+MIR  972c8eb0: 15 batches, 2 data_types
+   transaction → 5 distinct column-signatures: Cobranza(6 batches), Ventas(5: Ene/Feb/Abr/May/Jun), Ventas_Marzo(1, +devolution cols), Clientes_Nuevos(1), Cuotas(1)
+   entity → 1: Nómina(1, the 34-row roster)
+   → by data_type = 2 caps (the BUG); by import_batch_id = 15 caps (over-fragments); by (data_type,signature) = 6 caps (CORRECT file boundary)
+```
+The 6 MIR caps map cleanly: Plan3→Cobranza, Plan1→Ventas, Plan5(clawback)→Ventas_Marzo, Plan4→Clientes_Nuevos, Plan2→Cuotas, roster→Nómina. A signature-cap's `batchIds` = all batches sharing that schema (e.g. Cobranza cap → 6 batch ids), which is exactly what `resolveColumnFromBatch` (column-name scan across batches) consumes. **No HALT-2** (BCL unchanged at 3).
+
+**Fetch consequence (Phase 1):** `inventoryData`'s flat `limit(500)` fetch (`convergence-service.ts:972-977`) does NOT guarantee coverage of small schemas (Cuotas=30, Nómina=34, Ventas_Marzo). Phase 1 must fetch per-batch samples (enumerate distinct `import_batch_id`, sample ~30-50 rows each) so every `(data_type, signature)` is represented before grouping.
+
+Supporting 1:1 batch↔sheet evidence (null-rate 0/75,227):
 
 Live query (stable `ORDER BY id` pagination, 75,227 rows):
 ```
