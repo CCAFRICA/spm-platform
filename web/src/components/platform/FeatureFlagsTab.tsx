@@ -33,6 +33,7 @@ export function FeatureFlagsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [themeSaving, setThemeSaving] = useState(false);
 
   useEffect(() => {
     fetch('/api/platform/settings')
@@ -75,6 +76,38 @@ export function FeatureFlagsTab() {
     }
   };
 
+  // OB-201: the active_ui_theme setting (global app theme). Normalize jsonb string value.
+  const themeSetting = settings.find(s => s.key === 'active_ui_theme');
+  const activeTheme: 'current' | 'bliss' = (() => {
+    const v = themeSetting?.value;
+    const n = typeof v === 'string' ? v.replace(/^"|"$/g, '') : 'current';
+    return n === 'bliss' ? 'bliss' : 'current';
+  })();
+
+  const setTheme = async (theme: 'current' | 'bliss') => {
+    if (theme === activeTheme || themeSaving) return;
+    setThemeSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/platform/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'active_ui_theme', value: theme }),
+      });
+      if (res.ok) {
+        // The theme is applied server-side in the root layout; reload to re-render with it.
+        window.location.reload();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to update theme');
+        setThemeSaving(false);
+      }
+    } catch {
+      setError('Network error — could not update theme');
+      setThemeSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
@@ -102,6 +135,49 @@ export function FeatureFlagsTab() {
         <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
           Toggle platform-wide feature flags. Changes take effect within 60 seconds.
         </p>
+      </div>
+
+      {/* OB-201 Appearance Panel — global app UI theme (current | bliss) */}
+      <div style={{
+        background: '#0F172A',
+        border: '1px solid #1E293B',
+        borderRadius: '12px',
+        padding: '24px',
+        marginBottom: '16px',
+      }}>
+        <h3 style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>Appearance</h3>
+        <p style={{ color: '#94A3B8', fontSize: '13px', margin: '0 0 16px' }}>
+          Global app UI theme for all users. Applied server-side on the next page render. &ldquo;Current&rdquo;
+          is the existing look; &ldquo;Bliss&rdquo; is the indigo/gold brand re-skin.
+        </p>
+        <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #334155', overflow: 'hidden' }}>
+          {(['current', 'bliss'] as const).map(theme => {
+            const isActive = activeTheme === theme;
+            return (
+              <button
+                key={theme}
+                onClick={() => setTheme(theme)}
+                disabled={themeSaving}
+                style={{
+                  padding: '10px 24px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: themeSaving ? 'wait' : (isActive ? 'default' : 'pointer'),
+                  background: isActive ? '#4F46E5' : 'transparent',
+                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  textTransform: 'capitalize',
+                  transition: 'background-color 0.15s',
+                }}
+              >
+                {theme}
+              </button>
+            );
+          })}
+        </div>
+        {themeSaving && (
+          <span style={{ color: '#94A3B8', fontSize: '12px', marginLeft: '12px' }}>Applying… reloading.</span>
+        )}
       </div>
 
       {/* Feature Flags Panel */}

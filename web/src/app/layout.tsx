@@ -11,6 +11,7 @@ import { AuthShell } from "@/components/layout/auth-shell";
 import { PrivacyNoticeFooter } from "@/components/privacy/PrivacyNoticeFooter";
 import { Toaster } from "sonner";
 import { getServerAuthState } from "@/lib/auth/server-auth";
+import { getActiveTheme } from "@/lib/theme/active-theme";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -35,9 +36,16 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const authState = await getServerAuthState();
+  // OB-201: read the global theme server-side and emit data-theme in the initial HTML (no FOUC).
+  const activeTheme = await getActiveTheme();
 
   return (
-    <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
+    <html
+      lang="en"
+      className="dark"
+      data-theme={activeTheme}
+      style={{ colorScheme: activeTheme === 'bliss' ? 'light' : 'dark' }}
+    >
       <body
         className={`${dmSans.variable} ${dmMono.variable} antialiased`}
         /* OB-201: body shell reads theme tokens. At [data-theme="current"] these equal the
