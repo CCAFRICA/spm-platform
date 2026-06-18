@@ -125,7 +125,10 @@ export interface ComponentBinding {
   // component as a loud `failed` (no silent $0).
   resolutionFailure?: {
     token: string;                  // the recognized reference token that matched no real column
-    reason: 'no_real_column_match';
+    // OB-216 §2-S5: widened from the single 'no_real_column_match' literal to carry the specific
+    // gap cause (no_proposal | llm_abstained:<reason> | proposed_column_absent_in_sheet |
+    // role_inconsistent:needs_<X>_got_<Y>). Consumers read it as a string (route.ts:2594).
+    reason: string;
     candidatesConsidered: number;   // how many real columns convergence weighed (0 = none existed)
   };
   // HF-222 Phase 3: learning provenance (audit metadata only).
@@ -2945,58 +2948,10 @@ async function generateAllComponentBindings(
   if (labeledCandidates.length === 0) return;
   console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => c.structuralType === 'attribute').map(c => c.column).join(', ') || 'none'}]`);
 
-  // §2-S3 compile-staging SHIM (REMOVED in §2-S5): derive the old measure-only `measureColumns`
-  // shape from labeledCandidates so the still-old resolveColumnMappingsViaAI call and boundary loop
-  // compile UNCHANGED until §2-S4/§2-S5 replace them. This is a scaffold, not a dual path — deleted
-  // in §2-S5 when the binding loop consumes `labeledCandidates` directly.
-  const measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats; batchId: string }> =
-    labeledCandidates
-      .filter(c => c.structuralType === 'measure' && c.stats)
-      .map(c => ({ name: c.column, fi: c.fi, stats: c.stats as ColumnValueStats, batchId: c.batchId }));
-  if (measureColumns.length === 0) return;
-
-  // HF-112 / HF-199 D2: AI-assisted column mapping with metric_comprehension
-  // signals as authoritative semantic intent.
-  // HF-253: the mapping call is now made ONCE PER VARIANT GROUP (see the variant
-  // grouping below), not once globally. Requirements are collected per group.
-  //
-  // HF-234 — categorical-field aggregation REMOVED from this call site.
-  // Categorical-subset filter discovery has moved to Pass 4
-  // (generateAISemanticDerivations), which reads categoricalFields directly
-  // from the `capabilities` parameter and produces metric_derivations rules.
-  // The cross-data-type measure-column discovery below (HF-228) is preserved
-  // — it serves Call 1's structural column mapping for plans whose metrics
-  // span multiple capability data types.
-
-  // HF-302 (RC-1, DIAG-072): the HF-228 cross-data-type column add-loop is REMOVED.
-  // HF-228 pushed EVERY unmatched data_type's numeric columns into `measureColumns` as
-  // `cross_source_numeric` (confidence 0.4) — a SOFT discriminator only. After HF-269 Phase A
-  // removed the HARD cross-source guard (HF-263 P3.2), that flat pool let the AI bind a plan's
-  // component inputs to columns from a DIFFERENT data file than the plan's own (DIAG-072: a
-  // collections-file column bound to a sales-plan input → null → $0). The candidate pool is now
-  // scoped to the data_type(s) the BOUNDARY MATCHER
-  // associated with this plan's components (`measureColumns` above, built only from matched
-  // capabilities) — deterministic file affinity, keyed on data_type/batchId, no magnitude proxy,
-  // no name matching (Korean Test). A genuine cross-data_type need must surface through the
-  // component's declared cross-reference (boundary-matcher output), NOT a blanket add-all loop.
-  // (Do NOT restore HF-263 P3.2 — the magnitude-proxy redirect was deliberately deleted.)
-
-  // HF-275: compute each measure column's null-rate over the CALCULATION POPULATION
-  // (committed_data rows with entity_id IS NOT NULL — the individual payees HF-263 keeps;
-  // grouping/hub rows are excluded). A column 100% null on this population cannot produce
-  // a value for any payee; the binding loop below penalizes its match by (1 - null_rate)
-  // so a column with values on the population wins over a merely name-similar one. Computed
-  // once, scoped per column to its own data batch. Korean Test: structural property only.
-  const individualNullRates = await computeIndividualNullRates(
-    supabase,
-    measureColumns.map(c => ({ name: c.name, batchId: c.batchId })),
-  );
-  if (individualNullRates.size > 0) {
-    const allNull = Array.from(individualNullRates.entries()).filter(([, r]) => r >= 1).map(([c]) => c);
-    if (allNull.length > 0) {
-      console.log(`[Convergence] HF-275 columns 100% null on the calculation population (penalized out): ${allNull.join(', ')}`);
-    }
-  }
+  // OB-216 §2-S5: the §2-S3 measure-only shim and the HF-275 null-rate scoring are removed — the
+  // binding loop below consumes `labeledCandidates` directly via LLM recognition (§2-S4) +
+  // structural validation (§D). Candidate selection is the LLM's; the guarantee is existence +
+  // role-consistency, not a null-rate-penalized boundary score.
 
   // HF-253: group matches by structural variantId before binding. The engine's
   // variant router (HF-119) evaluates exactly ONE variant per entity, so columns
@@ -3037,25 +2992,11 @@ async function generateAllComponentBindings(
       labeledCandidates,
       metricComprehension,
     );
-    // §2-S4 staging adapter (REMOVED in §2-S5): collapse sheet-aware proposals to the old
-    // {field: column|{column,filters}} shape so the still-old boundary loop compiles unchanged.
-    // The §2-S5 loop consumes `proposals` directly (sheet + confidence + abstain + validation).
-    const aiMapping: Record<string, ColumnMappingValue> = {};
-    for (const [field, p] of Object.entries(proposals)) {
-      if ('abstain' in p) continue;
-      aiMapping[field] = p.filters.length > 0 ? { column: p.column, filters: p.filters } : p.column;
-    }
-    console.log(`[Convergence] OB-216 §2-S4 ${Object.keys(proposals).length} proposals for variant group ${variantLabel}`);
+    console.log(`[Convergence] OB-216 §2-S5 ${Object.keys(proposals).length} proposals for variant group ${variantLabel}`);
 
-    // Build bindings using AI mapping + boundary validation.
-    // HF-253: the exclusion map is reset PER VARIANT GROUP. This closes the
-    // cross-variant contention at BOTH consumer sites — the AI-mapping path and the
-    // boundary-fallback `candidates` filter (DD-2). Within a single variant group the
-    // (column → metricField) one-column-once guard is preserved unchanged (HF-243
-    // semantics): a column may be reused by a later component binding to the SAME
-    // field, but a different field cannot claim an already-bound column.
-    const boundColumnToField = new Map<string, string>();
-
+    // OB-216 §2-S5: bind each component's requirements from the LLM proposals (per field), with
+    // deterministic structural validation. No one-column-once exclusion map (per-field recognition);
+    // no boundary fallback. variantId scoping preserved (HF-253).
     for (const match of groupMatches) {
       const comp = match.component;
       const cap = capabilities.find(c => c.dataType === match.dataType);
@@ -3068,150 +3009,11 @@ async function generateAllComponentBindings(
     const requirements = extractInputRequirements(comp);
 
     for (const req of requirements) {
-      // HF-227: the AI mapping value may be a plain column-name string
-      // (backward compatible) or the enriched shape { column, filters? }.
-      // Extract both so filters land on the binding entry below.
-      const proposedMapping = aiMapping[req.metricField];
-      const proposedColumnName = typeof proposedMapping === 'string'
-        ? proposedMapping
-        : proposedMapping?.column;
-      const proposedFilters = typeof proposedMapping === 'object' && proposedMapping !== null && Array.isArray(proposedMapping.filters)
-        ? proposedMapping.filters
-        : [];
+      const proposal = proposals[req.metricField];
 
-      if (proposedColumnName) {
-        const mc = measureColumns.find(c => c.name === proposedColumnName);
-        const priorField = boundColumnToField.get(proposedColumnName);
-        const excluded = priorField !== undefined && priorField !== req.metricField;
-        // HF-275: population-aware quality signal. A column that is 100% null on the
-        // calculation population (committed_data rows with entity_id IS NOT NULL — the
-        // individual payees; grouping rows are excluded by HF-263) genuinely cannot
-        // produce a value for any payee, regardless of name similarity. Do NOT accept the
-        // AI's name-similar proposal in that case — fall through to boundary scoring (which
-        // is penalized by null-rate below) so a column with values on the population wins.
-        // Below 100% the proposal is accepted with a proportional confidence penalty.
-        const proposedNullRate = individualNullRates.get(proposedColumnName) ?? 0;
-        if (mc && !excluded && proposedNullRate >= 1) {
-          console.log(`[Convergence] HF-275 ${comp.name}:${req.role}: AI proposed "${proposedColumnName}" but it is 100% null on the calculation population — rejecting; falling through to population-penalized boundary scoring.`);
-        } else if (mc && !excluded) {
-          // Boundary validation of AI proposal
-          const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
-          const isValidated = !req.expectedRange || boundaryScore > 0.1;
-
-          bindings[compKey][req.role] = {
-            column: proposedColumnName,
-            field_identity: mc.fi,
-            match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
-            // HF-275: proportional population penalty — confidence × (1 - individual null rate).
-            confidence: (isValidated ? 0.9 : 0.6) * (1 - proposedNullRate),
-            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
-            learning_provenance: {
-              batch_id: mc.batchId,
-              learned_at: new Date().toISOString(),
-            },
-            // HF-227: filters live on the binding (Decision 111 single-structure
-            // completion). Empty array preserves byte-identical pre-HF-227
-            // engine behavior; populated array activates filter-respecting
-            // sum at the engine.
-            filters: proposedFilters,
-          };
-          boundColumnToField.set(proposedColumnName, req.metricField);
-          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length}, nullRate=${proposedNullRate.toFixed(2)})`);
-          continue;
-        }
-      }
-
-      // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-222 Phase 2: boundary-fallback acceptance uses distribution-derived
-      // distinguishability (see distinctEnoughToBind). The threshold is computed
-      // from the candidate distribution at decision time — no developer-stated
-      // numerical constants. Cluster cases refuse to bind and surface convergence
-      // gaps; clear-outlier cases bind.
-      // HF-243: same scoping as AI-mapping path — columns previously bound to the
-      // SAME field name remain candidates (variant duplicates); columns bound to a
-      // different field are excluded.
-      const candidates = measureColumns
-        .filter(mc => {
-          const pf = boundColumnToField.get(mc.name);
-          return pf === undefined || pf === req.metricField;
-        })
-        .map(mc => {
-          const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
-          // HF-275: population-aware quality signal — multiply the match score by
-          // (1 - individual null rate). A column 100% null on the calculation population
-          // scores 0 and cannot win over a column with values; a partially-null column is
-          // penalized proportionally. DD-7: a column with values on the population
-          // (null rate 0) is unaffected. Korean Test: structural null-rate, no literals.
-          const nullRate = individualNullRates.get(mc.name) ?? 0;
-          return { ...mc, score: score * (1 - nullRate), scaleFactor };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      if (candidates.length > 0 && distinctEnoughToBind(candidates)) {
-        const best = candidates[0];
-        bindings[compKey][req.role] = {
-          column: best.name,
-          field_identity: best.fi,
-          match_pass: 3,  // Boundary-only fallback (distribution-derived acceptance)
-          confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
-          scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
-          learning_provenance: {
-            batch_id: best.batchId,
-            learned_at: new Date().toISOString(),
-          },
-        };
-        boundColumnToField.set(best.name, req.metricField);
-        console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
-      } else {
-        // HF-287: order-independent AI-explicit recovery. The boundary fallback could not
-        // distinctly bind (degenerate look-alike cluster, or no candidate). BEFORE surfacing a
-        // gap/marker, honor the AI's EXPLICIT per-token recognition: the AI may have deliberately
-        // mapped THIS token to a real column that an EARLIER token in this same variant group
-        // already claimed (intra-group column contention — DIAG-068/HF-287 root cause). The
-        // one-column-once guard on the AI-mapping path above is a speculative-reuse guard, not a
-        // veto over explicit recognition: a single physical column may legitimately satisfy
-        // multiple AI-mapped tokens (e.g. a loads column read by both a monthly-loads metric and a
-        // fleet-utilization ratio numerator). Binding here makes the result ORDER-INDEPENDENT —
-        // whichever contending token is processed first, the other recovers its AI-recognized
-        // column — closing the generation-sensitivity that flipped which variant aborted across
-        // re-imports. DD-7: this fires ONLY on the fallback-failure (would-be-unbound) path; every
-        // currently-binding token binds above and never reaches here. Decision 158 / Korean Test:
-        // binds the AI's structural per-token choice (no column-name literal, no language string).
-        const aiProposed = aiMapping[req.metricField];
-        const aiCol = typeof aiProposed === 'string' ? aiProposed : aiProposed?.column;
-        const aiMc = aiCol ? measureColumns.find(c => c.name === aiCol) : undefined;
-        const aiNullRate = aiCol ? (individualNullRates.get(aiCol) ?? 0) : 1;
-        if (aiMc && aiNullRate < 1) {
-          const { scaleFactor } = scoreColumnForRequirement(aiMc.name, aiMc.stats, req);
-          const aiFilters = typeof aiProposed === 'object' && aiProposed !== null && Array.isArray(aiProposed.filters) ? aiProposed.filters : [];
-          bindings[compKey][req.role] = {
-            column: aiMc.name,
-            field_identity: aiMc.fi,
-            match_pass: 2,  // AI-explicit recovery (recognized, not independently boundary-distinct)
-            confidence: 0.6 * (1 - aiNullRate),
-            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
-            learning_provenance: {
-              batch_id: aiMc.batchId,
-              learned_at: new Date().toISOString(),
-            },
-            filters: aiFilters,
-          };
-          boundColumnToField.set(aiMc.name, req.metricField);
-          console.log(`[Convergence] HF-287 ${comp.name}:${req.role} → ${aiMc.name} (AI-explicit recovery over intra-group contention; nullRate=${aiNullRate.toFixed(2)})`);
-      } else if (candidates.length > 0) {
-        // Ambiguous: real columns exist but none is distinctly THE match, and the AI made no
-        // viable explicit proposal. Decision 108 / §6A territory, NOT the HF-272 hallucination-catch.
-        console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
-      } else {
-        // HF-272: the required reference token resolved to NO real column — there is no
-        // measure column available for it to bind to (AI semantic mapping proposed none,
-        // and the boundary fallback had zero candidates). This is the relocated
-        // hallucination-catch. Record a per-component resolution-failure MARKER on the
-        // binding (no throw — Option 1: per-component failure, no run abort). The component
-        // still receives a binding entry so persistence is NOT skipped; calc surfaces it as
-        // a loud `failed` component, never a silent $0. The comparison is against the real
-        // columns convergence evaluated (measureColumns) — complete-by-construction, never
-        // an enumerated/declared list (AUD-009).
+      // §2-S5: no proposal or explicit abstention → convergence gap (never a forced bind).
+      if (!proposal || 'abstain' in proposal) {
+        const why = proposal ? (proposal as { reason: string }).reason : 'no_proposal';
         bindings[compKey][req.role] = {
           column: '',
           field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
@@ -3219,13 +3021,56 @@ async function generateAllComponentBindings(
           confidence: 0,
           resolutionFailure: {
             token: req.metricField,
-            reason: 'no_real_column_match',
-            candidatesConsidered: candidates.length,
+            reason: proposal ? `llm_abstained:${why}` : 'no_proposal',
+            candidatesConsidered: labeledCandidates.length,
           },
         };
-          console.log(`[Convergence] HF-272 ${comp.name}:${req.role}: token "${req.metricField}" resolved to NO real column (candidatesConsidered=${candidates.length}) — per-component resolution failure recorded (loud failed, not silent $0).`);
-        }
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role}: ${proposal ? `LLM abstained (${why})` : 'no proposal'} → convergence gap`);
+        continue;
       }
+
+      // §2-S5 structural validation (§D): (1) column exists in the proposed sheet; (2) its
+      // structuralType is consistent with the field's intent-usage-derived needed type. No threshold.
+      const sheetCap = capabilities.find(c => c.partitionKey === proposal.partitionKey);
+      const colFi: FieldIdentity | undefined = sheetCap?.fieldIdentities[proposal.column]
+        ?? (sheetCap && sheetCap.columnStats[proposal.column]
+              ? { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 }
+              : undefined);
+      if (!sheetCap || !colFi) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: { token: req.metricField, reason: 'proposed_column_absent_in_sheet', candidatesConsidered: labeledCandidates.length },
+        };
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column}@${proposal.partitionKey.split('␟')[0]}: column not present in proposed sheet → gap`);
+        continue;
+      }
+      const needed = deriveNeededType(req.metricField, comp.calculationIntent);
+      if (!acceptableStructuralTypes(needed).has(colFi.structuralType)) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: { token: req.metricField, reason: `role_inconsistent:needs_${needed}_got_${colFi.structuralType}`, candidatesConsidered: labeledCandidates.length },
+        };
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (${colFi.structuralType}): role-inconsistent, needs ${needed} → gap`);
+        continue;
+      }
+
+      // Validated → write. The bound column's SHEET drives provenance; resolveColumnFromBatch scans
+      // all batches by column name, so a column resolves from its own sheet's rows — and a component
+      // whose fields bind on different sheets unions those sheets implicitly (§E batchIds union).
+      const stats = sheetCap.columnStats[proposal.column];
+      const scaleFactor = stats ? scoreColumnForRequirement(proposal.column, stats, req).scaleFactor : 1;
+      bindings[compKey][req.role] = {
+        column: proposal.column,
+        field_identity: colFi,
+        match_pass: 1,
+        confidence: proposal.confidence,
+        scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+        filters: proposal.filters,
+        learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
+      };
+      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, needs=${needed}, conf=${proposal.confidence.toFixed(2)}, validated)`);
     }
 
     // HF-218 Component 1 — Entity identifier self-verification.
@@ -3240,8 +3085,15 @@ async function generateAllComponentBindings(
     //   4. Select highest-scoring candidate
     //   5. Fall back to cardinality-only if zero intersection across all candidates
     //   6. Persist with freshly-computed confidence; emit convergence:binding_selection signal
+    // OB-216 §2-S5: an entity-key column may be classified 'identifier' OR 'reference_key' (e.g.
+    // a per-sheet vendor key like a national-ID column is a reference_key). Consider BOTH as
+    // candidates; the cardinality×intersection score below disambiguates structurally (the key whose
+    // VALUES overlap the tenant's entity external_ids wins — Korean Test, value-overlap not name).
+    // Pre-Phase-1 the merged single capability happened to expose the entity key as 'identifier';
+    // per-sheet capabilities classify it 'reference_key', so the 'identifier'-only filter would pick
+    // a high-cardinality non-entity column (e.g. a folio) with zero entity overlap.
     const idEntries = Object.entries(cap.fieldIdentities)
-      .filter(([, fi]) => fi.structuralType === 'identifier');
+      .filter(([, fi]) => fi.structuralType === 'identifier' || fi.structuralType === 'reference_key');
     if (idEntries.length > 0) {
       type CandidateScore = {
         colName: string;
