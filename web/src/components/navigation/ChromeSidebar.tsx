@@ -150,6 +150,14 @@ export function ChromeSidebar() {
   // Section accordion state — tracks which section IDs are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
+  // HF-306 §3.2: under bliss the active-nav accent is indigo (not the per-workspace teal/purple).
+  // Read post-mount so SSR (false) matches initial client render — no hydration mismatch.
+  const [isBliss, setIsBliss] = useState(false);
+  useEffect(() => {
+    setIsBliss(document.documentElement.getAttribute('data-theme') === 'bliss');
+  }, []);
+  const blissIndigo = '#2D2F8F';
+
   // Toggle a section's expanded state
   const toggleSection = useCallback((sectionId: string) => {
     setExpandedSections(prev => {
@@ -205,7 +213,7 @@ export function ChromeSidebar() {
   const accentGrad = PERSONA_TOKENS[persona].accentGrad;
 
   // Workspace accent color
-  const wsAccent = activeWsConfig?.accentColor || 'hsl(262, 83%, 58%)';
+  const wsAccent = isBliss ? blissIndigo : (activeWsConfig?.accentColor || 'hsl(262, 83%, 58%)');
 
   return (
     <>
@@ -282,7 +290,7 @@ export function ChromeSidebar() {
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
-            <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+            <p data-nav-section style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
               {isSpanish ? 'Espacios' : 'Workspaces'}
             </p>
           )}
@@ -305,7 +313,7 @@ export function ChromeSidebar() {
                               ? 'text-white'
                               : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50'
                           )}
-                          style={isActive ? { backgroundColor: `${ws.accentColor}30`, color: ws.accentColor } : undefined}
+                          style={isActive ? { backgroundColor: `${isBliss ? blissIndigo : ws.accentColor}30`, color: isBliss ? blissIndigo : ws.accentColor } : undefined}
                         >
                           <Icon className="h-4 w-4" />
                         </button>
@@ -331,7 +339,7 @@ export function ChromeSidebar() {
                   style={{
                     fontSize: '14px',
                     ...(isActive
-                      ? { backgroundColor: `${ws.accentColor}25`, color: ws.accentColor }
+                      ? { backgroundColor: `${isBliss ? blissIndigo : ws.accentColor}25`, color: isBliss ? blissIndigo : ws.accentColor }
                       : { color: '#a1a1aa' }),
                   }}
                 >
@@ -349,7 +357,7 @@ export function ChromeSidebar() {
           {activeSections.length > 0 && (
             <nav className={cn('py-3', isRailCollapsed ? 'px-1' : 'px-3')}>
               {!isRailCollapsed && (
-                <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+                <p data-nav-section style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
                   {isSpanish ? activeWsConfig?.labelEs : activeWsConfig?.label}
                 </p>
               )}

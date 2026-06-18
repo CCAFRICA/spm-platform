@@ -361,3 +361,16 @@ html[data-theme="bliss"] .badge-gold {
   background: var(--color-gold-soft);
   color: var(--color-gold-deep);
 }
+
+/* §3.4 sidebar section labels (inline-styled) → DM Mono, muted, wide tracking under bliss. */
+html[data-theme="bliss"] [data-nav-section] {
+  font-family: var(--font-mono) !important;
+  color: var(--color-muted) !important;
+  letter-spacing: 0.22em !important;
+}
+
+/* §3.5 top nav: dark bg-black/30 + white border aren't theme-aware → light treatment under bliss. */
+html[data-theme="bliss"] .app-navbar {
+  background-color: rgba(248, 248, 255, 0.85);
+  border-bottom-color: var(--color-border);
+}
