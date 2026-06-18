@@ -24,30 +24,33 @@
      is explicit and matches today EXACTLY (pixel-identical default). */
   :root,
   [data-theme="current"] {
-    --background: 222.2 47.4% 3.9%;
-    --foreground: 210 40% 96%;
-    --card: 222.2 47.4% 5.5%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222.2 47.4% 5.5%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 238.7 83.5% 66.7%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 20.2% 55%;
-    --accent: 217.2 32.6% 12%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217.2 32.6% 15%;
-    --input: 217.2 32.6% 15%;
-    --ring: 238.7 83.5% 66.7%;
-    --chart-1: 238 83% 67%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    /* HF-307A: bare OKLCH channels (L C H), consumed by oklch(var(--token)/<alpha>) in config.
+       Converted from the prior HSL triples via sRGB→OKLab→OKLCH — solid colors render identical
+       (G2); opacity modifiers now blend in perceptually-uniform OKLCH space. */
+    --background: 0.1344 0.0163 262.7;
+    --foreground: 0.9676 0.007 247.9;
+    --card: 0.1519 0.0214 265.5;
+    --card-foreground: 0.9676 0.007 247.9;
+    --popover: 0.1519 0.0214 265.5;
+    --popover-foreground: 0.9676 0.007 247.9;
+    --primary: 0.586 0.2037 277.1;
+    --primary-foreground: 1 0 0;
+    --secondary: 0.226 0.0267 260;
+    --secondary-foreground: 0.9676 0.007 247.9;
+    --muted: 0.226 0.0267 260;
+    --muted-foreground: 0.6225 0.0468 256.8;
+    --accent: 0.226 0.0267 260;
+    --accent-foreground: 0.9676 0.007 247.9;
+    --destructive: 0.6368 0.2078 25.3;
+    --destructive-foreground: 1 0 0;
+    --border: 0.2558 0.0324 260;
+    --input: 0.2558 0.0324 260;
+    --ring: 0.586 0.2037 277.1;
+    --chart-1: 0.5929 0.1987 277;
+    --chart-2: 0.6983 0.1337 165.5;
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
     --radius: 0.75rem;
 
     /* OB-201 app-shell tokens — current = today's EXACT body inline values (layout.tsx) */
@@ -66,30 +69,33 @@
 
   /* .dark selector matches :root values — app is always dark */
   .dark {
-    --background: 222.2 47.4% 3.9%;
-    --foreground: 210 40% 96%;
-    --card: 222.2 47.4% 5.5%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222.2 47.4% 5.5%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 238.7 83.5% 66.7%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 20.2% 55%;
-    --accent: 217.2 32.6% 12%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217.2 32.6% 15%;
-    --input: 217.2 32.6% 15%;
-    --ring: 238.7 83.5% 66.7%;
-    --chart-1: 238 83% 67%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    /* HF-307A: bare OKLCH channels (L C H), consumed by oklch(var(--token)/<alpha>) in config.
+       Converted from the prior HSL triples via sRGB→OKLab→OKLCH — solid colors render identical
+       (G2); opacity modifiers now blend in perceptually-uniform OKLCH space. */
+    --background: 0.1344 0.0163 262.7;
+    --foreground: 0.9676 0.007 247.9;
+    --card: 0.1519 0.0214 265.5;
+    --card-foreground: 0.9676 0.007 247.9;
+    --popover: 0.1519 0.0214 265.5;
+    --popover-foreground: 0.9676 0.007 247.9;
+    --primary: 0.586 0.2037 277.1;
+    --primary-foreground: 1 0 0;
+    --secondary: 0.226 0.0267 260;
+    --secondary-foreground: 0.9676 0.007 247.9;
+    --muted: 0.226 0.0267 260;
+    --muted-foreground: 0.6225 0.0468 256.8;
+    --accent: 0.226 0.0267 260;
+    --accent-foreground: 0.9676 0.007 247.9;
+    --destructive: 0.6368 0.2078 25.3;
+    --destructive-foreground: 1 0 0;
+    --border: 0.2558 0.0324 260;
+    --input: 0.2558 0.0324 260;
+    --ring: 0.586 0.2037 277.1;
+    --chart-1: 0.5929 0.1987 277;
+    --chart-2: 0.6983 0.1337 165.5;
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
     --app-bg: #0a0e1a;
     --app-fg: #e2e8f0;
     --font-display: var(--font-dm-sans), system-ui, sans-serif;
@@ -108,30 +114,32 @@
      html[data-theme="bliss"] (0,1,1) wins over .dark (0,1,0).
      ============================================================ */
   html[data-theme="bliss"] {
-    --background: 0 0% 100%;             /* oklch(1 0 0) — pure white (§1: NOT offwhite) */
-    --foreground: 239.5 62.5% 19.7%;     /* ink oklch(0.24 0.11 274) — indigo-tinted, NOT black */
-    --card: 0 0% 100%;                   /* oklch(1 0 0) */
-    --card-foreground: 239.5 62.5% 19.7%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 239.5 62.5% 19.7%;
-    --primary: 240.2 57.9% 33.8%;        /* indigo oklch(0.34 0.16 274) */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 221.1 100% 97%;         /* indigo-soft oklch(0.97 0.025 274) */
-    --secondary-foreground: 240.2 57.9% 33.8%;
-    --muted: 232.7 58.7% 98.6%;          /* offwhite oklch(0.985 0.005 280) */
-    --muted-foreground: 228.6 19.7% 45.8%; /* oklch(0.52 0.06 274) — indigo cast */
-    --accent: 37.2 82.9% 59.8%;          /* gold oklch(0.79 0.14 76) */
-    --accent-foreground: 239.5 62.5% 19.7%;
-    --destructive: 358.1 88% 44.2%;      /* oklch(0.55 0.22 28) */
-    --destructive-foreground: 0 0% 100%;
-    --border: 227.2 19% 90.5%;           /* oklch(0.92 0.01 274) — indigo-tinted */
-    --input: 227.2 19% 90.5%;
-    --ring: 240.2 57.9% 33.8%;
-    --chart-1: 240.2 57.9% 33.8%;        /* indigo */
-    --chart-2: 37.2 82.9% 59.8%;         /* gold */
-    --chart-3: 160 60% 45%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    /* HF-307A: authoritative OKLCH channels DIRECTLY (no HSL conversion layer) — the
+       production styles.css source IS OKLCH; consumed by oklch(var(--token)/<alpha>) in config. */
+    --background: 1 0 0;                  /* pure white */
+    --foreground: 0.24 0.11 274;         /* ink (indigo-tinted) */
+    --card: 1 0 0;
+    --card-foreground: 0.24 0.11 274;
+    --popover: 1 0 0;
+    --popover-foreground: 0.24 0.11 274;
+    --primary: 0.34 0.16 274;            /* indigo */
+    --primary-foreground: 1 0 0;
+    --secondary: 0.97 0.025 274;         /* indigo-soft */
+    --secondary-foreground: 0.34 0.16 274;
+    --muted: 0.985 0.005 280;            /* offwhite */
+    --muted-foreground: 0.52 0.06 274;
+    --accent: 0.79 0.14 76;              /* gold */
+    --accent-foreground: 0.24 0.11 274;
+    --destructive: 0.55 0.22 28;
+    --destructive-foreground: 1 0 0;
+    --border: 0.92 0.01 274;             /* indigo-tinted hairline */
+    --input: 0.92 0.01 274;
+    --ring: 0.34 0.16 274;
+    --chart-1: 0.34 0.16 274;            /* indigo */
+    --chart-2: 0.79 0.14 76;             /* gold */
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
     --radius: 0.25rem;                   /* authoritative line-precision radius */
 
     /* app-shell — bliss page is pure WHITE (§1), ink text */

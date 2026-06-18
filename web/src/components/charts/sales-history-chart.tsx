@@ -60,8 +60,8 @@ export function SalesHistoryChart({ data, title }: SalesHistoryChartProps) {
             <Tooltip
               formatter={(value: number) => format(value)}
               contentStyle={{
-                backgroundColor: 'hsl(var(--background))',
-                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'oklch(var(--background))',
+                border: '1px solid oklch(var(--border))',
                 borderRadius: '8px',
               }}
             />
