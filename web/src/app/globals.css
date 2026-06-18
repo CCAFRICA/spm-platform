@@ -61,10 +61,16 @@
     --card-surface: rgba(24, 24, 27, 0.8);
     --card-bd: rgba(39, 39, 42, 0.6);
 
-    /* HF-308: theme-aware straggler vars for inline-hex dark surfaces (current = EXACT prior hex) */
-    --strag-deep: #020617;    /* page-bg slate-950 (upgrade, root) */
-    --strag-panel: #0F172A;   /* dark card/panel slate-900 (upgrade) */
-    --strag-violet: #7c3aed;  /* reconcile action buttons (violet) */
+    /* HF-308: theme-aware straggler vars for inline-hex dark SURFACE backgrounds
+       (current = EXACT prior hex → byte-safe; bliss = light). Background contexts only. */
+    --strag-deep: #020617;    /* slate-950 page bg */
+    --strag-panel: #0F172A;   /* slate-900 card/panel */
+    --strag-app: #0a0e1a;     /* app dark bg */
+    --strag-z9: #18181b;      /* zinc-900 */
+    --strag-s8: #1e293b;      /* slate-800 */
+    --strag-z8: #27272a;      /* zinc-800 */
+    --strag-z7: #3f3f46;      /* zinc-700 */
+    --strag-violet: #7c3aed;  /* action buttons (violet) */
 
     /* OB-201 font tokens — current maps to the in-use DM Sans / DM Mono (parity set) */
     --font-display: var(--font-dm-sans), system-ui, sans-serif;
@@ -156,9 +162,14 @@
     --card-bd: var(--border-oklch);
 
     /* HF-308: stragglers go light/indigo under bliss */
-    --strag-deep: oklch(1 0 0);        /* white page bg */
-    --strag-panel: oklch(0.985 0.005 280); /* offwhite panel */
-    --strag-violet: oklch(0.34 0.16 274);  /* indigo action */
+    --strag-deep: oklch(1 0 0);             /* white page bg */
+    --strag-panel: oklch(0.985 0.005 280);  /* offwhite panel */
+    --strag-app: oklch(1 0 0);              /* white */
+    --strag-z9: oklch(0.985 0.005 280);     /* offwhite */
+    --strag-s8: oklch(0.97 0.025 274);      /* indigo-soft */
+    --strag-z8: oklch(0.97 0.025 274);      /* indigo-soft */
+    --strag-z7: oklch(0.92 0.01 274);       /* border */
+    --strag-violet: oklch(0.34 0.16 274);   /* indigo action */
 
     /* HF-307 authoritative brand tokens — RAW OKLCH (used directly by the design vocabulary).
        --color-* aliases keep the existing consumers (.eyebrow/.vl-card/sidebar/nav) working. */

@@ -348,7 +348,7 @@ export default function LocationDetailPage() {
                   <YAxis stroke="#6b7280" tickFormatter={(v) => format(v)} fontSize={10} />
                   <Tooltip
                     formatter={(value: number) => [format(value), isSpanish ? 'Ingresos' : 'Revenue']}
-                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: 'var(--strag-z9)', border: '1px solid #3f3f46', borderRadius: '8px' }}
                   />
                   <ReferenceLine
                     y={weeklyAvg}

@@ -35,7 +35,7 @@ export function EntityDetailPanel({ entityId, onClose, onNavigateToEntity }: Ent
 
   if (isLoading) {
     return (
-      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: 'var(--strag-app)', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: '#71717a', fontSize: '13px' }}>Loading...</div>
       </div>
     );
@@ -43,7 +43,7 @@ export function EntityDetailPanel({ entityId, onClose, onNavigateToEntity }: Ent
 
   if (!cardData) {
     return (
-      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', padding: '16px' }}>
+      <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: 'var(--strag-app)', padding: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#71717a', fontSize: '13px' }}>Entity not found</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
@@ -69,9 +69,9 @@ export function EntityDetailPanel({ entityId, onClose, onNavigateToEntity }: Ent
       : 'rgba(113, 113, 122, 0.15)';
 
   return (
-    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', overflowY: 'auto' }}>
+    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: 'var(--strag-app)', overflowY: 'auto' }}>
       {/* Header */}
-      <div style={{ position: 'sticky', top: 0, background: '#0a0e1a', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
+      <div style={{ position: 'sticky', top: 0, background: 'var(--strag-app)', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h3 style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>{entity.display_name}</h3>

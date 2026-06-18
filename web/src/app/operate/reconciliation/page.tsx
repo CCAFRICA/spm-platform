@@ -961,7 +961,7 @@ export default function ReconciliationPage() {
                   onClick={handleAnalyze}
                   disabled={analyzing}
                   className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40"
-                  style={{ backgroundColor: analyzing ? '#3f3f46' : 'var(--strag-violet)', boxShadow: analyzing ? 'none' : '0 0 16px rgba(124, 58, 237, 0.3)' }}
+                  style={{ backgroundColor: analyzing ? 'var(--strag-z7)' : 'var(--strag-violet)', boxShadow: analyzing ? 'none' : '0 0 16px rgba(124, 58, 237, 0.3)' }}
                 >
                   {analyzing
                     ? (isSpanish ? 'Analizando...' : 'Analyzing benchmark...')
@@ -1105,7 +1105,7 @@ export default function ReconciliationPage() {
               onClick={handleCompare}
               disabled={!entityIdCol || !totalPayoutCol || comparing}
               className="w-full mt-6 px-4 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ backgroundColor: (!entityIdCol || !totalPayoutCol || comparing) ? '#3f3f46' : '#059669', boxShadow: (!entityIdCol || !totalPayoutCol || comparing) ? 'none' : '0 0 16px rgba(5, 150, 105, 0.3)' }}
+              style={{ backgroundColor: (!entityIdCol || !totalPayoutCol || comparing) ? 'var(--strag-z7)' : '#059669', boxShadow: (!entityIdCol || !totalPayoutCol || comparing) ? 'none' : '0 0 16px rgba(5, 150, 105, 0.3)' }}
             >
               {comparing
                 ? (isSpanish ? 'Comparando...' : 'Running comparison...')
@@ -1471,7 +1471,7 @@ export default function ReconciliationPage() {
                             disabled={diagnosing === row.entityId}
                             title={isSpanish ? 'Diagnosticar con el agente' : 'Diagnose with the reconciliation agent'}
                             className="px-2 py-0.5 rounded text-[10px] font-medium"
-                            style={{ backgroundColor: diagnosing === row.entityId ? '#3f3f46' : 'var(--strag-violet)', color: '#fff' }}
+                            style={{ backgroundColor: diagnosing === row.entityId ? 'var(--strag-z7)' : 'var(--strag-violet)', color: '#fff' }}
                           >
                             {diagnosing === row.entityId ? '…' : '🔍'}
                           </button>

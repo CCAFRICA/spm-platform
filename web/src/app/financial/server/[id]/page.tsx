@@ -386,7 +386,7 @@ export default function ServerDetailPage() {
                       <YAxis stroke="#6b7280" hide />
                       <Tooltip
                         formatter={(value: number) => [value, isSpanish ? 'Cheques' : 'Checks']}
-                        contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
+                        contentStyle={{ backgroundColor: 'var(--strag-z9)', border: '1px solid #3f3f46', borderRadius: '8px' }}
                       />
                       <Bar dataKey="cheques" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
                     </BarChart>
@@ -413,7 +413,7 @@ export default function ServerDetailPage() {
                   <YAxis stroke="#6b7280" tickFormatter={(v) => format(v)} fontSize={10} />
                   <Tooltip
                     formatter={(value: number) => [format(value), isSpanish ? 'Ingresos' : 'Revenue']}
-                    contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: 'var(--strag-z9)', border: '1px solid #3f3f46', borderRadius: '8px' }}
                   />
                   {/* Threshold band — server's average as reference line */}
                   <ReferenceLine
