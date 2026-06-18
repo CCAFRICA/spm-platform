@@ -1,0 +1,51 @@
+{
+  "audit": "AUD-018 Phase D",
+  "good_sha": "d501f97b616cfba62c2138538ec0f2637084a679",
+  "current_sha": "ba8c4a4c26e4d07cc7d8c5ae0f2a59926543c95d",
+  "date": "2026-06-17",
+  "stages": [
+    {
+      "stage": "AI/model",
+      "files": ["web/src/lib/ai/providers/anthropic-adapter.ts", "web/src/lib/ai/ai-service.ts", "web/src/lib/ai/types.ts"],
+      "commits": ["8620b857 HF-304", "1b597894 HF-294 P2", "925cba74 HF-294 P1", "04074c0d OB-212 N1", "c404a4bd OB-212 N1"],
+      "behaviorImpact": "Y — plan-interpretation task family routed to claude-opus-4-8 (fixes 19-vs-20-cell under-emission that aborted import); fallback claude-sonnet-4-20250514 -> claude-sonnet-4-6; provider hard-error now tagged/loud (AUD-009); net-new executeAgentTurn (off-path)",
+      "classification": "FIX"
+    },
+    {
+      "stage": "Import-Plan (header->rule_set)",
+      "files": ["web/src/lib/sci/header-comprehension.ts", "web/src/lib/sci/plan-interpretation.ts"],
+      "commits": ["fcd3d7e5 HF-300", "925cba74 HF-294", "566b2905 OB-203 D13", "172fa2ea OB-203 D5", "31436a29 OB-203 P1"],
+      "behaviorImpact": "Y — comprehendHeaders gains atom-fingerprint flywheel; role/recognition-confidence decoupled (D5); dev-only failure surface inert in prod; changes column role/semantic-type inputs vs GOOD",
+      "classification": "NEUTRAL->FIX"
+    },
+    {
+      "stage": "Import-Transaction/SCI write path",
+      "files": ["web/src/app/api/import/sci/execute-bulk/route.ts", "web/src/lib/sci/commit-content-unit.ts"],
+      "commits": ["fcd3d7e5 HF-300", "6e49db8a HF-297", "8336abef DIAG-070", "be0bdc49 HF-285-D", "1047d979 HF-285-A", "6a0c1d81 OB-203 6B/B"],
+      "behaviorImpact": "Y — respond-before-post-commit + idempotent resume/lease; post-commit moved out of dead Vercel waitUntil (which left 99% committed_data NULL entity_id); insert pacing + write-time telemetry (committed_data content unchanged)",
+      "classification": "REGRESSION->FIX"
+    },
+    {
+      "stage": "Import-finalize / entity-resolution / assignments",
+      "files": ["web/src/app/api/import/sci/finalize-import/route.ts (NET-NEW)", "web/src/lib/sci/entity-resolution.ts"],
+      "commits": ["fcd3d7e5 HF-300", "d8ecc2a4 OB-203 D16.1"],
+      "behaviorImpact": "Y — NET-NEW endpoint (absent at GOOD) runs post-commit entity resolution + createMissingAssignments in a live request; D3 suppresses spurious entity fabrication from non-FK reference_keys; supplies entity_id+assignments calc depends on",
+      "classification": "FIX"
+    },
+    {
+      "stage": "Convergence (binding)",
+      "files": ["web/src/lib/intelligence/convergence-service.ts"],
+      "commits": ["e8d37b70 HF-302", "344d194d HF-287", "1f1d7d59 OB-203 6B/E", "d8ecc2a4 OB-203 D16.1"],
+      "behaviorImpact": "Y — generateAllComponentBindings REMOVED HF-228 blanket cross-data-type column add-loop that bound a plan input to a column from the WRONG data file -> null -> $0 (DIAG-072); pool now scoped to boundary-matched data_types (file affinity)",
+      "classification": "FIX"
+    },
+    {
+      "stage": "Calculation",
+      "files": ["web/src/app/api/calculation/run/route.ts"],
+      "commits": ["968759fc HF-303", "e8d37b70 HF-302", "66a0dec2 HF-301", "d9c35317 OB-213 3A", "1f1d7d59 OB-203 6B/E"],
+      "behaviorImpact": "Y — removed whole-tenant calc-time entity resolution (165,897-row scan timeout at MIR); single visibility gate; HF-303 strongest-membership rollup key replaces 0.5 magic threshold; now hard-depends on finalize-import having run (NULL entity_id -> $0 if not)",
+      "classification": "FIX"
+    }
+  ],
+  "note": "intent-constructor (web/src/lib/plan-intelligence/intent-constructor.ts) had ZERO changes GOOD->CURRENT; the plan-interpretation regression arc lives entirely at the model-routing seam in anthropic-adapter, not in the constructor."
+}

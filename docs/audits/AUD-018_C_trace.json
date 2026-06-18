@@ -1,0 +1,38 @@
+{
+  "audit": "AUD-018 Phase C",
+  "good_sha": "d501f97b616cfba62c2138538ec0f2637084a679",
+  "current_sha": "ba8c4a4c26e4d07cc7d8c5ae0f2a59926543c95d",
+  "date": "2026-06-17",
+  "keyFinding": "Both plan_skeleton (Phase A) and plan_component (Phase B) traverse AnthropicAdapter.execute requestBody seam (anthropic-adapter.ts:1068-1083) where HF-304 routes them to claude-opus-4-8; HF-304 takes effect.",
+  "nodes": [
+    {"step": 1, "file": "web/src/app/api/import/sci/execute-bulk/route.ts", "line": 116, "fn": "POST", "task": null, "model": null},
+    {"step": 2, "file": "web/src/app/api/import/sci/execute-bulk/route.ts", "line": 344, "fn": "call executeBatchedPlanInterpretation", "task": null, "model": null},
+    {"step": 3, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 76, "fn": "executeBatchedPlanInterpretation", "task": null, "model": null},
+    {"step": 4, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 286, "fn": "import orchestratePerComponentInterpretation", "task": null, "model": null},
+    {"step": 5, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 149, "fn": "orchestratePerComponentInterpretation", "task": null, "model": null},
+    {"step": 6, "file": "web/src/lib/ai/ai-service.ts", "line": 43, "fn": "AIService.createAdapter (anthropic)", "task": null, "model": null},
+    {"step": 7, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 159, "fn": "aiService.interpretPlanSkeleton (PHASE A)", "task": "plan_skeleton", "model": "claude-opus-4-8 (resolved at anthropic-adapter.ts:1071-1073)"},
+    {"step": 8, "file": "web/src/lib/ai/ai-service.ts", "line": 324, "fn": "interpretPlanSkeleton -> this.execute", "task": "plan_skeleton", "model": null},
+    {"step": 9, "file": "web/src/lib/ai/ai-service.ts", "line": 62, "fn": "AIService.execute -> adapter.execute", "task": null, "model": null},
+    {"step": 10, "file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 994, "fn": "AnthropicAdapter.execute (HF-304 requestBody seam @1068)", "task": null, "model": "claude-opus-4-8 if PLAN_INTERPRETATION_TASKS.has(task) else config.model"},
+    {"step": 11, "file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1095, "fn": "fetch api.anthropic.com/v1/messages", "task": null, "model": null},
+    {"step": 12, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 230, "fn": "runOne (Phase B fan-out)", "task": null, "model": null},
+    {"step": 13, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 455, "fn": "callPlanComponentWithRetry", "task": null, "model": null},
+    {"step": 14, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 483, "fn": "aiService.interpretPlanComponent (PHASE B, c1-senior built)", "task": "plan_component", "model": "claude-opus-4-8 (resolved at anthropic-adapter.ts:1071-1073)"},
+    {"step": 15, "file": "web/src/lib/ai/ai-service.ts", "line": 354, "fn": "interpretPlanComponent -> this.execute", "task": "plan_component", "model": null},
+    {"step": 16, "file": "web/src/lib/ai/ai-service.ts", "line": 62, "fn": "AIService.execute -> adapter.execute (re-enters node 10)", "task": "plan_component", "model": null},
+    {"step": 17, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 342, "fn": "bridgeAIToEngineFormat", "task": null, "model": null},
+    {"step": 18, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 407, "fn": "rule_sets.upsert", "task": null, "model": null}
+  ],
+  "edges": [[1,2],[2,3],[3,4],[4,5],[5,6],[5,7],[7,8],[8,9],[9,10],[10,11],[5,12],[12,13],[13,14],[14,15],[15,16],[16,10],[5,17],[17,18]],
+  "model_binding": {"file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1071, "constant": "PLAN_INTERPRETATION_MODEL='claude-opus-4-8' @29", "task_set": "PLAN_INTERPRETATION_TASKS @33-35"},
+  "temperature_binding": {"adapter_default": {"file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1075, "value": "request.options?.temperature ?? 0.1"}, "plan_actual": {"skeleton": {"file": "web/src/lib/ai/ai-service.ts", "line": 341, "value": 0}, "component": {"file": "web/src/lib/ai/ai-service.ts", "line": 394, "value": 0}}},
+  "entry_route": {"used": "web/src/app/api/import/sci/execute-bulk/route.ts:116", "retired": "web/src/app/api/import/sci/execute/route.ts (DELETED in PR #424 / commit 9484e3b5)"},
+  "divergences": [
+    {"stage": "monolithic interpreter", "pathA": "LIVE: interpretPlanSkeleton+interpretPlanComponent (plan-orchestration.ts:159,483)", "pathB": "ABANDONED: aiService.interpretPlan (ai-service.ts:293), only doc-comment ref at ai-plan-interpreter.ts:614, still in PLAN_INTERPRETATION_TASKS"},
+    {"stage": "component chunking", "pathA": "LIVE: interpretPlanComponent single-call (plan-orchestration.ts:483)", "pathB": "ABANDONED: interpretPlanComponentWithChunking (ai-service.ts:409, adapter case 1405), retired per plan-orchestration.ts:472-474"},
+    {"stage": "document AI", "pathA": "PLAN: plan tasks -> Opus (anthropic-adapter.ts:1071-1073)", "pathB": "SEPARATE (not plan): document_analysis -> config.model NOT Opus (analyze-document/route.ts:134, not in PLAN_INTERPRETATION_TASKS)"},
+    {"stage": "adapter seam singularity", "pathA": "PLAN: AnthropicAdapter.execute (anthropic-adapter.ts:994)", "pathB": "OFF-PATH: AnthropicAdapter.executeAgentTurn (anthropic-adapter.ts:1179) used by OB-212 agent-runner, no plan-task routing, not on plan-import spine"}
+  ],
+  "verdict": "UNIFIED SPINE — one live plan-import path; both AI nodes converge on the single HF-304 adapter seam and route to Opus; no competing/abandoned-but-wired second interpreter (executePlanPipeline deleted)."
+}
