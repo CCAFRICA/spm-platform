@@ -20,6 +20,20 @@ import { generatePromptGrammarSection } from '../../calculation/prime-grammar';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
+// HF-304 (AUD-017): plan interpretation is the highest-reasoning step in the pipeline — it must emit a
+// structurally COMPLETE, exact rate table (e.g. all 20 cells of a 5×4 banded_lookup). The prior model
+// under-emitted one cell (19 vs 20) → the constructor's exact-match check aborted the import. Route the
+// plan-interpretation TASK FAMILY to Opus; every other AI task keeps its configured model (DD-7).
+// Single named constant + structural task-set so the future Observatory per-task model control (CLT)
+// lifts these from one seam, not scattered literals. Opus id confirmed live via /v1/models (HF-304 §5).
+const PLAN_INTERPRETATION_MODEL = 'claude-opus-4-8';
+// The four typed task discriminants that constitute plan interpretation (HF-248/HF-249). The c1-senior
+// regression is in plan_component (Phase B emission); routing only the legacy 'plan_interpretation'
+// would not fix it, so the whole reasoning family is routed (one model, not a per-task map).
+const PLAN_INTERPRETATION_TASKS: ReadonlySet<AITaskType> = new Set<AITaskType>([
+  'plan_interpretation', 'plan_skeleton', 'plan_component', 'plan_component_with_chunking',
+]);
+
 // === FOUNDATIONAL PRIMITIVE VOCABULARY (OB-196 E1 / Decision 155) ===
 //
 // The plan-agent prompt is the Domain Agent translation surface — Decision 154
@@ -1052,7 +1066,11 @@ export class AnthropicAdapter implements AIProviderAdapter {
     // OB-155: Retry with backoff — fetch() can fail transiently in Next.js dev server
     const MAX_RETRIES = 3;
     const requestBody = JSON.stringify({
-      model: this.config.model || 'claude-sonnet-4-6',
+      // HF-304 (AUD-017): plan-interpretation tasks → Opus (structural rate-table completeness); every
+      // other task keeps its configured model. Keyed on the typed task discriminant (Korean Test).
+      model: PLAN_INTERPRETATION_TASKS.has(request.task)
+        ? PLAN_INTERPRETATION_MODEL
+        : (this.config.model || 'claude-sonnet-4-6'),
       max_tokens: request.options?.maxTokens || 8192,
       temperature: request.options?.temperature ?? 0.1,
       system: systemPrompt,
