@@ -250,9 +250,18 @@ export function ChromeSidebar() {
             )}
             onClick={isUserVLAdmin ? () => router.push('/select-tenant') : undefined}
           >
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accentGrad}`}>
-              <span className="text-sm font-bold text-white">V</span>
-            </div>
+            {isBliss ? (
+              /* HF-307 §3.3: diamond logo under bliss (indigo lines + gold center) */
+              <svg width="32" height="32" viewBox="0 0 40 40" fill="none" className="shrink-0">
+                <rect x="11" y="11" width="18" height="18" rx="1" transform="rotate(45 20 20)" stroke="var(--color-indigo)" strokeWidth="1.25" />
+                <rect x="15.5" y="15.5" width="9" height="9" rx="0.5" transform="rotate(45 20 20)" fill="var(--color-indigo)" />
+                <circle cx="20" cy="20" r="1.6" fill="var(--color-gold)" />
+              </svg>
+            ) : (
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accentGrad}`}>
+                <span className="text-sm font-bold text-white">V</span>
+              </div>
+            )}
             {!isRailCollapsed && (
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-sm font-bold text-zinc-100 truncate">

@@ -1480,7 +1480,7 @@ export default function ReconciliationPage() {
                     </tr>
                     {diagnosis && diagnosis.entityId === row.entityId && diagnosis.component === null && (
                       <tr>
-                        <td colSpan={7} className="px-3 py-3" style={{ backgroundColor: '#0f172a' }}>
+                        <td colSpan={7} className="px-3 py-3 bg-slate-900">
                           <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
                             {isSpanish ? 'Diagnóstico del agente' : 'Agent diagnosis'}{diagnosis.cached ? ' · cache' : ''}
                           </div>
