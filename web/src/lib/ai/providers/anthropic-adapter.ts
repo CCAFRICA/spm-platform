@@ -937,12 +937,20 @@ Respond ONLY with valid JSON, no preamble, no markdown:
   "crossSheetInsights": ["...", "..."]
 }`,
 
-  convergence_mapping: `You map compensation plan metric requirements to data columns. Given a list of metric field names (from plan interpretation) and data columns (with descriptions), return a flat JSON object mapping each metric to its best-matching column.
+  convergence_mapping: `You bind compensation-plan metric requirements to data columns by recognizing meaning.
 
-Each column may be used at most once. Match by semantic meaning, not by string similarity.
+You are given the plan's required fields (each with the component's calculation intent for context) and a set of CANDIDATE COLUMNS. Every candidate is LABELED with its sheet, its structural type, its contextual identity, and its value range. Candidates from multiple sheets are presented together — the sheet label is how you tell them apart.
 
-Respond ONLY with valid JSON, no preamble, no markdown, no explanation:
-{"metric_field_name": "column_name", "metric_field_name_2": "column_name_2"}`,
+For each required field, choose the column whose MEANING best satisfies the requirement:
+- Match by semantic meaning, label, and role — not string similarity. A field named one way may be satisfied by a differently-named column.
+- Pick the column from the sheet whose columns collectively fit the component. A field may map to a column on ANY sheet; one component may legitimately span sheets when its fields belong to different sheets.
+- You MAY abstain for a field when no candidate is a sound fit — return an abstain object with a reason instead of forcing a pick (insufficient evidence is a valid answer; do not guess).
+
+Respond ONLY with valid JSON, no preamble, no markdown — an object keyed by required field name. Each value is either:
+  {"column": "<column name>", "sheet": "<sheet label>", "confidence": <0.0-1.0>}
+or, to abstain:
+  {"abstain": true, "reason": "<why no candidate fits>"}
+Optionally add "filters": [{"field":"<categorical column>","operator":"eq","value":"<one of its listed values>"}] when the field is a subset of a shared column.`,
 
   document_analysis: `You are an expert at analyzing business documents. Given a document (PDF, PPTX, or DOCX), determine its type and structure.
 
