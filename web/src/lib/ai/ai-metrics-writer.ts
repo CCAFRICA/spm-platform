@@ -12,7 +12,8 @@
  * Skips unattributed calls (no real tenant), mirroring the OB-135 cost signal guard.
  */
 
-import { createServiceRoleClient } from '@/lib/supabase/server';
+// next/headers-free client (this module is in the AIService graph — see service-role.ts)
+import { createServiceRoleClientSafe } from '@/lib/supabase/service-role';
 import { computeCallCostUSD } from './model-policy';
 import type { AITaskType } from './types';
 
@@ -39,7 +40,7 @@ export function recordAICallMetric(m: AICallMetric): void {
   if (!m.tenantId || m.tenantId === 'unknown') return;
   void (async () => {
     try {
-      const supabase = (await createServiceRoleClient()) as unknown as MetricsInsertClient;
+      const supabase = (await createServiceRoleClientSafe()) as unknown as MetricsInsertClient;
       await supabase.from('ai_call_metrics').insert({
         tenant_id: m.tenantId,
         task: m.task,

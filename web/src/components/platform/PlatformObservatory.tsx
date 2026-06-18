@@ -22,6 +22,8 @@ import {
   Settings,
   LogOut,
   Loader2,
+  Cpu,
+  DollarSign,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -29,12 +31,17 @@ const ObservatoryTab = lazy(() => import('./ObservatoryTab').then(m => ({ defaul
 const AIIntelligenceTab = lazy(() => import('./AIIntelligenceTab').then(m => ({ default: m.AIIntelligenceTab })));
 const BillingUsageTab = lazy(() => import('./BillingUsageTab').then(m => ({ default: m.BillingUsageTab })));
 const FeatureFlagsTab = lazy(() => import('./FeatureFlagsTab').then(m => ({ default: m.FeatureFlagsTab })));
+// OB-215: model governance — per-task model control + per-call cost.
+const ModelConfigTab = lazy(() => import('./ModelConfigTab').then(m => ({ default: m.ModelConfigTab })));
+const AIMetricsTab = lazy(() => import('./AIMetricsTab').then(m => ({ default: m.AIMetricsTab })));
 
-type TabId = 'command-center' | 'intelligence' | 'revenue' | 'settings';
+type TabId = 'command-center' | 'intelligence' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
+  { id: 'ai-models', label: 'Model Config', icon: Cpu },
+  { id: 'ai-cost', label: 'AI Cost', icon: DollarSign },
   { id: 'revenue', label: 'Revenue', icon: Receipt },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -153,6 +160,8 @@ export function PlatformObservatory() {
         }>
           {activeTab === 'command-center' && <ObservatoryTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
+          {activeTab === 'ai-models' && <ModelConfigTab />}
+          {activeTab === 'ai-cost' && <AIMetricsTab />}
           {activeTab === 'revenue' && <BillingUsageTab />}
           {activeTab === 'settings' && <FeatureFlagsTab />}
         </Suspense>

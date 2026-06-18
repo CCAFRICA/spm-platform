@@ -12,7 +12,9 @@
  * persisted config.
  */
 
-import { createServiceRoleClient } from '@/lib/supabase/server';
+// next/headers-free service-role client: this module is in the AIService graph
+// (reachable from page components), so it must NOT import @/lib/supabase/server.
+import { createServiceRoleClientSafe } from '@/lib/supabase/service-role';
 import { applyModelOverrides, getModelPolicy, ALL_AI_TASKS } from './model-policy';
 import type { AITaskType } from './types';
 
@@ -50,7 +52,7 @@ export async function ensureModelPolicyLoaded(force = false): Promise<void> {
   if (_inFlight) return _inFlight;
   _inFlight = (async () => {
     try {
-      const supabase = await createServiceRoleClient();
+      const supabase = await createServiceRoleClientSafe();
       const { data } = await supabase
         .from('platform_settings')
         .select('value')
@@ -78,7 +80,7 @@ export async function writeModelConfig(
   overrides: Partial<Record<AITaskType, string>>,
   updatedBy: string,
 ): Promise<void> {
-  const supabase = await createServiceRoleClient();
+  const supabase = await createServiceRoleClientSafe();
   const { error } = await supabase
     .from('platform_settings')
     .upsert(
