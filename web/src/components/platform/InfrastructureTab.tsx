@@ -317,8 +317,12 @@ function deriveCost(service: string, usage: number): number {
       // Pro plan $20 base
       return 20;
     case 'anthropic':
-      // ~$0.003 per Haiku call average (classification + assessment)
-      return usage > 0 ? Math.max(1, usage * 0.003) : 0;
+      // OB-215 (AUD-018): coarse per-call projection only. The platform runs Sonnet
+      // (default) and Opus (plan interpretation), NOT Haiku — the old $0.003 Haiku
+      // basis understated real spend. ~$0.02/call is a Sonnet-blended estimate
+      // (~2k in / ~1k out). The AUTHORITATIVE per-model cost is the OB-215 AI Metrics
+      // panel (ai_call_metrics × MODEL_PRICING); this fallback is a rough monthly hint.
+      return usage > 0 ? Math.max(1, usage * 0.02) : 0;
     default:
       return 0;
   }
