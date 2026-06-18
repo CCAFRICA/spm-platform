@@ -1692,6 +1692,79 @@ export function requiredTokensForComponent(component: PlanComponent): string[] {
   return Array.from(seen);
 }
 
+// OB-216 §GC-2: the NEEDED structural type for a requirement field, derived from how the field is
+// USED in the component's calculationIntent — over the FULL structuralType space, not a binary.
+export type NeededType = 'numeric' | 'categorical' | 'temporal' | 'identifier';
+
+// Acceptable column structuralTypes for each needed-type (used by binding validation, §2-S5).
+// 'categorical' deliberately also accepts numeric columns (a filter/compare can read a measure);
+// the asymmetry that matters is: a NUMERIC need must NOT bind a non-numeric attribute.
+export function acceptableStructuralTypes(needed: NeededType): Set<string> {
+  switch (needed) {
+    case 'numeric': return new Set(['measure', 'count']);
+    case 'categorical': return new Set(['attribute', 'measure', 'count', 'name']);
+    case 'temporal': return new Set(['temporal']);
+    case 'identifier': return new Set(['identifier', 'reference_key']);
+  }
+}
+
+/**
+ * Derive a requirement field's NEEDED structural type by walking the component's calculationIntent
+ * AST and classifying the field's USAGE CONTEXT. Korean Test (E910): branches ONLY on operation /
+ * prime types (arithmetic, aggregate, compare, conditional, temporal, join…), NEVER on a
+ * column-name literal or language string. No developer threshold.
+ *   - under an arithmetic op (multiply/subtract/divide/add) or an aggregate (sum/avg/min/max/count) → 'numeric'
+ *   - under a compare / conditional / filter / gate context                                          → 'categorical' (attribute-OK)
+ *   - under a temporal / date / period context                                                      → 'temporal'
+ *   - as a join / grouping / lookup key                                                              → 'identifier'
+ *   - bare reference with no qualifying context                                                      → 'numeric' (dominant kind)
+ */
+export function deriveNeededType(field: string, calculationIntent: unknown): NeededType {
+  const ARITH_PRIME = new Set(['arithmetic', 'aggregate']);
+  const ARITH_OP = new Set(['multiply', 'subtract', 'divide', 'add', 'sum', 'avg', 'average', 'mean', 'min', 'max', 'count']);
+  const CMP = new Set(['compare', 'conditional', 'conditional_gate', 'gate', 'filter', 'predicate']);
+  const TEMPORAL = new Set(['temporal', 'date', 'period', 'prior_period']);
+  const IDKEY = new Set(['join', 'group', 'grouping', 'groupby', 'lookup', 'key', 'reference_join']);
+
+  const classify = (prime?: string, op?: string): NeededType | null => {
+    const p = (prime || '').toLowerCase();
+    const o = (op || '').toLowerCase();
+    if (ARITH_PRIME.has(p) || ARITH_OP.has(o)) return 'numeric';
+    if (CMP.has(p) || CMP.has(o)) return 'categorical';
+    if (TEMPORAL.has(p) || TEMPORAL.has(o)) return 'temporal';
+    if (IDKEY.has(p) || IDKEY.has(o)) return 'identifier';
+    return null;
+  };
+
+  const found = new Set<NeededType>();
+  const walk = (node: unknown, ctx: NeededType | null): void => {
+    if (!node || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : undefined;
+    const op = typeof obj.op === 'string' ? obj.op : undefined;
+    // A node that directly names the field is a usage site (covers both `prime:'reference',field`
+    // and `prime:'aggregate',op:'sum',field`). Its kind = its own classification, else enclosing ctx.
+    if (typeof obj.field === 'string' && obj.field === field) {
+      found.add(classify(prime, op) ?? ctx ?? 'numeric');
+      return;
+    }
+    const childCtx = classify(prime, op) ?? ctx;
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v)) v.forEach(x => walk(x, childCtx));
+      else if (v && typeof v === 'object') walk(v, childCtx);
+    }
+  };
+  walk(calculationIntent, null);
+
+  // A field used numerically ANYWHERE must be numeric (a measure also serves a compare). Otherwise
+  // take the most specific structural need observed.
+  if (found.has('numeric')) return 'numeric';
+  if (found.has('identifier')) return 'identifier';
+  if (found.has('temporal')) return 'temporal';
+  if (found.has('categorical')) return 'categorical';
+  return 'numeric';
+}
+
 /**
  * The tokens a component binding actually RESOLVED — roles whose entry carries a
  * real column and was not rejected (match_pass !== 'failed'). A token that is
