@@ -79,6 +79,12 @@ interface ColumnValueStats {
 
 interface DataCapability {
   dataType: string;
+  // OB-216 Phase 1 (sheet-aware partition): structural partition identity =
+  // `${dataType}␟${column-signature}`. Distinguishes capabilities that share a data_type but
+  // carry different column schemas (e.g. MIR's Cobranza vs Ventas sheets, both
+  // data_type='transaction'). The signature is the SET of non-underscore column names as an
+  // opaque fingerprint — never branched on by meaning (Korean Test).
+  partitionKey: string;
   rowCount: number;
   numericFields: Array<{ field: string; avg: number; nonNullCount: number }>;
   categoricalFields: Array<{ field: string; distinctValues: string[]; count: number }>;
@@ -957,7 +963,9 @@ async function loadMetricComprehensionSignals(
 // OB-162: Enhanced with field identity extraction
 // ──────────────────────────────────────────────
 
-async function inventoryData(
+// OB-216 Phase 1: exported so the partition can be verified in isolation (EPG-1). The convergence
+// entry (convergeBindings) calls it internally; export adds no behavior, only test reachability.
+export async function inventoryData(
   tenantId: string,
   supabase: SupabaseClient
 ): Promise<DataCapability[]> {
@@ -968,67 +976,96 @@ async function inventoryData(
   const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
   const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
 
-  // OB-162: Also read import_batch_id for convergence bindings
-  let q = supabase
-    .from('committed_data')
-    .select('data_type, row_data, metadata, import_batch_id')
-    .eq('tenant_id', tenantId)
-    .not('data_type', 'is', null)
-    .limit(500);
-  q = applyCommittedDataVisibility(q, hiddenBatchIds);
-  const { data: rows } = await q;
+  type InvRow = { data_type: string; row_data: Record<string, unknown> | null; metadata: Record<string, unknown> | null; import_batch_id: string };
 
-  // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
-  let q2 = supabase
-    .from('committed_data')
-    .select('data_type, row_data, metadata, import_batch_id')
-    .eq('tenant_id', tenantId)
-    .not('data_type', 'is', null)
-    .not('metadata->semantic_roles', 'is', null)
-    .limit(50);
-  q2 = applyCommittedDataVisibility(q2, hiddenBatchIds);
-  const { data: sciRows } = await q2;
+  // OB-216 Phase 1 (sheet-aware partition): the prior flat `.limit(500)` sample could miss small
+  // sheets entirely (e.g. a 30-row quota sheet or a 34-row roster), so a per-(data_type,
+  // column-signature) partition would be blind to them. Enumerate the tenant's VISIBLE import
+  // batches and sample EACH, so every batch's schema is represented before partitioning.
+  // import_batch_id is a structural source key (one batch = one source sheet); no column semantics.
+  // SAMPLE_ROWS_PER_BATCH is a coverage/perf SAMPLE BOUND, not a decision authority (Decision 110).
+  const SAMPLE_ROWS_PER_BATCH = 50;
+  const allRows: InvRow[] = [];
 
-  const allRows = [...(rows || [])];
-  if (sciRows) {
-    for (const sr of sciRows) {
-      const dt = sr.data_type as string;
-      if (!allRows.some(r => (r.data_type as string) === dt)) {
-        allRows.push(sr);
-      }
-    }
+  const { data: batchRows } = await supabase
+    .from('import_batches')
+    .select('id')
+    .eq('tenant_id', tenantId);
+  const visibleBatchIds = (batchRows || [])
+    .map(b => (b as { id?: string }).id)
+    .filter((id): id is string => !!id && !hiddenBatchIds.includes(id));
+
+  for (const batchId of visibleBatchIds) {
+    let bq = supabase
+      .from('committed_data')
+      .select('data_type, row_data, metadata, import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('import_batch_id', batchId)
+      .not('data_type', 'is', null)
+      .limit(SAMPLE_ROWS_PER_BATCH);
+    bq = applyCommittedDataVisibility(bq, hiddenBatchIds);
+    const { data: bRows } = await bq;
+    if (bRows) allRows.push(...(bRows as InvRow[]));
+  }
+
+  // Fallback (robustness / SR-2): if batch enumeration yielded nothing (e.g. committed_data rows
+  // not tied to a listed import_batch), preserve the prior flat-sample behavior so no tenant
+  // silently loses its inventory.
+  if (allRows.length === 0) {
+    let q = supabase
+      .from('committed_data')
+      .select('data_type, row_data, metadata, import_batch_id')
+      .eq('tenant_id', tenantId)
+      .not('data_type', 'is', null)
+      .limit(500);
+    q = applyCommittedDataVisibility(q, hiddenBatchIds);
+    const { data: rows } = await q;
+    if (rows) allRows.push(...(rows as InvRow[]));
   }
 
   if (!allRows.length) return capabilities;
 
-  // Group by data_type
-  const byType = new Map<string, Array<Record<string, unknown>>>();
-  const countByType = new Map<string, number>();
-  const rolesByType = new Map<string, Record<string, string>>();
-  // OB-162: Collect field identities and batch IDs per data_type
-  const fieldIdentitiesByType = new Map<string, Record<string, FieldIdentity>>();
-  const batchIdsByType = new Map<string, Set<string>>();
+  // OB-216 Phase 1: partition by (data_type, column-signature) — the STRUCTURAL file boundary.
+  // The signature is the SET of non-underscore column names treated as an opaque fingerprint
+  // (sorted, joined). KOREAN TEST: the partition NEVER branches on what a column name MEANS — a
+  // column named in any language groups purely by the shape of the column-key set. Same-schema
+  // batches (e.g. monthly imports of one sheet) collapse to ONE capability; genuinely different
+  // schemas (different column sets) become distinct capabilities, even within one data_type. This
+  // replaces (a) the data_type-only grouping that merged distinct sheets, and (b) the HF-228
+  // schema-coverage loop, whose purpose (admit multiple schemas per data_type) is now native.
+  const sigOf = (rd: Record<string, unknown>): string =>
+    Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+  const SEP = '␟'; // unit-separator: structural composite key delimiter, not content
+  const partitionKeyOf = (dataType: string, rd: Record<string, unknown>): string =>
+    `${dataType}${SEP}${sigOf(rd)}`;
+
+  const byPartition = new Map<string, Array<Record<string, unknown>>>();
+  const dataTypeByPartition = new Map<string, string>();
+  const countByPartition = new Map<string, number>();
+  const rolesByPartition = new Map<string, Record<string, string>>();
+  const fieldIdentitiesByPartition = new Map<string, Record<string, FieldIdentity>>();
+  const batchIdsByPartition = new Map<string, Set<string>>();
 
   for (const row of allRows) {
-    const dt = row.data_type as string;
-    if (!byType.has(dt)) byType.set(dt, []);
-    countByType.set(dt, (countByType.get(dt) || 0) + 1);
-    const samples = byType.get(dt)!;
-    if (samples.length < 30) {
-      const rd = row.row_data as Record<string, unknown> | null;
-      if (rd) samples.push(rd);
-    }
+    const dataType = row.data_type as string;
+    const rd = row.row_data as Record<string, unknown> | null;
+    if (!rd) continue;
+    const pk = partitionKeyOf(dataType, rd);
+    dataTypeByPartition.set(pk, dataType);
+    countByPartition.set(pk, (countByPartition.get(pk) || 0) + 1);
+    if (!byPartition.has(pk)) byPartition.set(pk, []);
+    const samples = byPartition.get(pk)!;
+    if (samples.length < 50) samples.push(rd);
 
-    // Collect batch IDs
     const batchId = row.import_batch_id as string | null;
     if (batchId) {
-      if (!batchIdsByType.has(dt)) batchIdsByType.set(dt, new Set());
-      batchIdsByType.get(dt)!.add(batchId);
+      if (!batchIdsByPartition.has(pk)) batchIdsByPartition.set(pk, new Set());
+      batchIdsByPartition.get(pk)!.add(batchId);
     }
 
-    // Extract semantic_roles from metadata
-    if (!rolesByType.has(dt)) {
-      const meta = row.metadata as Record<string, unknown> | null;
+    // Extract semantic_roles + field_identities from metadata (once per partition).
+    const meta = row.metadata as Record<string, unknown> | null;
+    if (!rolesByPartition.has(pk)) {
       const rawRoles = meta?.semantic_roles as Record<string, unknown> | undefined;
       if (rawRoles && Object.keys(rawRoles).length > 0) {
         const normalized: Record<string, string> = {};
@@ -1040,11 +1077,11 @@ async function inventoryData(
           }
         }
         if (Object.keys(normalized).length > 0) {
-          rolesByType.set(dt, normalized);
+          rolesByPartition.set(pk, normalized);
         }
       }
-
-      // OB-162: Extract field_identities from metadata (Decision 111)
+    }
+    if (!fieldIdentitiesByPartition.has(pk)) {
       const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
       if (fieldIds && Object.keys(fieldIds).length > 0) {
         const identities: Record<string, FieldIdentity> = {};
@@ -1055,44 +1092,22 @@ async function inventoryData(
             confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
           };
         }
-        fieldIdentitiesByType.set(dt, identities);
+        fieldIdentitiesByPartition.set(pk, identities);
       }
     }
   }
 
-  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
-  // above can land entirely on rows of one row-data schema even when a
-  // data_type carries rows from multiple imports with different column sets
-  // (e.g., roster rows + quota rows both classified `entity`). Walk the
-  // remaining rows in `allRows` and admit at most one extra row per unseen
-  // column-key signature, capped at 50 samples per data_type. Korean Test:
-  // discrimination is by column-key structural signature, not by column
-  // name semantics or values.
-  for (const [dt, samples] of Array.from(byType.entries())) {
-    const sigOf = (rd: Record<string, unknown>) =>
-      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
-    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
-    for (const row of allRows) {
-      if (samples.length >= 50) break;
-      if ((row.data_type as string) !== dt) continue;
-      const rd = row.row_data as Record<string, unknown> | null;
-      if (!rd) continue;
-      const sig = sigOf(rd);
-      if (seenSignatures.has(sig)) continue;
-      samples.push(rd);
-      seenSignatures.add(sig);
-    }
-  }
-
-  for (const [dataType, samples] of Array.from(byType.entries())) {
-    const roles = rolesByType.get(dataType) || {};
+  for (const [partitionKey, samples] of Array.from(byPartition.entries())) {
+    const dataType = dataTypeByPartition.get(partitionKey) || '';
+    const roles = rolesByPartition.get(partitionKey) || {};
     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
-    const fieldIdentities = fieldIdentitiesByType.get(dataType) || {};
-    const batchIds = Array.from(batchIdsByType.get(dataType) || new Set<string>());
+    const fieldIdentities = fieldIdentitiesByPartition.get(partitionKey) || {};
+    const batchIds = Array.from(batchIdsByPartition.get(partitionKey) || new Set<string>());
 
     const cap: DataCapability = {
       dataType,
-      rowCount: countByType.get(dataType) || 0,
+      partitionKey,
+      rowCount: countByPartition.get(partitionKey) || 0,
       numericFields: [],
       categoricalFields: [],
       booleanFields: [],
