@@ -50,6 +50,8 @@ export interface ResolvedIdentity {
   capabilities: string[];
   locale: string | null;
   avatarUrl: string | null;
+  /** HF-309: per-user theme preference (profiles.preferences->>'theme'); null = no preference. */
+  themePreference: 'current' | 'bliss' | null;
 }
 
 function mapToResolvedIdentity(row: Record<string, unknown>): ResolvedIdentity {
@@ -65,6 +67,12 @@ function mapToResolvedIdentity(row: Record<string, unknown>): ResolvedIdentity {
     capabilities: (row.capabilities as string[]) || [],
     locale: (row.locale as string | null) ?? null,
     avatarUrl: (row.avatar_url as string | null) ?? null,
+    themePreference: (() => {
+      // HF-309: preferences is select('*')-fetched already (no extra query). Theme name only.
+      const prefs = (row.preferences as Record<string, unknown> | null) ?? null;
+      const t = prefs && typeof prefs.theme === 'string' ? prefs.theme : null;
+      return t === 'bliss' || t === 'current' ? t : null;
+    })(),
   };
 }
 
