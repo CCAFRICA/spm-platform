@@ -1,3 +1,8 @@
+/* OB-201: bliss theme fonts (Urbanist / Inter / DM Mono). Declared globally; the woff2
+   binaries are fetched by the browser only when an element actually renders in these
+   families — i.e. only under [data-theme="bliss"] (font-load perf residual: §6A). */
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;700&family=Inter:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,8 +19,11 @@
 }
 
 @layer base {
-  /* DS-001 Dark Theme — always dark, no light mode */
-  :root {
+  /* DS-001 Dark Theme — always dark, no light mode.
+     OB-201: [data-theme="current"] aliases the existing values so the CURRENT token set
+     is explicit and matches today EXACTLY (pixel-identical default). */
+  :root,
+  [data-theme="current"] {
     --background: 222.2 47.4% 3.9%;
     --foreground: 210 40% 96%;
     --card: 222.2 47.4% 5.5%;
@@ -41,6 +49,15 @@
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
     --radius: 0.75rem;
+
+    /* OB-201 app-shell tokens — current = today's EXACT body inline values (layout.tsx) */
+    --app-bg: #0a0e1a;
+    --app-fg: #e2e8f0;
+
+    /* OB-201 font tokens — current maps to the in-use DM Sans / DM Mono (parity set) */
+    --font-display: var(--font-dm-sans), system-ui, sans-serif;
+    --font-body: var(--font-dm-sans), system-ui, sans-serif;
+    --font-mono: var(--font-dm-mono), monospace;
   }
 
   /* .dark selector matches :root values — app is always dark */
@@ -69,6 +86,89 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --app-bg: #0a0e1a;
+    --app-fg: #e2e8f0;
+    --font-display: var(--font-dm-sans), system-ui, sans-serif;
+    --font-body: var(--font-dm-sans), system-ui, sans-serif;
+    --font-mono: var(--font-dm-mono), monospace;
+  }
+
+  /* ============================================================
+     OB-201 BLISS THEME — overrides the SAME shadcn tokens with the bliss palette.
+     html[data-theme="bliss"] (specificity 0,1,1) wins over the hardcoded .dark (0,1,0).
+     Bliss hex → HSL for the shadcn token consumers (hsl(var(--token)) in tailwind.config).
+     ============================================================ */
+  html[data-theme="bliss"] {
+    --background: 240 100% 99%;        /* offwhite #F8F8FF */
+    --foreground: 255 50% 8%;          /* ink #0F0A1E */
+    --card: 0 0% 100%;                 /* white */
+    --card-foreground: 255 50% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 255 50% 8%;
+    --primary: 239 52% 37%;            /* indigo #2D2F8F */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 50% 96%;          /* indigo-soft #F0F0FA */
+    --secondary-foreground: 239 52% 37%;
+    --muted: 240 50% 96%;
+    --muted-foreground: 251 14% 44%;   /* muted #666080 */
+    --accent: 38 79% 56%;              /* gold #E8A838 */
+    --accent-foreground: 255 50% 8%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 23% 91%;             /* border #E4E4EE */
+    --input: 240 23% 91%;
+    --ring: 239 52% 37%;
+    --chart-1: 239 52% 37%;            /* indigo */
+    --chart-2: 38 79% 56%;             /* gold */
+    --chart-3: 160 60% 45%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --radius: 0.625rem;                /* bliss lg 10px */
+
+    /* app-shell */
+    --app-bg: #F8F8FF;
+    --app-fg: #0F0A1E;
+
+    /* bliss brand tokens (raw hex — consumed by bliss-scoped primitive CSS only) */
+    --color-indigo: #2D2F8F;
+    --color-indigo-dark: #1E2070;
+    --color-indigo-soft: #F0F0FA;
+    --color-gold: #E8A838;
+    --color-gold-deep: #B07A15;
+    --color-gold-soft: #FAF6E8;
+    --color-ink: #0F0A1E;
+    --color-ink-bg: #08090F;
+    --color-ink-panel: #13162A;
+    --color-offwhite: #F8F8FF;
+    --color-muted: #666080;
+    --color-border: #E4E4EE;
+
+    /* typography */
+    --font-display: "Urbanist", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-mono: "DM Mono", monospace;
+
+    /* spacing scale (8→64) */
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 20px;
+    --sp-6: 24px;
+    --sp-8: 32px;
+    --sp-10: 40px;
+    --sp-12: 48px;
+    --sp-16: 64px;
+
+    /* radii */
+    --radius-default: 4px;
+    --radius-lg: 10px;
+    --radius-xl: 14px;
+    --radius-full: 9999px;
+
+    /* shadows */
+    --shadow-card: 0 1px 3px 0 rgba(15,10,30,0.06), 0 1px 2px -1px rgba(15,10,30,0.06);
+    --shadow-panel: 0 4px 16px 0 rgba(15,10,30,0.12);
+    --shadow-hero: 0 20px 60px -10px rgba(15,10,30,0.3);
   }
 }
 
@@ -82,4 +182,77 @@
     font-size: 15px;
     line-height: 1.6;
   }
+
+  /* ============================================================
+     OB-201 bliss presentation — typography + diamond backdrop. Scoped to
+     html[data-theme="bliss"] so the CURRENT theme is byte-for-byte unaffected.
+     ============================================================ */
+  html[data-theme="bliss"] body {
+    font-family: var(--font-body);
+    /* diamond-texture backdrop (28×28, indigo stroke at 4% opacity) */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M14 1L27 14L14 27L1 14Z' fill='none' stroke='%232D2F8F' stroke-opacity='0.04'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+  }
+  html[data-theme="bliss"] h1,
+  html[data-theme="bliss"] h2,
+  html[data-theme="bliss"] h3,
+  html[data-theme="bliss"] h4 {
+    font-family: var(--font-display);
+  }
+}
+
+/* OB-201 bliss keyframes (global; only referenced by bliss-scoped utilities) */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gold-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================
+   OB-201 bliss signature primitives — opt-in utility classes, available only under
+   [data-theme="bliss"]. Components adopt these incrementally (§6A residual); they do
+   NOT force-restyle existing elements, keeping revert structurally inert.
+   ============================================================ */
+html[data-theme="bliss"] .bliss-pill {
+  border-radius: var(--radius-full);
+}
+html[data-theme="bliss"] .bliss-eyebrow {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.75rem;
+  color: var(--color-gold-deep);
+}
+html[data-theme="bliss"] .bliss-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-gold);
+}
+html[data-theme="bliss"] .bliss-dot-lg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+html[data-theme="bliss"] .bliss-hairline {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+html[data-theme="bliss"] .bliss-hairline-accent {
+  border-top: 2px solid var(--color-indigo);
+}
+html[data-theme="bliss"] .bliss-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+html[data-theme="bliss"] .bliss-gold-pulse {
+  animation: gold-pulse 2s ease-in-out infinite;
+}
+html[data-theme="bliss"] .bliss-card {
+  box-shadow: var(--shadow-card);
+}
+html[data-theme="bliss"] .bliss-panel {
+  box-shadow: var(--shadow-panel);
 }

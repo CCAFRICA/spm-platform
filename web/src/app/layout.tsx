@@ -40,7 +40,10 @@ export default async function RootLayout({
     <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
       <body
         className={`${dmSans.variable} ${dmMono.variable} antialiased`}
-        style={{ background: '#0a0e1a', color: '#e2e8f0', minHeight: '100vh' }}
+        /* OB-201: body shell reads theme tokens. At [data-theme="current"] these equal the
+           prior literals (#0a0e1a / #e2e8f0) exactly — pixel-identical. backgroundColor (not
+           the `background` shorthand) so the bliss diamond background-image can coexist. */
+        style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-fg)', minHeight: '100vh' }}
       >
         <AuthProvider initialAuthState={authState}>
           <TenantProvider>

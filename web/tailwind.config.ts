@@ -11,6 +11,10 @@ const config: Config = {
   	extend: {
   		fontFamily: {
   			sans: ['var(--font-dm-sans)', 'DM Sans', 'system-ui', 'sans-serif'],
+  			// OB-201: theme font tokens (current = DM Sans/Mono; bliss = Urbanist/Inter/DM Mono)
+  			display: ['var(--font-display)', 'system-ui', 'sans-serif'],
+  			body: ['var(--font-body)', 'system-ui', 'sans-serif'],
+  			mono: ['var(--font-mono)', 'monospace'],
   		},
   		colors: {
   			navy: {
