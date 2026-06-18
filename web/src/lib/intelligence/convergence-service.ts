@@ -1777,6 +1777,120 @@ type LabeledCandidate = {
   batchId: string;
 };
 
+// OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
+// confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
+type BindingProposal =
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[] }
+  | { abstain: true; reason: string };
+
+// OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
+// {column, sheet, confidence} or {abstain, reason}. No measure-only pool, no developer threshold,
+// no column-name literal in the prompt. Sheet labels are OPAQUE (S1..Sn): the LLM discriminates by
+// each candidate's columns / structuralType / range, never by sheet-name meaning (Korean Test).
+async function recognizeBindingsViaAI(
+  components: PlanComponent[],
+  allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
+  labeledCandidates: LabeledCandidate[],
+  metricComprehension: MetricComprehensionSignal[] = [],
+): Promise<Record<string, BindingProposal>> {
+  const metricFields = Array.from(new Set(allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown')));
+  if (metricFields.length === 0 || labeledCandidates.length === 0) return {};
+
+  const sheetKeys = Array.from(new Set(labeledCandidates.map(c => c.partitionKey)));
+  const labelByKey = new Map<string, string>();
+  const keyByLabel = new Map<string, string>();
+  sheetKeys.forEach((k, i) => { const lbl = `S${i + 1}`; labelByKey.set(k, lbl); keyByLabel.set(lbl, k); });
+
+  // Per-metric semantic intent (HF-199 D2): plan-agent intent is authoritative context.
+  const intentByField = new Map<string, { intent: string; inputs: string }>();
+  for (const r of allRequirements) {
+    const ownerComp = components.find(c => c.name === r.compName);
+    const matchedSignal = metricComprehension.find(sig => {
+      const sv = sig.signal_value as Record<string, unknown> | null;
+      const sigLabel = (sv?.metric_label as string | undefined) ?? '';
+      return sigLabel === r.compName || sigLabel === ownerComp?.name;
+    });
+    if (matchedSignal) {
+      const sv = (matchedSignal.signal_value ?? {}) as Record<string, unknown>;
+      const intent = (sv.semantic_intent as string | undefined) ?? '';
+      const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
+      if (intent || inputs) intentByField.set(r.req.metricField, { intent, inputs });
+    }
+  }
+  const roleByField = new Map<string, string>();
+  for (const r of allRequirements) if (!roleByField.has(r.req.metricField)) roleByField.set(r.req.metricField, r.req.role);
+
+  const fieldList = metricFields.map((f, i) => {
+    const ctx = intentByField.get(f);
+    const parts = [`${i + 1}. field "${f}" (role: ${roleByField.get(f) ?? 'value'})`];
+    if (ctx?.intent) parts.push(`   plan intent: ${ctx.intent}`);
+    if (ctx?.inputs) parts.push(`   plan inputs: ${ctx.inputs}`);
+    return parts.join('\n');
+  }).join('\n');
+
+  const bySheet = new Map<string, LabeledCandidate[]>();
+  for (const c of labeledCandidates) {
+    const lbl = labelByKey.get(c.partitionKey)!;
+    if (!bySheet.has(lbl)) bySheet.set(lbl, []);
+    bySheet.get(lbl)!.push(c);
+  }
+  const candidateList = Array.from(bySheet.entries()).map(([lbl, cols]) => {
+    const lines = cols.map(c => {
+      const s = c.stats;
+      const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
+      return `    - "${c.column}" (type=${c.structuralType}, identity=${c.contextualIdentity})${range}`;
+    });
+    return `  SHEET ${lbl}:\n${lines.join('\n')}`;
+  }).join('\n');
+
+  const userPrompt = `REQUIRED FIELDS:
+${fieldList}
+
+CANDIDATE COLUMNS (grouped by sheet; each labeled with structural type, contextual identity, value range):
+${candidateList}
+
+For each required field above, return {"column","sheet","confidence"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.`;
+
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
+      options: { maxTokens: 900, responseFormat: 'json' as const },
+    }, false);
+    const result = response.result as Record<string, unknown>;
+    const validCols = new Set(labeledCandidates.map(c => `${c.partitionKey} ${c.column}`));
+    const validOps: ColumnMappingFilterOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'];
+    const proposals: Record<string, BindingProposal> = {};
+    for (const [field, val] of Object.entries(result)) {
+      if (!val || typeof val !== 'object') continue;
+      const obj = val as Record<string, unknown>;
+      if (obj.abstain === true) { proposals[field] = { abstain: true, reason: String(obj.reason ?? 'unspecified') }; continue; }
+      const col = typeof obj.column === 'string' ? obj.column : undefined;
+      const lbl = typeof obj.sheet === 'string' ? obj.sheet : undefined;
+      const pk = lbl ? keyByLabel.get(lbl) : undefined;
+      if (!col || !pk || !validCols.has(`${pk} ${col}`)) continue; // column must exist in the named sheet
+      const conf = typeof obj.confidence === 'number' ? obj.confidence : 0.5;
+      const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
+        ? (obj.filters as Array<Record<string, unknown>>)
+            .filter(f => typeof f.field === 'string' && f.value != null)
+            .map(f => ({
+              field: String(f.field),
+              operator: (typeof f.operator === 'string' && (validOps as string[]).includes(f.operator)) ? f.operator as ColumnMappingFilterOperator : 'eq',
+              value: f.value as string | number | boolean,
+            }))
+        : [];
+      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters };
+    }
+    const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}`).join(', ');
+    console.log(`[Convergence] OB-216 §2-S4 LLM binding proposals: {${summary}}`);
+    return proposals;
+  } catch (err) {
+    console.error('[Convergence] OB-216 §2-S4 LLM binding failed:', err);
+    return {};
+  }
+}
+
 /**
  * The tokens a component binding actually RESOLVED — roles whose entry carries a
  * real column and was not rejected (match_pass !== 'failed'). A token that is
@@ -2916,26 +3030,22 @@ async function generateAllComponentBindings(
     // Per-group component list (used for semantic-intent matching in the AI call).
     const groupComponents = groupMatches.map(m => m.component);
 
-    console.log(`[Convergence] HF-253 Requesting AI column mapping for variant group ${variantLabel}`);
-    // HF-269 B: collect the runtime categorical dimensions (field + distinct values) across all
-    // capabilities so the mapping call can express filters from real data (Korean Test — runtime only).
-    const categoricalDims: Array<{ field: string; distinctValues: string[] }> = [];
-    const seenCatFields = new Set<string>();
-    for (const cap of capabilities) {
-      for (const cf of cap.categoricalFields ?? []) {
-        if (!cf.field || seenCatFields.has(cf.field)) continue;
-        seenCatFields.add(cf.field);
-        categoricalDims.push({ field: cf.field, distinctValues: cf.distinctValues });
-      }
-    }
-    const aiMapping = await resolveColumnMappingsViaAI(
+    console.log(`[Convergence] OB-216 §2-S4 requesting LLM binding for variant group ${variantLabel}`);
+    const proposals = await recognizeBindingsViaAI(
       groupComponents,
       allRequirements,
-      measureColumns,
+      labeledCandidates,
       metricComprehension,
-      categoricalDims,
     );
-    console.log(`[Convergence] HF-253 AI proposed ${Object.keys(aiMapping).length} mappings for variant group ${variantLabel}`);
+    // §2-S4 staging adapter (REMOVED in §2-S5): collapse sheet-aware proposals to the old
+    // {field: column|{column,filters}} shape so the still-old boundary loop compiles unchanged.
+    // The §2-S5 loop consumes `proposals` directly (sheet + confidence + abstain + validation).
+    const aiMapping: Record<string, ColumnMappingValue> = {};
+    for (const [field, p] of Object.entries(proposals)) {
+      if ('abstain' in p) continue;
+      aiMapping[field] = p.filters.length > 0 ? { column: p.column, filters: p.filters } : p.column;
+    }
+    console.log(`[Convergence] OB-216 §2-S4 ${Object.keys(proposals).length} proposals for variant group ${variantLabel}`);
 
     // Build bindings using AI mapping + boundary validation.
     // HF-253: the exclusion map is reset PER VARIANT GROUP. This closes the
