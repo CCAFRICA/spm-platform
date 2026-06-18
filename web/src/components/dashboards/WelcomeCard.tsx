@@ -56,7 +56,7 @@ export function WelcomeCard({ hasPlans, hasData, hasResults }: WelcomeCardProps)
 
   return (
     <div style={{
-      background: '#0F172A',
+      background: 'var(--strag-panel)',
       border: '1px solid #1E293B',
       borderRadius: '16px',
       padding: '40px 32px',

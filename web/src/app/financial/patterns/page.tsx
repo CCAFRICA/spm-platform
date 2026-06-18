@@ -329,7 +329,7 @@ export default function OperationalPatternsPage() {
                 <Tooltip
                   formatter={(value: number) => [format(value), 'Revenue']}
                   contentStyle={{
-                    backgroundColor: '#18181b',
+                    backgroundColor: 'var(--strag-z9)',
                     border: '1px solid #3f3f46',
                     borderRadius: '8px',
                   }}

@@ -142,7 +142,7 @@ export default function SignupPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#020617',
+        backgroundColor: 'var(--strag-deep)',
       }}>
         <div className="animate-spin h-6 w-6 border-2 border-zinc-500 border-t-transparent rounded-full" />
       </div>
@@ -158,7 +158,7 @@ export default function SignupPage() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '24px',
-        backgroundColor: '#020617',
+        backgroundColor: 'var(--strag-deep)',
         fontFamily: 'Inter, system-ui, sans-serif',
       }}>
         <div style={{ width: '100%', maxWidth: '440px', textAlign: 'center' }}>
@@ -209,7 +209,7 @@ export default function SignupPage() {
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px',
-      backgroundColor: '#020617',
+      backgroundColor: 'var(--strag-deep)',
       fontFamily: 'Inter, system-ui, sans-serif',
     }}>
       <div style={{ width: '100%', maxWidth: '440px' }}>

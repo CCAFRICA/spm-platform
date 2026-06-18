@@ -41,7 +41,7 @@ import type { CalculationResult } from '@/types/compensation-plan';
 const chartConfig = {
   commissions: {
     label: "Earnings",
-    color: "hsl(var(--chart-1))",
+    color: "oklch(var(--chart-1))",
   },
 } satisfies ChartConfig;
 
@@ -290,9 +290,9 @@ export default function InsightsPage() {
                       <Line
                         type="monotone"
                         dataKey="earnings"
-                        stroke="hsl(var(--chart-1))"
+                        stroke="oklch(var(--chart-1))"
                         strokeWidth={3}
-                        dot={{ fill: "hsl(var(--chart-1))", strokeWidth: 2, r: 4 }}
+                        dot={{ fill: "oklch(var(--chart-1))", strokeWidth: 2, r: 4 }}
                         activeDot={{ r: 6, strokeWidth: 2 }}
                       />
                     </LineChart>

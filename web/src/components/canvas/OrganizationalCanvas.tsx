@@ -259,7 +259,7 @@ export function OrganizationalCanvas({
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
-    background: '#0a0e1a',
+    background: 'var(--strag-app)',
   };
 
   if (isLoading) {
@@ -290,7 +290,7 @@ export function OrganizationalCanvas({
   }
 
   return (
-    <div className={className || ''} style={{ display: 'flex', height: '100%', background: '#0a0e1a' }}>
+    <div className={className || ''} style={{ display: 'flex', height: '100%', background: 'var(--strag-app)' }}>
       {/* Canvas */}
       <div style={{ flex: 1, position: 'relative' }}>
         <ReactFlow

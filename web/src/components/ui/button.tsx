@@ -46,6 +46,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
+        // HF-306: stable hook for the bliss pill-CTA selector (default/destructive variants).
+        data-variant={variant ?? "default"}
         ref={ref}
         {...props}
       />

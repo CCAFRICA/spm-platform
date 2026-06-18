@@ -189,7 +189,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   }, [pathname, isSpanish]);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-white/[0.06] bg-black/30 backdrop-blur-xl">
+    <header className="app-navbar sticky top-0 z-50 w-full border-b border-white/[0.06] bg-black/30 backdrop-blur-xl">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
         {/* Left Section - Mobile Menu + Logo (visible only on mobile) */}
         <div className="flex items-center gap-4 md:hidden">

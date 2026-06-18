@@ -108,8 +108,8 @@ export function MetricTrendChart({
                   type="monotone"
                   dataKey="value"
                   name={isSpanish ? 'Actual' : 'Current'}
-                  stroke="hsl(var(--primary))"
-                  fill="hsl(var(--primary))"
+                  stroke="oklch(var(--primary))"
+                  fill="oklch(var(--primary))"
                   fillOpacity={0.2}
                   strokeWidth={2}
                 />
@@ -118,8 +118,8 @@ export function MetricTrendChart({
                     type="monotone"
                     dataKey="previous"
                     name={isSpanish ? 'Anterior' : 'Previous'}
-                    stroke="hsl(var(--muted-foreground))"
-                    fill="hsl(var(--muted-foreground))"
+                    stroke="oklch(var(--muted-foreground))"
+                    fill="oklch(var(--muted-foreground))"
                     fillOpacity={0.1}
                     strokeWidth={1}
                     strokeDasharray="5 5"
@@ -132,7 +132,7 @@ export function MetricTrendChart({
                   type="monotone"
                   dataKey="value"
                   name={isSpanish ? 'Actual' : 'Current'}
-                  stroke="hsl(var(--primary))"
+                  stroke="oklch(var(--primary))"
                   strokeWidth={2}
                   dot={false}
                 />
@@ -141,7 +141,7 @@ export function MetricTrendChart({
                     type="monotone"
                     dataKey="previous"
                     name={isSpanish ? 'Anterior' : 'Previous'}
-                    stroke="hsl(var(--muted-foreground))"
+                    stroke="oklch(var(--muted-foreground))"
                     strokeWidth={1}
                     strokeDasharray="5 5"
                     dot={false}
@@ -154,7 +154,7 @@ export function MetricTrendChart({
                 type="monotone"
                 dataKey="target"
                 name={isSpanish ? 'Objetivo' : 'Target'}
-                stroke="hsl(var(--destructive))"
+                stroke="oklch(var(--destructive))"
                 strokeWidth={1}
                 strokeDasharray="3 3"
                 dot={false}

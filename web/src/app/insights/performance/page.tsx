@@ -539,7 +539,7 @@ export default function InsightsPerformancePage() {
               <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={80} />
               <Tooltip
                 formatter={(value: number) => [format(value), 'Sales']}
-                contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: 'oklch(var(--background))', border: '1px solid oklch(var(--border))', borderRadius: '8px' }}
               />
               <Bar dataKey="sales" radius={[0, 4, 4, 0]}>
                 {data.regionStats.map((entry, index) => (

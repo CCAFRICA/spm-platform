@@ -68,7 +68,7 @@ export function PeriodRibbon({ periods, activeKey, onSelect, isSpanish = false }
             >
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${getLifecycleDot(period.lifecycleState)}`} />
-                <span className={`text-sm font-medium ${isActive ? 'text-white font-semibold' : 'text-zinc-300'}`}>
+                <span className={`text-sm font-medium ${isActive ? 'text-white bliss:text-foreground font-semibold' : 'text-zinc-300'}`}>
                   {period.label || period.periodKey}
                 </span>
                 {isCompleted && (

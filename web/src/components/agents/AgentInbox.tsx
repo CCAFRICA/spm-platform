@@ -46,7 +46,7 @@ export function AgentInbox({ tenantId, persona }: AgentInboxProps) {
   if (loading) {
     return (
       <div style={{
-        background: '#0F172A',
+        background: 'var(--strag-panel)',
         border: '1px solid #1E293B',
         borderRadius: '12px',
         padding: '16px',
@@ -63,7 +63,7 @@ export function AgentInbox({ tenantId, persona }: AgentInboxProps) {
 
   return (
     <div style={{
-      background: '#0F172A',
+      background: 'var(--strag-panel)',
       border: '1px solid #1E293B',
       borderRadius: '12px',
       padding: '16px',

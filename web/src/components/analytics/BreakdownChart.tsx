@@ -33,11 +33,11 @@ interface BreakdownChartProps {
 }
 
 const COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
+  'oklch(var(--chart-1))',
+  'oklch(var(--chart-2))',
+  'oklch(var(--chart-3))',
+  'oklch(var(--chart-4))',
+  'oklch(var(--chart-5))',
 ];
 
 export function BreakdownChart({

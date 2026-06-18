@@ -8,10 +8,12 @@ const Card = React.forwardRef<
 >(({ className, style, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("rounded-2xl border text-card-foreground", className)}
+    className={cn("vl-card rounded-2xl border text-card-foreground", className)}
+    // HF-306: theme-aware surface/border. At current these vars equal the prior exact
+    // literals (byte-for-byte); under bliss they become white surface + #E4E4EE border.
     style={{
-      background: 'rgba(24, 24, 27, 0.8)',
-      borderColor: 'rgba(39, 39, 42, 0.6)',
+      background: 'var(--card-surface)',
+      borderColor: 'var(--card-bd)',
       ...style,
     }}
     {...props}

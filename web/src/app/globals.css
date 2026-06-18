@@ -1,3 +1,8 @@
+/* OB-201: bliss theme fonts (Urbanist / Inter / DM Mono). Declared globally; the woff2
+   binaries are fetched by the browser only when an element actually renders in these
+   families — i.e. only under [data-theme="bliss"] (font-load perf residual: §6A). */
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;700&family=Inter:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,61 +19,247 @@
 }
 
 @layer base {
-  /* DS-001 Dark Theme — always dark, no light mode */
-  :root {
-    --background: 222.2 47.4% 3.9%;
-    --foreground: 210 40% 96%;
-    --card: 222.2 47.4% 5.5%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222.2 47.4% 5.5%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 238.7 83.5% 66.7%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 20.2% 55%;
-    --accent: 217.2 32.6% 12%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217.2 32.6% 15%;
-    --input: 217.2 32.6% 15%;
-    --ring: 238.7 83.5% 66.7%;
-    --chart-1: 238 83% 67%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+  /* DS-001 Dark Theme — always dark, no light mode.
+     OB-201: [data-theme="current"] aliases the existing values so the CURRENT token set
+     is explicit and matches today EXACTLY (pixel-identical default). */
+  :root,
+  [data-theme="current"] {
+    /* HF-307A: bare OKLCH channels (L C H), consumed by oklch(var(--token)/<alpha>) in config.
+       Converted from the prior HSL triples via sRGB→OKLab→OKLCH — solid colors render identical
+       (G2); opacity modifiers now blend in perceptually-uniform OKLCH space. */
+    --background: 0.1344 0.0163 262.7;
+    --foreground: 0.9676 0.007 247.9;
+    --card: 0.1519 0.0214 265.5;
+    --card-foreground: 0.9676 0.007 247.9;
+    --popover: 0.1519 0.0214 265.5;
+    --popover-foreground: 0.9676 0.007 247.9;
+    --primary: 0.586 0.2037 277.1;
+    --primary-foreground: 1 0 0;
+    --secondary: 0.226 0.0267 260;
+    --secondary-foreground: 0.9676 0.007 247.9;
+    --muted: 0.226 0.0267 260;
+    --muted-foreground: 0.6225 0.0468 256.8;
+    --accent: 0.226 0.0267 260;
+    --accent-foreground: 0.9676 0.007 247.9;
+    --destructive: 0.6368 0.2078 25.3;
+    --destructive-foreground: 1 0 0;
+    --border: 0.2558 0.0324 260;
+    --input: 0.2558 0.0324 260;
+    --ring: 0.586 0.2037 277.1;
+    --chart-1: 0.5929 0.1987 277;
+    --chart-2: 0.6983 0.1337 165.5;
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
     --radius: 0.75rem;
+
+    /* OB-201 app-shell tokens — current = today's EXACT body inline values (layout.tsx) */
+    --app-bg: #0a0e1a;
+    --app-fg: #e2e8f0;
+
+    /* HF-306 card surface/border — current = the EXACT prior Card inline literals (byte-safe) */
+    --card-surface: rgba(24, 24, 27, 0.8);
+    --card-bd: rgba(39, 39, 42, 0.6);
+
+    /* HF-308: theme-aware straggler vars for inline-hex dark SURFACE backgrounds
+       (current = EXACT prior hex → byte-safe; bliss = light). Background contexts only. */
+    --strag-deep: #020617;    /* slate-950 page bg */
+    --strag-panel: #0F172A;   /* slate-900 card/panel */
+    --strag-app: #0a0e1a;     /* app dark bg */
+    --strag-z9: #18181b;      /* zinc-900 */
+    --strag-s8: #1e293b;      /* slate-800 */
+    --strag-z8: #27272a;      /* zinc-800 */
+    --strag-z7: #3f3f46;      /* zinc-700 */
+    --strag-violet: #7c3aed;  /* action buttons (violet) */
+
+    /* OB-201 font tokens — current maps to the in-use DM Sans / DM Mono (parity set) */
+    --font-display: var(--font-dm-sans), system-ui, sans-serif;
+    --font-body: var(--font-dm-sans), system-ui, sans-serif;
+    --font-mono: var(--font-dm-mono), monospace;
   }
 
   /* .dark selector matches :root values — app is always dark */
   .dark {
-    --background: 222.2 47.4% 3.9%;
-    --foreground: 210 40% 96%;
-    --card: 222.2 47.4% 5.5%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222.2 47.4% 5.5%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 238.7 83.5% 66.7%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 20.2% 55%;
-    --accent: 217.2 32.6% 12%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217.2 32.6% 15%;
-    --input: 217.2 32.6% 15%;
-    --ring: 238.7 83.5% 66.7%;
-    --chart-1: 238 83% 67%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    /* HF-307A: bare OKLCH channels (L C H), consumed by oklch(var(--token)/<alpha>) in config.
+       Converted from the prior HSL triples via sRGB→OKLab→OKLCH — solid colors render identical
+       (G2); opacity modifiers now blend in perceptually-uniform OKLCH space. */
+    --background: 0.1344 0.0163 262.7;
+    --foreground: 0.9676 0.007 247.9;
+    --card: 0.1519 0.0214 265.5;
+    --card-foreground: 0.9676 0.007 247.9;
+    --popover: 0.1519 0.0214 265.5;
+    --popover-foreground: 0.9676 0.007 247.9;
+    --primary: 0.586 0.2037 277.1;
+    --primary-foreground: 1 0 0;
+    --secondary: 0.226 0.0267 260;
+    --secondary-foreground: 0.9676 0.007 247.9;
+    --muted: 0.226 0.0267 260;
+    --muted-foreground: 0.6225 0.0468 256.8;
+    --accent: 0.226 0.0267 260;
+    --accent-foreground: 0.9676 0.007 247.9;
+    --destructive: 0.6368 0.2078 25.3;
+    --destructive-foreground: 1 0 0;
+    --border: 0.2558 0.0324 260;
+    --input: 0.2558 0.0324 260;
+    --ring: 0.586 0.2037 277.1;
+    --chart-1: 0.5929 0.1987 277;
+    --chart-2: 0.6983 0.1337 165.5;
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
+    --app-bg: #0a0e1a;
+    --app-fg: #e2e8f0;
+    --font-display: var(--font-dm-sans), system-ui, sans-serif;
+    --font-body: var(--font-dm-sans), system-ui, sans-serif;
+    --font-mono: var(--font-dm-mono), monospace;
+  }
+
+  /* ============================================================
+     BLISS THEME (HF-307 authoritative correction) — values from the production marketing
+     styles.css (OKLCH). The shadcn tokens below carry the authoritative OKLCH CONVERTED to
+     HSL triples, because tailwind.config consumes them via hsl(var(--token)) and 18 chart/
+     tooltip components also read hsl(var(--token)) directly — keeping the v3 pipeline intact
+     is what guarantees zero current-theme regression (HALT-1). The RAW OKLCH values live in
+     the brand tokens + design vocabulary below and are used directly (§4.2). Each HSL triple
+     is annotated with its authoritative oklch() source.
+     html[data-theme="bliss"] (0,1,1) wins over .dark (0,1,0).
+     ============================================================ */
+  html[data-theme="bliss"] {
+    /* HF-307A: authoritative OKLCH channels DIRECTLY (no HSL conversion layer) — the
+       production styles.css source IS OKLCH; consumed by oklch(var(--token)/<alpha>) in config. */
+    --background: 1 0 0;                  /* pure white */
+    --foreground: 0.24 0.11 274;         /* ink (indigo-tinted) */
+    --card: 1 0 0;
+    --card-foreground: 0.24 0.11 274;
+    --popover: 1 0 0;
+    --popover-foreground: 0.24 0.11 274;
+    --primary: 0.34 0.16 274;            /* indigo */
+    --primary-foreground: 1 0 0;
+    --secondary: 0.97 0.025 274;         /* indigo-soft */
+    --secondary-foreground: 0.34 0.16 274;
+    --muted: 0.985 0.005 280;            /* offwhite */
+    --muted-foreground: 0.52 0.06 274;
+    --accent: 0.79 0.14 76;              /* gold */
+    --accent-foreground: 0.24 0.11 274;
+    --destructive: 0.55 0.22 28;
+    --destructive-foreground: 1 0 0;
+    --border: 0.92 0.01 274;             /* indigo-tinted hairline */
+    --input: 0.92 0.01 274;
+    --ring: 0.34 0.16 274;
+    --chart-1: 0.34 0.16 274;            /* indigo */
+    --chart-2: 0.79 0.14 76;             /* gold */
+    --chart-3: 0.7232 0.15 60.6;
+    --chart-4: 0.6192 0.2037 312.7;
+    --chart-5: 0.6123 0.2093 6.4;
+    --radius: 0.25rem;                   /* authoritative line-precision radius */
+
+    /* app-shell — bliss page is pure WHITE (§1), ink text */
+    --app-bg: oklch(1 0 0);
+    --app-fg: var(--ink);
+
+    /* card surface/border under bliss — white card, indigo-tinted hairline border */
+    --card-surface: oklch(1 0 0);
+    --card-bd: var(--border-oklch);
+
+    /* HF-308: stragglers go light/indigo under bliss */
+    --strag-deep: oklch(1 0 0);             /* white page bg */
+    --strag-panel: oklch(0.985 0.005 280);  /* offwhite panel */
+    --strag-app: oklch(1 0 0);              /* white */
+    --strag-z9: oklch(0.985 0.005 280);     /* offwhite */
+    --strag-s8: oklch(0.97 0.025 274);      /* indigo-soft */
+    --strag-z8: oklch(0.97 0.025 274);      /* indigo-soft */
+    --strag-z7: oklch(0.92 0.01 274);       /* border */
+    --strag-violet: oklch(0.34 0.16 274);   /* indigo action */
+
+    /* HF-307 authoritative brand tokens — RAW OKLCH (used directly by the design vocabulary).
+       --color-* aliases keep the existing consumers (.eyebrow/.vl-card/sidebar/nav) working. */
+    --ink: oklch(0.24 0.11 274);
+    --indigo: oklch(0.34 0.16 274);
+    --indigo-dark: oklch(0.28 0.16 274);
+    --indigo-soft: oklch(0.97 0.025 274);
+    --gold: oklch(0.79 0.14 76);
+    --gold-deep: oklch(0.58 0.16 65);
+    --gold-soft: oklch(0.97 0.05 86);
+    --offwhite: oklch(0.985 0.005 280);
+    --muted2: oklch(0.86 0.012 274);
+    --border-oklch: oklch(0.92 0.01 274);
+    --color-indigo: var(--indigo);
+    --color-indigo-dark: var(--indigo-dark);
+    --color-indigo-soft: var(--indigo-soft);
+    --color-gold: var(--gold);
+    --color-gold-deep: var(--gold-deep);
+    --color-gold-soft: var(--gold-soft);
+    --color-ink: var(--ink);
+    --color-ink-bg: var(--ink);
+    --color-ink-panel: var(--indigo-dark);
+    --color-offwhite: var(--offwhite);
+    --color-muted: oklch(0.52 0.06 274);   /* muted-foreground (sidebar labels) */
+    --color-border: var(--border-oklch);
+
+    /* typography — authoritative names: --font-sans (Inter) is the body font; --font-body
+       kept as an alias so HF-306 rules (body, .vl-card) keep working. */
+    --font-display: "Urbanist", system-ui, sans-serif;
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-body: var(--font-sans);
+    --font-mono: "DM Mono", ui-monospace, monospace;
+
+    /* spacing scale (8→64) */
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 20px;
+    --sp-6: 24px;
+    --sp-8: 32px;
+    --sp-10: 40px;
+    --sp-12: 48px;
+    --sp-16: 64px;
+
+    /* radii — authoritative line-precision scale (--radius 0.25rem) */
+    --radius-default: 4px;
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    --radius-full: 9999px;
+
+    /* shadows */
+    --shadow-card: 0 1px 3px 0 rgba(15,10,30,0.06), 0 1px 2px -1px rgba(15,10,30,0.06);
+    --shadow-panel: 0 4px 16px 0 rgba(15,10,30,0.12);
+    --shadow-hero: 0 20px 60px -10px rgba(15,10,30,0.3);
+
+    /* ── HF-305: theme-aware neutral scale (RGB triplets consumed by tailwind.config) ──
+       Inverts the dark Tailwind scales to bliss light surfaces / ink text. Defined ONLY
+       here (under bliss) — at data-theme="current" these are unset and the config fallbacks
+       (exact original hex) apply, so current is byte-for-byte unchanged. Shared bliss roles: */
+    /* HF-307: authoritative OKLCH → sRGB (indigo-tinted neutrals, not neutral gray/near-black) */
+    --bliss-ink: 19 19 82;          /* ink oklch(0.24 0.11 274) */
+    --bliss-ink-2: 38 45 96;        /* oklch(0.32 0.09 274) */
+    --bliss-ink-3: 60 68 109;       /* oklch(0.40 0.07 274) */
+    --bliss-muted: 94 103 140;      /* muted-foreground oklch(0.52 0.06 274) */
+    --bliss-muted-2: 125 133 162;   /* oklch(0.62 0.045 274) */
+    --bliss-bd: 226 228 235;        /* border oklch(0.92 0.01 274) */
+    --bliss-soft: 240 244 255;      /* indigo-soft oklch(0.97 0.025 274) */
+    --bliss-surface: 249 250 253;   /* offwhite oklch(0.985 0.005 280) */
+    --bliss-wht: 255 255 255;       /* white oklch(1 0 0) */
+    --bliss-indigo: 37 36 136;      /* indigo oklch(0.34 0.16 274) */
+    --bliss-indigo-dk: 26 14 117;   /* indigo-dark oklch(0.28 0.16 274) */
+
+    /* low steps (were light text on dark) → dark ink; high steps (were dark surfaces) → light */
+    --c-slate-50: var(--bliss-ink);   --c-zinc-50: var(--bliss-ink);   --c-gray-50: var(--bliss-ink);
+    --c-slate-100: var(--bliss-ink);  --c-zinc-100: var(--bliss-ink);  --c-gray-100: var(--bliss-ink);
+    --c-slate-200: var(--bliss-ink-2);--c-zinc-200: var(--bliss-ink-2);--c-gray-200: var(--bliss-ink-2);
+    --c-slate-300: var(--bliss-ink-3);--c-zinc-300: var(--bliss-ink-3);--c-gray-300: var(--bliss-ink-3);
+    --c-slate-400: var(--bliss-muted);--c-zinc-400: var(--bliss-muted);--c-gray-400: var(--bliss-muted);
+    --c-slate-500: var(--bliss-muted);--c-zinc-500: var(--bliss-muted);--c-gray-500: var(--bliss-muted);
+    --c-slate-600: var(--bliss-muted-2);--c-zinc-600: var(--bliss-muted-2);--c-gray-600: var(--bliss-muted-2);
+    --c-slate-700: var(--bliss-bd);   --c-zinc-700: var(--bliss-bd);   --c-gray-700: var(--bliss-bd);
+    --c-slate-800: var(--bliss-soft); --c-zinc-800: var(--bliss-soft); --c-gray-800: var(--bliss-soft);
+    --c-slate-900: var(--bliss-surface);--c-zinc-900: var(--bliss-surface);--c-gray-900: var(--bliss-surface);
+    --c-slate-950: var(--bliss-wht);  --c-zinc-950: var(--bliss-wht);  --c-gray-950: var(--bliss-wht);
+
+    /* navy (brand blue) → indigo family under bliss */
+    --c-navy-50: var(--bliss-soft);   --c-navy-100: var(--bliss-soft);  --c-navy-200: 224 224 246;
+    --c-navy-300: 200 200 235;        --c-navy-400: 120 122 200;        --c-navy-500: var(--bliss-indigo);
+    --c-navy-600: var(--bliss-indigo);--c-navy-700: var(--bliss-indigo-dk);--c-navy-800: var(--bliss-indigo-dk);
+    --c-navy-900: var(--bliss-indigo-dk);--c-navy-950: 20 22 80;
   }
 }
 
@@ -82,4 +273,226 @@
     font-size: 15px;
     line-height: 1.6;
   }
+
+  /* ============================================================
+     OB-201 bliss presentation — typography + diamond backdrop. Scoped to
+     html[data-theme="bliss"] so the CURRENT theme is byte-for-byte unaffected.
+     ============================================================ */
+  html[data-theme="bliss"] body {
+    font-family: var(--font-body);
+  }
+
+  /* HF-306 §3.1: bliss typography — headings in Urbanist (light display weights). */
+  html[data-theme="bliss"] h1,
+  html[data-theme="bliss"] h2,
+  html[data-theme="bliss"] h3,
+  html[data-theme="bliss"] h4,
+  html[data-theme="bliss"] h5,
+  html[data-theme="bliss"] h6 {
+    font-family: var(--font-display);
+  }
+  html[data-theme="bliss"] h1,
+  html[data-theme="bliss"] h2,
+  html[data-theme="bliss"] h3 {
+    font-weight: 300;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+  html[data-theme="bliss"] h4,
+  html[data-theme="bliss"] h5,
+  html[data-theme="bliss"] h6 {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* HF-306 §3.1/§3.3: mono-label eyebrows — the app's uppercase tracked section labels
+     ("SYSTEM HEALTH", "TRAJECTORY INTELLIGENCE", …) become DM Mono / gold-deep under bliss. */
+  html[data-theme="bliss"] .uppercase.tracking-wider,
+  html[data-theme="bliss"] .uppercase.tracking-wide {
+    font-family: var(--font-mono);
+    letter-spacing: 0.18em;
+    color: var(--color-indigo); /* HF-307 §3: eyebrow base is INDIGO (gold is the .eyebrow-gold variant) */
+  }
+
+  /* HF-306 §3.3: grid-pattern backdrop on the main content area (32×32, 6% indigo). */
+  html[data-theme="bliss"] main.workspace-content {
+    position: relative;
+    isolation: isolate;
+  }
+  html[data-theme="bliss"] main.workspace-content::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M 32 0 L 0 0 0 32' fill='none' stroke='%232D2F8F' stroke-opacity='0.06' stroke-width='1'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+  }
 }
+
+/* OB-201 bliss keyframes (global; only referenced by bliss-scoped utilities) */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gold-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================
+   OB-201 bliss signature primitives — opt-in utility classes, available only under
+   [data-theme="bliss"]. Components adopt these incrementally (§6A residual); they do
+   NOT force-restyle existing elements, keeping revert structurally inert.
+   ============================================================ */
+html[data-theme="bliss"] .bliss-pill {
+  border-radius: var(--radius-full);
+}
+html[data-theme="bliss"] .bliss-eyebrow {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 0.75rem;
+  color: var(--color-gold-deep);
+}
+html[data-theme="bliss"] .bliss-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-gold);
+}
+html[data-theme="bliss"] .bliss-dot-lg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+html[data-theme="bliss"] .bliss-hairline {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+html[data-theme="bliss"] .bliss-hairline-accent {
+  border-top: 2px solid var(--color-indigo);
+}
+html[data-theme="bliss"] .bliss-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+html[data-theme="bliss"] .bliss-gold-pulse {
+  animation: gold-pulse 2s ease-in-out infinite;
+}
+html[data-theme="bliss"] .bliss-card {
+  box-shadow: var(--shadow-card);
+}
+html[data-theme="bliss"] .bliss-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+/* ── HF-306 §3.3 primitives ───────────────────────────────────────────────── */
+/* Pill-shaped primary CTAs (shadcn Button default/destructive variants — data-variant hook). */
+html[data-theme="bliss"] button[data-variant="default"],
+html[data-theme="bliss"] button[data-variant="destructive"],
+html[data-theme="bliss"] [data-variant="default"][role="button"] {
+  border-radius: var(--radius-full);
+}
+
+/* Cards: white surface, hairline border (via --card-* vars), 10px radius, warm shadow. */
+html[data-theme="bliss"] .vl-card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* §3.2 badge system — indigo / gold soft chips. */
+html[data-theme="bliss"] .badge-indigo {
+  background: var(--color-indigo-soft);
+  color: var(--color-indigo);
+}
+html[data-theme="bliss"] .badge-gold {
+  background: var(--color-gold-soft);
+  color: var(--color-gold-deep);
+}
+
+/* §3.4 sidebar section labels (inline-styled) → DM Mono, muted, wide tracking under bliss. */
+html[data-theme="bliss"] [data-nav-section] {
+  font-family: var(--font-mono) !important;
+  color: var(--color-muted) !important;
+  letter-spacing: 0.22em !important;
+}
+
+/* §3.5 top nav: dark bg-black/30 + white border aren't theme-aware → light treatment under bliss. */
+html[data-theme="bliss"] .app-navbar {
+  background-color: rgba(248, 248, 255, 0.85);
+  border-bottom-color: var(--color-border);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-307 §3 — Bliss design vocabulary (verbatim from the authoritative styles.css,
+   scoped to [data-theme="bliss"]). Note: the iap- and vl- keyframes named in §3 were
+   NOT included in the provided source text (only their names were listed) and are
+   §6-out-of-scope marketing-icon animations — omitted (see HF-307 report G7).
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="bliss"] .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-indigo);
+}
+html[data-theme="bliss"] .eyebrow-gold { color: var(--color-gold); }
+html[data-theme="bliss"] .eyebrow-muted { color: var(--color-muted); }
+
+html[data-theme="bliss"] .hairline {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.34 0.16 274 / 0.25) 30%,
+    oklch(0.79 0.14 76 / 0.5) 50%,
+    oklch(0.34 0.16 274 / 0.25) 70%,
+    transparent
+  );
+}
+
+html[data-theme="bliss"] .lift {
+  transition: transform 350ms cubic-bezier(.2,.7,.2,1), box-shadow 350ms ease, border-color 250ms ease;
+}
+html[data-theme="bliss"] .lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 40px -28px oklch(0.24 0.11 274 / 0.45);
+}
+
+html[data-theme="bliss"] .tint-a { background: oklch(0.985 0.005 280); }
+html[data-theme="bliss"] .tint-b { background: oklch(0.97 0.025 274); }
+html[data-theme="bliss"] .tint-c { background: oklch(0.97 0.05 86); }
+html[data-theme="bliss"] .tint-d { background: linear-gradient(135deg, oklch(0.97 0.025 274) 0%, oklch(0.985 0.005 280) 100%); }
+
+html[data-theme="bliss"] .shimmer { position: relative; overflow: hidden; }
+html[data-theme="bliss"] .shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(120deg, transparent 30%, oklch(1 0 0 / 0.18) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 900ms cubic-bezier(.2,.7,.2,1);
+  pointer-events: none;
+}
+html[data-theme="bliss"] .shimmer:hover::after { transform: translateX(120%); }
+
+html[data-theme="bliss"] .underline-wipe {
+  background-image: linear-gradient(var(--color-gold), var(--color-gold));
+  background-repeat: no-repeat;
+  background-size: 0% 2px;
+  background-position: 0 100%;
+  transition: background-size 500ms cubic-bezier(.2,.7,.2,1);
+}
+html[data-theme="bliss"] .underline-wipe:hover { background-size: 100% 2px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-308 Cat 3 — light-context palette classes. In the dark app these are used as
+   LIGHT fills / DARK text on light elements; the HF-305 scale inversion flips them
+   the wrong way under bliss. These bliss-scoped overrides re-point them to the
+   correct light/dark semantic value (higher specificity than the utility, so they
+   also win over any `dark:` pair). current is untouched (not data-theme="bliss").
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="bliss"] .bg-slate-100,
+html[data-theme="bliss"] .bg-gray-100 { background-color: oklch(var(--secondary)); }
+html[data-theme="bliss"] .bg-slate-200 { background-color: oklch(var(--muted)); }
+html[data-theme="bliss"] .text-slate-900 { color: oklch(var(--foreground)); }
+html[data-theme="bliss"] .text-slate-700 { color: oklch(var(--muted-foreground)); }

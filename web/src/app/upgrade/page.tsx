@@ -84,7 +84,7 @@ export default function UpgradePage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#020617', padding: '40px 24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--strag-deep)', padding: '40px 24px' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
 
         {/* Header */}
@@ -127,7 +127,7 @@ export default function UpgradePage() {
                 key={tier.id}
                 onClick={() => !tier.contactSales && setSelectedTier(tier.id)}
                 style={{
-                  background: isSelected ? 'rgba(45, 47, 143, 0.2)' : '#0F172A',
+                  background: isSelected ? 'rgba(45, 47, 143, 0.2)' : 'var(--strag-panel)',
                   border: isSelected
                     ? '2px solid #2D2F8F'
                     : isRecommended
@@ -147,7 +147,7 @@ export default function UpgradePage() {
                     left: '50%',
                     transform: 'translateX(-50%)',
                     background: '#E8A838',
-                    color: '#0F172A',
+                    color: 'var(--strag-panel)',
                     fontSize: '11px',
                     fontWeight: 700,
                     padding: '2px 12px',
@@ -224,7 +224,7 @@ export default function UpgradePage() {
 
         {/* Module Add-Ons */}
         <div style={{
-          background: '#0F172A',
+          background: 'var(--strag-panel)',
           border: '1px solid #1E293B',
           borderRadius: '12px',
           padding: '24px',
@@ -300,7 +300,7 @@ export default function UpgradePage() {
 
         {/* Order Summary + Subscribe */}
         <div style={{
-          background: '#0F172A',
+          background: 'var(--strag-panel)',
           border: '1px solid #E8A838',
           borderRadius: '12px',
           padding: '24px',
@@ -358,7 +358,7 @@ export default function UpgradePage() {
           textAlign: 'center',
           marginTop: '32px',
           padding: '24px',
-          background: '#0F172A',
+          background: 'var(--strag-panel)',
           border: '1px solid #1E293B',
           borderRadius: '12px',
         }}>

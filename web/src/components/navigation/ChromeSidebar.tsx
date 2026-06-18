@@ -150,6 +150,14 @@ export function ChromeSidebar() {
   // Section accordion state — tracks which section IDs are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
+  // HF-306 §3.2: under bliss the active-nav accent is indigo (not the per-workspace teal/purple).
+  // Read post-mount so SSR (false) matches initial client render — no hydration mismatch.
+  const [isBliss, setIsBliss] = useState(false);
+  useEffect(() => {
+    setIsBliss(document.documentElement.getAttribute('data-theme') === 'bliss');
+  }, []);
+  const blissIndigo = '#2D2F8F';
+
   // Toggle a section's expanded state
   const toggleSection = useCallback((sectionId: string) => {
     setExpandedSections(prev => {
@@ -205,7 +213,7 @@ export function ChromeSidebar() {
   const accentGrad = PERSONA_TOKENS[persona].accentGrad;
 
   // Workspace accent color
-  const wsAccent = activeWsConfig?.accentColor || 'hsl(262, 83%, 58%)';
+  const wsAccent = isBliss ? blissIndigo : (activeWsConfig?.accentColor || 'hsl(262, 83%, 58%)');
 
   return (
     <>
@@ -242,9 +250,18 @@ export function ChromeSidebar() {
             )}
             onClick={isUserVLAdmin ? () => router.push('/select-tenant') : undefined}
           >
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accentGrad}`}>
-              <span className="text-sm font-bold text-white">V</span>
-            </div>
+            {isBliss ? (
+              /* HF-307 §3.3: diamond logo under bliss (indigo lines + gold center) */
+              <svg width="32" height="32" viewBox="0 0 40 40" fill="none" className="shrink-0">
+                <rect x="11" y="11" width="18" height="18" rx="1" transform="rotate(45 20 20)" stroke="var(--color-indigo)" strokeWidth="1.25" />
+                <rect x="15.5" y="15.5" width="9" height="9" rx="0.5" transform="rotate(45 20 20)" fill="var(--color-indigo)" />
+                <circle cx="20" cy="20" r="1.6" fill="var(--color-gold)" />
+              </svg>
+            ) : (
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accentGrad}`}>
+                <span className="text-sm font-bold text-white">V</span>
+              </div>
+            )}
             {!isRailCollapsed && (
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-sm font-bold text-zinc-100 truncate">
@@ -282,7 +299,7 @@ export function ChromeSidebar() {
         {/* ── Workspace Switcher ── */}
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
-            <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+            <p data-nav-section style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
               {isSpanish ? 'Espacios' : 'Workspaces'}
             </p>
           )}
@@ -305,7 +322,7 @@ export function ChromeSidebar() {
                               ? 'text-white'
                               : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800/50'
                           )}
-                          style={isActive ? { backgroundColor: `${ws.accentColor}30`, color: ws.accentColor } : undefined}
+                          style={isActive ? { backgroundColor: `${isBliss ? blissIndigo : ws.accentColor}30`, color: isBliss ? blissIndigo : ws.accentColor } : undefined}
                         >
                           <Icon className="h-4 w-4" />
                         </button>
@@ -331,7 +348,7 @@ export function ChromeSidebar() {
                   style={{
                     fontSize: '14px',
                     ...(isActive
-                      ? { backgroundColor: `${ws.accentColor}25`, color: ws.accentColor }
+                      ? { backgroundColor: `${isBliss ? blissIndigo : ws.accentColor}25`, color: isBliss ? blissIndigo : ws.accentColor }
                       : { color: '#a1a1aa' }),
                   }}
                 >
@@ -349,7 +366,7 @@ export function ChromeSidebar() {
           {activeSections.length > 0 && (
             <nav className={cn('py-3', isRailCollapsed ? 'px-1' : 'px-3')}>
               {!isRailCollapsed && (
-                <p style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
+                <p data-nav-section style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
                   {isSpanish ? activeWsConfig?.labelEs : activeWsConfig?.label}
                 </p>
               )}

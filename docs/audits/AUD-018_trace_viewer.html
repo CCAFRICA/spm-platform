@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AUD-018 · Plan-Import Trace Viewer</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --edge:#30363d;
+    --ink:#e6edf3; --mut:#8b949e; --dim:#6e7681;
+    --accent:#58a6ff; --good:#3fb950; --warn:#d29922; --bad:#f85149;
+    --plan:#bc8cff; --mono:#a5d6ff;
+    --fix:#3fb950; --reg:#f85149; --neu:#8b949e; --mix:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  code,.mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+  header{padding:18px 22px;border-bottom:1px solid var(--edge);
+    background:linear-gradient(180deg,#11161d,#0e1116);position:sticky;top:0;z-index:10}
+  h1{margin:0;font-size:17px;letter-spacing:.2px}
+  h1 small{color:var(--dim);font-weight:400;font-size:13px}
+  .shas{margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--mut)}
+  .shas b{color:var(--ink);font-weight:600}
+  .tabs{display:flex;gap:6px;padding:12px 22px 0;border-bottom:1px solid var(--edge);
+    background:var(--bg);position:sticky;top:84px;z-index:9}
+  .tab{padding:8px 14px;border:1px solid var(--edge);border-bottom:none;cursor:pointer;
+    border-radius:8px 8px 0 0;color:var(--mut);background:var(--panel)}
+  .tab.active{color:var(--ink);background:var(--panel2);border-color:var(--accent)}
+  main{padding:22px;max-width:1100px;margin:0 auto}
+  .view{display:none} .view.active{display:block}
+  .verdict{background:var(--panel);border:1px solid var(--edge);border-left:3px solid var(--good);
+    border-radius:8px;padding:14px 16px;margin-bottom:18px}
+  .verdict.warn{border-left-color:var(--warn)}
+  .verdict h3{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;
+    border:1px solid currentColor}
+  .pill.good{color:var(--good)} .pill.bad{color:var(--bad)} .pill.warn{color:var(--warn)}
+  .pill.plan{color:var(--plan)} .pill.neu{color:var(--neu)}
+
+  /* binding cards */
+  .bindgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  @media(max-width:760px){.bindgrid{grid-template-columns:1fr}}
+  .bcard{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px 14px}
+  .bcard h4{margin:0 0 8px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  .bcard .loc{color:var(--mono);font-size:12px}
+  .bcard .val{color:var(--ink);margin-top:4px}
+
+  /* flow nodes */
+  .flow{position:relative;margin-left:8px}
+  .node{position:relative;display:flex;gap:12px;padding:10px 0 18px 0}
+  .node:before{content:"";position:absolute;left:15px;top:30px;bottom:-2px;width:2px;background:var(--edge)}
+  .node:last-child:before{display:none}
+  .dot{flex:0 0 32px;height:32px;border-radius:50%;background:var(--panel2);border:2px solid var(--edge);
+    display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--mut);z-index:2}
+  .node.ai .dot{border-color:var(--plan);color:var(--plan)}
+  .node.seam .dot{border-color:var(--mono);color:var(--mono);box-shadow:0 0 0 3px rgba(165,214,255,.12)}
+  .node.entry .dot{border-color:var(--accent);color:var(--accent)}
+  .ncard{flex:1;background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:10px 12px}
+  .node.ai .ncard{border-color:#3a2e52}
+  .node.seam .ncard{border-color:#274b63}
+  .ncard .fn{font-weight:600;color:var(--ink)}
+  .ncard .loc{font-size:12px;color:var(--mono);margin-top:2px;word-break:break-all}
+  .ncard .io{margin-top:6px;font-size:12.5px;color:var(--mut)}
+  .ncard .io b{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.4px}
+  .tag{display:inline-block;margin-top:7px;margin-right:6px;padding:2px 8px;border-radius:6px;font-size:11px}
+  .tag.task{background:#2a1f3d;color:var(--plan);border:1px solid #3a2e52}
+  .tag.model{background:#10283a;color:var(--mono);border:1px solid #274b63}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 18px;font-size:12px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .key{width:12px;height:12px;border-radius:50%;border:2px solid}
+
+  /* divergences */
+  .dv{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+  .dv .stg{font-weight:600;color:var(--warn);margin-bottom:6px}
+  .dv .row{display:grid;grid-template-columns:64px 1fr;gap:8px;margin-top:4px;font-size:12.5px}
+  .dv .lab{color:var(--dim);font-weight:600}
+  .dv .a{color:var(--good)} .dv .b{color:var(--mut)}
+
+  /* diff table */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--edge);vertical-align:top}
+  th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:128px;background:var(--bg)}
+  td .files{color:var(--mono);font-size:11.5px;word-break:break-all}
+  td .impact{color:var(--mut);font-size:12.5px}
+  .cls{font-weight:700;font-size:11px;white-space:nowrap}
+  .cls.FIX{color:var(--fix)} .cls.REGRESSION{color:var(--reg)}
+  .cls.NEUTRAL{color:var(--neu)} .cls.MIXED{color:var(--mix)}
+  .notebar{margin-top:16px;background:#10283a;border:1px solid #274b63;border-radius:8px;padding:12px 14px;
+    color:var(--mono);font-size:13px}
+  .foot{color:var(--dim);font-size:11.5px;margin-top:26px;text-align:center}
+  .caveat{background:#3a1d1d;border:1px solid #5c2626;border-radius:8px;padding:12px 14px;margin:0 0 18px;color:#ffb3ab;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>AUD-018 · Plan-Import Forensic <small id="hsub"></small></h1>
+  <div class="shas" id="shas"></div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-v="trace">Plan-Import Trace</div>
+  <div class="tab" data-v="div">Divergent / Abandoned Paths</div>
+  <div class="tab" data-v="diff">HF-281 → Current Diff</div>
+</div>
+
+<main>
+  <!-- TRACE -->
+  <section class="view active" id="v-trace">
+    <div class="verdict" id="verdict"></div>
+    <div class="caveat">
+      <b>Open question this viewer does not settle.</b> A runtime log showed a <code>400 "temperature is deprecated for this model"</code>
+      with <code>model=claude-sonnet-4-6</code>. The trace below shows plan calls send <b>temperature 0</b> explicitly
+      (<code>ai-service.ts:341 / :394</code>) and route to <b>claude-opus-4-8</b> on <code>CURRENT_SHA</code>. Whether the failing
+      import ran this code, and whether the 400 is real on the deployed model, is a <b>deployment-timing question the code cannot
+      answer</b> — it needs the SHA the deployment actually served at import time. Treat the temperature cause as unproven.
+    </div>
+
+    <div class="bindgrid">
+      <div class="bcard">
+        <h4>Model binding (where the model string is chosen)</h4>
+        <div class="loc" id="mb-loc"></div>
+        <div class="val" id="mb-val"></div>
+      </div>
+      <div class="bcard">
+        <h4>Temperature binding (what is sent)</h4>
+        <div class="loc" id="tb-loc"></div>
+        <div class="val" id="tb-val"></div>
+      </div>
+      <div class="bcard">
+        <h4>Entry route (live)</h4>
+        <div class="loc" id="er-used"></div>
+      </div>
+      <div class="bcard">
+        <h4>Entry route (retired)</h4>
+        <div class="loc" id="er-ret"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><span class="key" style="border-color:var(--accent)"></span> entry route</span>
+      <span><span class="key" style="border-color:var(--plan)"></span> AI call (task)</span>
+      <span><span class="key" style="border-color:var(--mono)"></span> adapter seam (model bound)</span>
+      <span><span class="key" style="border-color:var(--edge)"></span> internal step</span>
+    </div>
+    <div class="flow" id="flow"></div>
+  </section>
+
+  <!-- DIVERGENCES -->
+  <section class="view" id="v-div">
+    <div class="verdict warn">
+      <h3>Why this matters</h3>
+      Each row is a place where a second or older code path exists for the same job. The verdict on the Trace tab depends on
+      these all being <b>abandoned</b> (no live caller) rather than competing. The audit classified them — read and confirm.
+    </div>
+    <div id="divs"></div>
+  </section>
+
+  <!-- DIFF -->
+  <section class="view" id="v-diff">
+    <div class="verdict">
+      <h3>HF-281 (proven-exact) → current main, by pipeline stage</h3>
+      What changed in each stage between the last known-good baseline and current main, classified by behavior impact.
+    </div>
+    <table>
+      <thead><tr><th>Stage</th><th>Files</th><th>What changed (behavior)</th><th>Class</th></tr></thead>
+      <tbody id="difftbody"></tbody>
+    </table>
+    <div class="notebar" id="diffnote"></div>
+  </section>
+</main>
+
+<div class="foot">AUD-018 · read-only forensic · rendered from AUD-018_C_trace.json + AUD-018_D_diff.json · vialuce.ai</div>
+
+<script>
+const TRACE = {"audit": "AUD-018 Phase C", "good_sha": "d501f97b616cfba62c2138538ec0f2637084a679", "current_sha": "ba8c4a4c26e4d07cc7d8c5ae0f2a59926543c95d", "date": "2026-06-17", "keyFinding": "Both plan_skeleton (Phase A) and plan_component (Phase B) traverse AnthropicAdapter.execute requestBody seam (anthropic-adapter.ts:1068-1083) where HF-304 routes them to claude-opus-4-8; HF-304 takes effect.", "nodes": [{"step": 1, "file": "web/src/app/api/import/sci/execute-bulk/route.ts", "line": 116, "fn": "POST", "task": null, "model": null}, {"step": 2, "file": "web/src/app/api/import/sci/execute-bulk/route.ts", "line": 344, "fn": "call executeBatchedPlanInterpretation", "task": null, "model": null}, {"step": 3, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 76, "fn": "executeBatchedPlanInterpretation", "task": null, "model": null}, {"step": 4, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 286, "fn": "import orchestratePerComponentInterpretation", "task": null, "model": null}, {"step": 5, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 149, "fn": "orchestratePerComponentInterpretation", "task": null, "model": null}, {"step": 6, "file": "web/src/lib/ai/ai-service.ts", "line": 43, "fn": "AIService.createAdapter (anthropic)", "task": null, "model": null}, {"step": 7, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 159, "fn": "aiService.interpretPlanSkeleton (PHASE A)", "task": "plan_skeleton", "model": "claude-opus-4-8 (resolved at anthropic-adapter.ts:1071-1073)"}, {"step": 8, "file": "web/src/lib/ai/ai-service.ts", "line": 324, "fn": "interpretPlanSkeleton -> this.execute", "task": "plan_skeleton", "model": null}, {"step": 9, "file": "web/src/lib/ai/ai-service.ts", "line": 62, "fn": "AIService.execute -> adapter.execute", "task": null, "model": null}, {"step": 10, "file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 994, "fn": "AnthropicAdapter.execute (HF-304 requestBody seam @1068)", "task": null, "model": "claude-opus-4-8 if PLAN_INTERPRETATION_TASKS.has(task) else config.model"}, {"step": 11, "file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1095, "fn": "fetch api.anthropic.com/v1/messages", "task": null, "model": null}, {"step": 12, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 230, "fn": "runOne (Phase B fan-out)", "task": null, "model": null}, {"step": 13, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 455, "fn": "callPlanComponentWithRetry", "task": null, "model": null}, {"step": 14, "file": "web/src/lib/sci/plan-orchestration.ts", "line": 483, "fn": "aiService.interpretPlanComponent (PHASE B, c1-senior built)", "task": "plan_component", "model": "claude-opus-4-8 (resolved at anthropic-adapter.ts:1071-1073)"}, {"step": 15, "file": "web/src/lib/ai/ai-service.ts", "line": 354, "fn": "interpretPlanComponent -> this.execute", "task": "plan_component", "model": null}, {"step": 16, "file": "web/src/lib/ai/ai-service.ts", "line": 62, "fn": "AIService.execute -> adapter.execute (re-enters node 10)", "task": "plan_component", "model": null}, {"step": 17, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 342, "fn": "bridgeAIToEngineFormat", "task": null, "model": null}, {"step": 18, "file": "web/src/lib/sci/plan-interpretation.ts", "line": 407, "fn": "rule_sets.upsert", "task": null, "model": null}], "edges": [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [5, 7], [7, 8], [8, 9], [9, 10], [10, 11], [5, 12], [12, 13], [13, 14], [14, 15], [15, 16], [16, 10], [5, 17], [17, 18]], "model_binding": {"file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1071, "constant": "PLAN_INTERPRETATION_MODEL='claude-opus-4-8' @29", "task_set": "PLAN_INTERPRETATION_TASKS @33-35"}, "temperature_binding": {"adapter_default": {"file": "web/src/lib/ai/providers/anthropic-adapter.ts", "line": 1075, "value": "request.options?.temperature ?? 0.1"}, "plan_actual": {"skeleton": {"file": "web/src/lib/ai/ai-service.ts", "line": 341, "value": 0}, "component": {"file": "web/src/lib/ai/ai-service.ts", "line": 394, "value": 0}}}, "entry_route": {"used": "web/src/app/api/import/sci/execute-bulk/route.ts:116", "retired": "web/src/app/api/import/sci/execute/route.ts (DELETED in PR #424 / commit 9484e3b5)"}, "divergences": [{"stage": "monolithic interpreter", "pathA": "LIVE: interpretPlanSkeleton+interpretPlanComponent (plan-orchestration.ts:159,483)", "pathB": "ABANDONED: aiService.interpretPlan (ai-service.ts:293), only doc-comment ref at ai-plan-interpreter.ts:614, still in PLAN_INTERPRETATION_TASKS"}, {"stage": "component chunking", "pathA": "LIVE: interpretPlanComponent single-call (plan-orchestration.ts:483)", "pathB": "ABANDONED: interpretPlanComponentWithChunking (ai-service.ts:409, adapter case 1405), retired per plan-orchestration.ts:472-474"}, {"stage": "document AI", "pathA": "PLAN: plan tasks -> Opus (anthropic-adapter.ts:1071-1073)", "pathB": "SEPARATE (not plan): document_analysis -> config.model NOT Opus (analyze-document/route.ts:134, not in PLAN_INTERPRETATION_TASKS)"}, {"stage": "adapter seam singularity", "pathA": "PLAN: AnthropicAdapter.execute (anthropic-adapter.ts:994)", "pathB": "OFF-PATH: AnthropicAdapter.executeAgentTurn (anthropic-adapter.ts:1179) used by OB-212 agent-runner, no plan-task routing, not on plan-import spine"}], "verdict": "UNIFIED SPINE \u2014 one live plan-import path; both AI nodes converge on the single HF-304 adapter seam and route to Opus; no competing/abandoned-but-wired second interpreter (executePlanPipeline deleted)."};
+const DIFF  = {"audit": "AUD-018 Phase D", "good_sha": "d501f97b616cfba62c2138538ec0f2637084a679", "current_sha": "ba8c4a4c26e4d07cc7d8c5ae0f2a59926543c95d", "date": "2026-06-17", "stages": [{"stage": "AI/model", "files": ["web/src/lib/ai/providers/anthropic-adapter.ts", "web/src/lib/ai/ai-service.ts", "web/src/lib/ai/types.ts"], "commits": ["8620b857 HF-304", "1b597894 HF-294 P2", "925cba74 HF-294 P1", "04074c0d OB-212 N1", "c404a4bd OB-212 N1"], "behaviorImpact": "Y \u2014 plan-interpretation task family routed to claude-opus-4-8 (fixes 19-vs-20-cell under-emission that aborted import); fallback claude-sonnet-4-20250514 -> claude-sonnet-4-6; provider hard-error now tagged/loud (AUD-009); net-new executeAgentTurn (off-path)", "classification": "FIX"}, {"stage": "Import-Plan (header->rule_set)", "files": ["web/src/lib/sci/header-comprehension.ts", "web/src/lib/sci/plan-interpretation.ts"], "commits": ["fcd3d7e5 HF-300", "925cba74 HF-294", "566b2905 OB-203 D13", "172fa2ea OB-203 D5", "31436a29 OB-203 P1"], "behaviorImpact": "Y \u2014 comprehendHeaders gains atom-fingerprint flywheel; role/recognition-confidence decoupled (D5); dev-only failure surface inert in prod; changes column role/semantic-type inputs vs GOOD", "classification": "NEUTRAL->FIX"}, {"stage": "Import-Transaction/SCI write path", "files": ["web/src/app/api/import/sci/execute-bulk/route.ts", "web/src/lib/sci/commit-content-unit.ts"], "commits": ["fcd3d7e5 HF-300", "6e49db8a HF-297", "8336abef DIAG-070", "be0bdc49 HF-285-D", "1047d979 HF-285-A", "6a0c1d81 OB-203 6B/B"], "behaviorImpact": "Y \u2014 respond-before-post-commit + idempotent resume/lease; post-commit moved out of dead Vercel waitUntil (which left 99% committed_data NULL entity_id); insert pacing + write-time telemetry (committed_data content unchanged)", "classification": "REGRESSION->FIX"}, {"stage": "Import-finalize / entity-resolution / assignments", "files": ["web/src/app/api/import/sci/finalize-import/route.ts (NET-NEW)", "web/src/lib/sci/entity-resolution.ts"], "commits": ["fcd3d7e5 HF-300", "d8ecc2a4 OB-203 D16.1"], "behaviorImpact": "Y \u2014 NET-NEW endpoint (absent at GOOD) runs post-commit entity resolution + createMissingAssignments in a live request; D3 suppresses spurious entity fabrication from non-FK reference_keys; supplies entity_id+assignments calc depends on", "classification": "FIX"}, {"stage": "Convergence (binding)", "files": ["web/src/lib/intelligence/convergence-service.ts"], "commits": ["e8d37b70 HF-302", "344d194d HF-287", "1f1d7d59 OB-203 6B/E", "d8ecc2a4 OB-203 D16.1"], "behaviorImpact": "Y \u2014 generateAllComponentBindings REMOVED HF-228 blanket cross-data-type column add-loop that bound a plan input to a column from the WRONG data file -> null -> $0 (DIAG-072); pool now scoped to boundary-matched data_types (file affinity)", "classification": "FIX"}, {"stage": "Calculation", "files": ["web/src/app/api/calculation/run/route.ts"], "commits": ["968759fc HF-303", "e8d37b70 HF-302", "66a0dec2 HF-301", "d9c35317 OB-213 3A", "1f1d7d59 OB-203 6B/E"], "behaviorImpact": "Y \u2014 removed whole-tenant calc-time entity resolution (165,897-row scan timeout at MIR); single visibility gate; HF-303 strongest-membership rollup key replaces 0.5 magic threshold; now hard-depends on finalize-import having run (NULL entity_id -> $0 if not)", "classification": "FIX"}], "note": "intent-constructor (web/src/lib/plan-intelligence/intent-constructor.ts) had ZERO changes GOOD->CURRENT; the plan-interpretation regression arc lives entirely at the model-routing seam in anthropic-adapter, not in the constructor."};
+
+// header
+document.getElementById('hsub').textContent = '· '+TRACE.date;
+document.getElementById('shas').innerHTML =
+  'GOOD_SHA <b>'+TRACE.good_sha.slice(0,12)+'…</b> (HF-281) &nbsp;·&nbsp; CURRENT_SHA <b>'+TRACE.current_sha.slice(0,12)+'…</b> (main, incl. HF-304)';
+
+// verdict
+const vEl=document.getElementById('verdict');
+const unified=/UNIFIED/i.test(TRACE.verdict);
+vEl.classList.toggle('warn',!unified);
+vEl.innerHTML='<h3>Plan-Import path verdict</h3>'+
+  '<span class="pill '+(unified?'good':'warn')+'">'+(unified?'UNIFIED SPINE':'DIVERGENT')+'</span> &nbsp; '+
+  esc(TRACE.verdict);
+
+// bindings
+const mb=TRACE.model_binding, tb=TRACE.temperature_binding, er=TRACE.entry_route;
+document.getElementById('mb-loc').textContent=mb.file+':'+mb.line;
+document.getElementById('mb-val').innerHTML='<code>'+esc(mb.constant)+'</code><br><code>'+esc(mb.task_set)+'</code>';
+document.getElementById('tb-loc').textContent='adapter default — '+tb.adapter_default.file+':'+tb.adapter_default.line;
+document.getElementById('tb-val').innerHTML='default <code>'+esc(tb.adapter_default.value)+'</code><br>'+
+  'plan skeleton sends <code>'+tb.plan_actual.skeleton.value+'</code> ('+tb.plan_actual.skeleton.file.split('/').pop()+':'+tb.plan_actual.skeleton.line+')<br>'+
+  'plan component sends <code>'+tb.plan_actual.component.value+'</code> ('+tb.plan_actual.component.file.split('/').pop()+':'+tb.plan_actual.component.line+')';
+document.getElementById('er-used').innerHTML='<span class="pill good">LIVE</span> '+esc(er.used);
+document.getElementById('er-ret').innerHTML='<span class="pill bad">DELETED</span> '+esc(er.retired);
+
+// flow nodes
+const flow=document.getElementById('flow');
+TRACE.nodes.forEach(n=>{
+  const isAI = !!n.task;
+  const isSeam = /AnthropicAdapter\.execute/.test(n.fn) || (n.model && /requestBody|PLAN_INTERPRETATION/.test(n.model));
+  const isEntry = /POST/.test(n.fn) && n.step===1;
+  const cls = isEntry?'entry':(isSeam?'seam':(isAI?'ai':''));
+  let tags='';
+  if(n.task) tags+='<span class="tag task">task: '+esc(n.task)+'</span>';
+  if(n.model) tags+='<span class="tag model">model: '+esc(n.model)+'</span>';
+  const phase = /PHASE A/i.test(n.fn)?' · PHASE A (skeleton)':(/PHASE B|c1-senior/i.test(n.fn)?' · PHASE B (c1-senior built)':'');
+  flow.insertAdjacentHTML('beforeend',
+    '<div class="node '+cls+'">'+
+      '<div class="dot">'+n.step+'</div>'+
+      '<div class="ncard">'+
+        '<div class="fn">'+esc(n.fn)+'<span style="color:var(--plan);font-weight:600">'+phase+'</span></div>'+
+        '<div class="loc">'+esc(n.file)+':'+n.line+'</div>'+
+        (tags?('<div>'+tags+'</div>'):'')+
+      '</div>'+
+    '</div>');
+});
+
+// divergences
+const dEl=document.getElementById('divs');
+TRACE.divergences.forEach(d=>{
+  dEl.insertAdjacentHTML('beforeend',
+    '<div class="dv">'+
+      '<div class="stg">'+esc(d.stage)+'</div>'+
+      '<div class="row"><div class="lab">Live</div><div class="a">'+esc(d.pathA)+'</div></div>'+
+      '<div class="row"><div class="lab">Other</div><div class="b">'+esc(d.pathB)+'</div></div>'+
+    '</div>');
+});
+
+// diff table
+const tb2=document.getElementById('difftbody');
+function clsKey(s){const u=s.toUpperCase();
+  if(u.includes('REGRESSION')&&u.includes('FIX'))return 'MIXED';
+  if(u.includes('REGRESSION'))return 'REGRESSION';
+  if(u.includes('FIX'))return 'FIX';
+  return 'NEUTRAL';}
+DIFF.stages.forEach(s=>{
+  const k=clsKey(s.classification);
+  tb2.insertAdjacentHTML('beforeend',
+    '<tr>'+
+      '<td><b>'+esc(s.stage)+'</b></td>'+
+      '<td><div class="files">'+s.files.map(esc).join('<br>')+'</div></td>'+
+      '<td><div class="impact">'+esc(s.behaviorImpact)+'</div>'+
+        '<div style="margin-top:6px;color:var(--dim);font-size:11px">'+s.commits.map(esc).join(' · ')+'</div></td>'+
+      '<td><span class="cls '+k+'">'+esc(s.classification)+'</span></td>'+
+    '</tr>');
+});
+document.getElementById('diffnote').innerHTML='<b>Key finding:</b> '+esc(DIFF.note);
+
+// tabs
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.getElementById('v-'+t.dataset.v).classList.add('active');
+}));
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+</script>
+</body>
+</html>

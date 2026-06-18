@@ -336,7 +336,7 @@ export default function LeakageMonitorPage() {
                   <Tooltip
                     formatter={(value: number) => [format(value), 'Leakage']}
                     contentStyle={{
-                      backgroundColor: '#18181b',
+                      backgroundColor: 'var(--strag-z9)',
                       border: '1px solid #3f3f46',
                       borderRadius: '8px',
                     }}

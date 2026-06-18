@@ -297,7 +297,7 @@ export default function ProductMixPage() {
                   <Tooltip
                     formatter={(value: number, name: string) => [format(value), name === 'food' ? 'Food' : 'Beverage']}
                     contentStyle={{
-                      backgroundColor: '#18181b',
+                      backgroundColor: 'var(--strag-z9)',
                       border: '1px solid #3f3f46',
                       borderRadius: '8px',
                     }}

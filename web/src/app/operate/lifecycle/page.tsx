@@ -286,7 +286,7 @@ export default function OperateCockpitPage() {
         <button
           onClick={() => window.location.href = '/configure/periods'}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-          style={{ backgroundColor: '#7c3aed' }}
+          style={{ backgroundColor: 'var(--strag-violet)' }}
         >
           {isSpanish ? 'Configurar Periodos' : 'Configure Periods'}
         </button>
@@ -381,7 +381,7 @@ export default function OperateCockpitPage() {
               disabled={!activeKey || !ruleSetId || isCalculating}
               className="px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
-                backgroundColor: (!activeKey || !ruleSetId || isCalculating) ? '#3f3f46' : '#7c3aed',
+                backgroundColor: (!activeKey || !ruleSetId || isCalculating) ? 'var(--strag-z7)' : 'var(--strag-violet)',
                 boxShadow: (!activeKey || !ruleSetId || isCalculating) ? 'none' : '0 0 20px rgba(124, 58, 237, 0.3)',
               }}
             >

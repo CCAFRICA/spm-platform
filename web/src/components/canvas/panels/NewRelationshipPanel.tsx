@@ -46,9 +46,9 @@ export function NewRelationshipPanel({
   onUpdate,
 }: NewRelationshipPanelProps) {
   return (
-    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: '#0a0e1a', overflowY: 'auto' }}>
+    <div style={{ width: '320px', borderLeft: '1px solid rgba(39, 39, 42, 0.6)', background: 'var(--strag-app)', overflowY: 'auto' }}>
       {/* Header */}
-      <div style={{ position: 'sticky', top: 0, background: '#0a0e1a', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
+      <div style={{ position: 'sticky', top: 0, background: 'var(--strag-app)', borderBottom: '1px solid rgba(39, 39, 42, 0.6)', padding: '16px', zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Link2 size={16} style={{ color: '#818cf8' }} />
           <h3 style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600, margin: 0 }}>New Relationship</h3>
