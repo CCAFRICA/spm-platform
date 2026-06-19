@@ -96,8 +96,8 @@ correctness, and handler preservation verified clean across all 63 files.** Two 
 ---
 
 ## 6. SHA / PR
-Commits: directive `29eac635` · Phase 1 bases `24b8310d` · Phase 2 conversion `5a58705e` (+ report).
-PR: (added on creation). DO NOT MERGE — SR-44.
+Commits: directive `29eac635` · Phase 1 bases `24b8310d` · Phase 2 conversion `5a58705e` · Phase 3 fixes `6d5724c5` (+ report).
+**PR #558 — https://github.com/CCAFRICA/spm-platform/pull/558**. DO NOT MERGE — SR-44.
 
 ## 7. ARTIFACT SYNC
 ```
