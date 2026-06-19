@@ -16,6 +16,8 @@ import {
   analyzePrimeDag,
   attributeRows,
   extractTransactionRef,
+  extractTemporalAdjustment,
+  computeReversal,
 } from '@/lib/calculation/per-row-attribution';
 import type { PlanComponent } from '@/types/compensation-plan';
 
@@ -126,4 +128,54 @@ test('transaction_ref: null when only the entity identifier exists', () => {
   } };
   const rd = { ID_Empleado: 'E1', Cantidad: 3 };
   assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), null);
+});
+
+test('transaction_ref (OB-218): excludes BOTH binding entity col AND metadata.entity_id_field', () => {
+  // BCL-class case: binding key = ID_Empleado, metadata.entity_id_field = Sucursal, only identifier
+  // is the employee id → must be null (not the employee id).
+  const meta = { entity_id_field: 'Sucursal', field_identities: {
+    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'identifier' },
+    Sucursal: { structuralType: 'reference_key', contextualIdentity: 'reference_key' },
+  } };
+  const rd = { ID_Empleado: 'BCL-5083', Sucursal: 'BCL-MAC-001', Cantidad_Productos_Cruzados: 4 };
+  assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), null);
+});
+
+// ── OB-218 Pattern D (clawback) ──
+const CLAWBACK_MOD = {
+  modifier: 'temporal_adjustment', adjustmentType: 'per_transaction_reversal',
+  referenceMapping: { returnField: 'Folio_Original', originalField: 'Folio', originalDataType: 'Ventas' },
+  recoveryRate: 1.0, lookbackPeriods: 1,
+};
+
+test('classify: temporal_adjustment modifier on component.modifiers → clawback', () => {
+  const c = { name: 'Clawback', modifiers: [CLAWBACK_MOD], calculationIntent: { prime: 'reference', field: 'x' } } as unknown as PlanComponent;
+  assert.equal(classifyAttributionPattern(c), 'clawback');
+});
+
+test('classify: temporal_adjustment modifier on calculationIntent.modifiers → clawback', () => {
+  const c = { name: 'Clawback', calculationIntent: { prime: 'reference', field: 'x', modifiers: [CLAWBACK_MOD] } } as unknown as PlanComponent;
+  assert.equal(classifyAttributionPattern(c), 'clawback');
+});
+
+test('extractTemporalAdjustment: parses referenceMapping + rate; null when absent/malformed', () => {
+  const c = comp({ prime: 'reference', field: 'x' });
+  (c as unknown as Record<string, unknown>).modifiers = [CLAWBACK_MOD];
+  const m = extractTemporalAdjustment(c);
+  assert.equal(m?.returnField, 'Folio_Original');
+  assert.equal(m?.originalField, 'Folio');
+  assert.equal(m?.originalDataType, 'Ventas');
+  assert.equal(m?.recoveryRate, 1.0);
+  assert.equal(extractTemporalAdjustment(comp({ prime: 'reference', field: 'x' })), null);
+  // malformed (missing returnField) → treated as absent
+  const bad = comp({ prime: 'reference', field: 'x' });
+  (bad as unknown as Record<string, unknown>).modifiers = [{ modifier: 'temporal_adjustment', adjustmentType: 'per_transaction_reversal', referenceMapping: { originalField: 'Folio' } }];
+  assert.equal(extractTemporalAdjustment(bad), null);
+});
+
+test('computeReversal: -recoveryRate × original (decimal exact)', () => {
+  assert.equal(computeReversal(1.0, 500).toNumber(), -500);
+  assert.equal(computeReversal(0.5, 500).toNumber(), -250);
+  assert.equal(computeReversal(0.5, '500.50').toNumber(), -250.25);
+  assert.ok(computeReversal(1.0, 0).toNumber() === 0); // -0 === 0 (JSON-serializes to 0)
 });

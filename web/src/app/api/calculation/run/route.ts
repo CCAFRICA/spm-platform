@@ -2833,7 +2833,12 @@ export async function POST(request: NextRequest) {
       for (let attrIdx = 0; attrIdx < selectedComponents.length; attrIdx++) {
         const attrComponent = selectedComponents[attrIdx];
         const attrPattern = classifyAttributionPattern(attrComponent);
-        if (attrPattern === 'non-attributable') continue;
+        // OB-218: a clawback (Pattern D / temporal_adjustment) component is NOT an in-period additive
+        // term — it reverses an original transaction's contribution via cross-period retrieval
+        // (lib/calculation/clawback.ts attributeClawbackRows). Skip the additive path so it never
+        // emits wrong positive traces. Live dispatch wiring lands with the MIR binding regeneration
+        // (the clawback proof tenant); the engine + generality proof ship in this PR.
+        if (attrPattern === 'non-attributable' || attrPattern === 'clawback') continue;
 
         const cr = componentResults[attrIdx];
         const rt = entityRoundingTraces[attrIdx];
@@ -2885,7 +2890,9 @@ export async function POST(request: NextRequest) {
             transactionRef: extractTransactionRef(
               r.row_data,
               r.metadata,
-              (r.metadata.entity_id_field as string | undefined) ?? attrEntityIdCol,
+              // OB-218: pass the binding's entity_identifier column; extractTransactionRef ALSO
+              // excludes the row's metadata.entity_id_field internally (they can differ).
+              attrEntityIdCol,
             ),
           }));
           const outcome = attributeRows({
