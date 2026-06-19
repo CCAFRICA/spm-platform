@@ -55,12 +55,14 @@ import { PERMISSION_CATEGORIES } from '@/types/rbac';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export default function AccessControlPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const tenantId = currentTenant?.id;
   const userId = user?.id || 'admin';
 
@@ -167,25 +169,44 @@ export default function AccessControlPage() {
   const permissionCount = allPermissions.length;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Shield className="h-6 w-6" />
-            {isSpanish ? 'Control de Acceso' : 'Access Control'}
-          </h1>
-          <p className="text-muted-foreground">
-            {isSpanish
-              ? 'Gestione roles, permisos y registros de auditoría'
-              : 'Manage roles, permissions, and audit logs'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Control de Acceso' : 'Access Control'}</h1>
+            <div className="sub">
+              {isSpanish
+                ? 'Gestione roles, permisos y registros de auditoría'
+                : 'Manage roles, permissions, and audit logs'}
+            </div>
+          </div>
+          <div className="pactions">
+            <Button variant="outline" onClick={loadData} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              {isSpanish ? 'Actualizar' : 'Refresh'}
+            </Button>
+          </div>
         </div>
-        <Button variant="outline" onClick={loadData} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          {isSpanish ? 'Actualizar' : 'Refresh'}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Shield className="h-6 w-6" />
+              {isSpanish ? 'Control de Acceso' : 'Access Control'}
+            </h1>
+            <p className="text-muted-foreground">
+              {isSpanish
+                ? 'Gestione roles, permisos y registros de auditoría'
+                : 'Manage roles, permissions, and audit logs'}
+            </p>
+          </div>
+          <Button variant="outline" onClick={loadData} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            {isSpanish ? 'Actualizar' : 'Refresh'}
+          </Button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

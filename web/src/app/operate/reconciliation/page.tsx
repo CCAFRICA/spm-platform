@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
@@ -248,6 +249,7 @@ export default function ReconciliationPage() {
   const { user } = useAuth();
   const { selectedBatchId: contextBatchId } = useOperate();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const tenantId = currentTenant?.id || '';
   const userId = user?.id || '';
 
@@ -746,8 +748,9 @@ export default function ReconciliationPage() {
 
   // ── LOADING ── (also covers OB-212 N9 saved-session restore, to avoid a batch-selector flash)
   if (loading || restoring) {
+    // HF-313: Vialuce renders the loading state inside the .page frame; else unchanged.
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className={isVialuce ? 'page flex items-center justify-center' : 'p-8 flex items-center justify-center'}>
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-zinc-400">
@@ -762,6 +765,21 @@ export default function ReconciliationPage() {
 
   // ── NO BATCHES ──
   if (!pageData || pageData.batches.length === 0) {
+    // HF-313: Vialuce design-spec .empty state ("never a dead end"); else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic">📊</div>
+            <b>{isSpanish ? 'No hay calculos para reconciliar' : 'No calculations to reconcile'}</b>
+            <p>{isSpanish ? 'Ejecuta un calculo desde el Centro de Operaciones primero.' : 'Run a calculation from the Operations Center first.'}</p>
+            <button onClick={() => router.push('/operate')} className="px-4 py-2 mt-4 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: 'var(--strag-violet)' }}>
+              {isSpanish ? 'Ir a Operaciones' : 'Go to Operations'}
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[400px] text-center">
         <div className="text-4xl mb-4">📊</div>
@@ -783,7 +801,8 @@ export default function ReconciliationPage() {
     <div>
       {/* OB-193: OperateSelector removed — Reconciliation has its own batch/period selectors */}
 
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    {/* HF-313: Vialuce .page frame (padding/max-width/center) replaces p-6 max-w-6xl; else unchanged. */}
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6 max-w-6xl mx-auto'}>
       {/* OB-102 Phase 7: Reference frame */}
       {selectedBatch && (
         <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
@@ -801,7 +820,47 @@ export default function ReconciliationPage() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — HF-313: Vialuce .phead (title-left / .pactions-right); else unchanged. */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Estudio de Reconciliacion' : 'Reconciliation Studio'}</h1>
+            <div className="sub">
+              {planOptions.find(p => p.id === selectedPlanId)?.name ?? pageData.ruleSetName ?? (isSpanish ? 'Plan activo' : 'Active plan')}
+            </div>
+          </div>
+          <div className="pactions">
+            {step !== 'select_batch' && (
+              <button onClick={handleReset} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+                {isSpanish ? 'Reiniciar' : 'Reset'}
+              </button>
+            )}
+            {compResult && (
+              <>
+                {report && (
+                  <button
+                    onClick={() => {
+                      // OB-91 Mission 6: XLSX export — implemented in report-engine.ts
+                      import('@/lib/reconciliation/report-engine').then(mod => {
+                        if (mod.exportReportToXLSX && report) {
+                          mod.exportReportToXLSX(report);
+                        }
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300"
+                    style={{ ...CARD_STYLE }}
+                  >
+                    {isSpanish ? 'Exportar XLSX' : 'Export XLSX Report'}
+                  </button>
+                )}
+                <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+                  {isSpanish ? 'Exportar CSV' : 'Export CSV'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-100">
@@ -842,6 +901,7 @@ export default function ReconciliationPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Step 1: Plan + Batch Selector */}
       <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>

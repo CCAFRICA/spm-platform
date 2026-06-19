@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { createClient } from '@/lib/supabase/client';
 import type { EntityType, EntityStatus } from '@/lib/supabase/database.types';
@@ -52,6 +53,7 @@ const TYPE_COLORS: Record<string, string> = {
 function PeopleConfigurePageInner() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
+  const isVialuce = useIsVialuce();
   const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id ?? '';
 
@@ -121,19 +123,32 @@ function PeopleConfigurePageInner() {
   const showingTo = Math.min((page + 1) * PAGE_SIZE, totalCount);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className={isVialuce ? 'page space-y-6' : 'space-y-6 p-6'}>
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-100 flex items-center gap-2">
-          <Users className="h-6 w-6" />
-          {isSpanish ? 'Personal' : 'Personnel'}
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          {isSpanish
-            ? `${totalCount.toLocaleString()} entidades registradas`
-            : `${totalCount.toLocaleString()} entities registered`}
-        </p>
-      </div>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Personal' : 'Personnel'}</h1>
+            <div className="sub">
+              {isSpanish
+                ? `${totalCount.toLocaleString()} entidades registradas`
+                : `${totalCount.toLocaleString()} entities registered`}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-100 flex items-center gap-2">
+            <Users className="h-6 w-6" />
+            {isSpanish ? 'Personal' : 'Personnel'}
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            {isSpanish
+              ? `${totalCount.toLocaleString()} entidades registradas`
+              : `${totalCount.toLocaleString()} entities registered`}
+          </p>
+        </div>
+      )}
 
       {/* Table Card */}
       <Card className="bg-slate-900 border-slate-800">

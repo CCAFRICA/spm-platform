@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
@@ -126,6 +127,7 @@ function buildStreamInsight(
 
 export default function StreamPage() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { persona, scope, entityId: personaEntityId } = usePersona();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -345,6 +347,68 @@ export default function StreamPage() {
       + (tenantCtx?.uncalculatedPeriodsWithData?.length ?? 0)
       + (tenantCtx?.emptyPeriods?.length ?? 0);
 
+    // HF-313: Vialuce renders the design-spec .empty state ("never a dead end") inside
+    // the .page frame; tenant-context card + action keep the same logic below it.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Zap className="h-7 w-7" /></div>
+            <b>{error ? 'Intelligence Unavailable' : 'No Intelligence Available'}</b>
+            <p>{error || 'Import data and run a calculation to see your intelligence stream.'}</p>
+          </div>
+          <div className="max-w-sm mx-auto mt-6 space-y-6">
+            {tenantCtx && !error && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Plan</span>
+                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {tenantCtx.activeRuleSet?.name || 'None'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Entities</span>
+                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
+                    {totalPeriods > 0 ? totalPeriods : 'None'}
+                  </span>
+                </div>
+                {hasUncalculated && (
+                  <p className="text-xs text-indigo-400 pt-1">
+                    {tenantCtx.uncalculatedPeriodsWithData.length} period{tenantCtx.uncalculatedPeriodsWithData.length !== 1 ? 's' : ''} with data ready to calculate
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="flex items-center justify-center gap-3">
+              {hasUncalculated ? (
+                <button
+                  onClick={() => router.push('/operate/calculate')}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+                >
+                  Go to Calculate
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => router.push('/operate/import')}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
+                >
+                  Import Data
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="max-w-4xl mx-auto px-6 py-16">
@@ -423,10 +487,38 @@ export default function StreamPage() {
   // on /stream" gap — the narrative becomes the first element, as on /operate/results.
   const streamNarrative = buildStreamInsight(data, formatCurrency);
 
+  // HF-313: Vialuce page badges (confidence + persona) reused as .pactions chips.
+  const headerBadges = (
+    <>
+      <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${confidenceBadge.color}`}>
+        {confidenceBadge.label}
+      </span>
+      <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${
+        persona === 'admin'
+          ? 'text-indigo-400 border-indigo-500/30 bg-indigo-500/10'
+          : persona === 'manager'
+            ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+            : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+      }`}>
+        {persona === 'admin' ? 'Admin' : persona === 'manager' ? 'Manager' : 'Individual'}
+      </span>
+    </>
+  );
+  const headerSubtitle = `${data.currentPeriod?.name || 'No active period'}${data.periodCount > 0 ? ` · ${data.periodCount} period${data.periodCount !== 1 ? 's' : ''}` : ''}`;
+
   return (
-    <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
-      <div className="max-w-6xl mx-auto px-6 py-6 lg:py-8">
+    <div className={isVialuce ? '' : `min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
+      <div className={isVialuce ? 'page' : 'max-w-6xl mx-auto px-6 py-6 lg:py-8'}>
         {/* Header */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Intelligence</h1>
+              <div className="sub">{headerSubtitle}</div>
+            </div>
+            <div className="pactions">{headerBadges}</div>
+          </div>
+        ) : (
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg bg-gradient-to-br ${personaToken.heroGrad}`}>
@@ -441,25 +533,15 @@ export default function StreamPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${confidenceBadge.color}`}>
-              {confidenceBadge.label}
-            </span>
-            <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${
-              persona === 'admin'
-                ? 'text-indigo-400 border-indigo-500/30 bg-indigo-500/10'
-                : persona === 'manager'
-                  ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-                  : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-            }`}>
-              {persona === 'admin' ? 'Admin' : persona === 'manager' ? 'Manager' : 'Individual'}
-            </span>
+            {headerBadges}
           </div>
         </div>
+        )}
 
         {/* OB-211 WS-2 / B2: the Insight Agent narrative LEADS the surface (AI front-and-center,
             DS-013 — the narrative is the first element). Bloodwork-toned via the shared component. */}
         {streamNarrative && (
-          <div className="mb-4">
+          <div className={isVialuce ? 'insight mb-4' : 'mb-4'}>
             <InsightNarrative narrative={streamNarrative} />
           </div>
         )}

@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Settings, Edit, RotateCcw, Save, Building, Users, ShoppingCart, Target, DollarSign, AlertTriangle, Check } from 'lucide-react';
 import { useConfig } from '@/contexts/config-context';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { pageVariants, containerVariants, itemVariants, modalVariants } from '@/lib/animations';
 import { LoadingButton } from '@/components/ui/loading-button';
 import { CardGridSkeleton } from '@/components/ui/skeleton-loaders';
@@ -27,6 +28,7 @@ const CATEGORIES = [
 export default function TerminologyPage() {
   const { terminology, updateTerm, resetToDefaults, t, isLoading: configLoading } = useConfig();
   const { canEditConfig } = usePermissions();
+  const isVialuce = useIsVialuce();
   const [activeTab, setActiveTab] = useState('organizational');
   const [editing, setEditing] = useState<{ category: string; key: string; singular: string; plural: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,42 +103,64 @@ export default function TerminologyPage() {
       initial="initial"
       animate="animate"
       exit="exit"
-      className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
+      className={isVialuce ? '' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}
     >
-      <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
+      <div className={isVialuce ? 'page' : 'container mx-auto px-4 md:px-6 py-6 md:py-8'}>
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-                className="p-2 bg-primary/10 rounded-lg"
-              >
-                <Settings className="h-6 w-6 text-primary" />
-              </motion.div>
+          {isVialuce ? (
+            <div className="phead">
               <div>
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                  Terminology
-                </h1>
-                <p className="text-muted-foreground text-sm">
-                  Customize platform terms to match your organization
-                </p>
+                <h1>Terminology</h1>
+                <div className="sub">Customize platform terms to match your organization</div>
               </div>
+              {canEditConfig && (
+                <div className="pactions">
+                  <LoadingButton
+                    variant="outline"
+                    onClick={() => setShowResetConfirm(true)}
+                    loading={isResetting}
+                    loadingText="Resetting..."
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reset to Defaults
+                  </LoadingButton>
+                </div>
+              )}
             </div>
-            {canEditConfig && (
-              <LoadingButton
-                variant="outline"
-                onClick={() => setShowResetConfirm(true)}
-                loading={isResetting}
-                loadingText="Resetting..."
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset to Defaults
-              </LoadingButton>
-            )}
-          </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                  className="p-2 bg-primary/10 rounded-lg"
+                >
+                  <Settings className="h-6 w-6 text-primary" />
+                </motion.div>
+                <div>
+                  <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                    Terminology
+                  </h1>
+                  <p className="text-muted-foreground text-sm">
+                    Customize platform terms to match your organization
+                  </p>
+                </div>
+              </div>
+              {canEditConfig && (
+                <LoadingButton
+                  variant="outline"
+                  onClick={() => setShowResetConfirm(true)}
+                  loading={isResetting}
+                  loadingText="Resetting..."
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Reset to Defaults
+                </LoadingButton>
+              )}
+            </div>
+          )}
 
           {/* Permission Warning */}
           {!canEditConfig && (

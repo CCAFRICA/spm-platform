@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState, useMemo } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -40,6 +41,7 @@ export default function OperatingSummaryPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { scope } = usePersona();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -197,6 +199,18 @@ export default function OperatingSummaryPage() {
   }
 
   if (!data) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>No Data</b>
+            <p>Import POS data to see the operating summary.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -211,8 +225,17 @@ export default function OperatingSummaryPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Operating Summary</h1>
+            <div className="sub">{data.periodLabel}</div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
           <FileText className="h-6 w-6 text-primary" />
@@ -220,6 +243,7 @@ export default function OperatingSummaryPage() {
         </h1>
         <p className="text-zinc-400">{data.periodLabel}</p>
       </div>
+      )}
 
       {/* P&L Table */}
       <Card>

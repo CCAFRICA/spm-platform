@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { toast } from 'sonner';
 import {
   getPendingItems,
@@ -42,6 +43,7 @@ export default function DataQualityPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const tenantId = currentTenant?.id;
 
   const [qualityScore, setQualityScore] = useState<QualityScore | null>(null);
@@ -154,25 +156,44 @@ export default function DataQualityPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            {isSpanish ? 'Centro de Calidad de Datos' : 'Data Quality Center'}
-          </h1>
-          <p className="text-muted-foreground">
-            {isSpanish
-              ? 'Monitorea y resuelve problemas de calidad de datos'
-              : 'Monitor and resolve data quality issues'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Centro de Calidad de Datos' : 'Data Quality Center'}</h1>
+            <div className="sub">
+              {isSpanish
+                ? 'Monitorea y resuelve problemas de calidad de datos'
+                : 'Monitor and resolve data quality issues'}
+            </div>
+          </div>
+          <div className="pactions">
+            <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isSpanish ? 'Actualizar' : 'Refresh'}
+            </Button>
+          </div>
         </div>
-        <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isSpanish ? 'Actualizar' : 'Refresh'}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <ShieldCheck className="h-6 w-6 text-primary" />
+              {isSpanish ? 'Centro de Calidad de Datos' : 'Data Quality Center'}
+            </h1>
+            <p className="text-muted-foreground">
+              {isSpanish
+                ? 'Monitorea y resuelve problemas de calidad de datos'
+                : 'Monitor and resolve data quality issues'}
+            </p>
+          </div>
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isSpanish ? 'Actualizar' : 'Refresh'}
+          </Button>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid md:grid-cols-4 gap-4">

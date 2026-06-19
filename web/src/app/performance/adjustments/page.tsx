@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useIsVialuce } from "@/hooks/use-is-vialuce"; // HF-313: Vialuce page-template adoption
 import {
   Card,
   CardContent,
@@ -61,6 +62,7 @@ export default function AdjustmentsPage() {
   const { format: fmt } = useCurrency();
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id ?? '';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([]);
@@ -218,23 +220,40 @@ export default function AdjustmentsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-6 py-8">
+    // HF-313: Vialuce uses the .page frame directly (no dark gradient shell); else the original
+    // gradient-shell wrapper stays byte-identical. Both branches render the same body below.
+    <div className={isVialuce ? '' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
+      <div className={isVialuce ? 'page' : 'container mx-auto px-6 py-8'}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              Adjustments
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Manage outcome adjustments, credits, and corrections
-            </p>
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Adjustments</h1>
+              <div className="sub">Manage outcome adjustments, credits, and corrections</div>
+            </div>
+            <div className="pactions">
+              <Button className="gap-2" onClick={() => setShowNewForm(true)}>
+                <Plus className="h-4 w-4" />
+                New Adjustment
+              </Button>
+            </div>
           </div>
-          <Button className="gap-2" onClick={() => setShowNewForm(true)}>
-            <Plus className="h-4 w-4" />
-            New Adjustment
-          </Button>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                Adjustments
+              </h1>
+              <p className="mt-2 text-slate-600 dark:text-slate-400">
+                Manage outcome adjustments, credits, and corrections
+              </p>
+            </div>
+            <Button className="gap-2" onClick={() => setShowNewForm(true)}>
+              <Plus className="h-4 w-4" />
+              New Adjustment
+            </Button>
+          </div>
+        )}
 
         {/* New Adjustment Form */}
         {showNewForm && (

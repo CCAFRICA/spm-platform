@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
 import { PeriodProvider, usePeriod } from '@/contexts/period-context';
 import { PersonaLayout } from '@/components/layout/PersonaLayout';
@@ -49,6 +50,7 @@ interface FinancialSummary {
 
 function PerformContent() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { persona } = usePersona();
   const { availablePeriods, activePeriodKey, setActivePeriod, isLoading: periodLoading } = usePeriod();
   const { currentTenant } = useTenant();
@@ -127,6 +129,17 @@ function PerformContent() {
   }, [isSpanish, icmHealth, financialData, hasICM, hasFinancial, formatCurrency]);
 
   if (!currentTenant) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <b>{isSpanish ? 'Selecciona un tenant' : 'Select a tenant'}</b>
+            <p>{isSpanish ? 'Selecciona un tenant.' : 'Select a tenant to view your dashboard.'}</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-8 text-center text-zinc-400">
         <p>{isSpanish ? 'Selecciona un tenant.' : 'Select a tenant to view your dashboard.'}</p>
@@ -142,14 +155,23 @@ function PerformContent() {
         onSelect={setActivePeriod}
       />
 
-      <div className="p-6 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white bliss:text-foreground">
-            {performTitle}
-            {currentTenant?.name ? ` \u2014 ${currentTenant.name}` : ''}
-          </h1>
-        </div>
+      <div className={isVialuce ? 'page' : 'p-6 max-w-6xl mx-auto'}>
+        {/* Header \u2014 HF-313: Vialuce .phead (title + tenant subtitle); else unchanged. */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>{performTitle}</h1>
+              {currentTenant?.name && <div className="sub">{currentTenant.name}</div>}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-white bliss:text-foreground">
+              {performTitle}
+              {currentTenant?.name ? ` \u2014 ${currentTenant.name}` : ''}
+            </h1>
+          </div>
+        )}
 
         {/* MODULE-AWARE BRANCHING — The #1 regression fix */}
 

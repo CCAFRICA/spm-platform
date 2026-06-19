@@ -29,6 +29,7 @@ import { LoadingButton } from '@/components/ui/loading-button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { AccessControl, ADMIN_ROLES } from '@/components/access-control';
 import { useTenant } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export default function AuditPage() {
   return (
@@ -40,6 +41,7 @@ export default function AuditPage() {
 
 function AuditPageContent() {
   const { currentTenant } = useTenant();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -183,9 +185,39 @@ function AuditPageContent() {
       exit="exit"
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
     >
-      <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
+      <div className={isVialuce ? 'page' : 'container mx-auto px-4 md:px-6 py-6 md:py-8'}>
         <div className="space-y-6">
           {/* Header */}
+          {isVialuce ? (
+            <div className="phead">
+              <div>
+                <h1>Audit Log</h1>
+                <div className="sub">Complete history of system changes • SOC2 Compliant</div>
+              </div>
+              <div className="pactions flex gap-2">
+                <LoadingButton
+                  variant="outline"
+                  onClick={() => loadLogs(true)}
+                  loading={isRefreshing}
+                  loadingText="Refreshing..."
+                  size="sm"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </LoadingButton>
+                <LoadingButton
+                  variant="outline"
+                  onClick={handleExport}
+                  loading={isExporting}
+                  loadingText="Exporting..."
+                  size="sm"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
+                </LoadingButton>
+              </div>
+            </div>
+          ) : (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <motion.div
@@ -230,6 +262,7 @@ function AuditPageContent() {
               </LoadingButton>
             </div>
           </div>
+          )}
 
           {/* Stats Cards */}
           <motion.div

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useIsVialuce } from "@/hooks/use-is-vialuce"; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Card,
@@ -281,6 +282,7 @@ function getSeverityIcon(severity: string) {
 
 export default function AccelerationPage() {
   const { format: fmt } = useCurrency();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [alertsList, setAlertsList] = useState(alerts);
   const unreadAlerts = alertsList.filter((a) => !a.read).length;
 
@@ -308,16 +310,25 @@ export default function AccelerationPage() {
       exit="exit"
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
     >
-      <div className="container mx-auto px-4 md:px-6 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-            Acceleration & Alerts
-          </h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Active incentives, notifications, and AI-powered recommendations
-          </p>
-        </div>
+      <div className={isVialuce ? "page" : "container mx-auto px-4 md:px-6 py-8"}>
+        {/* Header — HF-313: Vialuce .phead; else unchanged. */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Acceleration &amp; Alerts</h1>
+              <div className="sub">Active incentives, notifications, and AI-powered recommendations</div>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-6">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+              Acceleration & Alerts
+            </h1>
+            <p className="mt-2 text-slate-600 dark:text-slate-400">
+              Active incentives, notifications, and AI-powered recommendations
+            </p>
+          </div>
+        )}
 
         {/* Badges Section */}
         <motion.div

@@ -9,6 +9,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -56,6 +57,7 @@ export default function LocationBenchmarksPage() {
   const isSpanish = locale === 'es-MX';
   const router = useRouter();
   const { scope } = usePersona();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -177,6 +179,18 @@ export default function LocationBenchmarksPage() {
   }
 
   if (locations.length === 0) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>{isSpanish ? 'Sin Datos' : 'No Data'}</b>
+            <p>{isSpanish ? 'Importe datos POS para ver benchmarks.' : 'Import POS data to see location benchmarks.'}</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -191,8 +205,19 @@ export default function LocationBenchmarksPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Benchmarks de Ubicacion' : 'Location Benchmarks'}</h1>
+            <div className="sub">
+              {isSpanish ? 'Comparacion de rendimiento de todas las ubicaciones' : 'Performance comparison across all locations'}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -204,6 +229,7 @@ export default function LocationBenchmarksPage() {
           </p>
         </div>
       </div>
+      )}
 
       {/* Filters */}
       <Card>

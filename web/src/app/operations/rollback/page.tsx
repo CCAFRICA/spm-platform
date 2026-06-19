@@ -58,6 +58,7 @@ import { ImpactRatingBadge } from '@/components/approvals/impact-rating-badge';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { cn } from '@/lib/utils';
 
 export default function RollbackManagementPage() {
@@ -65,6 +66,7 @@ export default function RollbackManagementPage() {
   const { currentTenant, isVLAdmin } = useTenant();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [activeTab, setActiveTab] = useState('batches');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -144,31 +146,52 @@ export default function RollbackManagementPage() {
   const rolledBackBatches = getRollbackHistory(tenantId);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'container mx-auto p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <RotateCcw className="h-6 w-6 text-primary" />
-          </div>
+      {isVialuce ? (
+        <div className="phead">
           <div>
-            <h1 className="text-2xl font-bold">
-              {isSpanish ? 'Gestión de Reversiones' : 'Rollback Management'}
-            </h1>
-            <p className="text-muted-foreground">
+            <h1>{isSpanish ? 'Gestión de Reversiones' : 'Rollback Management'}</h1>
+            <div className="sub">
               {isSpanish
                 ? 'Administre reversiones, puntos de control y reinicios'
                 : 'Manage rollbacks, checkpoints, and resets'}
-            </p>
+            </div>
           </div>
+          {isVLAdmin && (
+            <div className="pactions">
+              <Button variant="destructive" onClick={() => setShowResetDialog(true)}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {isSpanish ? 'Reiniciar Tenant' : 'Reset Tenant'}
+              </Button>
+            </div>
+          )}
         </div>
-        {isVLAdmin && (
-          <Button variant="destructive" onClick={() => setShowResetDialog(true)}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Reiniciar Tenant' : 'Reset Tenant'}
-          </Button>
-        )}
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <RotateCcw className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">
+                {isSpanish ? 'Gestión de Reversiones' : 'Rollback Management'}
+              </h1>
+              <p className="text-muted-foreground">
+                {isSpanish
+                  ? 'Administre reversiones, puntos de control y reinicios'
+                  : 'Manage rollbacks, checkpoints, and resets'}
+              </p>
+            </div>
+          </div>
+          {isVLAdmin && (
+            <Button variant="destructive" onClick={() => setShowResetDialog(true)}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Reiniciar Tenant' : 'Reset Tenant'}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

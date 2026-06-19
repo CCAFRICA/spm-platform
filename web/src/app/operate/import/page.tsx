@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/SCIUpload';
 import { SCIProposalView } from '@/components/sci/SCIProposal';
@@ -147,6 +148,7 @@ const PHASE_SUBTITLES: Record<string, string> = {
 export default function OperateImportPage() {
   const { currentTenant } = useTenant();
   const router = useRouter();
+  const isVialuce = useIsVialuce();
   const [state, setState] = useState<ImportState>({ phase: 'upload' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const rawDataRef = useRef<ParsedFileData | null>(null);
@@ -564,16 +566,25 @@ export default function OperateImportPage() {
 
   return (
     <RequireCapability capability="data.import">
-      <div className="min-h-screen bg-zinc-950 p-6 md:p-8">
-        <div className="max-w-3xl mx-auto">
+      <div className={isVialuce ? '' : 'min-h-screen bg-zinc-950 p-6 md:p-8'}>
+        <div className={isVialuce ? 'page' : 'max-w-3xl mx-auto'}>
           {/* Page header — hidden during executing + complete (components show their own) */}
           {state.phase !== 'executing' && state.phase !== 'complete' && state.phase !== 'processing' && (
-            <div className="mb-8">
-              <h1 className="text-xl font-semibold text-zinc-100">Import</h1>
-              {subtitle && (
-                <p className="text-sm text-zinc-500 mt-1">{subtitle}</p>
-              )}
-            </div>
+            isVialuce ? (
+              <div className="phead">
+                <div>
+                  <h1>Import</h1>
+                  {subtitle && <div className="sub">{subtitle}</div>}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-8">
+                <h1 className="text-xl font-semibold text-zinc-100">Import</h1>
+                {subtitle && (
+                  <p className="text-sm text-zinc-500 mt-1">{subtitle}</p>
+                )}
+              </div>
+            )
           )}
 
           {/* Error banner */}

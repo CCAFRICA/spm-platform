@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 type RecipientType = 'individual' | 'team' | 'channel' | 'location';
 type LocationType = 'store' | 'city' | 'state';
@@ -92,6 +93,7 @@ const recentMessages: RecentMessage[] = [
 export default function MessagingPage() {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [recipientType, setRecipientType] = useState<RecipientType>('individual');
   const [locationType, setLocationType] = useState<LocationType>('store');
@@ -153,17 +155,28 @@ export default function MessagingPage() {
   const isFormValid = selectedRecipient && subject && body && (scheduleType === 'immediate' || (scheduleDate && scheduleTime));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MessageSquare className="h-6 w-6 text-primary" />
-          {isSpanish ? 'Centro de Mensajería' : 'Messaging Center'}
-        </h1>
-        <p className="text-muted-foreground">
-          {isSpanish ? 'Envía mensajes a individuos, equipos o ubicaciones' : 'Send messages to individuals, teams, or locations'}
-        </p>
-      </div>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Centro de Mensajería' : 'Messaging Center'}</h1>
+            <div className="sub">
+              {isSpanish ? 'Envía mensajes a individuos, equipos o ubicaciones' : 'Send messages to individuals, teams, or locations'}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <MessageSquare className="h-6 w-6 text-primary" />
+            {isSpanish ? 'Centro de Mensajería' : 'Messaging Center'}
+          </h1>
+          <p className="text-muted-foreground">
+            {isSpanish ? 'Envía mensajes a individuos, equipos o ubicaciones' : 'Send messages to individuals, teams, or locations'}
+          </p>
+        </div>
+      )}
 
       {/* Success Message */}
       {showSuccess && (

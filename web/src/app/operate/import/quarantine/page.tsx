@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { cn } from '@/lib/utils';
 import { formatFileSize } from '@/lib/ingestion/file-validator';
 import { progressEventStatus } from '@/lib/ingestion/upload-service';
@@ -63,6 +64,7 @@ interface ValidationResult {
 export default function QuarantinePage() {
   const { currentTenant } = useTenant();
   const router = useRouter();
+  const isVialuce = useIsVialuce();
   const [events, setEvents] = useState<QuarantinedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -129,41 +131,70 @@ export default function QuarantinePage() {
       variants={pageVariants}
       initial="initial"
       animate="animate"
-      className="p-6"
+      className={isVialuce ? 'page' : 'p-6'}
     >
-      <div className="max-w-5xl mx-auto">
+      <div className={isVialuce ? '' : 'max-w-5xl mx-auto'}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-              <AlertTriangle className="h-6 w-6 text-amber-400" />
-              Quarantine
-            </h1>
-            <p className="text-sm text-zinc-400 mt-1">
-              Files that failed structural validation — resolve each one
-            </p>
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Quarantine</h1>
+              <div className="sub">Files that failed structural validation — resolve each one</div>
+            </div>
+            <div className="pactions">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchQuarantined}
+                disabled={loading}
+                className="gap-2"
+              >
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                Refresh
+              </Button>
+            </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchQuarantined}
-            disabled={loading}
-            className="gap-2"
-          >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            Refresh
-          </Button>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
+                <AlertTriangle className="h-6 w-6 text-amber-400" />
+                Quarantine
+              </h1>
+              <p className="text-sm text-zinc-400 mt-1">
+                Files that failed structural validation — resolve each one
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchQuarantined}
+              disabled={loading}
+              className="gap-2"
+            >
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              Refresh
+            </Button>
+          </div>
+        )}
 
         {/* Empty state */}
         {!loading && events.length === 0 && (
-          <Card className="border-zinc-800 bg-zinc-900/50">
-            <CardContent className="p-8 text-center">
-              <Shield className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
-              <p className="text-zinc-300 font-medium">No quarantined files</p>
-              <p className="text-zinc-600 text-sm mt-1">All imports passed validation</p>
-            </CardContent>
-          </Card>
+          isVialuce ? (
+            <div className="empty">
+              <div className="ic"><Shield className="h-7 w-7" /></div>
+              <b>No quarantined files</b>
+              <p>All imports passed validation</p>
+            </div>
+          ) : (
+            <Card className="border-zinc-800 bg-zinc-900/50">
+              <CardContent className="p-8 text-center">
+                <Shield className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
+                <p className="text-zinc-300 font-medium">No quarantined files</p>
+                <p className="text-zinc-600 text-sm mt-1">All imports passed validation</p>
+              </CardContent>
+            </Card>
+          )
         )}
 
         {/* Loading */}

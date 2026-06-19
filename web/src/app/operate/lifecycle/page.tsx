@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -61,6 +62,7 @@ export default function OperateCockpitPage() {
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const hasFinancial = useFeature('financial');
   const tenantId = currentTenant?.id ?? '';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);
   const [activeKey, setActiveKey] = useState('');
@@ -272,6 +274,29 @@ export default function OperateCockpitPage() {
   }
 
   if (periods.length === 0) {
+    // HF-313: Vialuce renders the design-spec .empty state ("never a dead end"); else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic">📋</div>
+            <b>{isSpanish ? 'No hay periodos configurados' : 'No periods configured'}</b>
+            <p>
+              {isSpanish
+                ? 'Crea tu primer periodo para comenzar a gestionar el ciclo de operaciones.'
+                : 'Create your first period to start managing the operations lifecycle.'}
+            </p>
+            <button
+              onClick={() => window.location.href = '/configure/periods'}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+              style={{ backgroundColor: 'var(--strag-violet)' }}
+            >
+              {isSpanish ? 'Configurar Periodos' : 'Configure Periods'}
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[400px] text-center">
         <div className="text-4xl mb-4">📋</div>
@@ -301,28 +326,54 @@ export default function OperateCockpitPage() {
       {/* Period Ribbon */}
       <PeriodRibbon periods={periods} activeKey={activeKey} onSelect={handlePeriodSelect} isSpanish={isSpanish} />
 
-      <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* HF-313: Vialuce page frame (.page padding/max-width/center); else unchanged. */}
+      <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6 max-w-6xl mx-auto'}>
         {/* Header with back-nav */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push('/operate')}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-              title={isSpanish ? 'Volver al resumen' : 'Back to overview'}
-            >
-              ←
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
-              <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
+        {isVialuce ? (
+          <div className="phead">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/operate')}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                title={isSpanish ? 'Volver al resumen' : 'Back to overview'}
+              >
+                ←
+              </button>
+              <div>
+                <h1>{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
+                <div className="sub">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</div>
+              </div>
+            </div>
+            <div className="pactions">
+              {lifecycleState && stateDisplay && (
+                <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
+                  {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
+                </StatusPill>
+              )}
             </div>
           </div>
-          {lifecycleState && stateDisplay && (
-            <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
-              {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
-            </StatusPill>
-          )}
-        </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/operate')}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                title={isSpanish ? 'Volver al resumen' : 'Back to overview'}
+              >
+                ←
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-zinc-100">{isSpanish ? 'Centro de Operaciones' : 'Operations Center'}</h1>
+                <p className="text-sm text-zinc-400">{isSpanish ? 'Gestiona el ciclo de calculo para el periodo seleccionado' : 'Manage the calculation cycle for the selected period'}</p>
+              </div>
+            </div>
+            {lifecycleState && stateDisplay && (
+              <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
+                {isSpanish ? stateDisplay.labelEs : stateDisplay.label}
+              </StatusPill>
+            )}
+          </div>
+        )}
 
         {/* OB-102: Deterministic commentary */}
         {!isLoading && (() => {

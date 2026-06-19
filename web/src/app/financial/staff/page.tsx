@@ -14,6 +14,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -58,6 +59,7 @@ export default function StaffPerformancePage() {
   const { scope } = usePersona();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -210,6 +212,18 @@ export default function StaffPerformancePage() {
   }
 
   if (staffData.length === 0) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>No Staff Data</b>
+            <p>Import POS data to see staff performance.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -224,8 +238,19 @@ export default function StaffPerformancePage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Rendimiento de Personal' : 'Staff Performance'}</h1>
+            <div className="sub">
+              {isSpanish ? 'Rankings individuales y tendencias' : 'Individual performance rankings and trends'}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold text-zinc-100">
           {isSpanish ? 'Rendimiento de Personal' : 'Staff Performance'}
@@ -234,6 +259,7 @@ export default function StaffPerformancePage() {
           {isSpanish ? 'Rankings individuales y tendencias' : 'Individual performance rankings and trends'}
         </p>
       </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

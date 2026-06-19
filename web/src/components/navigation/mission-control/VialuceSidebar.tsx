@@ -23,7 +23,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
-import { DollarSign, ArrowLeftRight, Command, ChevronDown, Palette } from 'lucide-react';
+import { DollarSign, ArrowLeftRight, Command, ChevronDown, ChevronUp, Palette } from 'lucide-react';
 import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
 import type { AppTheme } from '@/lib/theme/active-theme';
 import { cn } from '@/lib/utils';
@@ -75,6 +75,9 @@ export function VialuceSidebar() {
   // + profiles.preferences -> reload. Lets a user override the Observatory default while in Vialuce.
   const [theme, setThemeState] = useState<AppTheme>('vialuce');
   const [themeSaving, setThemeSaving] = useState(false);
+  // HF-314 §3.1: the theme toggle is a settings action, not persistent nav — reveal it behind the
+  // user-profile chevron (collapsed by default; only persona + user info show until expanded).
+  const [userExpanded, setUserExpanded] = useState(false);
   useEffect(() => {
     const attr = document.documentElement.getAttribute('data-theme');
     setThemeState(attr === 'bliss' ? 'bliss' : attr === 'current' ? 'current' : 'vialuce');
@@ -182,22 +185,8 @@ export function VialuceSidebar() {
         </div>
       </div>
 
-      {/* Footer: per-user theme toggle (HF-313 D3) + persona (docked) + user */}
+      {/* Footer: persona (docked) + user; theme toggle revealed behind the user chevron (HF-314 §3.1) */}
       <div className="sb-foot">
-        {/* HF-313 Defect 3: per-user theme override (Dark/Bliss/Vialuce), restored under Vialuce. */}
-        <div className="sb-theme">
-          <Palette className="h-3 w-3" />
-          {THEME_ORDER.map(t => (
-            <button
-              key={t}
-              className={cn(theme === t && 'on')}
-              disabled={themeSaving}
-              onClick={() => setTheme(t)}
-            >
-              {THEME_LABELS[t]}
-            </button>
-          ))}
-        </div>
         {isVLAdmin && (
           <div className="persona">
             {PERSONAS.map(p => (
@@ -205,12 +194,35 @@ export function VialuceSidebar() {
             ))}
           </div>
         )}
-        <div className="sb-user">
+        {/* HF-314 §3.1: per-user theme override (Dark/Bliss/Vialuce) — revealed only when the user
+            profile is expanded, not persistently visible. */}
+        {userExpanded && (
+          <div className="sb-theme" role="group" aria-label={isSpanish ? 'Tema' : 'Theme'}>
+            <Palette className="h-3 w-3" />
+            {THEME_ORDER.map(t => (
+              <button
+                key={t}
+                className={cn(theme === t && 'on')}
+                disabled={themeSaving}
+                onClick={() => setTheme(t)}
+              >
+                {THEME_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        )}
+        <div
+          className={cn('sb-user', userExpanded && 'open')}
+          role="button"
+          aria-expanded={userExpanded}
+          onClick={() => setUserExpanded(v => !v)}
+        >
           <div className="av">{initials}</div>
           <div className="min-w-0">
             <b className="truncate">{user?.name ?? 'User'}</b>
             <span>{isSpanish ? 'Sesión activa' : 'Active session'}</span>
           </div>
+          <ChevronUp className="sb-user-chev h-4 w-4" />
         </div>
       </div>
     </aside>

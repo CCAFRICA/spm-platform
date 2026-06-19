@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, Download, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageVariants } from '@/lib/animations';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { SummaryCards } from '@/components/financial/summary-cards';
 import { TransactionTable, TransactionRow } from '@/components/financial/transaction-table';
 import { TransactionFilters } from '@/components/financial/transaction-filters';
@@ -35,6 +36,7 @@ const mockTransactions: TransactionRow[] = Array.from({ length: 50 }, (_, i) => 
 
 export default function TransactionsPage() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -112,8 +114,26 @@ export default function TransactionsPage() {
       exit="exit"
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
     >
-      <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
+      <div className={isVialuce ? 'page' : 'container mx-auto px-4 md:px-6 py-6 md:py-8'}>
         {/* Header */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Transaction Repository</h1>
+              <div className="sub">Manage and track all transactions</div>
+            </div>
+            <div className="pactions flex gap-2">
+              <Button variant="outline" onClick={() => router.push('/data/imports')}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button onClick={() => router.push('/data/transactions/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Transaction
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
@@ -134,6 +154,7 @@ export default function TransactionsPage() {
             </Button>
           </div>
         </div>
+        )}
 
         {/* Summary Cards */}
         {isLoading ? (

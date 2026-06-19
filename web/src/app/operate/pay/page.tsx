@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useCycleState } from '@/contexts/navigation-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { RequireCapability } from '@/components/auth/RequireCapability';
@@ -36,6 +37,7 @@ interface BatchInfo {
 
 function PayPageInner() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { cycleState, isSpanish } = useCycleState();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -118,7 +120,8 @@ function PayPageInner() {
   })();
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page padding/max-width/center); else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* OB-102 Phase 7: Reference frame */}
       {latestBatch && (
         <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
@@ -140,23 +143,43 @@ function PayPageInner() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-100">
-            {displaySpanish ? 'Nomina' : 'Outcomes'}
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            {displaySpanish
-              ? 'Finalizar y procesar la nomina del periodo'
-              : 'Finalize and process period outcomes'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{displaySpanish ? 'Nomina' : 'Outcomes'}</h1>
+            <div className="sub">
+              {displaySpanish
+                ? 'Finalizar y procesar la nomina del periodo'
+                : 'Finalize and process period outcomes'}
+            </div>
+          </div>
+          <div className="pactions">
+            <Badge variant={payStatus?.state === 'completed' ? 'default' : 'secondary'}>
+              {payStatus?.state === 'completed'
+                ? (displaySpanish ? 'Finalizado' : 'Finalized')
+                : (displaySpanish ? 'Pendiente' : 'Pending')}
+            </Badge>
+          </div>
         </div>
-        <Badge variant={payStatus?.state === 'completed' ? 'default' : 'secondary'}>
-          {payStatus?.state === 'completed'
-            ? (displaySpanish ? 'Finalizado' : 'Finalized')
-            : (displaySpanish ? 'Pendiente' : 'Pending')}
-        </Badge>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-100">
+              {displaySpanish ? 'Nomina' : 'Outcomes'}
+            </h1>
+            <p className="text-sm text-slate-400 mt-1">
+              {displaySpanish
+                ? 'Finalizar y procesar la nomina del periodo'
+                : 'Finalize and process period outcomes'}
+            </p>
+          </div>
+          <Badge variant={payStatus?.state === 'completed' ? 'default' : 'secondary'}>
+            {payStatus?.state === 'completed'
+              ? (displaySpanish ? 'Finalizado' : 'Finalized')
+              : (displaySpanish ? 'Pendiente' : 'Pending')}
+          </Badge>
+        </div>
+      )}
 
       {/* Status Card */}
       <Card>

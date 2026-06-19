@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +61,7 @@ export default function ApprovalCenterPage() {
   const { currentTenant } = useTenant();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [activeTab, setActiveTab] = useState('pending');
   const [domainFilter, setDomainFilter] = useState<string>('all');
@@ -149,25 +151,39 @@ export default function ApprovalCenterPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page padding/max-width/center) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'container mx-auto p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <ClipboardCheck className="h-6 w-6 text-primary" />
-          </div>
+      {isVialuce ? (
+        <div className="phead">
           <div>
-            <h1 className="text-2xl font-bold">
-              {isSpanish ? 'Centro de Aprobaciones' : 'Approval Center'}
-            </h1>
-            <p className="text-muted-foreground">
+            <h1>{isSpanish ? 'Centro de Aprobaciones' : 'Approval Center'}</h1>
+            <div className="sub">
               {isSpanish
                 ? 'Gestione solicitudes de aprobación en toda la plataforma'
                 : 'Manage approval requests across the platform'}
-            </p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <ClipboardCheck className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">
+                {isSpanish ? 'Centro de Aprobaciones' : 'Approval Center'}
+              </h1>
+              <p className="text-muted-foreground">
+                {isSpanish
+                  ? 'Gestione solicitudes de aprobación en toda la plataforma'
+                  : 'Manage approval requests across the platform'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       {stats && (

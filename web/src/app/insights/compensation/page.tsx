@@ -21,6 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getMeseros, getFranquicias } from '@/lib/restaurant-service';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
@@ -93,6 +94,7 @@ export default function CompensationPage() {
   const [dateRange, setDateRange] = useState('q4-2024');
   const [data, setData] = useState<HospitalityData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
@@ -190,9 +192,37 @@ export default function CompensationPage() {
   // TechCorp view (existing)
   if (!isHospitality) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <div className="container mx-auto px-6 py-8">
+      // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
+      <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
+        <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
           {/* Header */}
+          {isVialuce ? (
+            <div className="phead">
+              <div>
+                <h1>Outcome Overview</h1>
+                <div className="sub">Track outcomes, trends, and budget utilization</div>
+              </div>
+              <div className="pactions">
+                <Select value={dateRange} onValueChange={setDateRange}>
+                  <SelectTrigger className="w-[180px]">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Select period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="q4-2024">Q4 2024</SelectItem>
+                    <SelectItem value="q3-2024">Q3 2024</SelectItem>
+                    <SelectItem value="q2-2024">Q2 2024</SelectItem>
+                    <SelectItem value="q1-2024">Q1 2024</SelectItem>
+                    <SelectItem value="2024">Full Year 2024</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Export
+                </Button>
+              </div>
+            </div>
+          ) : (
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-50">
@@ -222,6 +252,7 @@ export default function CompensationPage() {
               </Button>
             </div>
           </div>
+          )}
 
           {/* Stats Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -419,8 +450,22 @@ export default function CompensationPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Compensation - My Franchise</h1>
+            <div className="sub">
+              {data.currentFranquicia?.nombre || currentFranquiciaId}
+              {data.currentMesero && (
+                <span className="ml-2">• {data.currentMesero.nombre}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <DollarSign className="h-6 w-6 text-primary" />
@@ -433,6 +478,7 @@ export default function CompensationPage() {
           )}
         </p>
       </div>
+      )}
 
       {/* Total Sales Hero Card */}
       <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
