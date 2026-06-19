@@ -11,6 +11,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { STATE_TOKENS, type ActionLevel } from '@/lib/design-system/tokens';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ============================================
 // TYPES
@@ -35,6 +36,7 @@ export function AttentionPulse({
   pulseColor,
   disabled = false,
 }: AttentionPulseProps) {
+  const isVialuce = useIsVialuce(); // HF-316: required-level attention pulse uses the Vialuce gold signal
   const config = STATE_TOKENS.actionNeeded[level];
 
   // Don't pulse if disabled or level doesn't require it
@@ -42,10 +44,10 @@ export function AttentionPulse({
     return <div className={className}>{children}</div>;
   }
 
-  // Default pulse color based on intensity
+  // Default pulse color based on intensity (Vialuce: gold signal for required, danger for urgent)
   const defaultColor = config.intensity >= 4
-    ? 'rgba(239, 68, 68, 0.3)' // Red-ish for urgent
-    : 'rgba(245, 158, 11, 0.3)'; // Amber for required
+    ? (isVialuce ? 'rgba(220, 84, 84, 0.3)' : 'rgba(239, 68, 68, 0.3)') // Danger/red for urgent
+    : (isVialuce ? 'rgba(232, 168, 56, 0.3)' : 'rgba(245, 158, 11, 0.3)'); // Gold/amber for required
 
   const color = pulseColor || defaultColor;
 
@@ -88,6 +90,7 @@ export function AttentionDot({
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }) {
+  const isVialuce = useIsVialuce(); // HF-316: gold signal dot for required, danger for urgent under Vialuce
   const config = STATE_TOKENS.actionNeeded[level];
 
   if (!config.pulse) {
@@ -100,9 +103,12 @@ export function AttentionDot({
     lg: 'w-4 h-4',
   };
 
-  const colorClasses = config.intensity >= 4
+  const colorClasses = !isVialuce && (config.intensity >= 4
     ? 'bg-red-500'
-    : 'bg-amber-500';
+    : 'bg-amber-500');
+  const dotStyle = isVialuce
+    ? { background: config.intensity >= 4 ? 'var(--vl-danger)' : 'var(--vl-raw-gold)' }
+    : undefined;
 
   return (
     <span className={cn('relative flex', sizeClasses[size], className)}>
@@ -111,10 +117,11 @@ export function AttentionDot({
           'absolute inline-flex h-full w-full rounded-full opacity-75',
           colorClasses
         )}
+        style={dotStyle}
         animate={{ scale: [1, 1.5, 1], opacity: [0.75, 0, 0.75] }}
         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       />
-      <span className={cn('relative inline-flex rounded-full', sizeClasses[size], colorClasses)} />
+      <span className={cn('relative inline-flex rounded-full', sizeClasses[size], colorClasses)} style={dotStyle} />
     </span>
   );
 }
@@ -131,15 +138,23 @@ export function AttentionBadge({
   level?: ActionLevel;
   className?: string;
 }) {
+  const isVialuce = useIsVialuce(); // HF-316: token chip + DM Mono count under Vialuce
   const config = STATE_TOKENS.actionNeeded[level];
 
   if (count === 0) return null;
 
-  const colorClasses = config.intensity >= 4
+  const colorClasses = !isVialuce && (config.intensity >= 4
     ? 'bg-red-500 text-white'
     : config.intensity >= 3
     ? 'bg-amber-500 text-white'
-    : 'bg-slate-500 text-white';
+    : 'bg-slate-500 text-white');
+  const badgeStyle = isVialuce
+    ? {
+        color: '#fff',
+        fontFamily: 'var(--vl-font-mono)',
+        background: config.intensity >= 4 ? 'var(--vl-danger)' : config.intensity >= 3 ? 'var(--vl-raw-gold)' : 'var(--vl-raw-slate)',
+      }
+    : undefined;
 
   return (
     <motion.span
@@ -148,6 +163,7 @@ export function AttentionBadge({
         colorClasses,
         className
       )}
+      style={badgeStyle}
       animate={config.pulse ? { scale: [1, 1.1, 1] } : {}}
       transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
     >
@@ -170,15 +186,21 @@ export function AttentionBorder({
   className?: string;
   borderWidth?: number;
 }) {
+  const isVialuce = useIsVialuce(); // HF-316: gold/danger attention border under Vialuce
   const config = STATE_TOKENS.actionNeeded[level];
 
   if (!config.pulse) {
     return <div className={className}>{children}</div>;
   }
 
-  const borderColor = config.intensity >= 4
+  const borderColor = !isVialuce && (config.intensity >= 4
     ? 'border-red-400'
-    : 'border-amber-400';
+    : 'border-amber-400');
+
+  // Vialuce: required-level border pulses the gold signal; urgent pulses danger.
+  const vialuceBorderAnim = config.intensity >= 4
+    ? ['rgba(220, 84, 84, 0.5)', 'rgba(220, 84, 84, 1)', 'rgba(220, 84, 84, 0.5)']
+    : ['rgba(232, 168, 56, 0.5)', 'rgba(232, 168, 56, 1)', 'rgba(232, 168, 56, 0.5)'];
 
   return (
     <motion.div
@@ -188,7 +210,7 @@ export function AttentionBorder({
         className
       )}
       style={{ borderWidth }}
-      animate={{ borderColor: ['rgba(245, 158, 11, 0.5)', 'rgba(245, 158, 11, 1)', 'rgba(245, 158, 11, 0.5)'] }}
+      animate={{ borderColor: isVialuce ? vialuceBorderAnim : ['rgba(245, 158, 11, 0.5)', 'rgba(245, 158, 11, 1)', 'rgba(245, 158, 11, 0.5)'] }}
       transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
     >
       {children}

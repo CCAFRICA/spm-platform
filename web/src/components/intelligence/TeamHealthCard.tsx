@@ -15,6 +15,7 @@
 
 import { TrendingUp, TrendingDown, Minus, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { IntelligenceCard } from './IntelligenceCard';
 
 interface TeamHealthCardProps {
@@ -42,10 +43,71 @@ export function TeamHealthCard({
   onCoachingAction,
   onView,
 }: TeamHealthCardProps) {
+  const isVialuce = useIsVialuce(); // HF-316: numbers→DM Mono, category pills→.pill, delta chip semantics
   const delta = priorPeriodTeamTotal != null ? teamTotal - priorPeriodTeamTotal : null;
   const deltaPct = priorPeriodTeamTotal != null && priorPeriodTeamTotal !== 0
     ? ((teamTotal - priorPeriodTeamTotal) / priorPeriodTeamTotal) * 100
     : null;
+
+  // HF-316: under Vialuce the inner content speaks the design-spec vocabulary (DM Mono hero number,
+  // .kpi-delta up/down chip, .pill category chips). The IntelligenceCard wrapper supplies the .card
+  // surface. The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <IntelligenceCard
+        accentColor={accentColor}
+        label="Team Health"
+        elementId="team-health"
+        fullWidth
+        onView={onView}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          {/* Value: hero number — DM Mono */}
+          <div>
+            <p className="kpi-val">{formatCurrency(teamTotal)}</p>
+            <div className="kpi-foot" style={{ justifyContent: 'flex-start', gap: '6px' }}>
+              <Users className="h-3.5 w-3.5" style={{ color: 'var(--vl-text-soft)' }} />
+              <span>{teamSize} team {teamSize === 1 ? 'member' : 'members'}</span>
+            </div>
+          </div>
+
+          {/* Comparison: trend chip */}
+          {delta != null && deltaPct != null && (
+            <span className={cn('kpi-delta', delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat')}>
+              {delta > 0 ? (
+                <TrendingUp className="h-3.5 w-3.5" />
+              ) : delta < 0 ? (
+                <TrendingDown className="h-3.5 w-3.5" />
+              ) : (
+                <Minus className="h-3.5 w-3.5" />
+              )}
+              {delta > 0 ? '+' : ''}{deltaPct.toFixed(1)}% vs prior period
+            </span>
+          )}
+        </div>
+
+        {/* Context: categorization pills */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="pill success"><b>{exceeding}</b> Exceeding</span>
+          <span className="pill open"><b>{onTrack}</b> On Track</span>
+          <span className="pill neutral"><b>{needsAttention}</b> Needs Attention</span>
+        </div>
+
+        {/* Action */}
+        {onCoachingAction && (
+          <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--vl-line-soft)' }}>
+            <button
+              onClick={onCoachingAction}
+              className="text-sm font-medium transition-colors"
+              style={{ color: 'var(--vialuce-indigo)' }}
+            >
+              Review coaching priorities →
+            </button>
+          </div>
+        )}
+      </IntelligenceCard>
+    );
+  }
 
   return (
     <IntelligenceCard

@@ -17,6 +17,7 @@
  */
 
 import { Award, TrendingUp, AlertTriangle, ArrowRight } from 'lucide-react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface HeatmapEntity {
   entityId: string;
@@ -33,6 +34,7 @@ interface Props {
 }
 
 export function AccelerationCards({ entities, triage, formatCurrency, onEntityClick }: Props) {
+  const isVialuce = useIsVialuce(); // Vialuce: dark zinc cards → .card surfaces, mono amounts, .pill labels
   if (entities.length === 0) return null;
 
   // Top performer (Certify) and lowest (Intervene).
@@ -60,6 +62,30 @@ export function AccelerationCards({ entities, triage, formatCurrency, onEntityCl
       amber: 'border-l-amber-500/60 text-amber-300',
       rose: 'border-l-rose-500/60 text-rose-300',
     }[tone];
+    if (isVialuce) {
+      // Vialuce: .card surface with the indigo left-accent, .pill triage label, DM Mono numbers in detail.
+      const pillVariant = tone === 'emerald' ? 'success' : tone === 'rose' ? 'danger' : 'neutral';
+      const accent = tone === 'emerald' ? 'var(--vl-success)' : tone === 'rose' ? 'var(--vl-danger)' : 'var(--vl-raw-gold)';
+      return (
+        <div className="card flush" style={{ marginTop: 0, padding: '16px 18px', borderLeft: `3px solid ${accent}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ marginBottom: 10 }}>
+            <span className={`pill ${pillVariant}`}>
+              <Icon className="h-3 w-3" />
+              {label}{count != null ? ` · ${count}` : ''}
+            </span>
+          </div>
+          <p className="truncate" style={{ fontSize: '14px', fontWeight: 'var(--vl-fw-med)', color: 'var(--vl-text)' }}>{name}</p>
+          <p className="flex-1" style={{ fontSize: '12.5px', color: 'var(--vl-text-muted)', marginTop: 3, fontFamily: 'var(--vl-font-mono)' }}>{detail}</p>
+          <button
+            onClick={onClick}
+            className="mt-3 inline-flex items-center gap-1"
+            style={{ fontSize: '12.5px', fontWeight: 'var(--vl-fw-med)', color: 'var(--vialuce-indigo)' }}
+          >
+            {action} <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      );
+    }
     return (
       <div className={`rounded-lg bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] ${tones} p-4 flex flex-col`}>
         <div className="flex items-center gap-1.5 mb-2">

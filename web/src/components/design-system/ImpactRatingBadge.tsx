@@ -18,6 +18,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ============================================
 // TYPES
@@ -95,6 +96,7 @@ export function ImpactRatingBadge({
 }: ImpactRatingBadgeProps) {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-316: rating numbers → DM Mono, tracks → line (impact gradient kept intentional)
 
   const clampedRating = Math.max(1, Math.min(10, Math.round(rating)));
   const color = getImpactColor(clampedRating);
@@ -110,7 +112,7 @@ export function ImpactRatingBadge({
         sizeConfig.padding,
         className
       )}
-      style={{ backgroundColor: color }}
+      style={{ backgroundColor: color, ...(isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : {}) }}
       initial={animated ? { scale: 0.8, opacity: 0 } : false}
       animate={animated ? { scale: 1, opacity: 1 } : false}
       transition={{ duration: 0.3, ease: 'easeOut' }}
@@ -137,7 +139,7 @@ export function ImpactRatingBadge({
           <TooltipContent className="max-w-[280px]">
             <div className="space-y-2">
               <div>
-                <p className="font-medium">{isSpanish ? 'Puntuación de Impacto' : 'Impact Score'}: {clampedRating}/10</p>
+                <p className="font-medium">{isSpanish ? 'Puntuación de Impacto' : 'Impact Score'}: <span style={isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : undefined}>{clampedRating}/10</span></p>
                 <p className="text-xs text-slate-400">{description}</p>
               </div>
               <div className="border-t border-slate-200 dark:border-slate-700 pt-2">
@@ -151,7 +153,10 @@ export function ImpactRatingBadge({
                         {isSpanish ? dim.nameEs : dim.name}
                       </span>
                       <div className="flex items-center gap-1">
-                        <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={cn('w-16 h-1.5 rounded-full overflow-hidden', !isVialuce && 'bg-slate-200 dark:bg-slate-700')}
+                          style={isVialuce ? { background: 'var(--vl-line)' } : undefined}
+                        >
                           <div
                             className="h-full rounded-full"
                             style={{
@@ -160,7 +165,7 @@ export function ImpactRatingBadge({
                             }}
                           />
                         </div>
-                        <span className="w-4 text-right">{dim.score}</span>
+                        <span className="w-4 text-right" style={isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : undefined}>{dim.score}</span>
                       </div>
                     </div>
                   ))}
@@ -210,6 +215,7 @@ export function ImpactRatingBar({
 }) {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-316: track → line, rating number → DM Mono under Vialuce
 
   const clampedRating = Math.max(1, Math.min(10, rating));
   const label = getImpactLabel(clampedRating, isSpanish);
@@ -218,9 +224,12 @@ export function ImpactRatingBar({
     <div className={cn('space-y-1', className)}>
       <div className="flex items-center justify-between text-xs">
         <span className="text-slate-500">{isSpanish ? 'Impacto' : 'Impact'}</span>
-        <span className="font-medium">{label} ({clampedRating}/10)</span>
+        <span className="font-medium">{label} <span style={isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : undefined}>({clampedRating}/10)</span></span>
       </div>
-      <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+      <div
+        className={cn('h-2 rounded-full overflow-hidden', !isVialuce && 'bg-slate-200 dark:bg-slate-700')}
+        style={isVialuce ? { background: 'var(--vl-line)' } : undefined}
+      >
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: getImpactColor(clampedRating) }}
@@ -230,7 +239,7 @@ export function ImpactRatingBar({
         />
       </div>
       {showScale && (
-        <div className="flex justify-between text-[10px] text-slate-400">
+        <div className="flex justify-between text-[10px] text-slate-400" style={isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : undefined}>
           <span>1</span>
           <span>5</span>
           <span>10</span>
@@ -254,10 +263,46 @@ export function ImpactRatingSummary({
 }) {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-316: design-spec .card + DM Mono dim scores + line tracks under Vialuce
 
   const clampedRating = Math.max(1, Math.min(10, Math.round(rating)));
   const label = getImpactLabel(clampedRating, isSpanish);
   const description = getImpactDescription(clampedRating, isSpanish);
+
+  if (isVialuce) {
+    return (
+      <div className={cn('card', className)} style={{ marginTop: 0 }}>
+        <div className="flex items-start gap-4">
+          <ImpactRatingBadge rating={rating} size="lg" />
+          <div className="flex-1">
+            <h4 style={{ fontWeight: 500, color: 'var(--vl-text)' }}>{label}</h4>
+            <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)' }}>{description}</p>
+          </div>
+        </div>
+        {dimensions.length > 0 && (
+          <div className="mt-4 pt-4 grid grid-cols-2 gap-3" style={{ borderTop: '1px solid var(--vl-line)' }}>
+            {dimensions.map((dim) => (
+              <div key={dim.name}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span style={{ color: 'var(--vl-text-muted)' }}>{isSpanish ? dim.nameEs : dim.name}</span>
+                  <span style={{ fontWeight: 500, fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' }}>{dim.score}</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--vl-line)' }}>
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${dim.score * 10}%`,
+                      backgroundColor: getImpactColor(dim.score),
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={cn('p-4 rounded-lg border border-slate-200 dark:border-slate-700', className)}>

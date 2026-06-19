@@ -17,6 +17,7 @@ import { useCurrency } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
 import { computeRepTrajectory } from '@/lib/intelligence/trajectory-engine';
 import type { RepDashboardData } from '@/lib/data/persona-queries';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ──────────────────────────────────────────────
 // Props
@@ -48,6 +49,7 @@ const CARD_STYLE = {
 export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTrajectoryProps) {
   const { format } = useCurrency();
   const { activePeriodLabel } = usePeriod();
+  const isVialuce = useIsVialuce(); // HF-316: panel→.card, table→.tbl DM Mono, bars→indigo ramp
 
   // Compute trajectory deterministically
   const trajectory = useMemo(() => {
@@ -67,6 +69,126 @@ export function RepTrajectoryPanel({ data, ruleSetConfig, attainments }: RepTraj
   }
 
   const { bestOpportunity, trajectories, totalPotential } = trajectory;
+
+  // HF-316: under Vialuce the panel is a .card surface, the period chip is a .pill open, the best-
+  // opportunity sub-card is the .insight gold banner, the progress bar uses the indigo ramp, the
+  // breakdown is a .tbl (DM Mono numeric cells), and totals are DM Mono. The else-branch is byte-
+  // identical to the original (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <div className="card" style={{ marginTop: 0 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <TrendingUp size={18} style={{ color: 'var(--vialuce-indigo)' }} />
+          <span style={{ color: 'var(--vl-text)', fontSize: '16px', fontWeight: 600 }}>
+            Performance Trajectory
+          </span>
+          <span className="pill open">{activePeriodLabel}</span>
+        </div>
+
+        {/* Best Opportunity — .insight gold banner */}
+        {bestOpportunity && (
+          <div className="insight" style={{ marginBottom: '16px', flexDirection: 'column', gap: '0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <Target size={16} style={{ color: '#9A6B12' }} />
+              <span className="lbl" style={{ marginBottom: 0 }}>BEST OPPORTUNITY</span>
+            </div>
+            <p style={{ color: 'var(--vl-text)', fontSize: '15px', fontWeight: 600 }}>
+              {bestOpportunity.componentName}:{' '}
+              <span style={{ fontFamily: 'var(--vl-font-mono)' }}>
+                {bestOpportunity.currentAttainment.toFixed(0)}% → {bestOpportunity.nextTierThreshold.toFixed(0)}%
+              </span>{' '}
+              ({bestOpportunity.nextTierName})
+            </p>
+            {/* Progress bar — indigo ramp */}
+            <div style={{ background: 'var(--vl-line-soft)', borderRadius: '6px', height: '8px', marginTop: '10px', overflow: 'hidden' }}>
+              <div style={{
+                background: 'linear-gradient(to right, var(--vl-raw-indigo-deep), var(--vl-raw-indigo-light))',
+                height: '100%',
+                width: `${bestOpportunity.progressPercent}%`,
+                borderRadius: '6px',
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+              <span style={{ color: 'var(--vl-text-soft)', fontSize: '11px', fontFamily: 'var(--vl-font-mono)' }}>
+                {bestOpportunity.distanceToNextTier.toFixed(1)}% to go
+              </span>
+              <span style={{ color: 'var(--vl-success)', fontSize: '13px', fontWeight: 600, fontFamily: 'var(--vl-font-mono)' }}>
+                +{format(bestOpportunity.incrementalValue)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Component Breakdown — .tbl */}
+        {trajectories.length > 1 && (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Current</th>
+                  <th>Next Tier</th>
+                  <th className="r">Gap</th>
+                  <th className="r">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trajectories.map(t => (
+                  <tr key={t.componentName}>
+                    <td className="name">{t.componentName}</td>
+                    <td className="num mut">{t.currentAttainment.toFixed(0)}% ({t.currentTier})</td>
+                    <td className="num mut">{t.nextTierThreshold.toFixed(0)}% ({t.nextTierName})</td>
+                    <td className="num">
+                      <span style={{ color: 'var(--vialuce-gold)' }}>{t.distanceToNextTier.toFixed(1)}%</span>
+                    </td>
+                    <td className="num">
+                      <span className="up">+{format(t.incrementalValue)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Total Potential */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginTop: '16px', padding: '12px', background: 'var(--vl-bg)', borderRadius: 'var(--vl-r-sm)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Zap size={14} style={{ color: 'var(--vialuce-gold)' }} />
+            <span style={{ color: 'var(--vl-text-muted)', fontSize: '13px' }}>
+              Total current payout
+            </span>
+          </div>
+          <span style={{ color: 'var(--vl-text)', fontSize: '15px', fontWeight: 600, fontFamily: 'var(--vl-font-mono)' }}>
+            {format(data.totalPayout)}
+          </span>
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginTop: '4px', padding: '12px', background: 'var(--vl-indigo-50)',
+          borderRadius: 'var(--vl-r-sm)', border: '1px solid var(--vl-indigo-100)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ArrowUpRight size={14} style={{ color: 'var(--vialuce-indigo)' }} />
+            <span style={{ color: 'var(--vialuce-indigo)', fontSize: '13px' }}>
+              Potential with all next tiers
+            </span>
+          </div>
+          <span style={{ color: 'var(--vialuce-indigo)', fontSize: '15px', fontWeight: 700, fontFamily: 'var(--vl-font-mono)' }}>
+            {format(data.totalPayout + totalPotential)}
+            <span style={{ fontSize: '12px', fontWeight: 500, marginLeft: '4px' }}>
+              (+{format(totalPotential)})
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={CARD_STYLE}>

@@ -1,5 +1,7 @@
 'use client';
 
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
 /** @cognitiveFit monitoring — "What is the trajectory?" */
 
 interface SparklineProps {
@@ -15,6 +17,9 @@ export function Sparkline({
   width = 80,
   height = 24,
 }: SparklineProps) {
+  const isVialuce = useIsVialuce(); // HF-316: series → indigo ramp under Vialuce
+  // Default series color follows the design-spec indigo when the caller did not override.
+  const strokeColor = isVialuce && color === '#6366f1' ? 'var(--vl-raw-indigo)' : color;
   if (data.length < 2) return null;
 
   const min = Math.min(...data);
@@ -33,7 +38,7 @@ export function Sparkline({
       <polyline
         points={points}
         fill="none"
-        stroke={color}
+        stroke={strokeColor}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -42,7 +47,7 @@ export function Sparkline({
       {data.length > 0 && (() => {
         const lastX = padding + ((data.length - 1) / (data.length - 1)) * (width - padding * 2);
         const lastY = padding + (1 - (data[data.length - 1] - min) / range) * (height - padding * 2);
-        return <circle cx={lastX} cy={lastY} r="2" fill={color} />;
+        return <circle cx={lastX} cy={lastY} r="2" fill={strokeColor} />;
       })()}
     </svg>
   );

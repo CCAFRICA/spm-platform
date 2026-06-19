@@ -15,6 +15,10 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// OB-221: indigo ramp (deep→light, gold accent) replaces per-component dark hex for the MiniBar segments.
+const VIALUCE_RAMP = ['#2D2F8F', '#4446B8', '#6668D8', '#9A9CE0', '#E8A838'];
 
 interface EntityTableProps {
   entities: EntityResult[];
@@ -36,6 +40,7 @@ export function EntityTable({
   storeFilter,
   onStoreFilter,
 }: EntityTableProps) {
+  const isVialuce = useIsVialuce(); // OB-221: shell → .card.flush + .tbl; numbers → DM Mono .num; indigo ramp
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('payout');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -137,6 +142,184 @@ export function EntityTable({
       ? <ChevronDown className="w-3 h-3 inline ml-0.5" />
       : <ChevronUp className="w-3 h-3 inline ml-0.5" />;
   };
+
+  // Vialuce: the L4 entity layer becomes a white .card.flush wrapping a .tbl. Filters use the design-spec
+  // bg/line tokens, numeric columns (attainment, payout, rank) are DM Mono .num, status filter chips read
+  // as gold-active controls. The else-branch is the existing dark rendering, byte-identical.
+  if (isVialuce) {
+    return (
+      <div className="card flush" style={{ marginTop: 0 }}>
+        {/* Filters bar */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--vl-line)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 360 }}>
+            <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', height: 14, width: 14, color: 'var(--vl-text-soft)' }} />
+            <input
+              type="text"
+              placeholder="Search ID, name, store..."
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, fontSize: '12px', background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {(['all', 'exceeds', 'on_track', 'below'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => { setStatusFilter(s); setCurrentPage(1); }}
+                style={{
+                  padding: '4px 10px', fontSize: '10px', borderRadius: 'var(--vl-r-sm)', fontWeight: 'var(--vl-fw-med)' as unknown as number,
+                  textTransform: 'uppercase', letterSpacing: '.6px', cursor: 'pointer', transition: '.15s',
+                  ...(statusFilter === s
+                    ? { background: 'var(--vialuce-gold)', color: '#3a2606', border: '1px solid var(--vialuce-gold)' }
+                    : { background: 'transparent', color: 'var(--vl-text-soft)', border: '1px solid var(--vl-line)' }),
+                }}
+              >
+                {s === 'all' ? 'All' : s === 'on_track' ? 'On Track' : s.charAt(0).toUpperCase() + s.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {storeFilter && (
+            <button
+              onClick={() => onStoreFilter(null)}
+              className="pill open"
+              style={{ cursor: 'pointer', border: 'none' }}
+            >
+              Store: {storeFilter} &times;
+            </button>
+          )}
+
+          {uniqueStores.length > 1 && !storeFilter && (
+            <select
+              onChange={e => { onStoreFilter(e.target.value || null); setCurrentPage(1); }}
+              value=""
+              style={{ fontSize: '11px', background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', padding: '4px 8px', color: 'var(--vl-text-muted)' }}
+            >
+              <option value="">All Stores</option>
+              {uniqueStores.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          )}
+
+          <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', marginLeft: 'auto' }}>
+            {filteredEntities.length.toLocaleString()} of {entities.length.toLocaleString()}
+          </span>
+        </div>
+
+        {/* Table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th style={{ width: 32 }}></th>
+                <th style={{ width: 32 }}>#</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('externalId')}>
+                  ID <SortIcon field="externalId" />
+                </th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('name')}>
+                  Name <SortIcon field="name" />
+                </th>
+                <th>Store</th>
+                <th className="r" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('attainment')}>
+                  Attainment <SortIcon field="attainment" />
+                </th>
+                <th style={{ textAlign: 'center', minWidth: 100 }}>Components</th>
+                <th className="r" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('payout')}>
+                  Payout <SortIcon field="payout" />
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedEntities.map((entity, idx) => {
+                const isExpanded = expandedEntity === entity.entityId;
+                const rank = (currentPage - 1) * PAGE_SIZE + idx + 1;
+
+                return (
+                  <React.Fragment key={entity.entityId}>
+                    <tr
+                      style={{ cursor: 'pointer', ...(isExpanded ? { background: '#FBFBFE' } : {}) }}
+                      onClick={() => setExpandedEntity(isExpanded ? null : entity.entityId)}
+                    >
+                      <td>
+                        {isExpanded
+                          ? <ChevronDown style={{ height: 14, width: 14, color: 'var(--vl-text-muted)' }} />
+                          : <ChevronRight style={{ height: 14, width: 14, color: 'var(--vl-text-soft)' }} />}
+                      </td>
+                      <td className="num mut">{rank}</td>
+                      <td style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number }}>
+                        {entity.externalId || entity.entityId.substring(0, 8)}
+                      </td>
+                      <td className="name" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entity.displayName}>
+                        {entity.displayName !== entity.externalId ? entity.displayName : '—'}
+                      </td>
+                      <td className="mut">{entity.store || '—'}</td>
+                      <td className="num">
+                        {entity.attainment !== null ? (
+                          <span style={{ color: entity.attainment >= 120 ? 'var(--vl-success)' : entity.attainment >= 80 ? 'var(--vialuce-gold)' : 'var(--vl-text-soft)' }}>
+                            {entity.attainment.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--vl-text-soft)' }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        <MiniBar
+                          componentPayouts={entity.componentPayouts}
+                          componentDefinitions={componentDefinitions}
+                          totalPayout={entity.totalPayout}
+                          isVialuce
+                        />
+                      </td>
+                      <td className="num" style={{ fontWeight: 'var(--vl-fw-med)' as unknown as number }}>
+                        {formatCurrency(entity.totalPayout)}
+                      </td>
+                    </tr>
+
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={8} style={{ padding: 0 }}>
+                          <div style={{ borderTop: '1px solid var(--vl-line)', background: '#FBFBFE' }}>
+                            <NarrativeSpine
+                              entity={entity}
+                              componentDefinitions={componentDefinitions}
+                              peerAverages={peerAverages}
+                              formatCurrency={formatCurrency}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--vl-line)' }}>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
+              {((currentPage - 1) * PAGE_SIZE + 1).toLocaleString()}–{Math.min(currentPage * PAGE_SIZE, filteredEntities.length).toLocaleString()} of {filteredEntities.length.toLocaleString()}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="iact" style={{ opacity: currentPage <= 1 ? 0.3 : 1, cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}>
+                <ArrowLeft style={{ height: 14, width: 14 }} />
+              </button>
+              <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)' }}>
+                {currentPage}/{totalPages}
+              </span>
+              <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)} className="iact" style={{ opacity: currentPage >= totalPages ? 0.3 : 1, cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}>
+                <ArrowRight style={{ height: 14, width: 14 }} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-zinc-800/60 overflow-hidden">
@@ -356,12 +539,17 @@ function MiniBar({
   componentPayouts,
   componentDefinitions,
   totalPayout,
+  isVialuce,
 }: {
   componentPayouts: EntityResult['componentPayouts'];
   componentDefinitions: ComponentDef[];
   totalPayout: number;
+  isVialuce?: boolean;
 }) {
   if (totalPayout <= 0) {
+    if (isVialuce) {
+      return <div style={{ height: 6, width: '100%', borderRadius: 'var(--vl-r-pill)', background: 'var(--vl-line-soft)' }} />;
+    }
     return <div className="h-1.5 w-full rounded-full bg-zinc-800/50" />;
   }
 
@@ -369,6 +557,24 @@ function MiniBar({
   for (const cd of componentDefinitions) {
     colorMap.set(cd.id, cd.color);
     colorMap.set(cd.name, cd.color);
+  }
+
+  const segments = componentPayouts
+    .filter(c => c.payout > 0)
+    .sort((a, b) => b.payout - a.payout);
+
+  // Vialuce: stacked segments colored by the indigo ramp (deep→light, gold accent), on the line-soft track.
+  if (isVialuce) {
+    return (
+      <div style={{ display: 'flex', borderRadius: 'var(--vl-r-pill)', height: 6, overflow: 'hidden', background: 'var(--vl-line-soft)' }} title={segments.map(c => `${c.componentName}: ${c.payout}`).join(' | ')}>
+        {segments.map((c, i) => {
+          const pct = (c.payout / totalPayout) * 100;
+          return (
+            <div key={c.componentId} style={{ width: `${pct}%`, backgroundColor: VIALUCE_RAMP[i % VIALUCE_RAMP.length], height: 6 }} />
+          );
+        })}
+      </div>
+    );
   }
 
   return (

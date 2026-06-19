@@ -37,6 +37,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { getCustomers, getProducts } from '@/lib/financial-service';
 import { LoadingButton } from '@/components/ui/loading-button';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 const transactionSchema = z.object({
   customerId: z.string().min(1, 'Customer is required'),
@@ -60,6 +61,7 @@ interface ManualEntryFormProps {
 
 export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFormProps) {
   const { format: formatCurrency } = useCurrency();
+  const isVialuce = useIsVialuce(); // HF-315: total-display block → light surface + DM Mono total
   const [isSubmitting, setIsSubmitting] = useState(false);
   const customers = getCustomers();
   const products = getProducts();
@@ -321,18 +323,22 @@ export function ManualEntryForm({ onSubmit, onCancel, salesReps }: ManualEntryFo
 
             {/* Total Display */}
             <div className="md:col-span-2 flex items-end">
-              <div className="p-4 bg-slate-900 rounded-lg flex-1">
-                <p className="text-sm text-slate-500">Calculated Total</p>
+              <div
+                className={cn('p-4 rounded-lg flex-1', !isVialuce && 'bg-slate-900')}
+                style={isVialuce ? { background: 'var(--vl-bg)', border: '1px solid var(--vl-line)' } : undefined}
+              >
+                <p className={isVialuce ? undefined : 'text-sm text-slate-500'} style={isVialuce ? { fontSize: '13px', color: 'var(--vl-text-muted)' } : undefined}>Calculated Total</p>
                 <motion.p
                   key={calculateTotal()}
                   initial={{ scale: 1.1 }}
                   animate={{ scale: 1 }}
-                  className="text-2xl font-bold text-slate-50"
+                  className={isVialuce ? undefined : 'text-2xl font-bold text-slate-50'}
+                  style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)', fontSize: '27px', letterSpacing: '-.5px', color: 'var(--vl-text)', lineHeight: 1.1 } : undefined}
                 >
                   {formatCurrency(calculateTotal())}
                 </motion.p>
                 {selectedProduct && (
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className={isVialuce ? 'mt-1' : 'text-xs text-slate-400 mt-1'} style={isVialuce ? { fontSize: '11.5px', color: 'var(--vl-text-soft)', fontFamily: 'var(--vl-font-mono)' } : undefined}>
                     Commission: {formatCurrency(calculateTotal() * selectedProduct.commissionRate)} ({(selectedProduct.commissionRate * 100).toFixed(0)}%)
                   </p>
                 )}

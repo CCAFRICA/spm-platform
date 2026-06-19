@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 /** @cognitiveFit identification — "What is this value?" */
 
@@ -23,6 +24,7 @@ export function AnimatedNumber({
   duration = 800,
   decimals = 0,
 }: AnimatedNumberProps) {
+  const isVialuce = useIsVialuce(); // HF-315: numbers always DM Mono under Vialuce
   const [display, setDisplay] = useState(0);
   const startRef = useRef(0);
   const frameRef = useRef<number>(0);
@@ -55,7 +57,7 @@ export function AnimatedNumber({
     : Math.round(display).toLocaleString();
 
   return (
-    <span className="tabular-nums">
+    <span className="tabular-nums" style={isVialuce ? { fontFamily: 'var(--vl-font-mono)' } : undefined}>
       {prefix}{formatted}{suffix}
     </span>
   );

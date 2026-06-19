@@ -8,6 +8,7 @@ import {
   isDashboardState,
   toDashboardState,
 } from '@/lib/lifecycle/lifecycle-service';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface LifecycleStepperProps {
   currentState: string;
@@ -22,10 +23,83 @@ export function LifecycleStepper({
   onGoBack,
   canGoBack = false,
 }: LifecycleStepperProps) {
+  const isVialuce = useIsVialuce(); // HF-315: success/indigo dots + .btn-pri/.btn-sec CTAs under Vialuce
   const dashState = isDashboardState(currentState) ? currentState : toDashboardState(currentState);
   const currentIdx = LIFECYCLE_STATES.indexOf(dashState);
   const nextAction = getNextAction(dashState);
   const prevAction = canGoBack ? getPreviousAction(dashState) : null;
+
+  if (isVialuce) {
+    return (
+      <div className="space-y-4">
+        {/* Stepper track */}
+        <div className="flex items-center gap-0 flex-wrap pb-2">
+          {LIFECYCLE_STATES.map((state, i) => {
+            const display = LIFECYCLE_DISPLAY[state];
+            const isCompleted = i < currentIdx;
+            const isCurrent = i === currentIdx;
+            const isFuture = i > currentIdx;
+
+            return (
+              <div key={state} className="flex items-center">
+                {/* Step */}
+                <div className="flex flex-col items-center" style={{ minWidth: '56px' }}>
+                  <div
+                    className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${isCurrent ? 'animate-pulse' : ''}`}
+                    style={{
+                      background: isCompleted
+                        ? 'var(--vl-success)'
+                        : isCurrent
+                          ? 'var(--vialuce-indigo)'
+                          : 'var(--vl-line-soft)',
+                      border: isFuture ? '1px solid var(--vl-line)' : undefined,
+                      boxShadow: isCurrent ? '0 0 0 2px var(--vl-surface), 0 0 0 4px var(--vialuce-indigo)' : undefined,
+                    }}
+                  >
+                    {isCompleted && (
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="#fff" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <span
+                    className="mt-1.5 text-[10px] whitespace-nowrap"
+                    style={{ color: isCurrent ? 'var(--vl-text)' : 'var(--vl-text-soft)', fontWeight: (isCurrent ? 'var(--vl-fw-med)' : undefined) as unknown as number }}
+                  >
+                    {display.label}
+                  </span>
+                </div>
+                {/* Connector line */}
+                {i < LIFECYCLE_STATES.length - 1 && (
+                  <div
+                    className="h-px w-6 flex-shrink-0"
+                    style={{ background: i < currentIdx ? 'var(--vl-success)' : 'var(--vl-line)' }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-3">
+          {prevAction && onGoBack && (
+            <button onClick={() => onGoBack(prevAction.prevState)} className="btn-sec">
+              &larr; {prevAction.label}
+            </button>
+          )}
+          {nextAction && onAdvance && (
+            <button onClick={() => onAdvance(nextAction.nextState)} className="btn-pri">
+              {nextAction.label} &rarr;
+            </button>
+          )}
+          {!nextAction && (
+            <span className="text-xs" style={{ color: 'var(--vl-text-muted)' }}>Cycle complete</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -11,6 +11,7 @@
  */
 
 import { IntelligenceCard } from '@/components/intelligence/IntelligenceCard';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import type { CarrierIntelligence } from '@/lib/carrier/types';
 
 interface Props {
@@ -33,8 +34,25 @@ function nextStep(carrier: CarrierIntelligence | null): { stage: string; message
 }
 
 export function CarrierPipelineReadiness({ carrier, accentColor, onNavigate, onView }: Props) {
+  const isVialuce = useIsVialuce(); // HF-315: gold verdict dot, light body, .btn-pri action under Vialuce
   const step = nextStep(carrier);
   if (!step) return null; // pipeline healthy — silent, no card (Bloodwork)
+
+  if (isVialuce) {
+    return (
+      <IntelligenceCard accentColor={accentColor} label="Next Step" elementId="carrier-next-step" fullWidth onView={onView} tier="action">
+        <span className="absolute top-5 right-5 h-2.5 w-2.5 rounded-full" style={{ background: 'var(--vl-raw-gold)' }} />
+        <p className="pr-6" style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{step.message}</p>
+        <button
+          onClick={() => onNavigate(step.route, step.stage)}
+          className="btn-pri mt-3"
+        >
+          {step.label}
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      </IntelligenceCard>
+    );
+  }
 
   return (
     <IntelligenceCard accentColor={accentColor} label="Next Step" elementId="carrier-next-step" fullWidth onView={onView} tier="action">

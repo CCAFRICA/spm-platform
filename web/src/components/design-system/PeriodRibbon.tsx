@@ -1,6 +1,7 @@
 'use client';
 
 import { LIFECYCLE_DISPLAY, isDashboardState, type DashboardLifecycleState } from '@/lib/lifecycle/lifecycle-service';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export interface PeriodInfo {
   periodId: string;
@@ -39,8 +40,64 @@ function getLifecycleDot(state: string | null): string {
 }
 
 export function PeriodRibbon({ periods, activeKey, onSelect, isSpanish = false }: PeriodRibbonProps) {
+  const isVialuce = useIsVialuce(); // HF-316: light ribbon surface + indigo/gold active accent under Vialuce
   if (periods.length === 0) {
     return null;
+  }
+
+  if (isVialuce) {
+    return (
+      <div className="px-6 py-3 overflow-x-auto" style={{ borderBottom: '1px solid var(--vl-line)', background: 'var(--vl-surface)' }}>
+        <div className="flex items-center gap-2">
+          {periods.map((period) => {
+            const isActive = period.periodKey === activeKey;
+            const isCompleted = period.status === 'paid' || period.status === 'closed';
+            const hasBatch = !!period.lifecycleState;
+
+            return (
+              <button
+                key={period.periodKey}
+                onClick={() => onSelect(period.periodKey)}
+                className="flex flex-col items-start gap-1 px-4 py-2.5 whitespace-nowrap transition-all"
+                style={{
+                  borderRadius: 'var(--vl-r-md)',
+                  border: isActive ? '1px solid var(--vl-indigo-100)' : '1px solid transparent',
+                  background: isActive ? 'var(--vl-indigo-50)' : 'transparent',
+                  boxShadow: isActive ? 'var(--vl-sh-1)' : undefined,
+                  opacity: (isCompleted && !isActive) ? 0.6 : (!hasBatch && !isActive) ? 0.45 : 1,
+                  outline: period.needsAttention ? '2px solid rgba(232,168,56,.4)' : undefined,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ background: isActive ? 'var(--vl-raw-indigo)' : 'var(--vl-text-soft)' }} />
+                  <span style={{ fontSize: '13px', fontWeight: isActive ? 600 : 500, color: isActive ? 'var(--vl-text)' : 'var(--vl-text-muted)' }}>
+                    {period.label || period.periodKey}
+                  </span>
+                  {isCompleted && (
+                    <svg className="w-3.5 h-3.5" style={{ color: 'var(--vl-text-soft)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 pl-4">
+                  {period.entityCount != null && period.entityCount > 0 && (
+                    <span style={{ fontSize: '11px', fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-soft)' }}>{period.entityCount} emp</span>
+                  )}
+                  {hasBatch && (
+                    <span style={{ fontSize: '11px', fontWeight: 500, color: isActive ? 'var(--vialuce-indigo)' : 'var(--vl-text-muted)' }}>
+                      {getLifecycleLabel(period.lifecycleState, isSpanish)}
+                    </span>
+                  )}
+                  {!hasBatch && (
+                    <span style={{ fontSize: '11px', color: 'var(--vl-text-soft)' }}>{isSpanish ? 'Sin cálculo' : 'No calc'}</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (

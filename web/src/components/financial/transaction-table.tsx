@@ -22,6 +22,7 @@ import {
 import { Eye, Edit, Trash2, MoreHorizontal, Download } from 'lucide-react';
 import { formatCurrency } from '@/lib/financial-service';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export interface TransactionRow {
   id: string;
@@ -53,6 +54,7 @@ export function TransactionTable({
   onExport,
   selectable = true,
 }: TransactionTableProps) {
+  const isVialuce = useIsVialuce(); // HF-315: dark table → design-spec .card flush + .tbl + .pill status
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const toggleSelect = (id: string) => {
@@ -83,6 +85,16 @@ export function TransactionTable({
     );
   };
 
+  // HF-315: Vialuce status → design-spec .pill variants (success/danger/neutral).
+  const getStatusPill = (status: string) => {
+    const variant = status === 'completed' ? 'success' : status === 'cancelled' ? 'danger' : 'neutral';
+    return (
+      <span className={`pill ${variant}`}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </span>
+    );
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
       month: 'short',
@@ -90,6 +102,124 @@ export function TransactionTable({
       year: 'numeric',
     });
   };
+
+  if (isVialuce) {
+    return (
+      <div>
+        {selectable && selectedIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between p-3 mb-3 rounded-lg"
+            style={{ background: 'var(--vl-indigo-50)', border: '1px solid var(--vl-line)' }}
+          >
+            <span style={{ fontSize: '13px', color: 'var(--vialuce-indigo)' }}>
+              {selectedIds.length} transaction(s) selected
+            </span>
+            <div className="flex gap-2">
+              {onExport && (
+                <Button size="sm" variant="outline" onClick={() => onExport(selectedIds)}>
+                  <Download className="h-4 w-4 mr-1" />
+                  Export Selected
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+                Clear Selection
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
+        <div className="card flush" style={{ marginTop: 0 }}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                {selectable && (
+                  <th style={{ width: '48px' }}>
+                    <Checkbox
+                      checked={selectedIds.length === transactions.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </th>
+                )}
+                <th>Order ID</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Product</th>
+                <th>Sales Rep</th>
+                <th className="r">Amount</th>
+                <th className="r">Commission</th>
+                <th>Status</th>
+                <th style={{ width: '48px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              <AnimatePresence>
+                {transactions.map((transaction, index) => (
+                  <motion.tr
+                    key={transaction.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ delay: index * 0.02 }}
+                  >
+                    {selectable && (
+                      <td>
+                        <Checkbox
+                          checked={selectedIds.includes(transaction.id)}
+                          onCheckedChange={() => toggleSelect(transaction.id)}
+                        />
+                      </td>
+                    )}
+                    <td className="num">{transaction.orderId}</td>
+                    <td className="mut">{formatDate(transaction.date)}</td>
+                    <td className="name">{transaction.customerName}</td>
+                    <td>{transaction.productName}</td>
+                    <td>{transaction.salesRepName}</td>
+                    <td className="num">{formatCurrency(transaction.amount)}</td>
+                    <td className="num"><span className="num up">{formatCurrency(transaction.commission)}</span></td>
+                    <td>{getStatusPill(transaction.status)}</td>
+                    <td>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {onView && (
+                            <DropdownMenuItem onClick={() => onView(transaction.id)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                          )}
+                          {onEdit && (
+                            <DropdownMenuItem onClick={() => onEdit(transaction.id)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+                          {onDelete && (
+                            <DropdownMenuItem
+                              onClick={() => onDelete(transaction.id)}
+                              className="text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </motion.tr>
+                ))}
+              </AnimatePresence>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

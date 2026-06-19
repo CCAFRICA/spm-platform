@@ -18,6 +18,15 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// HF-316: design-spec ring fill — indigo ramp for high, gold for medium, slate for low/unknown.
+const VIALUCE_RING_COLOR: Record<'high' | 'medium' | 'low' | 'unknown', string> = {
+  high: 'var(--vl-raw-indigo)',
+  medium: 'var(--vl-raw-gold)',
+  low: 'var(--vl-raw-slate)',
+  unknown: 'var(--vl-line)',
+};
 
 // ============================================
 // TYPES
@@ -55,6 +64,7 @@ export function ConfidenceRing({
 }: ConfidenceRingProps) {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-316: indigo/gold ring ramp + line track + DM Mono score under Vialuce
 
   const sizeConfig = SIZE_CONFIG[size];
   const clampedScore = Math.max(0, Math.min(100, score));
@@ -99,7 +109,8 @@ export function ConfidenceRing({
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={sizeConfig.stroke}
-                className="text-slate-200 dark:text-slate-700"
+                className={isVialuce ? '' : 'text-slate-200 dark:text-slate-700'}
+                style={isVialuce ? { color: 'var(--vl-line)' } : undefined}
               />
               {/* Filled ring */}
               {animated ? (
@@ -108,11 +119,11 @@ export function ConfidenceRing({
                   cy={sizeConfig.dimension / 2}
                   r={radius}
                   fill="none"
-                  stroke="currentColor"
+                  stroke={isVialuce ? VIALUCE_RING_COLOR[level] : 'currentColor'}
                   strokeWidth={sizeConfig.stroke}
                   strokeDasharray={circumference}
                   strokeLinecap="round"
-                  className={ringColors[level]}
+                  className={isVialuce ? undefined : ringColors[level]}
                   initial={{ strokeDashoffset: circumference }}
                   animate={{ strokeDashoffset: dashOffset }}
                   transition={{ duration: 0.8, ease: 'easeOut' }}
@@ -123,12 +134,12 @@ export function ConfidenceRing({
                   cy={sizeConfig.dimension / 2}
                   r={radius}
                   fill="none"
-                  stroke="currentColor"
+                  stroke={isVialuce ? VIALUCE_RING_COLOR[level] : 'currentColor'}
                   strokeWidth={sizeConfig.stroke}
                   strokeDasharray={circumference}
                   strokeDashoffset={dashOffset}
                   strokeLinecap="round"
-                  className={ringColors[level]}
+                  className={isVialuce ? undefined : ringColors[level]}
                 />
               )}
             </svg>
@@ -136,9 +147,11 @@ export function ConfidenceRing({
             {showScore && size !== 'sm' && (
               <span
                 className={cn(
-                  'absolute font-medium text-slate-700 dark:text-slate-300',
+                  'absolute font-medium',
+                  !isVialuce && 'text-slate-700 dark:text-slate-300',
                   sizeConfig.fontSize
                 )}
+                style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' } : undefined}
               >
                 {clampedScore}
               </span>
@@ -164,6 +177,7 @@ export function ConfidenceRingWithLabel({
 }: Omit<ConfidenceRingProps, 'showScore'>) {
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-316: DM Mono score under Vialuce
 
   const level = getConfidenceLevel(score);
   const levelConfig = STATE_TOKENS.confidence[level];
@@ -173,10 +187,16 @@ export function ConfidenceRingWithLabel({
     <div className={cn('inline-flex items-center gap-2', className)}>
       <ConfidenceRing score={score} size={size} />
       <div className="flex flex-col">
-        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+        <span
+          className={cn('text-sm font-medium', !isVialuce && 'text-slate-900 dark:text-slate-100')}
+          style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' } : undefined}
+        >
           {score}%
         </span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
+        <span
+          className={cn('text-xs', !isVialuce && 'text-slate-500 dark:text-slate-400')}
+          style={isVialuce ? { color: 'var(--vl-text-muted)' } : undefined}
+        >
           {label}
         </span>
       </div>

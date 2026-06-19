@@ -18,6 +18,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ============================================
 // TYPES
@@ -117,6 +118,7 @@ interface ConfidenceIndicatorProps {
 }
 
 function ConfidenceIndicator({ level, className, showLabel, size, isSpanish }: ConfidenceIndicatorProps) {
+  const isVialuce = useIsVialuce(); // HF-316: indigo fill ring + line track + DM Mono label under Vialuce
   const config = STATE_TOKENS.confidence[level];
   const sizeConfig = SIZE_CONFIG[size];
 
@@ -156,7 +158,8 @@ function ConfidenceIndicator({ level, className, showLabel, size, isSpanish }: C
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={sizeConfig.stroke}
-                className="text-slate-200 dark:text-slate-700"
+                className={isVialuce ? '' : 'text-slate-200 dark:text-slate-700'}
+                style={isVialuce ? { color: 'var(--vl-line)' } : undefined}
               />
               {/* Filled ring */}
               <circle
@@ -169,13 +172,16 @@ function ConfidenceIndicator({ level, className, showLabel, size, isSpanish }: C
                 strokeDasharray={circumference}
                 strokeDashoffset={dashOffset}
                 strokeLinecap="round"
-                className="text-slate-700 dark:text-slate-300 transition-all duration-300"
-                style={{ opacity: config.opacity }}
+                className={cn('transition-all duration-300', !isVialuce && 'text-slate-700 dark:text-slate-300')}
+                style={isVialuce ? { opacity: config.opacity, color: 'var(--vl-raw-indigo)' } : { opacity: config.opacity }}
               />
             </svg>
             {/* Optional label */}
             {showLabel && (
-              <span className={cn(sizeConfig.text, 'text-slate-600 dark:text-slate-400')}>
+              <span
+                className={cn(sizeConfig.text, !isVialuce && 'text-slate-600 dark:text-slate-400')}
+                style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-muted)' } : undefined}
+              >
                 {label}
               </span>
             )}
@@ -204,6 +210,7 @@ interface ActionIndicatorProps {
 }
 
 function ActionIndicator({ level, className, showLabel, size, isSpanish }: ActionIndicatorProps) {
+  const isVialuce = useIsVialuce(); // HF-316: gold intensity dots + DM Mono label under Vialuce
   const config = STATE_TOKENS.actionNeeded[level];
   const sizeConfig = SIZE_CONFIG[size];
 
@@ -248,15 +255,19 @@ function ActionIndicator({ level, className, showLabel, size, isSpanish }: Actio
                   className={cn(
                     'rounded-full',
                     size === 'sm' ? 'w-1.5 h-1.5' : size === 'md' ? 'w-2 h-2' : 'w-2.5 h-2.5',
-                    filled
+                    !isVialuce && (filled
                       ? 'bg-amber-500 dark:bg-amber-400'
-                      : 'bg-slate-200 dark:bg-slate-700'
+                      : 'bg-slate-200 dark:bg-slate-700')
                   )}
+                  style={isVialuce ? { background: filled ? 'var(--vl-raw-gold)' : 'var(--vl-line)' } : undefined}
                 />
               ))}
             </div>
             {showLabel && (
-              <span className={cn(sizeConfig.text, 'text-slate-600 dark:text-slate-400')}>
+              <span
+                className={cn(sizeConfig.text, !isVialuce && 'text-slate-600 dark:text-slate-400')}
+                style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-muted)' } : undefined}
+              >
                 {label}
               </span>
             )}
@@ -283,6 +294,7 @@ interface ProgressIndicatorProps {
 }
 
 function ProgressIndicator({ value, className, showLabel, size, isSpanish }: ProgressIndicatorProps) {
+  const isVialuce = useIsVialuce(); // HF-316: indigo ring + line track + DM Mono percent under Vialuce
   const sizeConfig = SIZE_CONFIG[size];
   const clampedValue = Math.max(0, Math.min(1, value));
   const percent = Math.round(clampedValue * 100);
@@ -322,7 +334,8 @@ function ProgressIndicator({ value, className, showLabel, size, isSpanish }: Pro
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={sizeConfig.stroke}
-                className="text-slate-200 dark:text-slate-700"
+                className={isVialuce ? '' : 'text-slate-200 dark:text-slate-700'}
+                style={isVialuce ? { color: 'var(--vl-line)' } : undefined}
               />
               {/* Progress ring */}
               <circle
@@ -335,11 +348,15 @@ function ProgressIndicator({ value, className, showLabel, size, isSpanish }: Pro
                 strokeDasharray={circumference}
                 strokeDashoffset={dashOffset}
                 strokeLinecap="round"
-                className="text-sky-500 dark:text-sky-400 transition-all duration-500"
+                className={cn('transition-all duration-500', !isVialuce && 'text-sky-500 dark:text-sky-400')}
+                style={isVialuce ? { color: 'var(--vl-raw-indigo)' } : undefined}
               />
             </svg>
             {showLabel && (
-              <span className={cn(sizeConfig.text, 'text-slate-600 dark:text-slate-400')}>
+              <span
+                className={cn(sizeConfig.text, !isVialuce && 'text-slate-600 dark:text-slate-400')}
+                style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-muted)' } : undefined}
+              >
                 {percent}% - {label}
               </span>
             )}

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { StatusPill } from './StatusPill';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { LIFECYCLE_DISPLAY, isDashboardState, type DashboardLifecycleState } from '@/lib/lifecycle/lifecycle-service';
 
 export interface PayrollRow {
@@ -48,6 +49,7 @@ export function PayrollSummary({
   groupBy,
   onRowClick,
 }: PayrollSummaryProps) {
+  const isVialuce = useIsVialuce(); // HF-316: card-flush + tbl + DM Mono numbers under Vialuce
   const [sortCol, setSortCol] = useState<SortCol>('payout');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -85,6 +87,17 @@ export function PayrollSummary({
   }
 
   function SortHeader({ col, label }: { col: SortCol; label: string }) {
+    if (isVialuce) {
+      return (
+        <th
+          className="cursor-pointer select-none"
+          style={{ cursor: 'pointer' }}
+          onClick={() => toggleSort(col)}
+        >
+          {label} {sortCol === col ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
+        </th>
+      );
+    }
     return (
       <th
         className="text-[11px] text-zinc-400 font-normal py-1.5 px-2 cursor-pointer hover:text-zinc-300 select-none"
@@ -96,7 +109,60 @@ export function PayrollSummary({
   }
 
   if (rows.length === 0) {
+    if (isVialuce) {
+      return (
+        <div className="empty">
+          <div className="ic">{'\uD83D\uDCB3'}</div>
+          <b>Sin datos de nomina disponibles.</b>
+        </div>
+      );
+    }
     return <p className="text-sm text-zinc-400">Sin datos de nomina disponibles.</p>;
+  }
+
+  if (isVialuce) {
+    const showType = rows.some(r => r.entityType);
+    return (
+      <div className="card flush" style={{ marginTop: 0, overflowX: 'auto' }}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <SortHeader col="name" label="Nombre" />
+              {showType && <th>Tipo</th>}
+              <th className="r" style={{ textAlign: 'right', cursor: 'pointer' }} onClick={() => toggleSort('payout')}>
+                Pago {sortCol === 'payout' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+              </th>
+              <th className="r" style={{ textAlign: 'right', cursor: 'pointer' }} onClick={() => toggleSort('components')}>
+                Componentes {sortCol === 'components' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+              </th>
+              <SortHeader col="status" label="Estado" />
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map(group => (
+              <GroupRows
+                key={group.key}
+                groupKey={group.key}
+                rows={group.rows}
+                currency={currency}
+                showType={showType}
+                onRowClick={onRowClick}
+                isVialuce
+              />
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="name" style={{ fontWeight: 500 }}>Total</td>
+              {showType && <td />}
+              <td className="num" style={{ fontWeight: 700, color: 'var(--vl-text)' }}>{fmtAmt(total)}</td>
+              <td className="num mut">{rows.length}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
   }
 
   return (
@@ -145,13 +211,45 @@ function GroupRows({
   currency,
   showType,
   onRowClick,
+  isVialuce = false,
 }: {
   groupKey: string;
   rows: PayrollRow[];
   currency: string;
   showType: boolean;
   onRowClick?: (row: PayrollRow) => void;
+  isVialuce?: boolean;
 }) {
+  if (isVialuce) {
+    return (
+      <>
+        {groupKey && (
+          <tr>
+            <td colSpan={showType ? 5 : 4} className="mut" style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', background: '#FAFBFE' }}>
+              {groupKey}
+            </td>
+          </tr>
+        )}
+        {rows.map((row, i) => (
+          <tr
+            key={i}
+            onClick={() => onRowClick?.(row)}
+            style={onRowClick ? { cursor: 'pointer' } : undefined}
+          >
+            <td className="name">{row.entityName}</td>
+            {showType && <td className="mut">{row.entityType ?? '-'}</td>}
+            <td className="num">{fmtCurrencyAmt(row.totalPayout, currency)}</td>
+            <td className="num mut">{row.components}</td>
+            <td>
+              <StatusPill color={statePillColor(row.lifecycleState)}>
+                {stateLabel(row.lifecycleState)}
+              </StatusPill>
+            </td>
+          </tr>
+        ))}
+      </>
+    );
+  }
   return (
     <>
       {groupKey && (

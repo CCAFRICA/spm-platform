@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 /** @cognitiveFit monitoring — "How full is this?" */
 
@@ -19,6 +20,9 @@ export function ProgressRing({
   color = '#6366f1',
   children,
 }: ProgressRingProps) {
+  const isVialuce = useIsVialuce(); // HF-316: ring → indigo ramp, track → line under Vialuce
+  // Default ring color follows the design-spec indigo when the caller did not override.
+  const ringColor = isVialuce && color === '#6366f1' ? 'var(--vl-raw-indigo)' : color;
   const [animatedPct, setAnimatedPct] = useState(0);
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -41,14 +45,15 @@ export function ProgressRing({
           fill="none"
           stroke="currentColor"
           strokeWidth={stroke}
-          className="text-zinc-800"
+          className={isVialuce ? '' : 'text-zinc-800'}
+          style={isVialuce ? { color: 'var(--vl-line)' } : undefined}
         />
         <circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={color}
+          stroke={ringColor}
           strokeWidth={stroke}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
