@@ -278,14 +278,27 @@ export function validatePrimeTree(
 
     const rule = PRIME_GRAMMAR[prime as PrimeType];
 
-    // Op discriminator check
+    // Op discriminator check. Most ops-bearing primes carry the op at top-level `obj.op`
+    // (arithmetic/compare/logical/aggregate). OB-222: `filter` is the exception — its operator lives
+    // at predicate.operator (PrimePredicate), not at obj.op. Reading obj.op for a filter node
+    // spuriously rejected every well-formed filter as op_unknown (latent until the grammar prompt
+    // began illustrating filter->aggregate, OB-222 Phase 2). Read the operator from the correct
+    // location per prime — which also makes the filter's predicate.operator actually validated.
     if (rule.ops) {
-      const op = typeof obj.op === 'string' ? obj.op : undefined;
+      let op: string | undefined;
+      if (prime === 'filter') {
+        const pred = obj.predicate as Record<string, unknown> | undefined;
+        op = typeof pred?.operator === 'string' ? pred.operator : undefined;
+      } else {
+        op = typeof obj.op === 'string' ? obj.op : undefined;
+      }
       if (!op || !rule.ops.includes(op)) {
         violations.push({
           check: 'op_unknown',
           nodePath: path,
-          message: `Prime "${prime}" requires op in {${rule.ops.join(', ')}}, got "${String(op)}".`,
+          message: prime === 'filter'
+            ? `Prime "filter" requires predicate.operator in {${rule.ops.join(', ')}}, got "${String(op)}".`
+            : `Prime "${prime}" requires op in {${rule.ops.join(', ')}}, got "${String(op)}".`,
           severity: 'critical',
         });
       }
@@ -466,6 +479,37 @@ NODE SHAPES:
   aggregate    { "prime":"aggregate",    "op":"sum|count|avg|min|max", "field":"<row_field>" }
   prior_period { "prime":"prior_period", "downstream":<node> }
 
+ENGINE AGGREGATION MODEL (per-row identity vs aggregate identity — CRITICAL for categorical plans):
+A "reference" reads a PRE-AGGREGATED metric: before the tree evaluates, the engine has already reduced
+all of the entity's transaction rows for that field to a single number. Per-row categorical attributes
+(product type, channel, segment, region, status — any field whose values partition the rows into groups)
+DO NOT EXIST at that aggregate level. An entity whose transactions span multiple values of an attribute
+has NO single value for it after aggregation, so a "conditional" that compares such an attribute against
+a constant is meaningless (it can never be evaluated per-row).
+
+"filter" and "aggregate" instead operate on the entity's RAW per-row rows, where per-row identity is
+intact. Compose filter -> aggregate to differentiate by a per-row attribute:
+
+1. CATEGORY-DIFFERENTIATED RATES — when a plan applies different rates/rules by a per-ROW attribute,
+   emit ONE filtered aggregate per attribute value and combine them with arithmetic. Do NOT gate on the
+   attribute with conditional(compare(reference,...)):
+     filter{field:<attribute>,operator:"eq",value:<group_value>} -> aggregate{op:"sum",field:<measure>}
+   sums <measure> over ONLY the rows where <attribute> == <group_value>. (See SC-07.)
+
+   PER-ROW vs PER-ENTITY: this is for attributes carried on each transaction ROW. For a PER-ENTITY
+   category (the payee's role / tier / seniority — one value for the whole entity), do NOT filter rows;
+   that differentiation is handled upstream by the variant mechanism (one component per variant id).
+
+2. CONDITIONAL COUNT — when a payout depends on the NUMBER of rows meeting a condition:
+     filter{field:<condition_field>,operator:<op>,value:<v>} -> aggregate{op:"count",field:"*"}
+   resolves to the count of qualifying rows (the field is ignored for count). (See SC-08.)
+
+3. TEMPORAL ADJUSTMENT (reversal / clawback) — when a plan reverses a prior period's calculation, the
+   reversal amount is NOT a data column; it is the stored OUTPUT of a prior calculation. Do NOT reference
+   prior-plan outputs (rates, accelerators, multipliers) as data inputs — they are not in the data.
+   Emit a sibling "modifiers" array on the component (alongside calculationIntent) so the engine looks up
+   the stored original by its reference keys. (See SC-09.)
+
 EXHAUSTIVE EMISSION (CRITICAL):
 When the plan contains a rate table with N tiers (1D) or N×M cells (2D), emit exactly N or N×M constant leaf nodes. Every cell must appear in the tree. Do not summarize, collapse, omit, or use a fallback to substitute for missing cells. A 6×5 matrix produces 30 distinct constant leaves; a 5-tier 1D band produces 5 distinct constants plus an explicit constant(0) terminal.
 
@@ -546,6 +590,41 @@ SC-05 — Piecewise rate × base ("rate varies by attainment band, applied to re
     }
   ]
 }
+
+SC-07 — Category-differentiated rates (per-ROW attribute: 8% on rows where product_type="warranty", 3% on rows where product_type="accessory"). One filtered aggregate per category, combined with add — NOT a conditional on the category:
+{ "prime":"arithmetic","op":"add",
+  "inputs":[
+    { "prime":"arithmetic","op":"multiply","inputs":[
+      { "prime":"filter","predicate":{"field":"product_type","operator":"eq","value":"warranty"},
+        "downstream":{"prime":"aggregate","op":"sum","field":"amount"} },
+      { "prime":"constant","value":0.08 }
+    ]},
+    { "prime":"arithmetic","op":"multiply","inputs":[
+      { "prime":"filter","predicate":{"field":"product_type","operator":"eq","value":"accessory"},
+        "downstream":{"prime":"aggregate","op":"sum","field":"amount"} },
+      { "prime":"constant","value":0.03 }
+    ]}
+  ]
+}
+
+SC-08 — Conditional count ("$25 per transaction with status="approved""). filter -> aggregate(count, "*") times a per-unit constant:
+{ "prime":"arithmetic","op":"multiply",
+  "inputs":[
+    { "prime":"filter","predicate":{"field":"status","operator":"eq","value":"approved"},
+      "downstream":{"prime":"aggregate","op":"count","field":"*"} },
+    { "prime":"constant","value":25 }
+  ]
+}
+
+SC-09 — Temporal adjustment / clawback (reversal of a prior commission on returned items). Emit a sibling "modifiers" array on the COMPONENT (NOT inside calculationIntent); the reversal amount is resolved by the engine from the stored original calculation via its reference keys, never from a data column. The calculationIntent describes only the in-period portion (often constant(0) for a pure reversal):
+  "calculationIntent": { "prime":"constant","value":0 },
+  "modifiers": [
+    { "modifier":"temporal_adjustment",
+      "adjustmentType":"per_transaction_reversal",
+      "referenceMapping":{ "returnField":"<column on the return row referencing the original txn>",
+                           "originalField":"<matching column on the original row>" },
+      "recoveryRate":1.0 }
+  ]
 
 CRITICAL: Every component MUST carry both "calculationMethod" (the free-form description, preserved) AND "calculationIntent" (the PrimeNode tree). The tree's root must use one of the ten primes above — the engine rejects any other discriminator.`;
 }
