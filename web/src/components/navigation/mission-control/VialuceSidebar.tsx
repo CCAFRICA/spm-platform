@@ -3,18 +3,21 @@
 /**
  * OB-221 Phase 1 — Vialuce Sidebar (deep-indigo rail).
  *
- * Rendered ONLY under data-theme="vialuce" (MissionControlRail returns this instead of the existing
- * rail; the else-branch is unchanged → Current/Bliss cannot regress). Maps the platform's REAL nav
- * (WORKSPACES config: workspace → sections → items) onto the design package's .sb vocabulary:
+ * Rendered ONLY under data-theme="vialuce": the LIVE ChromeSidebar early-returns this component
+ * instead of its existing rail; the else-branch is unchanged → Current/Bliss cannot regress. Maps
+ * the platform's REAL nav (WORKSPACES config: workspace → sections → routes) onto the design
+ * package's .sb vocabulary:
  *   .ws 2×2 workspace switcher → accessible workspaces (role + feature filtered)
  *   .sb-sec expandable groups   → the active workspace's sections
- *   .nav a sub-items            → section items (real routes), active = current path
+ *   .nav a sub-items            → section routes (real paths), active = current path
  *   .persona (footer, docked)   → persona override (fixes the floating-over-content defect)
+ *   .sb-back "← Observatory"     → VL admin returns to the tenant picker (/select-tenant); omitted
+ *                                  for non-admins (no Observatory concept for them)
+ *   .btn-gold "Calculate"        → the primary CTA; relocated to the rail head (this shell has no topbar)
  *   .sb-user                    → authenticated user
  * Icons: lucide-react (the platform's icon lib; the design's Tabler `.ti` webfont is not installed —
  * documented substitution). Labels come from the i18n-bearing WORKSPACES config (label/labelEs),
- * not hardcoded English (Korean Test). No "← Observatory" back link — the platform has no
- * Observatory sidebar concept (omitted per architect guidance).
+ * not hardcoded English (Korean Test).
  */
 
 import { useMemo, useState } from 'react';
