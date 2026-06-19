@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LogOut, ChevronUp, Palette } from 'lucide-react';
+import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
 import {
   Tooltip,
   TooltipContent,
@@ -96,7 +97,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
         <Palette className="h-3.5 w-3.5" /> {isSpanish ? 'Tema' : 'Theme'}
       </div>
       <div className="inline-flex w-full rounded-md border border-border overflow-hidden text-xs">
-        {(['current', 'bliss', 'vialuce'] as const).map((t) => (
+        {THEME_ORDER.map((t) => (
           <button
             key={t}
             onClick={() => setTheme(t)}
@@ -105,7 +106,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
               theme === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
             } ${themeSaving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
           >
-            {t === 'current' ? 'Current' : t === 'bliss' ? 'Bliss' : 'Vialuce'}
+            {THEME_LABELS[t]}
           </button>
         ))}
       </div>

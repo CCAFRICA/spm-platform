@@ -9,6 +9,8 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
+import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
+import type { AppTheme } from '@/lib/theme/active-theme';
 
 interface PlatformSetting {
   id: string;
@@ -78,13 +80,13 @@ export function FeatureFlagsTab() {
 
   // OB-201: the active_ui_theme setting (global app theme). Normalize jsonb string value.
   const themeSetting = settings.find(s => s.key === 'active_ui_theme');
-  const activeTheme: 'current' | 'bliss' = (() => {
+  const activeTheme: AppTheme = (() => {
     const v = themeSetting?.value;
     const n = typeof v === 'string' ? v.replace(/^"|"$/g, '') : 'current';
-    return n === 'bliss' ? 'bliss' : 'current';
+    return n === 'bliss' ? 'bliss' : n === 'vialuce' ? 'vialuce' : 'current'; // HF-312: +vialuce
   })();
 
-  const setTheme = async (theme: 'current' | 'bliss') => {
+  const setTheme = async (theme: AppTheme) => {
     if (theme === activeTheme || themeSaving) return;
     setThemeSaving(true);
     setError(null);
@@ -137,7 +139,7 @@ export function FeatureFlagsTab() {
         </p>
       </div>
 
-      {/* OB-201 Appearance Panel — global app UI theme (current | bliss) */}
+      {/* OB-201 Appearance Panel — global app UI theme (current | bliss | vialuce). HF-312: +vialuce */}
       <div style={{
         background: 'var(--strag-panel)',
         border: '1px solid var(--strag-s8)',
@@ -147,11 +149,11 @@ export function FeatureFlagsTab() {
       }}>
         <h3 style={{ color: 'var(--strag-s0)', fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>Appearance</h3>
         <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: '0 0 16px' }}>
-          Global app UI theme for all users. Applied server-side on the next page render. &ldquo;Current&rdquo;
-          is the existing look; &ldquo;Bliss&rdquo; is the indigo/gold brand re-skin.
+          Global app UI theme for all users. Applied server-side on the next page render. &ldquo;Dark&rdquo;
+          is the original look; &ldquo;Bliss&rdquo; and &ldquo;Vialuce&rdquo; are the indigo/gold brand re-skins.
         </p>
         <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid var(--strag-s7)', overflow: 'hidden' }}>
-          {(['current', 'bliss'] as const).map(theme => {
+          {THEME_ORDER.map(theme => {
             const isActive = activeTheme === theme;
             return (
               <button
@@ -166,11 +168,10 @@ export function FeatureFlagsTab() {
                   cursor: themeSaving ? 'wait' : (isActive ? 'default' : 'pointer'),
                   background: isActive ? '#4F46E5' : 'transparent',
                   color: isActive ? '#FFFFFF' : 'var(--strag-s4)',
-                  textTransform: 'capitalize',
                   transition: 'background-color 0.15s',
                 }}
               >
-                {theme}
+                {THEME_LABELS[theme]}
               </button>
             );
           })}

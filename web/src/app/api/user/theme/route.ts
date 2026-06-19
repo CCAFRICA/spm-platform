@@ -1,13 +1,14 @@
 /**
  * HF-309 §3.3/§3.4 — per-user theme preference.
  *
- * POST { theme: "current" | "bliss" }
+ * POST { theme: "current" | "bliss" | "vialuce" }
  *   1. Merges the theme into the authenticated user's profiles.preferences (jsonb).
  *   2. Sets the vl-theme cookie (for pre-auth surfaces like the login page).
  *
  * HALT-2 (hard security constraint): the cookie value is ONLY the theme name string — never a
  * user id, tenant id, session token, or any auth data. The body theme is validated to be exactly
- * "current" | "bliss" before it is written anywhere. The cookie is non-sensitive, non-identifying.
+ * "current" | "bliss" | "vialuce" before it is written anywhere. The cookie is non-sensitive,
+ * non-identifying.
  *
  * SR-39 does not fire: presentation-layer preference only; existing profiles RLS unchanged.
  */

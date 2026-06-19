@@ -17,6 +17,8 @@ import { LogOut, Settings, User, Shield, ChevronDown, Palette } from 'lucide-rea
 import { useAuth } from '@/contexts/auth-context';
 import { usePermissions } from '@/hooks/use-permissions';
 import { isVLAdmin, isTenantUser } from '@/types/auth';
+import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
+import type { AppTheme } from '@/lib/theme/active-theme';
 
 export function UserMenu() {
   const router = useRouter();
@@ -26,17 +28,19 @@ export function UserMenu() {
   // HF-309: per-user theme preference. Read the current data-theme (server-rendered) on mount,
   // then POST changes to /api/user/theme (persists to profiles.preferences + sets vl-theme cookie)
   // and reload so the server re-renders under the new theme.
-  const [theme, setThemeState] = useState<'current' | 'bliss'>('current');
+  const [theme, setThemeState] = useState<AppTheme>('current');
   const [themeSaving, setThemeSaving] = useState(false);
   useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme') === 'bliss' ? 'bliss' : 'current';
+    // HF-312: read all three themes (was bliss|current only — vialuce fell through to current).
+    const attr = document.documentElement.getAttribute('data-theme');
+    const t: AppTheme = attr === 'bliss' ? 'bliss' : attr === 'vialuce' ? 'vialuce' : 'current';
     setThemeState(t);
     // HF-309 §3.3: on every authenticated render (incl. just-after-login) sync the vl-theme cookie
     // to the resolved theme so pre-auth surfaces (login page) reflect it. HALT-2: theme name only.
     document.cookie = `vl-theme=${t}; Path=/; SameSite=Lax; Secure; Max-Age=31536000`;
   }, []);
 
-  const setTheme = async (next: 'current' | 'bliss') => {
+  const setTheme = async (next: AppTheme) => {
     if (next === theme || themeSaving) return;
     setThemeSaving(true);
     try {
@@ -173,16 +177,16 @@ export function UserMenu() {
             </DropdownMenuLabel>
             <div className="px-2 pb-1.5">
               <div className="inline-flex w-full rounded-md border border-border overflow-hidden text-xs">
-                {(['current', 'bliss'] as const).map((t) => (
+                {THEME_ORDER.map((t) => (
                   <button
                     key={t}
                     onClick={() => setTheme(t)}
                     disabled={themeSaving}
-                    className={`flex-1 px-2 py-1.5 capitalize transition-colors ${
+                    className={`flex-1 px-2 py-1.5 transition-colors ${
                       theme === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
                     } ${themeSaving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
                   >
-                    {t === 'current' ? 'Current' : 'Bliss'}
+                    {THEME_LABELS[t]}
                   </button>
                 ))}
               </div>
