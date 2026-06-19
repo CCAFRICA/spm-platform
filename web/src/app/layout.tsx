@@ -49,7 +49,11 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className="dark"
+      /* HF-313 Defect 1: darkMode is 'class', so the always-on `dark` class made every Tailwind
+         `dark:` variant in content components fire under Vialuce (a light theme) → dark cards on the
+         light bg ("washed out"). The Vialuce tokens were already correct white; the root cause was the
+         class, not the OKLCH. Drop `dark` for vialuce only (current keeps dark; bliss unchanged — OOS). */
+      className={activeTheme === 'vialuce' ? undefined : 'dark'}
       data-theme={activeTheme}
       style={{ colorScheme: (activeTheme === 'bliss' || activeTheme === 'vialuce') ? 'light' : 'dark' }}
     >

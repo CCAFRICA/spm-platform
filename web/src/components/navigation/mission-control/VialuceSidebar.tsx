@@ -20,10 +20,12 @@
  * not hardcoded English (Korean Test).
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
-import { DollarSign, ArrowLeftRight, Command, ChevronDown } from 'lucide-react';
+import { DollarSign, ArrowLeftRight, Command, ChevronDown, Palette } from 'lucide-react';
+import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
+import type { AppTheme } from '@/lib/theme/active-theme';
 import { cn } from '@/lib/utils';
 import { useWorkspace, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
@@ -67,6 +69,28 @@ export function VialuceSidebar() {
     : [], [effectiveRole, currentTenant?.features]);
 
   const sections = useMemo<WorkspaceSection[]>(() => WORKSPACES[activeWorkspace]?.sections ?? [], [activeWorkspace]);
+
+  // HF-313 Defect 3: the per-user theme toggle (was UserIdentity's, not rendered under Vialuce since
+  // ChromeSidebar swaps in this sidebar). Same mechanism as UserIdentity: POST /api/user/theme -> cookie
+  // + profiles.preferences -> reload. Lets a user override the Observatory default while in Vialuce.
+  const [theme, setThemeState] = useState<AppTheme>('vialuce');
+  const [themeSaving, setThemeSaving] = useState(false);
+  useEffect(() => {
+    const attr = document.documentElement.getAttribute('data-theme');
+    setThemeState(attr === 'bliss' ? 'bliss' : attr === 'current' ? 'current' : 'vialuce');
+  }, []);
+  const setTheme = async (next: AppTheme) => {
+    if (next === theme || themeSaving) return;
+    setThemeSaving(true);
+    try {
+      const res = await fetch('/api/user/theme', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: next }),
+      });
+      if (res.ok) window.location.reload();
+      else setThemeSaving(false);
+    } catch { setThemeSaving(false); }
+  };
 
   const itemVisible = (it: WorkspaceRoute) => !it.roles || !effectiveRole || it.roles.includes(effectiveRole as UserRole);
   const isItemActive = (path: string) => pathname === path || (path !== '/' && pathname?.startsWith(path + '/'));
@@ -158,8 +182,22 @@ export function VialuceSidebar() {
         </div>
       </div>
 
-      {/* Footer: persona (docked — defect fix) + user */}
+      {/* Footer: per-user theme toggle (HF-313 D3) + persona (docked) + user */}
       <div className="sb-foot">
+        {/* HF-313 Defect 3: per-user theme override (Dark/Bliss/Vialuce), restored under Vialuce. */}
+        <div className="sb-theme">
+          <Palette className="h-3 w-3" />
+          {THEME_ORDER.map(t => (
+            <button
+              key={t}
+              className={cn(theme === t && 'on')}
+              disabled={themeSaving}
+              onClick={() => setTheme(t)}
+            >
+              {THEME_LABELS[t]}
+            </button>
+          ))}
+        </div>
         {isVLAdmin && (
           <div className="persona">
             {PERSONAS.map(p => (

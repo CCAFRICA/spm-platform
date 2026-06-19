@@ -56,6 +56,9 @@ function AuthShellInner({ children }: AuthShellProps) {
         <main className="workspace-content min-h-screen" style={{ background: 'transparent' }}>{children}</main>
       </div>
       <CommandPalette />
+      {/* HF-313 Defect 2: the legacy floating persona bar duplicates VialuceSidebar's docked persona
+          under Vialuce — render it only for Dark/Bliss (VialuceSidebar carries its own). */}
+      {!isVialuce && <PersonaSwitcher />}
     </>
   );
 }
@@ -223,8 +226,9 @@ function AuthShellProtected({ children }: AuthShellProps) {
   // Decision 92: Import surface has zero period API calls.
   const shell = (
     <NavigationProvider>
+      {/* HF-313 Defect 2: PersonaSwitcher moved INTO AuthShellInner so it can be theme-gated
+          (hidden under Vialuce, which has a docked persona switcher in its sidebar). */}
       <AuthShellInner>{children}</AuthShellInner>
-      <PersonaSwitcher />
     </NavigationProvider>
   );
 
