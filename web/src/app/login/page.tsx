@@ -174,6 +174,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
+              data-login-cta  /* HF-312: Vialuce paints this gold via a scoped globals.css rule */
               disabled={!emailInput || !passwordInput || isLoading}
               className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition-colors disabled:opacity-50"
               style={{ backgroundColor: '#2D2F8F' }}

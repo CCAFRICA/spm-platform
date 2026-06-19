@@ -8,8 +8,10 @@ import { PersonaProvider } from '@/contexts/persona-context';
 import { NavigationProvider, useNavigation } from '@/contexts/navigation-context';
 
 import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
+import { VialuceTopbar } from '@/components/navigation/mission-control/VialuceTopbar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { PersonaSwitcher } from '@/components/persona/PersonaSwitcher';
 import { cn } from '@/lib/utils';
 import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
@@ -33,6 +35,8 @@ interface AuthShellProps {
  */
 function AuthShellInner({ children }: AuthShellProps) {
   const { isRailCollapsed, activeWorkspace, isMobileOpen, toggleMobileOpen } = useNavigation();
+  // HF-312: Vialuce rail is a fixed 252px (design spec); Dark/Bliss keep the 264/collapsed offset.
+  const isVialuce = useIsVialuce();
 
   return (
     <>
@@ -41,10 +45,14 @@ function AuthShellInner({ children }: AuthShellProps) {
         data-workspace={activeWorkspace}
         className={cn(
           'transition-all duration-300 ease-in-out',
-          isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]'
+          isVialuce ? 'md:pl-[252px]' : (isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]')
         )}
       >
-        <Navbar onMenuToggle={toggleMobileOpen} isMobileMenuOpen={isMobileOpen} />
+        {/* HF-312: Vialuce renders its own .top bar (breadcrumb + gold Calculate + search + utilities)
+            INSTEAD of Navbar; Dark/Bliss keep Navbar unchanged. */}
+        {isVialuce
+          ? <VialuceTopbar onMenuToggle={toggleMobileOpen} />
+          : <Navbar onMenuToggle={toggleMobileOpen} isMobileMenuOpen={isMobileOpen} />}
         <main className="workspace-content min-h-screen" style={{ background: 'transparent' }}>{children}</main>
       </div>
       <CommandPalette />

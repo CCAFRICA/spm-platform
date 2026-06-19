@@ -50,8 +50,10 @@ export interface ResolvedIdentity {
   capabilities: string[];
   locale: string | null;
   avatarUrl: string | null;
-  /** HF-309: per-user theme preference (profiles.preferences->>'theme'); null = no preference. */
-  themePreference: 'current' | 'bliss' | null;
+  /** HF-309: per-user theme preference (profiles.preferences->>'theme'); null = no preference.
+   *  HF-312: 'vialuce' added — without it the resolver normalized a stored 'vialuce' to null, so the
+   *  theme silently reverted on reload (the OB-221 "toggle does nothing" defect). */
+  themePreference: 'current' | 'bliss' | 'vialuce' | null;
 }
 
 function mapToResolvedIdentity(row: Record<string, unknown>): ResolvedIdentity {
@@ -71,7 +73,7 @@ function mapToResolvedIdentity(row: Record<string, unknown>): ResolvedIdentity {
       // HF-309: preferences is select('*')-fetched already (no extra query). Theme name only.
       const prefs = (row.preferences as Record<string, unknown> | null) ?? null;
       const t = prefs && typeof prefs.theme === 'string' ? prefs.theme : null;
-      return t === 'bliss' || t === 'current' ? t : null;
+      return t === 'bliss' || t === 'current' || t === 'vialuce' ? t : null; // HF-312: pass vialuce through
     })(),
   };
 }

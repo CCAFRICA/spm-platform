@@ -21,7 +21,7 @@ export interface ServerAuthState {
     capabilities: string[];
     locale: string | null;
     avatarUrl: string | null;
-    themePreference: 'current' | 'bliss' | null; // HF-309: per-user theme preference
+    themePreference: 'current' | 'bliss' | 'vialuce' | null; // HF-309: per-user theme preference; HF-312: +vialuce
   } | null;
   isAuthenticated: boolean;
 }

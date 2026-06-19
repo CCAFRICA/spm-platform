@@ -13,7 +13,7 @@
  *   .persona (footer, docked)   → persona override (fixes the floating-over-content defect)
  *   .sb-back "← Observatory"     → VL admin returns to the tenant picker (/select-tenant); omitted
  *                                  for non-admins (no Observatory concept for them)
- *   .btn-gold "Calculate"        → the primary CTA; relocated to the rail head (this shell has no topbar)
+ *   (the gold "Calculate" CTA now lives in VialuceTopbar — its design-spec home — not here; HF-312)
  *   .sb-user                    → authenticated user
  * Icons: lucide-react (the platform's icon lib; the design's Tabler `.ti` webfont is not installed —
  * documented substitution). Labels come from the i18n-bearing WORKSPACES config (label/labelEs),
@@ -87,8 +87,6 @@ export function VialuceSidebar() {
     { key: 'rep' as PersonaKey, label: isSpanish ? 'Rep' : 'Rep' },
   ];
 
-  const calcAccessible = accessibleWorkspaces.includes('calculate');
-
   return (
     <aside className="sb" style={{ width: '100%', height: '100vh' }}>
       {/* Brand */}
@@ -112,13 +110,8 @@ export function VialuceSidebar() {
       )}
 
       <div className="sb-scroll">
-        {/* Gold Calculate CTA — the platform's primary action gets signal treatment (topbar has no
-            slot in this shell; relocated to the rail head). */}
-        {calcAccessible && (
-          <button className="btn-gold" style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }} onClick={() => navigateToWorkspace('calculate')}>
-            <Icon name="Zap" className="h-4 w-4" /> {isSpanish ? 'Calcular' : 'Calculate'}
-          </button>
-        )}
+        {/* HF-312: the gold Calculate CTA moved to VialuceTopbar (its design-spec home). Not
+            duplicated here. */}
 
         {/* Workspace switcher (2×2) */}
         <div className="sb-lbl">{isSpanish ? 'Espacios' : 'Workspaces'}</div>
