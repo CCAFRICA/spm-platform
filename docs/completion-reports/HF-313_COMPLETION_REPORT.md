@@ -112,7 +112,7 @@ tsc --noEmit: exit 0 · Korean Test: PASS · npm run build: exit 0
 
 ## SHA / PR
 Commits: directive `00dcea55` · D4 `3d529ccd` · D1 `65107007`+`1289c815`+`f42201aa` (colored-CTA fix-up)
-· D2 `597c03a6` · D3 `9236ea21`. PR: (added on creation). DO NOT MERGE — SR-44.
+· D2 `597c03a6` · D3 `9236ea21` (+ report). **PR #556 — https://github.com/CCAFRICA/spm-platform/pull/556**. DO NOT MERGE — SR-44.
 
 ## ARTIFACT SYNC
 ```
