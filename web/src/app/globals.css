@@ -805,3 +805,11 @@ html[data-theme="vialuce"] [data-login-cta]{
 html[data-theme="vialuce"] [data-login-cta]:hover{
   background:var(--vl-raw-gold-light) !important;
 }
+
+/* ─── HF-313 Defect 3: per-user theme toggle in the VialuceSidebar footer (deep-indigo rail). ─── */
+html[data-theme="vialuce"] .sb-theme{display:flex;align-items:center;gap:4px;padding:10px 14px 6px;flex-wrap:nowrap}
+html[data-theme="vialuce"] .sb-theme > svg{color:var(--vl-nav-muted);flex-shrink:0}
+html[data-theme="vialuce"] .sb-theme button{flex:1;font-size:11px;line-height:1;color:var(--vl-nav-text);background:rgba(255,255,255,.06);border:1px solid var(--vl-nav-line);border-radius:6px;padding:5px 4px;cursor:pointer;transition:background var(--vl-dur),color var(--vl-dur)}
+html[data-theme="vialuce"] .sb-theme button.on{background:var(--vialuce-gold);color:#3a2606;font-weight:var(--vl-fw-med);border-color:transparent}
+html[data-theme="vialuce"] .sb-theme button:hover:not(.on):not(:disabled){background:rgba(255,255,255,.12)}
+html[data-theme="vialuce"] .sb-theme button:disabled{opacity:.6;cursor:wait}
