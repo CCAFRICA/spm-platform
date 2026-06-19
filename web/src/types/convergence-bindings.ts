@@ -25,6 +25,10 @@ export interface ConvergenceBindingEntry {
   // 'sum' (flow, default) | 'snapshot'/'last'/'first' (stock/balance) | 'max'/'min'/'average'/
   // 'distinct_count'. Applied deterministically by resolveColumnFromBatch.
   reduction?: 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count';
+  // OB-220: wide-format temporal binding — periodKey ("YYYY-MM") → source column (e.g. MIR Cuotas:
+  // {"2025-01":"Enero_2025",...}). When present, the engine resolves the column for the current calc
+  // period instead of `column` (which may be "" for a pure temporal binding).
+  columnMap?: Record<string, string>;
   // HF-216: Optional via-join for entity-axis bridging across data_types.
   // When present on entity_identifier binding, the resolver performs a
   // two-stage lookup: entity external_id → roster_field value → measure column.

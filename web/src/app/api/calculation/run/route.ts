@@ -42,6 +42,8 @@ import {
   type AttributionTracePrecursor,
   type PerRowMetricValue,
 } from '@/lib/calculation/per-row-attribution';
+// OB-220: wide-format temporal column binding (Cuotas Enero_2025..Junio_2025).
+import { resolveTemporalColumn, periodKeyFromStartDate, isTemporalBinding } from '@/lib/calculation/temporal-binding';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure, findIncompleteBindings, type IncompleteBinding, type ComponentBinding } from '@/lib/intelligence/convergence-service';
@@ -1426,6 +1428,15 @@ export async function POST(request: NextRequest) {
       bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:entry entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} componentName=${JSON.stringify(component.name)} | compBindingsKeys=${Object.keys(compBindings).join(',')}`);
     }
 
+    // OB-220: a binding may be wide-format temporal (columnMap periodKey→column, e.g. MIR Cuotas)
+    // instead of a single static `column`. effCol/effRed resolve it for THIS calc period; static
+    // bindings are unchanged. periodKey derives from the period start_date ("2025-01-01" → "2025-01").
+    const tbPeriodKey = periodKeyFromStartDate(period?.start_date ?? null);
+    const effCol = (b: ConvergenceBindingEntry | undefined): string | undefined =>
+      isTemporalBinding(b) ? (tbPeriodKey ? (resolveTemporalColumn(b.columnMap, tbPeriodKey) ?? undefined) : undefined) : b?.column || undefined;
+    const effRed = (b: ConvergenceBindingEntry | undefined): string | undefined =>
+      isTemporalBinding(b) ? ((b as { reduction?: string }).reduction ?? 'snapshot') : b?.reduction;
+
     // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
     // through the roster-join index to produce the lookup key against the measure
     // batch. Existing dataByBatch cache is keyed by row_data[entity_identifier.column],
@@ -1473,13 +1484,14 @@ export async function POST(request: NextRequest) {
         // no longer silently converts a missing required field into a band-collapsing ZERO. The
         // `continue` remains as defense-in-depth; the `rawValue === null` case below stays a silent
         // per-entity skip on purpose (per-entity data absence, NOT a binding gap — DD-7).
-        if (!fieldBinding?.column) continue;
-        const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters, fieldBinding.reduction);
+        const fbCol = effCol(fieldBinding); // OB-220: temporal-aware column resolution
+        if (!fbCol) continue;
+        const rawValue = resolveColumnFromBatch(fbCol, lookupKey, fieldBinding?.filters, effRed(fieldBinding));
         if (rawValue === null) continue;
-        const scaled = fieldBinding.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
+        const scaled = fieldBinding?.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
         dagMetrics[field] = scaled;
         if (shouldEmitTrace(entityExternalId)) {
-          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:prime_dag_field entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | field=${field} | column=${fieldBinding.column} | raw=${rawValue} | scale=${fieldBinding.scale_factor ?? 'undefined'} | scaled=${scaled}`);
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:prime_dag_field entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | field=${field} | column=${fbCol} | raw=${rawValue} | scale=${fieldBinding?.scale_factor ?? 'undefined'} | scaled=${scaled}`);
         }
       }
       const dagResult = Object.keys(dagMetrics).length > 0 ? dagMetrics : null;
@@ -1497,7 +1509,7 @@ export async function POST(request: NextRequest) {
 
     // Need at least one measure binding (HF-222 Phase 3: gate on column rather than
     // the retired batch-id field).
-    if (!actualBinding?.column && !numBinding?.column) return null;
+    if (!effCol(actualBinding) && !effCol(numBinding)) return null; // OB-220: temporal-aware gate
 
     const expectedMetrics = getExpectedMetricNames(component);
     if (expectedMetrics.length === 0) return null;
@@ -1516,7 +1528,7 @@ export async function POST(request: NextRequest) {
 
     // HF-111: Ratio input — resolve both numerator and denominator
     // HF-222 Phase 3: gate on column; resolveColumnFromBatch is column-name-keyed.
-    if (numBinding?.column && denBinding?.column) {
+    if (effCol(numBinding) && effCol(denBinding)) {
       // HF-224 / HF-226: extract ratio leaf names BEFORE the column reads so
       // the metric-name resolution flows through to the metrics map below.
       const ratioLeafForNames = extractLeafSources(component.calculationIntent).find(l => l.source === 'ratio');
@@ -1529,16 +1541,16 @@ export async function POST(request: NextRequest) {
         : null;
 
       // HF-227: filters read from the binding entry, not from metric_derivations.
-      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters, numBinding.reduction);
-      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters, denBinding.reduction);
+      const rawNumValue = resolveColumnFromBatch(effCol(numBinding)!, lookupKey, numBinding!.filters, effRed(numBinding));
+      const rawDenValue = resolveColumnFromBatch(effCol(denBinding)!, lookupKey, denBinding!.filters, effRed(denBinding));
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
-      if (numBinding.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
-      if (denBinding.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
+      if (numBinding?.scale_factor) numValue = numValue !== null ? numValue * numBinding.scale_factor : null;
+      if (denBinding?.scale_factor) denValue = denValue !== null ? denValue * denBinding.scale_factor : null;
 
       if (shouldEmitTrace(entityExternalId)) {
-        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding.scale_factor ?? 'undefined'} | postDen=${denValue}`);
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=ratio | rawNum=${rawNumValue} | numScale=${numBinding?.scale_factor ?? 'undefined'} | postNum=${numValue} | rawDen=${rawDenValue} | denScale=${denBinding?.scale_factor ?? 'undefined'} | postDen=${denValue}`);
       }
 
       if (numMetricName && numValue !== null) {
@@ -1556,10 +1568,10 @@ export async function POST(request: NextRequest) {
 
     // Single or dual input (actual + target, or row + column)
     // HF-222 Phase 3: gate on column.
-    if (actualBinding?.column) {
+    if (effCol(actualBinding)) {
       // HF-227: filters live on the binding entry (Decision 111 single-
       // structure completion; replaces HF-226's findMetricFilters bridge).
-      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, actualBinding.filters, actualBinding.reduction);
+      const rawActualValue = resolveColumnFromBatch(effCol(actualBinding)!, lookupKey, actualBinding!.filters, effRed(actualBinding));
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1569,24 +1581,24 @@ export async function POST(request: NextRequest) {
 
       // HF-111: Apply scale factor (e.g., 0.85 ratio → 85 percentage)
       let actualValue = rawActualValue;
-      if (actualBinding.scale_factor) actualValue *= actualBinding.scale_factor;
+      if (actualBinding?.scale_factor) actualValue *= actualBinding.scale_factor;
 
       if (shouldEmitTrace(entityExternalId)) {
-        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
+        bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=actual | rawActual=${rawActualValue} | actualScale=${actualBinding?.scale_factor ?? 'undefined'} | postActual=${actualValue} | metricKey=${expectedMetrics[0]}`);
       }
 
       metrics[expectedMetrics[0]] = actualValue;
 
       // Resolve target/column value if binding exists
       // HF-222 Phase 3: gate on column.
-      if (targetBinding?.column) {
+      if (effCol(targetBinding)) {
         // HF-227: filters read from the binding entry directly.
-        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, targetBinding.filters, targetBinding.reduction);
+        const rawTargetValue = resolveColumnFromBatch(effCol(targetBinding)!, lookupKey, targetBinding!.filters, effRed(targetBinding));
         let targetValue = rawTargetValue;
-        if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
+        if (targetBinding?.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
         if (shouldEmitTrace(entityExternalId)) {
-          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
+          bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:scale_applied entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | slot=target | rawTarget=${rawTargetValue} | targetScale=${targetBinding?.scale_factor ?? 'undefined'} | postTarget=${targetValue}`);
         }
 
         if (targetValue !== null && targetValue !== 0) {
