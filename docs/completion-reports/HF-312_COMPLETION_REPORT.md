@@ -162,7 +162,8 @@ npm run build        : exit 0
 
 ## 4. SHA / PR
 Commits: directive `91575ab7` · Phase 0a `2305a113` · 0b `3e3c219e` · 1 `c5b5e7a1` · 2 `1aa86cf4`
-(+ this report). PR: (added on creation). DO NOT MERGE — SR-44.
+(+ this report + Phase 3 `fce9a6ac`). **PR #555 — https://github.com/CCAFRICA/spm-platform/pull/555**.
+DO NOT MERGE — architect merges + browser-verifies (SR-44).
 
 ---
 
