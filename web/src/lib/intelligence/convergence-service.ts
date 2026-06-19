@@ -430,7 +430,6 @@ export async function convergeBindings(
             distinctCount: stats.sampleCount,
             nullCount: 0,
             sampleSize: stats.sampleCount,
-            scaleInference: inferScale(stats),
           };
         }
       }
@@ -499,7 +498,7 @@ export async function convergeBindings(
               plan_id: ruleSetId,
               component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
               bound_column: colName,
-              value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
+              value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median } : null,
             },
             calculationRunId: calculationRunId ?? null,
           }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -2219,7 +2218,12 @@ export interface ColumnDistribution {
   distinctCount: number;
   nullCount: number;
   sampleSize: number;
-  scaleInference: 'ratio_0_1' | 'percentage_0_100' | 'integer_count' | 'integer_hundreds' | 'currency_large' | 'unknown';
+  // OB-216 Phase 3″: the prior `scaleInference` label bucketed columns by hardcoded
+  // magnitude cutoffs (a ratio ceiling, a percentage ceiling, count and currency
+  // bounds) — developer-assigned scale boundaries. Removed. Scale is now read directly
+  // from the distribution (min/max/median) by any consumer; the label was diagnostic-
+  // only (an observability signal field), never driving a binding, scale_factor, or
+  // plausibility decision.
 }
 
 export function profileColumnDistribution(
@@ -2251,43 +2255,15 @@ export function profileColumnDistribution(
   const max = n === 0 ? 0 : values[n - 1];
   const distinctCount = new Set(values).size;
 
-  // Scale inference — structural heuristics (Korean Test compliant)
-  let scaleInference: ColumnDistribution['scaleInference'] = 'unknown';
-  if (n > 0) {
-    const allNonNeg = min >= 0;
-    const allIntegers = values.every(v => Number.isInteger(v));
-
-    if (allNonNeg && max <= 1.5) {
-      scaleInference = 'ratio_0_1';
-    } else if (allNonNeg && max <= 150 && min < 1.5) {
-      scaleInference = 'percentage_0_100';
-    } else if (allNonNeg && allIntegers && max <= 50) {
-      scaleInference = 'integer_count';
-    } else if (allNonNeg && max > 50 && max <= 10000) {
-      scaleInference = 'integer_hundreds';
-    } else if (max > 10000) {
-      scaleInference = 'currency_large';
-    }
-  }
-
+  // OB-216 Phase 3″: no scale-bucket label — the distribution (min/max/median/p25/p75)
+  // is the scale signal. Removed the hardcoded magnitude cutoffs that previously
+  // classified the column into ratio/percentage/count/currency buckets.
   return {
     column: columnName,
     min, max, median, p25, p75,
     distinctCount, nullCount,
     sampleSize: n,
-    scaleInference,
   };
-}
-
-function inferScale(stats: ColumnValueStats): ColumnDistribution['scaleInference'] {
-  if (stats.sampleCount === 0) return 'unknown';
-  const allNonNeg = stats.min >= 0;
-  if (allNonNeg && stats.max <= 1.5) return 'ratio_0_1';
-  if (allNonNeg && stats.max <= 150 && stats.min < 1.5) return 'percentage_0_100';
-  if (allNonNeg && stats.max <= 50) return 'integer_count';
-  if (allNonNeg && stats.max > 50 && stats.max <= 10000) return 'integer_hundreds';
-  if (stats.max > 10000) return 'currency_large';
-  return 'unknown';
 }
 
 // ──────────────────────────────────────────────
