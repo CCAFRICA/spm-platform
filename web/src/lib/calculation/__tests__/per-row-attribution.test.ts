@@ -1,0 +1,129 @@
+/**
+ * OB-217 — per-row attribution module unit proof. Runner: node --test --import tsx.
+ *
+ * Proves, deterministically and without the DB:
+ *  - prime-DAG classification on the REAL live intent shapes (BCL Productos Cruzados =
+ *    additive; BCL tiered conditional→constant = non-attributable; CRP Consumables gated
+ *    multiply = qualified; CRP Equipment add(multiply,const) = non-attributable for now).
+ *  - SR-38 reconciliation: Σ(per-row) === raw outcome exactly; round_half_even(Σ,0) ===
+ *    stored integer payout; the rounding residual is the single entity-level adjustment.
+ *  - transaction_ref structural extraction (identifier that is not the entity id).
+ */
+import { test } from 'node:test';
+import { strict as assert } from 'node:assert';
+import {
+  classifyAttributionPattern,
+  analyzePrimeDag,
+  attributeRows,
+  extractTransactionRef,
+} from '@/lib/calculation/per-row-attribution';
+import type { PlanComponent } from '@/types/compensation-plan';
+
+function comp(intent: unknown): PlanComponent {
+  return { name: 'x', calculationIntent: intent as Record<string, unknown> } as unknown as PlanComponent;
+}
+
+// Real BCL component[2] "Productos Cruzados" shape.
+const BCL_PRODUCTOS = {
+  op: 'multiply', prime: 'arithmetic',
+  inputs: [{ field: 'cross_products_sold_count', prime: 'reference' }, { prime: 'constant', value: 25 }],
+};
+// Real BCL component[0] shape (truncated): nested conditional over a ratio → constants.
+const BCL_TIERED = {
+  prime: 'conditional',
+  condition: { op: 'gte', prime: 'compare', inputs: [{ field: 'portfolio_quality_ratio', prime: 'reference' }, { prime: 'constant', value: 0.95 }] },
+  then: { prime: 'constant', value: 200 },
+  else: { prime: 'constant', value: 0 },
+};
+// Real CRP Consumables inner shape: gate → multiply(revenue, rate) with a constant floor.
+const CRP_CONSUMABLES = {
+  prime: 'conditional',
+  condition: { op: 'gte', prime: 'compare', inputs: [{ op: 'divide', prime: 'arithmetic', inputs: [{ field: 'consumable_revenue', prime: 'reference' }, { field: 'monthly_quota', prime: 'reference' }] }, { prime: 'constant', value: 1.2 }] },
+  then: { op: 'multiply', prime: 'arithmetic', inputs: [{ field: 'consumable_revenue', prime: 'reference' }, { prime: 'constant', value: 0.08 }] },
+  else: { prime: 'constant', value: 0 },
+};
+// Real CRP Equipment: add(multiply(revenue, 0.06), constant(200)) — mixed → not single-metric linear.
+const CRP_EQUIPMENT = {
+  op: 'add', prime: 'arithmetic',
+  inputs: [{ op: 'multiply', prime: 'arithmetic', inputs: [{ field: 'period_equipment_revenue', prime: 'reference' }, { prime: 'constant', value: 0.06 }] }, { prime: 'constant', value: 200 }],
+};
+
+test('classify: BCL Productos Cruzados (multiply ref×const) → additive', () => {
+  assert.equal(classifyAttributionPattern(comp(BCL_PRODUCTOS)), 'additive');
+});
+
+test('classify: BCL tiered conditional → constants → non-attributable', () => {
+  assert.equal(classifyAttributionPattern(comp(BCL_TIERED)), 'non-attributable');
+});
+
+test('classify: CRP Consumables (gated multiply) → qualified', () => {
+  assert.equal(classifyAttributionPattern(comp(CRP_CONSUMABLES)), 'qualified');
+});
+
+test('classify: CRP Equipment add(multiply,const) → non-attributable (mixed, deferred)', () => {
+  assert.equal(classifyAttributionPattern(comp(CRP_EQUIPMENT)), 'non-attributable');
+});
+
+test('classify: bare reference → additive; bare constant → non-attributable', () => {
+  assert.equal(classifyAttributionPattern(comp({ prime: 'reference', field: 'x' })), 'additive');
+  assert.equal(classifyAttributionPattern(comp({ prime: 'constant', value: 5 })), 'non-attributable');
+  assert.equal(classifyAttributionPattern(comp(null)), 'non-attributable');
+});
+
+test('analyze: rate folding + gated flag', () => {
+  const a = analyzePrimeDag(BCL_PRODUCTOS);
+  assert.equal(a.terms.length, 1);
+  assert.deepEqual(a.terms[0], { rate: 25, metricField: 'cross_products_sold_count', kind: 'reference', gated: false });
+  assert.equal(a.hasGate, false);
+
+  const g = analyzePrimeDag(CRP_CONSUMABLES);
+  assert.equal(g.hasGate, true);
+  assert.ok(g.terms.some(t => t.metricField === 'consumable_revenue' && t.rate === 0.08 && t.gated));
+});
+
+test('SR-38: Σ per-row === raw outcome; round_half_even(Σ,0) === stored integer payout', () => {
+  // additive: 25 × {3,1,4} = {75,25,100}; raw = 200; stored 200.
+  const rows = [3, 1, 4].map((v, i) => ({ committedDataId: `c${i}`, rawValue: v, transactionRef: null }));
+  const out = attributeRows({ rows, effectiveRate: 25, metricColumn: 'Cantidad_Productos_Cruzados', pattern: 'additive', rawOutcome: 200, storedPayout: 200 });
+  assert.equal(out.matched, true);
+  assert.equal(out.reconciled, true);
+  assert.equal(out.perRowSum, 200);
+  assert.equal(out.roundedSum, 200);
+  assert.equal(out.traces.length, 3);
+  assert.equal((out.traces[0].output as Record<string, unknown>).contribution, 75);
+});
+
+test('SR-38: fractional rate reconciles to a rounded integer payout (0 dp, half-even)', () => {
+  // 0.03 × {100.50, 50.50} = {3.015, 1.515}; raw = 4.53; round_half_even(4.53,0)=5.
+  const rows = [100.5, 50.5].map((v, i) => ({ committedDataId: `c${i}`, rawValue: v, transactionRef: null }));
+  const raw = 0.03 * 100.5 + 0.03 * 50.5; // 4.53
+  const out = attributeRows({ rows, effectiveRate: 0.03, metricColumn: 'rev', pattern: 'additive', rawOutcome: raw, storedPayout: 5 });
+  assert.equal(out.matched, true, `delta=${out.delta}`);
+  assert.equal(out.roundedSum, 5);
+  assert.equal(out.reconciled, true);
+});
+
+test('SR-38: a wrong rate does NOT match the raw outcome (mismatch detectable)', () => {
+  const rows = [10, 20].map((v, i) => ({ committedDataId: `c${i}`, rawValue: v, transactionRef: null }));
+  const out = attributeRows({ rows, effectiveRate: 25, metricColumn: 'm', pattern: 'additive', rawOutcome: 999, storedPayout: 999 });
+  assert.equal(out.matched, false);
+});
+
+test('transaction_ref: identifier that is not the entity id', () => {
+  const meta = { entity_id_field: 'ID_Empleado', field_identities: {
+    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'employee_identifier' },
+    Folio: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
+    Monto: { structuralType: 'measure', contextualIdentity: 'amount' },
+  } };
+  const rd = { ID_Empleado: 'E1', Folio: 'F-7788', Monto: 100 };
+  assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), 'F-7788');
+});
+
+test('transaction_ref: null when only the entity identifier exists', () => {
+  const meta = { entity_id_field: 'ID_Empleado', field_identities: {
+    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'employee_identifier' },
+    Cantidad: { structuralType: 'measure', contextualIdentity: 'count' },
+  } };
+  const rd = { ID_Empleado: 'E1', Cantidad: 3 };
+  assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), null);
+});

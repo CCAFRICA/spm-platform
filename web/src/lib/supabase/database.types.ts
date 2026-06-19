@@ -640,6 +640,9 @@ export interface Database {
           output: Json;
           steps: Json;
           created_at: string;
+          // OB-217: per-transaction trace columns
+          committed_data_id: string | null;
+          transaction_ref: string | null;
         };
         Insert: {
           id?: string;
@@ -651,12 +654,18 @@ export interface Database {
           output?: Json;
           steps?: Json;
           created_at?: string;
+          // OB-217: per-transaction trace columns
+          committed_data_id?: string | null;
+          transaction_ref?: string | null;
         };
         Update: {
           formula?: string | null;
           inputs?: Json;
           output?: Json;
           steps?: Json;
+          // OB-217: per-transaction trace columns
+          committed_data_id?: string | null;
+          transaction_ref?: string | null;
         };
         Relationships: [];
       };

@@ -32,6 +32,16 @@ import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
+// OB-217: per-transaction trace substrate.
+import { writeCalculationTraces } from '@/lib/supabase/calculation-service';
+import {
+  analyzePrimeDag,
+  classifyAttributionPattern,
+  extractTransactionRef,
+  attributeRows,
+  type AttributionTracePrecursor,
+  type PerRowMetricValue,
+} from '@/lib/calculation/per-row-attribution';
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure, findIncompleteBindings, type IncompleteBinding, type ComponentBinding } from '@/lib/intelligence/convergence-service';
@@ -604,7 +614,8 @@ export async function POST(request: NextRequest) {
   // ── 4. Fetch committed data (OB-152: hybrid — source_date primary, period_id fallback) ──
   // HF-108: Added import_batch_id for convergence binding resolution (Decision 111)
   // OB-183: Added metadata to resolve entity_id_field at calc time
-  const committedData: Array<{ entity_id: string | null; data_type: string; row_data: Json; import_batch_id: string | null; metadata: Json | null }> = [];
+  // OB-217: select `id` so per-row traces can carry committed_data_id (structural identity).
+  const committedData: Array<{ id: string; entity_id: string | null; data_type: string; row_data: Json; import_batch_id: string | null; metadata: Json | null }> = [];
 
   // OB-152 Strategy: Try source_date range first (new imports), fall back to period_id (LAB/legacy)
   let usedSourceDate = false;
@@ -616,7 +627,7 @@ export async function POST(request: NextRequest) {
       // HF-196 Phase 1E: filter out superseded batches per Rule 30.
       let q = supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data, import_batch_id, metadata')
+        .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .not('source_date', 'is', null)
         .gte('source_date', period.start_date)
@@ -645,7 +656,7 @@ export async function POST(request: NextRequest) {
       // HF-196 Phase 1E: filter out superseded batches per Rule 30.
       let q = supabase
         .from('committed_data')
-        .select('entity_id, data_type, row_data, import_batch_id, metadata')
+        .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
         .range(from, to);
@@ -669,7 +680,7 @@ export async function POST(request: NextRequest) {
     // HF-196 Phase 1E: filter out superseded batches per Rule 30.
     let q = supabase
       .from('committed_data')
-      .select('entity_id, data_type, row_data, import_batch_id, metadata')
+      .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
@@ -814,6 +825,13 @@ export async function POST(request: NextRequest) {
   // Downstream consumers (resolveColumnFromBatch) iterate dataByBatch by column
   // name; no batch_id mediation.
   const dataByBatch = new Map<string, Map<string, Array<Record<string, unknown>>>>();
+  // OB-217: parallel per-row structure carrying committed_data identity (id) + sibling
+  // metadata, keyed IDENTICALLY to dataByBatch (same batch + per-sheet entity-key column).
+  // The existing aggregation path (dataByBatch / resolveColumnFromBatch) is untouched; the
+  // per-row attribution step reads this sibling so each trace can carry committed_data_id and
+  // a structurally-extracted transaction_ref. Memory is bounded by the same row set already
+  // held for the whole calc (row_data is referenced, not copied).
+  const attribRowsByBatch = new Map<string, Map<string, Array<{ id: string; row_data: Record<string, unknown>; metadata: Record<string, unknown> }>>>();
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
     // Derive known entity columns directly from convergenceBindings.
     const knownEntityCols = Array.from(new Set(
@@ -895,6 +913,16 @@ export async function POST(request: NextRequest) {
         if (entityKey) {
           if (!entityMap.has(entityKey)) entityMap.set(entityKey, []);
           entityMap.get(entityKey)!.push(rd);
+          // OB-217: mirror this row into the per-row attribution structure under the same key.
+          if (!attribRowsByBatch.has(batchId)) attribRowsByBatch.set(batchId, new Map());
+          const attribMap = attribRowsByBatch.get(batchId)!;
+          if (!attribMap.has(entityKey)) attribMap.set(entityKey, []);
+          attribMap.get(entityKey)!.push({
+            id: row.id,
+            row_data: rd,
+            metadata: (row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata))
+              ? row.metadata as Record<string, unknown> : {},
+          });
         }
       }
       addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
@@ -966,7 +994,7 @@ export async function POST(request: NextRequest) {
         // HF-196 Phase 1E: filter out superseded batches per Rule 30.
         let q = supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data, import_batch_id, metadata')
+          .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
           .gte('source_date', priorPeriod.start_date)
@@ -992,7 +1020,7 @@ export async function POST(request: NextRequest) {
         // HF-196 Phase 1E: filter out superseded batches per Rule 30.
         let q = supabase
           .from('committed_data')
-          .select('entity_id, data_type, row_data, import_batch_id, metadata')
+          .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
           .eq('tenant_id', tenantId)
           .eq('period_id', priorPeriodId)
           .range(from, to);
@@ -1690,6 +1718,52 @@ export async function POST(request: NextRequest) {
 
     return found ? result : null;
   }
+
+  // ── OB-217: per-row counterpart to resolveColumnFromBatch ──
+  // Mirrors the batch-selection (column-presence) + filter logic EXACTLY, but returns the
+  // individual rows (with committed_data id + sibling metadata) instead of the aggregate.
+  // Only flow-sum metrics are additively decomposable, so callers use this for reduction='sum';
+  // the SR-38 self-validation gate (Σ contributions === engine raw outcome) catches any
+  // divergence from resolveColumnFromBatch by construction.
+  function collectAttribRowsForColumn(
+    column: string,
+    entityExternalId: string,
+    filters?: MetricDerivationRule['filters'],
+  ): Array<{ committedDataId: string; rawValue: number; row_data: Record<string, unknown>; metadata: Record<string, unknown> }> | null {
+    let entityRows: Array<{ id: string; row_data: Record<string, unknown>; metadata: Record<string, unknown> }> | undefined;
+    for (const [, map] of Array.from(attribRowsByBatch.entries())) {
+      const rows = map.get(entityExternalId);
+      if (!rows || rows.length === 0) continue;
+      if (rows.some(r => r.row_data[column] !== null && r.row_data[column] !== undefined)) {
+        entityRows = rows;
+        break;
+      }
+    }
+    if (!entityRows) return null;
+
+    const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
+    const out: Array<{ committedDataId: string; rawValue: number; row_data: Record<string, unknown>; metadata: Record<string, unknown> }> = [];
+    for (const r of entityRows) {
+      if (hasActiveFilters && !rowMatchesFilters(r.row_data, filters!)) continue;
+      const val = r.row_data[column];
+      let num: number | null = null;
+      if (typeof val === 'number') num = val;
+      else if (typeof val === 'string') {
+        const parsed = parseFloat(val.replace(/[,$\s]/g, ''));
+        if (!isNaN(parsed)) num = parsed;
+      }
+      if (num === null) continue; // matches resolveColumnFromBatch: only parseable values contribute
+      out.push({ committedDataId: r.id, rawValue: num, row_data: r.row_data, metadata: r.metadata });
+    }
+    return out;
+  }
+
+  // OB-217: per-entity per-row trace precursors, accumulated during the entity loop and
+  // finalized (result_id attached) + written after the calculation_results insert below.
+  const perRowTraceAccumulator: Array<{ entityId: string; componentName: string; traces: AttributionTracePrecursor[] }> = [];
+  // OB-217: SR-38 hard-gate failures (a pure-additive component whose per-row sum did not
+  // reconcile to the engine raw outcome). Non-empty → HALT before writing traces.
+  const sr38Failures: Array<{ entityId: string; component: string; rawOutcome: number; perRowSum: number; delta: number }> = [];
 
   // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
   const entityResults: Array<{
@@ -2748,6 +2822,104 @@ export async function POST(request: NextRequest) {
     const intentTotal = toNumber(intentTotalDecimal);
     const entityTotal = intentTotal;
 
+    // ════════════════════════════════════════════════════════════════════════
+    // OB-217: Per-transaction attribution (additive / qualified components).
+    // Additive & non-invasive — the entity-level results above are already final. For each
+    // attributable component, decompose its rounded payout onto the committed_data rows that
+    // produced it, self-validating Σ(contributions) === engine raw outcome (SR-38). Traces are
+    // accumulated here (result_id is not known until the post-loop insert) and written below.
+    // ════════════════════════════════════════════════════════════════════════
+    if (convergenceBindings) {
+      for (let attrIdx = 0; attrIdx < selectedComponents.length; attrIdx++) {
+        const attrComponent = selectedComponents[attrIdx];
+        const attrPattern = classifyAttributionPattern(attrComponent);
+        if (attrPattern === 'non-attributable') continue;
+
+        const cr = componentResults[attrIdx];
+        const rt = entityRoundingTraces[attrIdx];
+        if (!cr || !rt) continue;
+        const storedPayout = cr.payout;
+        const rawOutcome = rt.rawValue;
+
+        // Re-derive the flattened binding key (same rule as the metrics loop, HF-273 Defect A).
+        let attrBindingKey: string | null = `component_${attrIdx}`;
+        if (variants.length > 1 && selectedVariantIndex > 0) {
+          const flattened = variants.flatMap(v => ((v.components as PlanComponent[] | undefined) ?? []));
+          const fi = flattened.indexOf(attrComponent);
+          attrBindingKey = fi >= 0 ? `component_${fi}` : null;
+        }
+        const attrBindings = attrBindingKey
+          ? (convergenceBindings[attrBindingKey] as Record<string, unknown> | undefined)
+          : undefined;
+        if (!attrBindings) continue;
+
+        // Entity lookup key, mirroring resolveMetricsFromConvergenceBindings (HF-216 via-join).
+        const attrEid = attrBindings.entity_identifier as ConvergenceBindingEntry | undefined;
+        let attrLookupKey = entityInfo?.external_id ?? '';
+        if (attrEid?.via?.roster_data_type && attrEid.via.roster_field && attrEid.via.entity_field) {
+          const viaKey = `${attrEid.via.roster_data_type}|${attrEid.via.entity_field}|${attrEid.via.roster_field}`;
+          const translated = rosterJoinIndex.get(viaKey)?.get(String(attrLookupKey).trim());
+          if (!translated) continue; // via declared but unresolved → no per-row attribution
+          attrLookupKey = translated;
+        }
+        if (!attrLookupKey) continue;
+        const attrEntityIdCol = attrEid?.column ?? null;
+
+        // Try each candidate additive term; the one whose Σ matches the engine raw outcome is
+        // the term that produced this entity's payout (self-validating branch selection — handles
+        // qualified gates without re-evaluating the condition).
+        const { terms } = analyzePrimeDag(attrComponent.calculationIntent);
+        let chosen: ReturnType<typeof attributeRows> | null = null;
+        for (const term of terms) {
+          if (term.kind !== 'reference') continue; // only binding-resolvable references for this OB
+          const fb = attrBindings[term.metricField] as ConvergenceBindingEntry | undefined;
+          if (!fb?.column) continue;
+          const reduction = fb.reduction ?? 'sum';
+          if (reduction !== 'sum') continue; // only flow-sum is additively decomposable
+          const collected = collectAttribRowsForColumn(fb.column, attrLookupKey, fb.filters);
+          if (!collected || collected.length === 0) continue;
+          const effectiveRate = term.rate * (fb.scale_factor ?? 1);
+          const rows: PerRowMetricValue[] = collected.map(r => ({
+            committedDataId: r.committedDataId,
+            rawValue: r.rawValue,
+            transactionRef: extractTransactionRef(
+              r.row_data,
+              r.metadata,
+              (r.metadata.entity_id_field as string | undefined) ?? attrEntityIdCol,
+            ),
+          }));
+          const outcome = attributeRows({
+            rows, effectiveRate, metricColumn: fb.column, pattern: attrPattern, rawOutcome, storedPayout,
+            entityMetricValue: perComponentMetrics[attrIdx]?.[term.metricField],
+          });
+          if (outcome.matched) { chosen = outcome; break; }
+        }
+
+        if (chosen) {
+          perRowTraceAccumulator.push({ entityId, componentName: attrComponent.name, traces: chosen.traces });
+          if (!chosen.reconciled) {
+            addLog(`[OB-217] WARN reconcile entity=${entityId} comp=${JSON.stringify(attrComponent.name)} roundedSum=${chosen.roundedSum} storedPayout=${storedPayout}`);
+          }
+        } else if (attrPattern === 'additive' && Math.abs(rawOutcome) > 0) {
+          // A pure additive component MUST reconcile when it produced a nonzero outcome.
+          // Probe the first reference term for diagnostics, then record an SR-38 hard failure.
+          let probeSum = 0; let probeDelta = Math.abs(rawOutcome);
+          const probeTerm = terms.find(t => t.kind === 'reference');
+          const fb = probeTerm ? (attrBindings[probeTerm.metricField] as ConvergenceBindingEntry | undefined) : undefined;
+          if (probeTerm && fb?.column) {
+            const collected = collectAttribRowsForColumn(fb.column, attrLookupKey, fb.filters);
+            if (collected) {
+              const effRate = probeTerm.rate * (fb.scale_factor ?? 1);
+              probeSum = collected.reduce((s, r) => s + effRate * r.rawValue, 0);
+              probeDelta = Math.abs(probeSum - rawOutcome);
+            }
+          }
+          sr38Failures.push({ entityId, component: attrComponent.name, rawOutcome, perRowSum: probeSum, delta: probeDelta });
+        }
+        // qualified + no match → entity took a constant/else branch (flat or zero): no per-row trace.
+      }
+    }
+
     // ── SYNAPTIC: Write per-component confidence synapses ──
     for (let ci = 0; ci < componentIntents.length; ci++) {
       // Dual-path payout concordance: two independently-computed Decimal payouts are "the same" within a cent.
@@ -2946,11 +3118,15 @@ export async function POST(request: NextRequest) {
   }));
 
   const WRITE_BATCH = 5000;
+  // OB-217: capture inserted ids → map entity_id → calculation_results.id (the FK every
+  // per-row trace needs; a trace cannot exist before its result row does).
+  const resultIdByEntity = new Map<string, string>();
   for (let i = 0; i < insertRows.length; i += WRITE_BATCH) {
     const slice = insertRows.slice(i, i + WRITE_BATCH);
-    const { error: writeErr } = await supabase
+    const { data: inserted, error: writeErr } = await supabase
       .from('calculation_results')
-      .insert(slice);
+      .insert(slice)
+      .select('id, entity_id');
 
     if (writeErr) {
       return NextResponse.json(
@@ -2958,9 +3134,48 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    for (const row of inserted ?? []) {
+      if (row.entity_id) resultIdByEntity.set(row.entity_id, row.id);
+    }
   }
 
   addLog(`Wrote ${insertRows.length} calculation_results (in ${Math.ceil(insertRows.length / WRITE_BATCH)} batches)`);
+
+  // ── OB-217: write per-transaction traces (after results exist, so the result_id FK resolves) ──
+  if (sr38Failures.length > 0) {
+    // SR-38 / SR-34: a pure-additive component failed to reconcile to the engine raw outcome.
+    // Do NOT ship wrong traces. Entity-level results are already correct and persisted; surface
+    // loudly and skip the trace write (never fail the calculation for an attribution defect).
+    const sample = sr38Failures.slice(0, 5)
+      .map(f => `entity=${f.entityId} comp=${JSON.stringify(f.component)} raw=${f.rawOutcome} perRowSum=${f.perRowSum} delta=${f.delta}`)
+      .join('; ');
+    addLog(`[OB-217] HALT-SR38: ${sr38Failures.length} additive component(s) did not reconcile — traces NOT written. ${sample}`);
+    console.error(`[OB-217] HALT-SR38 (${sr38Failures.length} failures):`, sr38Failures.slice(0, 20));
+  } else if (perRowTraceAccumulator.length > 0) {
+    const traceRows = perRowTraceAccumulator.flatMap(acc => {
+      const resultId = resultIdByEntity.get(acc.entityId);
+      if (!resultId) return [] as Array<Parameters<typeof writeCalculationTraces>[1][number]>;
+      return acc.traces.map(t => ({
+        resultId,
+        componentName: acc.componentName,
+        formula: t.formula,
+        inputs: t.inputs,
+        output: t.output,
+        committedDataId: t.committedDataId,
+        transactionRef: t.transactionRef,
+      }));
+    });
+    if (traceRows.length > 0) {
+      try {
+        await writeCalculationTraces(tenantId, traceRows, supabase);
+        addLog(`[OB-217] Wrote ${traceRows.length} per-transaction traces across ${perRowTraceAccumulator.length} entity-component groups`);
+      } catch (traceErr) {
+        // Non-blocking: entity-level results are already persisted; trace failure must not fail the run.
+        addLog(`[OB-217] WARNING: per-transaction trace write failed (non-blocking): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
+        console.error('[OB-217] trace write error:', traceErr);
+      }
+    }
+  }
 
   // ── 8. Transition batch to PREVIEW ──
   const { error: transErr } = await supabase
