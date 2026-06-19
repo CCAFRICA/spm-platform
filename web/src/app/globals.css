@@ -652,6 +652,11 @@ html[data-theme="vialuce"] .sb-user{display:flex;align-items:center;gap:10px;pad
 html[data-theme="vialuce"] .sb-user .av{width:33px;height:33px;border-radius:50%;background:linear-gradient(135deg,var(--vialuce-indigo),var(--vialuce-indigo-deep));color:#fff;display:grid;place-items:center;font-size:12px;font-weight:var(--vl-fw-med)}
 html[data-theme="vialuce"] .sb-user b{font-size:13px;font-weight:var(--vl-fw-med);display:block;line-height:1.3;color:#fff}
 html[data-theme="vialuce"] .sb-user span{font-size:11px;color:var(--vl-nav-muted)}
+/* HF-314 §3.1: user block is clickable to reveal the theme toggle; chevron rotates when open. */
+html[data-theme="vialuce"] .sb-user{cursor:pointer;border-radius:8px;transition:background var(--vl-dur)}
+html[data-theme="vialuce"] .sb-user:hover{background:rgba(255,255,255,.06)}
+html[data-theme="vialuce"] .sb-user .sb-user-chev{margin-left:auto;color:var(--vl-nav-muted);flex-shrink:0;transition:transform var(--vl-dur)}
+html[data-theme="vialuce"] .sb-user.open .sb-user-chev{transform:rotate(180deg)}
 html[data-theme="vialuce"] .main{display:flex;flex-direction:column;min-width:0}
 html[data-theme="vialuce"] .top{height:60px;background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--vl-line);display:flex;align-items:center;gap:16px;padding:0 28px;position:sticky;top:0;z-index:5}
 html[data-theme="vialuce"] .crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--vl-text-muted);white-space:nowrap}
