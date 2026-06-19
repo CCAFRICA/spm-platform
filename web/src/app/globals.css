@@ -424,7 +424,9 @@ html[data-theme="bliss"] [data-variant="default"][role="button"] {
 
 /* Cards: white surface, hairline border (via --card-* vars), 10px radius, warm shadow. */
 html[data-theme="bliss"] .vl-card {
-  border-radius: var(--radius-lg);
+  /* HF-311 Item 8: marketing card radius is 10px — softer than the 4px line-precision
+     --radius (inputs/buttons). Overrides the Card's rounded-2xl only under bliss. */
+  border-radius: 10px;
   box-shadow: var(--shadow-card);
 }
 
