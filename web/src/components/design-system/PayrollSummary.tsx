@@ -112,7 +112,7 @@ export function PayrollSummary({
     if (isVialuce) {
       return (
         <div className="empty">
-          <div className="ic">\uD83D\uDCB3</div>
+          <div className="ic">{'\uD83D\uDCB3'}</div>
           <b>Sin datos de nomina disponibles.</b>
         </div>
       );

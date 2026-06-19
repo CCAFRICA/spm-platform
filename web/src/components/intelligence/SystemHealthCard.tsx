@@ -124,7 +124,7 @@ export function SystemHealthCard({
           <div className="mt-3 flex items-center gap-2">
             <span className={cn('pill',
               reconciliationStatus.includes('100') ? 'success' :
-              reconciliationStatus.includes('No ') ? 'neutral' : 'neutral',
+              reconciliationStatus.includes('No ') ? 'neutral' : 'open',
             )}>
               {reconciliationStatus}
             </span>
