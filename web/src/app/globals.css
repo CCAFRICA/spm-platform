@@ -813,3 +813,42 @@ html[data-theme="vialuce"] .sb-theme button{flex:1;font-size:11px;line-height:1;
 html[data-theme="vialuce"] .sb-theme button.on{background:var(--vialuce-gold);color:#3a2606;font-weight:var(--vl-fw-med);border-color:transparent}
 html[data-theme="vialuce"] .sb-theme button:hover:not(.on):not(:disabled){background:rgba(255,255,255,.12)}
 html[data-theme="vialuce"] .sb-theme button:disabled{opacity:.6;cursor:wait}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-313 Defect 1 — content-area light-context remap (band-aid; tech debt).
+   The content components were written for the always-dark app: they use unconditional dark surface
+   utilities (bg-slate/zinc/gray-800/900/950) and light-text utilities (text-white / *-100/200) with no
+   light alternative — so on the light Vialuce bg they render as dark cards ("washed out"). The Vialuce
+   TOKENS are already correct white (verified); this is the HF-313 §HALT-1 / §6A per-page-adoption class
+   (315 dark-bg + 110 light-text across ~58 files). The STRUCTURAL fix is per-page design-class adoption;
+   until then these scoped utility remaps (mirroring bliss's HF-308 approach, extended to dark surfaces)
+   re-point the common dark-theme utilities to light tokens. Unlayered → wins over @layer utilities AND
+   `dark:` pairs without !important. Scoped to [data-theme="vialuce"] → Dark/Bliss unaffected.
+   Known collateral (documented): an intentionally-dark element or custom colored chip using these
+   utilities flips light; shadcn buttons are SAFE (they use --primary-foreground, not .text-white).
+   ════════════════════════════════════════════════════════════════════════════ */
+/* dark surfaces → white card surface */
+html[data-theme="vialuce"] .bg-slate-950,html[data-theme="vialuce"] .bg-slate-900,html[data-theme="vialuce"] .bg-slate-800,
+html[data-theme="vialuce"] .bg-zinc-950,html[data-theme="vialuce"] .bg-zinc-900,html[data-theme="vialuce"] .bg-zinc-800,
+html[data-theme="vialuce"] .bg-gray-950,html[data-theme="vialuce"] .bg-gray-900,html[data-theme="vialuce"] .bg-gray-800,
+html[data-theme="vialuce"] .bg-neutral-950,html[data-theme="vialuce"] .bg-neutral-900,html[data-theme="vialuce"] .bg-neutral-800{background-color:var(--vl-surface)}
+/* secondary dark fills → subtle page bg */
+html[data-theme="vialuce"] .bg-slate-700,html[data-theme="vialuce"] .bg-zinc-700,html[data-theme="vialuce"] .bg-gray-700{background-color:var(--vl-bg)}
+/* light fills (bliss HF-308 parity) → light semantic */
+html[data-theme="vialuce"] .bg-slate-100,html[data-theme="vialuce"] .bg-gray-100{background-color:oklch(var(--secondary))}
+html[data-theme="vialuce"] .bg-slate-200{background-color:oklch(var(--muted))}
+/* light text (for dark theme) → dark foreground */
+html[data-theme="vialuce"] .text-white,html[data-theme="vialuce"] .text-slate-50,html[data-theme="vialuce"] .text-slate-100,html[data-theme="vialuce"] .text-slate-200,
+html[data-theme="vialuce"] .text-zinc-50,html[data-theme="vialuce"] .text-zinc-100,html[data-theme="vialuce"] .text-zinc-200,
+html[data-theme="vialuce"] .text-gray-50,html[data-theme="vialuce"] .text-gray-100,html[data-theme="vialuce"] .text-gray-200{color:var(--vl-text)}
+/* muted light text → muted dark */
+html[data-theme="vialuce"] .text-slate-300,html[data-theme="vialuce"] .text-slate-400,html[data-theme="vialuce"] .text-slate-500,
+html[data-theme="vialuce"] .text-zinc-300,html[data-theme="vialuce"] .text-zinc-400,html[data-theme="vialuce"] .text-gray-300,html[data-theme="vialuce"] .text-gray-400{color:var(--vl-text-muted)}
+/* dark dark-theme body text (bliss HF-308 parity) → foreground */
+html[data-theme="vialuce"] .text-slate-900,html[data-theme="vialuce"] .text-slate-800{color:oklch(var(--foreground))}
+html[data-theme="vialuce"] .text-slate-700,html[data-theme="vialuce"] .text-slate-600{color:oklch(var(--muted-foreground))}
+/* dark borders → light line */
+html[data-theme="vialuce"] .border-slate-700,html[data-theme="vialuce"] .border-slate-800,html[data-theme="vialuce"] .border-slate-900,
+html[data-theme="vialuce"] .border-zinc-700,html[data-theme="vialuce"] .border-zinc-800,html[data-theme="vialuce"] .border-gray-700,html[data-theme="vialuce"] .border-gray-800{border-color:var(--vl-line)}
+/* modal scrim (Radix overlay bg-black/80) → indigo-tinted (bliss HF-311 parity) */
+html[data-theme="vialuce"] .bg-black\/80.fixed.inset-0{background-color:oklch(0.24 0.11 274 / 0.45)}
