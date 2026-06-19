@@ -8,6 +8,7 @@
 import { createClient, requireTenantId } from './client';
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { Database, Json, LifecycleState, BatchType } from './database.types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ──────────────────────────────────────────────
 // Type aliases
@@ -449,10 +450,18 @@ export async function writeCalculationTraces(
     inputs: Json;
     output: Json;
     steps?: Json;
-  }>
+    // OB-217: per-transaction trace identity (structural + business reference).
+    committedDataId?: string | null;
+    transactionRef?: string | null;
+  }>,
+  // OB-217: optional caller-supplied client. The calculation route writes traces
+  // server-side and MUST pass its service-role client (the default anon client
+  // hits RLS and cannot insert from the server). Backward-compatible: existing
+  // (browser-context) callers omit it and get the anon client as before.
+  client?: SupabaseClient<Database>,
 ): Promise<void> {
   requireTenantId(tenantId);
-  const supabase = createClient();
+  const supabase: SupabaseClient<Database> = client ?? createClient();
   const insertRows: CalcTraceInsert[] = traces.map(t => ({
     tenant_id: tenantId,
     result_id: t.resultId,
@@ -461,6 +470,10 @@ export async function writeCalculationTraces(
     inputs: t.inputs,
     output: t.output,
     steps: t.steps || ([] as Json),
+    // OB-217: nullable — committed_data_id always set for per-row traces; both
+    // null for any legacy entity-level trace.
+    committed_data_id: t.committedDataId ?? null,
+    transaction_ref: t.transactionRef ?? null,
   }));
 
   // Batch insert
