@@ -171,8 +171,8 @@ the proven SR-38 gate is not warranted). Documented residual.
 
 ## 6. SHA / PR
 Commits: Phase 0 `c017752d` (directive+ADR) · Phase 1 `f1ff7eb6` (engine+tests) · Phase 2 `52950df0`
-(prompt) · Phase 2 fix `d84b23bd` (validator, from adversarial verification). PR: (added on creation).
-DO NOT MERGE — SR-44.
+(prompt) · Phase 2 fix `d84b23bd` (validator, from adversarial verification).
+**PR #554 — https://github.com/CCAFRICA/spm-platform/pull/554**. DO NOT MERGE — SR-44.
 
 ---
 
