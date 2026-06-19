@@ -90,8 +90,8 @@ to `.sub`) — no behavioral impact.
 ---
 
 ## 6. SHA / PR
-Commits: directive `16733cb0` · Phase 0 `5a052fd1` · Phase 1 `320031e0` · Phases 2-3 `d0be439f` (+ report).
-PR: (added on creation). DO NOT MERGE — SR-44.
+Commits: directive `16733cb0` · Phase 0 `5a052fd1` · Phase 1 `320031e0` · Phases 2-3 `d0be439f` (+ report `5fa3db2f`).
+**PR #557 — https://github.com/CCAFRICA/spm-platform/pull/557**. DO NOT MERGE — SR-44.
 
 ## 7. ARTIFACT SYNC
 ```
