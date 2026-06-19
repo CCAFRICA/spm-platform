@@ -87,8 +87,6 @@ export function VialuceSidebar() {
     { key: 'rep' as PersonaKey, label: isSpanish ? 'Rep' : 'Rep' },
   ];
 
-  const calcAccessible = accessibleWorkspaces.includes('calculate');
-
   return (
     <aside className="sb" style={{ width: '100%', height: '100vh' }}>
       {/* Brand */}
@@ -112,13 +110,8 @@ export function VialuceSidebar() {
       )}
 
       <div className="sb-scroll">
-        {/* Gold Calculate CTA — the platform's primary action gets signal treatment (topbar has no
-            slot in this shell; relocated to the rail head). */}
-        {calcAccessible && (
-          <button className="btn-gold" style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }} onClick={() => navigateToWorkspace('calculate')}>
-            <Icon name="Zap" className="h-4 w-4" /> {isSpanish ? 'Calcular' : 'Calculate'}
-          </button>
-        )}
+        {/* HF-312: the gold Calculate CTA moved to VialuceTopbar (its design-spec home). Not
+            duplicated here. */}
 
         {/* Workspace switcher (2×2) */}
         <div className="sb-lbl">{isSpanish ? 'Espacios' : 'Workspaces'}</div>
