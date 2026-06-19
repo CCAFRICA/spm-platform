@@ -1648,15 +1648,22 @@ export async function POST(request: NextRequest) {
     // the file it actually lives in. No source_batch_id needed (the persisted binding carries none).
     // Single-batch (single-file) tenants are unaffected: the one batch is selected exactly as before.
     let entityRows: Array<Record<string, unknown>> | undefined;
+    let firstNonEmptyRows: Array<Record<string, unknown>> | undefined; // OB-222: fallback for count over field "*"
     let anyRowsForEntity = false;
     for (const [, map] of Array.from(dataByBatch.entries())) {
       const rows = map.get(entityExternalId);
       if (!rows || rows.length === 0) continue;
       anyRowsForEntity = true;
+      if (!firstNonEmptyRows) firstNonEmptyRows = rows;
       if (rows.some(rd => rd[column] !== null && rd[column] !== undefined)) {
         entityRows = rows;   // this batch carries the column for the entity
         break;
       }
+    }
+    // OB-222: a 'count' reduction over field "*" counts qualifying ROWS, not a column's values, so
+    // column-presence batch selection does not apply — use the entity's first non-empty batch.
+    if (!entityRows && reduction === 'count' && (!column || column === '*')) {
+      entityRows = firstNonEmptyRows;
     }
     if (!entityRows) {
       // Structured failure (never a silent 0): distinguish "entity has rows but none carry this column"
@@ -1693,6 +1700,19 @@ export async function POST(request: NextRequest) {
         const parsed = parseFloat(val.replace(/[,$\s]/g, ''));
         if (!isNaN(parsed)) nums.push(parsed);
       }
+    }
+
+    // OB-222: 'count' reduction returns the number of rows that passed the filter (the column value is
+    // irrelevant; field "*" signals a pure row count). Zero qualifying rows is a meaningful 0, not
+    // data-absence — so count is NOT gated on numeric parseability and never returns null here (the
+    // entity is known to have rows; the count is well-defined). Deterministic mirror of the
+    // aggregate(count) prime, exposed on the binding path for "count of qualifying transactions" metrics.
+    if (reduction === 'count') {
+      const matched = entityRows.length - filteredOut;
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=count | rowCount=${entityRows.length} | filteredOut=${filteredOut} | matched=${matched} | returned=${matched}`);
+      }
+      return matched;
     }
 
     // OB-216 §2 (Phase 3'): apply the BINDING-RECOGNISED reduction over the entity's rows. Default
