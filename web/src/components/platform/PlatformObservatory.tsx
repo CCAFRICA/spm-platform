@@ -51,13 +51,13 @@ export function PlatformObservatory() {
   const [activeTab, setActiveTab] = useState<TabId>('command-center');
 
   return (
-    <div style={{ minHeight: '100vh', background: '#020617', color: '#E2E8F0', fontSize: '14px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--strag-deep)', color: 'var(--strag-s2)', fontSize: '14px' }}>
       {/* Top bar */}
       <header style={{
         position: 'sticky',
         top: 0,
         zIndex: 50,
-        borderBottom: '1px solid #1E293B',
+        borderBottom: '1px solid var(--strag-s8)',
         background: 'rgba(2, 6, 23, 0.95)',
         backdropFilter: 'blur(8px)',
       }}>
@@ -83,8 +83,8 @@ export function PlatformObservatory() {
               <span style={{ fontSize: '14px', fontWeight: 800, color: '#FFFFFF' }}>V</span>
             </div>
             <div>
-              <span style={{ fontSize: '14px', fontWeight: 700, color: '#F8FAFC' }}>Platform Observatory</span>
-              <span style={{ color: '#94A3B8', fontSize: '13px', marginLeft: '8px' }}>Vialuce</span>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--strag-s0)' }}>Platform Observatory</span>
+              <span style={{ color: 'var(--strag-s4)', fontSize: '13px', marginLeft: '8px' }}>Vialuce</span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -97,13 +97,13 @@ export function PlatformObservatory() {
               borderRadius: '6px',
               padding: '2px 8px',
             }}>VL Admin</span>
-            <span style={{ color: '#94A3B8', fontSize: '14px' }}>{user?.email}</span>
+            <span style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>{user?.email}</span>
             <button
               onClick={logout}
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#94A3B8',
+                color: 'var(--strag-s4)',
                 cursor: 'pointer',
                 padding: '6px',
                 borderRadius: '6px',
@@ -116,7 +116,7 @@ export function PlatformObservatory() {
       </header>
 
       {/* Tab navigation */}
-      <div style={{ borderBottom: '1px solid #1E293B' }}>
+      <div style={{ borderBottom: '1px solid var(--strag-s8)' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px' }}>
           <nav style={{ display: 'flex', gap: '4px' }}>
             {TABS.map(tab => {
@@ -137,7 +137,7 @@ export function PlatformObservatory() {
                     background: 'none',
                     cursor: 'pointer',
                     borderBottom: `2px solid ${isActive ? '#E8A838' : 'transparent'}`,
-                    color: isActive ? '#F8FAFC' : '#94A3B8',
+                    color: isActive ? 'var(--strag-s0)' : 'var(--strag-s4)',
                     transition: 'color 0.15s, border-color 0.15s',
                     marginBottom: '-1px',
                   }}

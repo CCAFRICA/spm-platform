@@ -120,7 +120,7 @@ export function FeatureFlagsTab() {
     return (
       <div style={{ padding: '24px', color: '#EF4444', fontSize: '14px' }}>
         <p>Failed to load settings: {error}</p>
-        <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '8px' }}>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '8px' }}>
           Ensure the platform_settings table has been created in Supabase.
         </p>
       </div>
@@ -128,29 +128,29 @@ export function FeatureFlagsTab() {
   }
 
   return (
-    <div style={{ fontSize: '14px', color: '#E2E8F0', lineHeight: '1.5' }}>
+    <div style={{ fontSize: '14px', color: 'var(--strag-s2)', lineHeight: '1.5' }}>
       {/* Section heading */}
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>Platform Settings</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
+        <h2 style={{ color: 'var(--strag-s0)', fontSize: '18px', fontWeight: 700, margin: 0 }}>Platform Settings</h2>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>
           Toggle platform-wide feature flags. Changes take effect within 60 seconds.
         </p>
       </div>
 
       {/* OB-201 Appearance Panel — global app UI theme (current | bliss) */}
       <div style={{
-        background: '#0F172A',
-        border: '1px solid #1E293B',
+        background: 'var(--strag-panel)',
+        border: '1px solid var(--strag-s8)',
         borderRadius: '12px',
         padding: '24px',
         marginBottom: '16px',
       }}>
-        <h3 style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>Appearance</h3>
-        <p style={{ color: '#94A3B8', fontSize: '13px', margin: '0 0 16px' }}>
+        <h3 style={{ color: 'var(--strag-s0)', fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>Appearance</h3>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: '0 0 16px' }}>
           Global app UI theme for all users. Applied server-side on the next page render. &ldquo;Current&rdquo;
           is the existing look; &ldquo;Bliss&rdquo; is the indigo/gold brand re-skin.
         </p>
-        <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #334155', overflow: 'hidden' }}>
+        <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid var(--strag-s7)', overflow: 'hidden' }}>
           {(['current', 'bliss'] as const).map(theme => {
             const isActive = activeTheme === theme;
             return (
@@ -165,7 +165,7 @@ export function FeatureFlagsTab() {
                   border: 'none',
                   cursor: themeSaving ? 'wait' : (isActive ? 'default' : 'pointer'),
                   background: isActive ? '#4F46E5' : 'transparent',
-                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  color: isActive ? '#FFFFFF' : 'var(--strag-s4)',
                   textTransform: 'capitalize',
                   transition: 'background-color 0.15s',
                 }}
@@ -176,19 +176,19 @@ export function FeatureFlagsTab() {
           })}
         </div>
         {themeSaving && (
-          <span style={{ color: '#94A3B8', fontSize: '12px', marginLeft: '12px' }}>Applying… reloading.</span>
+          <span style={{ color: 'var(--strag-s4)', fontSize: '12px', marginLeft: '12px' }}>Applying… reloading.</span>
         )}
       </div>
 
       {/* Feature Flags Panel */}
       <div style={{
-        background: '#0F172A',
-        border: '1px solid #1E293B',
+        background: 'var(--strag-panel)',
+        border: '1px solid var(--strag-s8)',
         borderRadius: '12px',
         padding: '24px',
       }}>
         <h3 style={{
-          color: '#F8FAFC',
+          color: 'var(--strag-s0)',
           fontSize: '16px',
           fontWeight: 700,
           margin: '0 0 16px',
@@ -213,18 +213,18 @@ export function FeatureFlagsTab() {
                   padding: '16px 20px',
                   borderRadius: '8px',
                   background: 'rgba(30, 41, 59, 0.5)',
-                  border: '1px solid #334155',
+                  border: '1px solid var(--strag-s7)',
                 }}
               >
                 <div style={{ flex: 1, marginRight: '16px' }}>
-                  <p style={{ color: '#F1F5F9', fontSize: '14px', fontWeight: 600, margin: 0 }}>
+                  <p style={{ color: 'var(--strag-s1)', fontSize: '14px', fontWeight: 600, margin: 0 }}>
                     {config.label}
                   </p>
-                  <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px', margin: '4px 0 0' }}>
+                  <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px', margin: '4px 0 0' }}>
                     {config.description}
                   </p>
                   {setting.updated_at && (
-                    <p style={{ color: '#64748B', fontSize: '12px', marginTop: '6px', margin: '6px 0 0' }}>
+                    <p style={{ color: 'var(--strag-s5)', fontSize: '12px', marginTop: '6px', margin: '6px 0 0' }}>
                       Last updated: {new Date(setting.updated_at).toLocaleString()}
                     </p>
                   )}
@@ -245,7 +245,7 @@ export function FeatureFlagsTab() {
                     border: 'none',
                     cursor: isToggling ? 'wait' : 'pointer',
                     transition: 'background-color 0.2s',
-                    backgroundColor: isOn ? '#4F46E5' : '#475569',
+                    backgroundColor: isOn ? '#4F46E5' : 'var(--strag-s6)',
                     opacity: isToggling ? 0.6 : 1,
                   }}
                   aria-label={`Toggle ${config.label}`}
@@ -269,7 +269,7 @@ export function FeatureFlagsTab() {
         </div>
 
         {settings.length === 0 && (
-          <p style={{ color: '#94A3B8', fontSize: '14px', padding: '16px 0' }}>
+          <p style={{ color: 'var(--strag-s4)', fontSize: '14px', padding: '16px 0' }}>
             No feature flags found. Ensure the platform_settings table is populated.
           </p>
         )}

@@ -26,8 +26,8 @@ interface MetricsData {
 }
 
 const card = {
-  background: '#0F172A',
-  border: '1px solid #1E293B',
+  background: 'var(--strag-panel)',
+  border: '1px solid var(--strag-s8)',
   borderRadius: '12px',
   padding: '24px',
 } as const;
@@ -38,9 +38,9 @@ const fmtInt = (n: number) => (n ?? 0).toLocaleString();
 function TotalCard({ label, t }: { label: string; t: Totals }) {
   return (
     <div style={{ ...card, flex: 1 }}>
-      <p style={{ color: '#94A3B8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{label}</p>
-      <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 800, margin: '8px 0 4px' }}>{fmtUSD(t.costUSD)}</p>
-      <p style={{ color: '#94A3B8', fontSize: '13px', margin: 0 }}>
+      <p style={{ color: 'var(--strag-s4)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{label}</p>
+      <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 800, margin: '8px 0 4px' }}>{fmtUSD(t.costUSD)}</p>
+      <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: 0 }}>
         {fmtInt(t.calls)} calls · {fmtInt(t.tokensIn + t.tokensOut)} tokens
       </p>
     </div>
@@ -50,13 +50,13 @@ function TotalCard({ label, t }: { label: string; t: Totals }) {
 function BreakdownTable({ title, rows }: { title: string; rows: Group[] }) {
   return (
     <div style={{ ...card, marginBottom: '16px' }}>
-      <h3 style={{ color: '#F8FAFC', fontSize: '15px', fontWeight: 700, margin: '0 0 12px' }}>{title}</h3>
+      <h3 style={{ color: 'var(--strag-s0)', fontSize: '15px', fontWeight: 700, margin: '0 0 12px' }}>{title}</h3>
       {rows.length === 0 ? (
-        <p style={{ color: '#94A3B8', fontSize: '13px', margin: 0 }}>No calls recorded yet.</p>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: 0 }}>No calls recorded yet.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
-            <tr style={{ color: '#94A3B8', textAlign: 'left' }}>
+            <tr style={{ color: 'var(--strag-s4)', textAlign: 'left' }}>
               <th style={{ padding: '6px 8px', fontWeight: 600 }}>Key</th>
               <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Calls</th>
               <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Tokens</th>
@@ -65,10 +65,10 @@ function BreakdownTable({ title, rows }: { title: string; rows: Group[] }) {
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.key} style={{ borderTop: '1px solid #1E293B' }}>
-                <td style={{ padding: '6px 8px' }}><code style={{ color: '#F1F5F9' }}>{r.key}</code></td>
-                <td style={{ padding: '6px 8px', textAlign: 'right', color: '#E2E8F0' }}>{fmtInt(r.calls)}</td>
-                <td style={{ padding: '6px 8px', textAlign: 'right', color: '#E2E8F0' }}>{fmtInt(r.tokensIn + r.tokensOut)}</td>
+              <tr key={r.key} style={{ borderTop: '1px solid var(--strag-s8)' }}>
+                <td style={{ padding: '6px 8px' }}><code style={{ color: 'var(--strag-s1)' }}>{r.key}</code></td>
+                <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--strag-s2)' }}>{fmtInt(r.calls)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--strag-s2)' }}>{fmtInt(r.tokensIn + r.tokensOut)}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right', color: '#34D399' }}>{fmtUSD(r.costUSD)}</td>
               </tr>
             ))}
@@ -102,10 +102,10 @@ export function AIMetricsTab() {
   if (!data) return null;
 
   return (
-    <div style={{ fontSize: '14px', color: '#E2E8F0', lineHeight: '1.5' }}>
+    <div style={{ fontSize: '14px', color: 'var(--strag-s2)', lineHeight: '1.5' }}>
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>AI Metrics &amp; Cost</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
+        <h2 style={{ color: 'var(--strag-s0)', fontSize: '18px', fontWeight: 700, margin: 0 }}>AI Metrics &amp; Cost</h2>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>
           Per-call usage and real per-model cost across every AI surface (ai_call_metrics × MODEL_PRICING).
         </p>
       </div>

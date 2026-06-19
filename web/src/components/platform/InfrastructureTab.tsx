@@ -15,7 +15,7 @@ import {
 
 /* ──── STYLES ──── */
 const LABEL_STYLE: React.CSSProperties = {
-  color: '#94A3B8',
+  color: 'var(--strag-s4)',
   fontSize: '13px',
   fontWeight: 500,
   textTransform: 'uppercase',
@@ -79,8 +79,8 @@ export function InfrastructureTab() {
     <div className="space-y-8">
       {/* Tab heading */}
       <div>
-        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>Infrastructure</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px' }}>Service health, storage metrics, and cost projections</p>
+        <h2 style={{ color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 }}>Infrastructure</h2>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>Service health, storage metrics, and cost projections</p>
       </div>
 
       {/* Service Health */}
@@ -98,20 +98,20 @@ export function InfrastructureTab() {
           >
             <div className="flex items-center gap-2 mb-3">
               <Database className="h-4 w-4" style={{ color: data.supabaseHealthy ? '#34d399' : '#f87171' }} />
-              <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 600 }}>Supabase</span>
+              <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 600 }}>Supabase</span>
               {data.supabaseHealthy ? (
                 <CheckCircle className="h-3.5 w-3.5 ml-auto" style={{ color: '#34d399' }} />
               ) : (
                 <XCircle className="h-3.5 w-3.5 ml-auto" style={{ color: '#f87171' }} />
               )}
             </div>
-            <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
               {supabaseRowCount.toLocaleString()}
             </p>
-            <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
+            <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '2px' }}>
               total rows ({data.committedDataCount.toLocaleString()} data + {data.totalOutcomes.toLocaleString()} outcomes)
             </p>
-            <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+            <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
               {data.tenantCount} tenant{data.tenantCount !== 1 ? 's' : ''} connected
             </p>
           </div>
@@ -127,19 +127,19 @@ export function InfrastructureTab() {
           >
             <div className="flex items-center gap-2 mb-3">
               <Cloud className="h-4 w-4" style={{ color: '#34d399' }} />
-              <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 600 }}>Vercel</span>
+              <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 600 }}>Vercel</span>
               <CheckCircle className="h-3.5 w-3.5 ml-auto" style={{ color: '#34d399' }} />
             </div>
-            <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700 }}>Active</p>
-            <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
+            <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700 }}>Active</p>
+            <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '2px' }}>
               Edge deployment healthy
             </p>
             {data.lastDeployTimestamp ? (
-              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
                 Last activity: {new Date(data.lastDeployTimestamp).toLocaleDateString()}
               </p>
             ) : (
-              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
                 Serving {data.tenantCount} tenant{data.tenantCount !== 1 ? 's' : ''}
               </p>
             )}
@@ -156,7 +156,7 @@ export function InfrastructureTab() {
           >
             <div className="flex items-center gap-2 mb-3">
               <Server className="h-4 w-4" style={{ color: data.hasAnthropicKey ? '#34d399' : '#fbbf24' }} />
-              <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 600 }}>Anthropic</span>
+              <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 600 }}>Anthropic</span>
               {data.hasAnthropicKey ? (
                 <CheckCircle className="h-3.5 w-3.5 ml-auto" style={{ color: '#34d399' }} />
               ) : (
@@ -165,22 +165,22 @@ export function InfrastructureTab() {
             </div>
             {data.meteringConfigured ? (
               <>
-                <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                   {data.aiCallsThisPeriod.toLocaleString()}
                 </p>
-                <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>
+                <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '2px' }}>
                   API calls this period
                 </p>
-                <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+                <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
                   {aiErrorRate}% error rate
                 </p>
               </>
             ) : (
               <>
-                <p style={{ color: '#CBD5E1', fontSize: '14px', fontWeight: 500, marginTop: '4px' }}>
+                <p style={{ color: 'var(--strag-s3)', fontSize: '14px', fontWeight: 500, marginTop: '4px' }}>
                   {data.hasAnthropicKey ? 'Key configured' : 'No API key'}
                 </p>
-                <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+                <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
                   {data.hasAnthropicKey
                     ? 'Run AI assessments to start metering'
                     : 'Set ANTHROPIC_API_KEY to enable AI'}
@@ -198,21 +198,21 @@ export function InfrastructureTab() {
             <HardDrive className="h-4 w-4" style={{ color: '#a78bfa' }} />
             <span style={LABEL_STYLE}>Committed Data Rows</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.committedDataCount.toLocaleString()}</p>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.committedDataCount.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Database className="h-4 w-4" style={{ color: '#a78bfa' }} />
             <span style={LABEL_STYLE}>Calculation Outcomes</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.totalOutcomes.toLocaleString()}</p>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.totalOutcomes.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
           <div className="flex items-center gap-2 mb-2">
             <Server className="h-4 w-4" style={{ color: '#a78bfa' }} />
             <span style={LABEL_STYLE}>Active Tenants</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.tenantCount}</p>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.tenantCount}</p>
         </div>
       </div>
 
@@ -224,7 +224,7 @@ export function InfrastructureTab() {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr style={{ borderBottom: '1px solid #27272a' }}>
+              <tr style={{ borderBottom: '1px solid var(--strag-z8)' }}>
                 <th style={{ ...LABEL_STYLE, paddingBottom: '8px', paddingRight: '16px' }}>Service</th>
                 <th style={{ ...LABEL_STYLE, paddingBottom: '8px', paddingRight: '16px' }}>Tier</th>
                 <th style={{ ...LABEL_STYLE, paddingBottom: '8px', paddingRight: '16px' }}>Usage Driver</th>
@@ -254,9 +254,9 @@ export function InfrastructureTab() {
               />
             </tbody>
             <tfoot>
-              <tr style={{ borderTop: '1px solid #3f3f46' }}>
-                <td colSpan={3} style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, paddingTop: '12px' }}>Total Estimated</td>
-                <td style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, paddingTop: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              <tr style={{ borderTop: '1px solid var(--strag-z7)' }}>
+                <td colSpan={3} style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500, paddingTop: '12px' }}>Total Estimated</td>
+                <td style={{ color: 'var(--strag-s0)', fontSize: '14px', fontWeight: 700, paddingTop: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                   ${(
                     deriveCost('supabase', data.committedDataCount) +
                     deriveCost('vercel', data.tenantCount) +
@@ -267,7 +267,7 @@ export function InfrastructureTab() {
             </tfoot>
           </table>
         </div>
-        <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '12px' }}>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '12px' }}>
           Estimates based on current usage patterns. Actual costs may vary.
         </p>
       </div>
@@ -278,12 +278,12 @@ export function InfrastructureTab() {
           <div className="flex items-center gap-3">
             <Zap className="h-5 w-5" style={{ color: '#fbbf24' }} />
             <div style={{ flex: 1 }}>
-              <p style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500 }}>Platform Metering Not Configured</p>
-              <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '2px' }}>
+              <p style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500 }}>Platform Metering Not Configured</p>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '2px' }}>
                 Run AI assessments or classification to begin recording usage events. Cost projections for Anthropic will become dynamic once metering data is available.
               </p>
             </div>
-            <ArrowUpRight className="h-4 w-4" style={{ color: '#94A3B8' }} />
+            <ArrowUpRight className="h-4 w-4" style={{ color: 'var(--strag-s4)' }} />
           </div>
         </div>
       )}
@@ -299,10 +299,10 @@ function CostRow({ service, tier, driver, cost }: {
 }) {
   return (
     <tr style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.5)' }}>
-      <td style={{ color: '#E2E8F0', fontWeight: 500, padding: '10px 16px 10px 0' }}>{service}</td>
-      <td style={{ color: '#94A3B8', padding: '10px 16px 10px 0' }}>{tier}</td>
-      <td style={{ color: '#94A3B8', padding: '10px 16px 10px 0' }}>{driver}</td>
-      <td style={{ color: '#F8FAFC', fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '10px 0' }}>${cost.toFixed(0)}</td>
+      <td style={{ color: 'var(--strag-s2)', fontWeight: 500, padding: '10px 16px 10px 0' }}>{service}</td>
+      <td style={{ color: 'var(--strag-s4)', padding: '10px 16px 10px 0' }}>{tier}</td>
+      <td style={{ color: 'var(--strag-s4)', padding: '10px 16px 10px 0' }}>{driver}</td>
+      <td style={{ color: 'var(--strag-s0)', fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '10px 0' }}>${cost.toFixed(0)}</td>
     </tr>
   );
 }
