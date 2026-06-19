@@ -41,15 +41,16 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   // HF-310: the per-user theme toggle belongs in THIS (the live bottom-left sidebar) menu —
   // HF-309 placed it in the top-bar menu, which is not the menu users open. The HF-309 mechanism
   // (POST /api/user/theme → cookie + profiles.preferences → reload) is unchanged.
-  const [theme, setThemeState] = useState<'current' | 'bliss'>('current');
+  const [theme, setThemeState] = useState<'current' | 'bliss' | 'vialuce'>('current'); // OB-221: third theme
   const [themeSaving, setThemeSaving] = useState(false);
   useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme') === 'bliss' ? 'bliss' : 'current';
+    const attr = document.documentElement.getAttribute('data-theme');
+    const t = attr === 'bliss' ? 'bliss' : attr === 'vialuce' ? 'vialuce' : 'current';
     setThemeState(t);
     // sync vl-theme cookie (theme name only) so pre-auth surfaces (login) reflect it
     document.cookie = `vl-theme=${t}; Path=/; SameSite=Lax; Secure; Max-Age=31536000`;
   }, []);
-  const setTheme = async (next: 'current' | 'bliss') => {
+  const setTheme = async (next: 'current' | 'bliss' | 'vialuce') => {
     if (next === theme || themeSaving) return;
     setThemeSaving(true);
     try {
@@ -95,7 +96,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
         <Palette className="h-3.5 w-3.5" /> {isSpanish ? 'Tema' : 'Theme'}
       </div>
       <div className="inline-flex w-full rounded-md border border-border overflow-hidden text-xs">
-        {(['current', 'bliss'] as const).map((t) => (
+        {(['current', 'bliss', 'vialuce'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTheme(t)}
@@ -104,7 +105,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
               theme === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
             } ${themeSaving ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}
           >
-            {t === 'current' ? 'Current' : 'Bliss'}
+            {t === 'current' ? 'Current' : t === 'bliss' ? 'Bliss' : 'Vialuce'}
           </button>
         ))}
       </div>

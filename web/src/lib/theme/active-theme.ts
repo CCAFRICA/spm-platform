@@ -12,7 +12,7 @@
 
 import { createServiceRoleClientSafe } from '@/lib/supabase/service-role';
 
-export type AppTheme = 'current' | 'bliss';
+export type AppTheme = 'current' | 'bliss' | 'vialuce';
 
 /**
  * HF-309: three-level resolution. `explicit` is the per-context preference — the authed user's
@@ -20,7 +20,7 @@ export type AppTheme = 'current' | 'bliss';
  * it wins; otherwise fall through to the global platform_settings default, then 'current'.
  */
 export async function getResolvedTheme(explicit?: AppTheme | null | string): Promise<AppTheme> {
-  if (explicit === 'bliss' || explicit === 'current') return explicit;
+  if (explicit === 'bliss' || explicit === 'current' || explicit === 'vialuce') return explicit;
   return getActiveTheme(); // global default → 'current'
 }
 
@@ -35,7 +35,7 @@ export async function getActiveTheme(): Promise<AppTheme> {
     const raw = data?.value;
     // jsonb may surface as a parsed string ('bliss') or, defensively, a quoted JSON string ('"bliss"').
     const normalized = typeof raw === 'string' ? raw.replace(/^"|"$/g, '') : '';
-    return normalized === 'bliss' ? 'bliss' : 'current';
+    return normalized === 'bliss' ? 'bliss' : normalized === 'vialuce' ? 'vialuce' : 'current';
   } catch {
     return 'current';
   }

@@ -51,7 +51,7 @@ export default async function RootLayout({
       lang="en"
       className="dark"
       data-theme={activeTheme}
-      style={{ colorScheme: activeTheme === 'bliss' ? 'light' : 'dark' }}
+      style={{ colorScheme: (activeTheme === 'bliss' || activeTheme === 'vialuce') ? 'light' : 'dark' }}
     >
       <body
         className={`${dmSans.variable} ${dmMono.variable} antialiased`}
