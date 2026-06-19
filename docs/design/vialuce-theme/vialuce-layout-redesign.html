@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIALUCE — Layout redesign (world-class)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<style>
+  :root{
+    --ink:#16173B; --slate:#5B637C; --slate-soft:#8A90A6;
+    --indigo-deep:#2D2F8F; --indigo:#4446B8; --indigo-light:#6668D8; --indigo-50:#EEF0FB; --indigo-100:#E0E2F6;
+    --gold:#E8A838; --gold-light:#F5C060; --gold-50:#FCF4E3;
+    --green:#15936A; --green-50:#E6F5EE; --red:#DC5454; --red-50:#FCECEC;
+    --bg:#F4F5FB; --surface:#FFFFFF; --line:#E8EAF3; --line-soft:#F0F1F8;
+    --nav:#1F2154; --nav-line:rgba(255,255,255,.09);
+    --nav-text:rgba(255,255,255,.72); --nav-mut:rgba(255,255,255,.42);
+    --r-sm:7px; --r-md:10px; --r-lg:14px;
+    --sh-1:0 1px 2px rgba(22,23,59,.06),0 1px 3px rgba(22,23,59,.04);
+    --sh-2:0 2px 4px rgba(22,23,59,.05),0 8px 24px rgba(22,23,59,.07);
+    --sans:'DM Sans',system-ui,sans-serif; --mono:'DM Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);font-weight:300;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
+  ::selection{background:var(--indigo-100)}
+  .app{display:grid;grid-template-columns:252px 1fr;min-height:100vh}
+
+  /* ============ SIDEBAR ============ */
+  .sb{background:var(--nav);color:var(--nav-text);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+  .sb-brand{display:flex;align-items:center;gap:11px;padding:18px 18px 16px}
+  .sb-logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--indigo-light),var(--indigo));display:grid;place-items:center;color:#fff;font-size:16px;box-shadow:0 2px 8px rgba(102,104,216,.4)}
+  .sb-brand b{font-weight:700;font-size:15.5px;letter-spacing:.3px;color:#fff}
+  .sb-tenant{font-size:11.5px;color:var(--nav-mut);display:flex;align-items:center;gap:4px;margin-top:1px}
+  .sb-back{font-size:12px;color:var(--gold-light);padding:8px 18px 12px;display:flex;align-items:center;gap:7px;cursor:pointer;opacity:.9}
+  .sb-back:hover{opacity:1}
+  .sb-scroll{flex:1;overflow-y:auto;padding:6px 12px}
+  .sb-scroll::-webkit-scrollbar{width:6px}.sb-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:8px}
+  .sb-lbl{font-size:10px;font-family:var(--mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--nav-mut);padding:14px 8px 8px}
+  .ws{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 2px 12px;margin-bottom:6px;border-bottom:1px solid var(--nav-line)}
+  .ws a{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--nav-text);padding:9px 9px;border-radius:var(--r-sm);cursor:pointer;background:rgba(255,255,255,.04)}
+  .ws a:hover{background:rgba(255,255,255,.09)}
+  .ws a.on{background:rgba(102,104,216,.32);color:#fff;font-weight:500;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+  .ws a .ti{font-size:15px}
+  /* MAIN options (Dashboards / Insights / Configure…) — prominent + expandable */
+  .sb-sec{display:flex;align-items:center;gap:11px;padding:11px 10px;margin-top:4px;border-radius:var(--r-sm);font-size:13px;font-weight:500;color:rgba(255,255,255,.86);cursor:pointer;transition:.12s;position:relative}
+  .sb-sec .ti.lead{font-size:18px;color:var(--nav-mut)}
+  .sb-sec:hover{background:rgba(255,255,255,.06);color:#fff}
+  .sb-sec.active{background:rgba(255,255,255,.09);color:#fff}
+  .sb-sec.active .ti.lead{color:var(--gold-light)}
+  .sb-sec.active::before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--gold)}
+  .sb-sec .meta{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--nav-mut);font-family:var(--mono);font-size:10.5px}
+  .sb-sec .chev{transition:transform .2s;font-size:15px}
+  .sb-sec.open .chev{transform:rotate(180deg)}
+  .nav{margin:2px 0 4px 19px;padding-left:9px;border-left:1px solid var(--nav-line);overflow:hidden}
+  .nav.collapsed{display:none}
+  .nav a{display:flex;align-items:center;gap:10px;height:34px;padding:0 9px;border-radius:var(--r-sm);font-size:12.5px;color:var(--nav-text);cursor:pointer;position:relative}
+  .nav a .ti{font-size:16px;color:var(--nav-mut)}
+  .nav a:hover{background:rgba(255,255,255,.06);color:#fff}
+  .nav a:hover .ti{color:var(--nav-text)}
+  .nav a.on{color:#fff;font-weight:500}
+  .nav a.on .ti{color:var(--gold-light)}
+  .nav a.on::before{content:"";position:absolute;left:-9px;top:7px;bottom:7px;width:2px;border-radius:0 2px 2px 0;background:var(--gold)}
+  .sb-foot{border-top:1px solid var(--nav-line);padding:12px}
+  .persona{display:flex;background:rgba(0,0,0,.22);border-radius:999px;padding:3px;margin-bottom:12px}
+  .persona button{flex:1;border:0;background:transparent;font-family:var(--sans);font-size:11px;color:var(--nav-text);padding:7px 4px;border-radius:999px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+  .persona button.on{background:var(--gold);color:#3a2606;font-weight:500}
+  .persona button .ti{font-size:13px}
+  .sb-user{display:flex;align-items:center;gap:10px;padding:5px 4px}
+  .sb-user .av{width:33px;height:33px;border-radius:50%;background:linear-gradient(135deg,var(--indigo),var(--indigo-deep));color:#fff;display:grid;place-items:center;font-size:12px;font-weight:500;box-shadow:0 2px 6px rgba(45,47,143,.5)}
+  .sb-user b{font-size:13px;font-weight:500;display:block;line-height:1.3;color:#fff}
+  .sb-user span{font-size:11px;color:var(--nav-mut)}
+
+  /* ============ TOPBAR ============ */
+  .main{display:flex;flex-direction:column;min-width:0}
+  .top{height:60px;background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px;padding:0 28px;position:sticky;top:0;z-index:5}
+  .crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--slate);white-space:nowrap}
+  .crumb b{color:var(--ink);font-weight:500}
+  .crumb .ti{font-size:14px;color:#C2C6D6}
+  .btn-calc{display:flex;align-items:center;gap:7px;background:var(--gold);color:#3a2606;border:0;font-family:var(--sans);font-size:12.5px;font-weight:500;padding:8px 14px;border-radius:var(--r-sm);cursor:pointer;box-shadow:0 1px 2px rgba(232,168,56,.4);transition:.15s}
+  .btn-calc:hover{background:var(--gold-light)}
+  .top-search{flex:1;max-width:440px;display:flex;align-items:center;gap:9px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:0 12px;height:38px;color:var(--slate-soft);font-size:13px;cursor:text;transition:.15s}
+  .top-search:hover{border-color:var(--indigo-100)}
+  .top-search kbd{margin-left:auto;font-family:var(--mono);font-size:11px;background:#fff;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .top-icon{width:36px;height:36px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--slate);cursor:pointer;font-size:18px;position:relative}
+  .top-icon:hover{background:var(--bg)}
+  .top-icon .ping{position:absolute;top:8px;right:9px;width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px #fff}
+  .top-pill{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--slate);padding:8px 11px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer}
+  .top-pill:hover{background:var(--bg)}
+
+  /* ============ PAGE TEMPLATE ============ */
+  .page{padding:26px 28px 60px;max-width:1340px;width:100%;margin:0 auto;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .phead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+  .phead h1{font-size:23px;font-weight:700;letter-spacing:-.3px}
+  .phead .sub{font-size:13.5px;color:var(--slate);margin-top:4px}
+  .phead-meta{font-family:var(--mono);font-size:11.5px;color:var(--slate-soft);margin-top:7px;letter-spacing:.2px}
+  .pactions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .ctl{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 12px;cursor:pointer;box-shadow:var(--sh-1);transition:.15s}
+  .ctl:hover{border-color:var(--indigo-100)}
+  .ctl .ti{font-size:15px;color:var(--slate)}
+  .btn-pri{background:var(--indigo);color:#fff;border:0;display:flex;align-items:center;gap:7px;font-family:var(--sans);font-size:12.5px;font-weight:500;padding:9px 15px;border-radius:var(--r-sm);cursor:pointer;box-shadow:0 1px 2px rgba(68,70,184,.35);transition:.15s}
+  .btn-pri:hover{background:var(--indigo-light)}
+  .btn-sec{background:var(--surface);color:var(--ink);border:1px solid var(--line);display:flex;align-items:center;gap:7px;font-family:var(--sans);font-size:12.5px;font-weight:500;padding:9px 15px;border-radius:var(--r-sm);cursor:pointer;box-shadow:var(--sh-1);transition:.15s}
+  .btn-sec:hover{border-color:var(--indigo-100)}
+
+  .tabs{display:flex;gap:3px;background:#ECEEF6;border-radius:var(--r-md);padding:4px;margin-bottom:20px;width:fit-content}
+  .tabs button{border:0;background:transparent;font-family:var(--sans);font-size:13px;color:var(--slate);padding:8px 18px;border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:7px;transition:.15s}
+  .tabs button.on{background:var(--surface);color:var(--ink);font-weight:500;box-shadow:var(--sh-1)}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px;box-shadow:var(--sh-1);position:relative;overflow:hidden;transition:transform .18s,box-shadow .18s}
+  .kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--indigo))}
+  .kpi:hover{transform:translateY(-3px);box-shadow:var(--sh-2)}
+  .kpi-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .kpi-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:18px}
+  .kpi-delta{font-family:var(--mono);font-size:12px;font-weight:500;display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:999px}
+  .kpi-delta.up{color:var(--green);background:var(--green-50)} .kpi-delta.down{color:var(--red);background:var(--red-50)}
+  .kpi-delta.flat{color:var(--slate);background:var(--bg)} .kpi-delta.ok{color:var(--green);background:var(--green-50)}
+  .kpi-label{font-size:12.5px;color:var(--slate);margin-bottom:5px}
+  .kpi-val{font-family:var(--mono);font-weight:500;font-size:27px;letter-spacing:-.5px;color:var(--ink);line-height:1.1}
+  .kpi-val.sm{font-size:19px}
+  .kpi-foot{font-size:11.5px;color:var(--slate-soft);margin-top:10px;display:flex;justify-content:space-between;align-items:center}
+  .kpi-foot .mono{font-family:var(--mono);color:var(--slate)}
+  .bar{height:6px;background:#EEF0F6;border-radius:999px;margin-top:9px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:999px;background:var(--accent,var(--indigo))}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;margin-top:16px;box-shadow:var(--sh-1)}
+  .card.flush{padding:0;overflow:hidden}
+  .card-h{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+  .card-h.pad{padding:18px 20px;margin-bottom:0;border-bottom:1px solid var(--line-soft)}
+  .card-h h3{font-size:15px;font-weight:500;display:flex;align-items:center;gap:9px}
+  .card-h h3 .ti{font-size:18px;color:var(--indigo)}
+  .card-h .csub{font-size:12px;color:var(--slate);margin-top:3px}
+  .card-h .cact{font-size:13px;color:var(--slate-soft);display:flex;gap:10px;cursor:pointer}
+  .card-h .cact i:hover{color:var(--indigo)}
+
+  /* TABLE */
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--slate-soft);font-weight:400;padding:13px 20px;background:#FAFBFE;border-bottom:1px solid var(--line)}
+  .tbl th.r,.tbl td.r{text-align:right}
+  .tbl td{padding:14px 20px;border-top:1px solid var(--line-soft);font-size:13px;color:var(--ink)}
+  .tbl tbody tr{transition:.12s}
+  .tbl tbody tr:hover{background:#FBFBFE}
+  .tbl td.name{font-weight:500}
+  .tbl td.num{font-family:var(--mono);text-align:right}
+  .tbl td.mut{color:var(--slate)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;font-weight:500;padding:4px 10px;border-radius:999px}
+  .pill.neutral{background:var(--bg);color:var(--slate);border:1px solid var(--line)}
+  .pill.success{background:var(--green-50);color:var(--green)}
+  .pill.danger{background:var(--red-50);color:var(--red)}
+  .pill.open{background:var(--indigo-50);color:var(--indigo)}
+  .row-act{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+  .iact{width:30px;height:30px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--slate);border:1px solid var(--line);background:#fff;cursor:pointer;font-size:15px}
+  .iact:hover{border-color:var(--indigo-100);color:var(--indigo)}
+  .iact.del:hover{border-color:#F3C9C9;color:var(--red);background:var(--red-50)}
+  .gbtn{font-family:var(--sans);font-size:12px;color:var(--slate);border:1px solid var(--line);background:#fff;border-radius:var(--r-sm);padding:6px 11px;cursor:pointer}
+  .gbtn:hover{border-color:var(--indigo-100);color:var(--indigo)}
+  td .num.up{color:var(--green)} td .num.down{color:var(--red)}
+
+  .insight{display:flex;gap:14px;background:linear-gradient(180deg,#FCFAF2,#FBF7E9);border:1px solid #F0E4C4;border-radius:var(--r-lg);padding:17px 19px;margin-bottom:16px;box-shadow:var(--sh-1)}
+  .insight .spark{width:34px;height:34px;border-radius:9px;background:var(--gold-50);color:#9A6B12;display:grid;place-items:center;font-size:17px;flex-shrink:0}
+  .insight .lbl{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;color:#9A6B12;margin-bottom:5px}
+  .insight b{font-size:14.5px;font-weight:500}
+  .insight .det{font-size:12.5px;color:var(--slate);margin-top:4px}
+
+  .hbars{display:flex;flex-direction:column;gap:15px;padding-top:2px}
+  .hbar{display:flex;align-items:center;gap:13px;font-size:12.5px}
+  .hbar .nm{width:88px;color:var(--slate);text-align:right;flex-shrink:0}
+  .hbar .track{flex:1;height:24px;background:var(--line-soft);border-radius:6px;overflow:hidden}
+  .hbar .track i{display:block;height:100%;border-radius:6px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .hbar .vl{width:54px;font-family:var(--mono);font-size:12px;font-weight:500;text-align:right;flex-shrink:0;color:var(--ink)}
+
+  .rank{display:flex;align-items:center;gap:13px;padding:13px;border-radius:var(--r-md);margin-bottom:9px;background:var(--bg);font-size:13px;transition:.15s}
+  .rank:hover{background:var(--indigo-50)}
+  .rank .pos{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:500;color:#fff;flex-shrink:0}
+  .rank .av{width:31px;height:31px;border-radius:50%;background:var(--indigo-100);color:var(--indigo-deep);display:grid;place-items:center;font-size:11px;font-weight:500;flex-shrink:0}
+  .rank .nm b{font-weight:500}.rank .nm span{display:block;font-size:11px;color:var(--slate)}
+  .rank .amt{margin-left:auto;text-align:right}.rank .amt b{font-family:var(--mono);font-weight:500}.rank .amt span{display:block;font-size:11px;color:var(--green);font-family:var(--mono)}
+
+  .donut-wrap{display:flex;align-items:center;gap:24px}
+  .legend{display:flex;flex-direction:column;gap:11px;flex:1}
+  .legend .row{display:flex;align-items:center;gap:9px;font-size:12.5px}
+  .legend .row .dot{width:10px;height:10px;border-radius:3px}
+  .legend .row .pct{margin-left:auto;font-family:var(--mono);font-weight:500;font-size:12px}
+
+  .split{display:grid;grid-template-columns:1fr 300px;gap:16px;margin-top:16px;align-items:start}
+  .summary .srow{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-top:1px solid var(--line-soft);font-size:13px;color:var(--slate)}
+  .summary .srow:first-child{border-top:0}
+  .summary .srow .v{font-family:var(--mono);font-weight:500;font-size:13px;padding:2px 10px;border-radius:6px;background:var(--bg);color:var(--ink)}
+  .summary .srow .v.red{background:var(--red-50);color:var(--red)}
+
+  .empty{text-align:center;padding:52px 20px;color:var(--slate)}
+  .empty .ic{width:64px;height:64px;border-radius:16px;background:var(--indigo-50);color:var(--indigo);display:grid;place-items:center;font-size:30px;margin:0 auto 16px}
+  .empty b{display:block;font-weight:500;font-size:14.5px;color:var(--ink)}
+  .empty p{font-size:12.5px;margin-top:5px}
+
+  .annot{position:fixed;right:20px;bottom:20px;background:var(--nav);color:#fff;font-size:11.5px;border-radius:var(--r-md);padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:20;max-width:360px;line-height:1.55;box-shadow:var(--sh-2)}
+  .annot button{background:var(--gold);border:0;color:#3a2606;font-family:var(--sans);font-weight:500;font-size:11px;border-radius:6px;padding:6px 11px;cursor:pointer}
+  @media(max-width:1120px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2,.split{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sb">
+    <div class="sb-brand">
+      <div class="sb-logo"><i class="ti ti-diamond"></i></div>
+      <div>
+        <b>Vialuce</b>
+        <div class="sb-tenant">Banco Cumbre del Litoral <i class="ti ti-selector"></i></div>
+      </div>
+    </div>
+    <div class="sb-back"><i class="ti ti-arrow-left"></i> Observatory</div>
+    <div class="sb-scroll" id="sbnav"></div>
+    <div class="sb-foot">
+      <div class="persona">
+        <button class="on"><i class="ti ti-shield"></i> Admin</button>
+        <button><i class="ti ti-users"></i> Manager</button>
+        <button><i class="ti ti-user"></i> Rep</button>
+      </div>
+      <div class="sb-user">
+        <div class="av">EA</div>
+        <div><b>EO Admin</b><span>Platform Administrator</span></div>
+        <i class="ti ti-chevron-up" style="margin-left:auto;color:var(--nav-mut);font-size:16px"></i>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="crumb" id="crumb"></div>
+      <button class="btn-calc"><i class="ti ti-activity"></i> Calculate</button>
+      <div class="top-search"><i class="ti ti-search"></i> Search pages, people, actions… <kbd>⌘K</kbd></div>
+      <div class="top-right">
+        <div class="top-icon"><i class="ti ti-help"></i></div>
+        <div class="top-icon"><i class="ti ti-bell"></i><span class="ping"></span></div>
+        <div class="top-pill"><i class="ti ti-world"></i> EN</div>
+        <div class="top-pill"><i class="ti ti-building-bank"></i> Banco Cumbre <i class="ti ti-chevron-down" style="font-size:13px"></i></div>
+      </div>
+    </div>
+    <div id="view"></div>
+  </div>
+</div>
+
+<div class="annot">
+  <span><b>Layout pass — 7 screens, one system.</b> Consistent icons on every nav item, branded tables &amp; status pills, context-aware sidebar.</span>
+  <button onclick="this.parentElement.style.display='none'">Got it</button>
+</div>
+
+<script>
+/* ---------- NAV (icons on EVERY item; chevron+count for expandable groups) ---------- */
+const NAV = {
+  performance:{ tab:'Performance', first:'analytics', groups:[
+    {label:'Dashboards', gic:'ti-layout-dashboard', count:2, items:[
+      {ic:'ti-bolt', t:'Intelligence', go:'analytics'},
+      {ic:'ti-trending-up', t:'Performance overview', go:'performance'}]},
+    {label:'Insights', gic:'ti-bulb', count:7, items:[
+      {ic:'ti-layout-grid', t:'Overview', go:'analytics'},
+      {ic:'ti-chart-bar', t:'Analytics', go:'analytics'},
+      {ic:'ti-trending-up', t:'Performance', go:'performance'},
+      {ic:'ti-currency-dollar', t:'Compensation', go:'compensation'},
+      {ic:'ti-chart-line', t:'Trends', go:'compensation'},
+      {ic:'ti-checklist', t:'Approvals', go:'approvals'},
+      {ic:'ti-users', t:'My team'}]}
+  ]},
+  platform:{ tab:'Platform Core', first:'periods', groups:[
+    {label:'Setup', gic:'ti-tool', count:3, items:[
+      {ic:'ti-upload', t:'Import data'},
+      {ic:'ti-history', t:'Import history'},
+      {ic:'ti-shield-x', t:'Quarantine'}]},
+    {label:'Configure', gic:'ti-adjustments', count:5, items:[
+      {ic:'ti-layout-board', t:'Plans & canvas'},
+      {ic:'ti-users', t:'Entities'},
+      {ic:'ti-calendar', t:'Periods', go:'periods'},
+      {ic:'ti-language', t:'Terminology'},
+      {ic:'ti-plug', t:'Integrations'}]},
+    {label:'Data visibility', gic:'ti-eye', count:4, items:[
+      {ic:'ti-database', t:'Data console', go:'data'},
+      {ic:'ti-receipt', t:'Transactions'},
+      {ic:'ti-file-text', t:'Reports'},
+      {ic:'ti-bell', t:'Notifications', go:'notifications'}]}
+  ]}
+};
+const PAGE_WS = {analytics:'performance',performance:'performance',compensation:'performance',approvals:'performance',periods:'platform',data:'platform',notifications:'platform'};
+const CRUMB = {
+  analytics:['Insights','Overview'], performance:['Insights','Performance'], compensation:['Insights','Compensation'],
+  approvals:['Insights','Approvals'], periods:['Configure','Periods'], data:['Data visibility','Data operations'], notifications:['Platform core','Notifications']
+};
+
+let openSecs = {};
+function renderSidebar(page){
+  const wsKey = PAGE_WS[page];
+  const ws = NAV[wsKey];
+  const activeLabel = (ws.groups.find(g=>g.items.some(it=>it.go===page)) || ws.groups[0]).label;
+  openSecs[activeLabel] = true;
+  const tabs = [['Performance','ti-trending-up','performance'],['Calculation','ti-bolt',null],['Finance','ti-stack-2',null],['Core','ti-settings','platform']];
+  let h = `<div class="sb-lbl">Workspaces</div><div class="ws">`;
+  tabs.forEach(([t,ic,k])=> h+=`<a class="${k===wsKey?'on':''}" ${k?`data-ws="${k}"`:''}><i class="ti ${ic}"></i> ${t}</a>`);
+  h+=`</div>`;
+  ws.groups.forEach(g=>{
+    const isActive = g.label===activeLabel;
+    const isOpen = isActive ? true : !!openSecs[g.label];
+    h+=`<div class="sb-sec ${isActive?'active':''} ${isOpen?'open':''}" data-sec="${g.label}">
+      <i class="ti ${g.gic} lead"></i> ${g.label}
+      <span class="meta">${g.count?g.count:''}<i class="ti ti-chevron-down chev"></i></span></div>
+      <nav class="nav ${isOpen?'':'collapsed'}" data-secnav="${g.label}">`;
+    g.items.forEach(it=>{ h+=`<a class="${it.go===page?'on':''}" ${it.go?`data-go="${it.go}"`:''}><i class="ti ${it.ic}"></i> ${it.t}</a>`; });
+    h+=`</nav>`;
+  });
+  document.getElementById('sbnav').innerHTML = h;
+  document.querySelectorAll('#sbnav [data-go]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();go(el.dataset.go);}));
+  document.querySelectorAll('#sbnav [data-ws]').forEach(el=>el.addEventListener('click',()=>{ openSecs={}; go(NAV[el.dataset.ws].first); }));
+  document.querySelectorAll('#sbnav .sb-sec').forEach(el=>el.addEventListener('click',()=>{
+    const l=el.dataset.sec, navEl=document.querySelector('[data-secnav="'+l+'"]'), willOpen=navEl.classList.contains('collapsed');
+    navEl.classList.toggle('collapsed'); el.classList.toggle('open',willOpen); openSecs[l]=willOpen;
+  }));
+}
+
+/* ---------- PAGES ---------- */
+const PAGES = {
+  analytics: () => `
+    <div class="page">
+      ${phead('Analytics dashboard','Cross-entity performance, quota and pipeline overview','MAY 2026 – JUN 2026 · 85 ENTITIES','Last 30 days')}
+      <div class="tabs"><button class="on"><i class="ti ti-layout-grid"></i> Overview</button><button><i class="ti ti-trending-up"></i> Detail</button><button><i class="ti ti-file-text"></i> Reports</button></div>
+      <div class="insight"><div class="spark"><i class="ti ti-sparkles"></i></div><div><div class="lbl">INSIGHT</div><b>This period is within expected parameters — no anomalies flagged.</b><div class="det">$58,406 across 85 entities · 4 components</div></div></div>
+      <div class="kpis">
+        ${kpi('ti-currency-dollar','var(--indigo)','var(--indigo-50)','Revenue','$2,847,500','+15.9%','up','vs target','94.9%',95)}
+        ${kpi('ti-target','var(--indigo-light)','var(--indigo-50)','Quota attainment','87.3%','+6.3%','up','vs target','87.3%',87)}
+        ${kpi('ti-wallet','var(--gold)','var(--gold-50)','Commission paid','$284,750','+15.9%','up','previous','$245,600',0)}
+        ${kpi('ti-users','var(--indigo-deep)','var(--indigo-50)','Headcount','47','+4.4%','up','previous','45',0)}
+      </div>
+      <div class="kpis">
+        ${kpi('ti-chart-line','var(--indigo)','var(--indigo-50)','Avg deal size','$12,850','+14.7%','up','previous','$11,200',0)}
+        ${kpi('ti-circle-check','var(--indigo-light)','var(--indigo-50)','Win rate','34.2%','+7.5%','up','previous','31.8%',0)}
+        ${kpi('ti-chart-bar','var(--gold)','var(--gold-50)','Pipeline value','$8,450,000','+17.4%','up','previous','$7,200,000',0)}
+        ${kpi('ti-heart','var(--red)','var(--red-50)','Customer retention','92.1%','-1.5%','down','vs target','96.9%',94)}
+      </div>
+      <div class="grid2">
+        <div class="card"><div class="card-h"><div><h3>Revenue by product</h3><div class="csub">Share of total revenue</div></div><div class="cact"><i class="ti ti-dots"></i></div></div><div class="hbars">
+          ${hbar('Enterprise','var(--indigo-deep)',96,'$1.4M')}${hbar('Professional','var(--indigo)',58,'$854K')}${hbar('Starter','var(--gold)',38,'$570K')}</div></div>
+        <div class="card"><div class="card-h"><div><h3>Revenue by team</h3><div class="csub">Top performing teams</div></div><div class="cact"><i class="ti ti-dots"></i></div></div><div class="hbars">
+          ${hbar('Team Alpha','var(--indigo-deep)',90,'$712K')}${hbar('Team Beta','var(--indigo)',86,'$684K')}${hbar('Team Gamma','var(--indigo-light)',79,'$627K')}${hbar('Team Delta','#9A9CE0',68,'$540K')}${hbar('Team Epsilon','var(--gold)',36,'$285K')}</div></div>
+      </div>
+    </div>`,
+
+  performance: () => `
+    <div class="page">
+      ${phead('Performance overview','Team performance metrics and leaderboard','Q4 2024 · 40 ACTIVE ENTITIES','Q4 2024')}
+      <div class="kpis">
+        ${kpi('ti-trophy','var(--indigo)','var(--indigo-50)','Team performance score','94.2','Excellent','ok','','',0)}
+        ${kpi('ti-target','var(--green)','var(--green-50)','Goal achievement','108.5%','+8.5%','up','','',0)}
+        ${kpi('ti-users','var(--indigo-light)','var(--indigo-50)','Average per entity','$215,000','This quarter','flat','','',0)}
+        ${kpi('ti-trending-up','var(--gold)','var(--gold-50)','Growth rate (MoM)','+12.3%','Trending up','up','','',0)}
+      </div>
+      <div class="grid2">
+        <div class="card"><div class="card-h"><div><h3>Top performers</h3><div class="csub">Q4 2024 leaderboard</div></div><div class="cact"><i class="ti ti-dots"></i></div></div>
+          ${rankRow('1','var(--gold)','SC','Sarah Chen','Senior AE','$700,000','140%')}${rankRow('2','var(--slate)','MJ','Marcus Johnson','Enterprise AE','$650,000','130%')}${rankRow('3','#B8772A','DK','David Kim','Senior AE','$620,000','124%')}${rankRow('4','#C2C6D6','AF','Amanda Foster','Account Exec','$580,000','116%')}</div>
+        <div class="card"><div class="card-h"><div><h3>Performance distribution</h3><div class="csub">Entities in each tier</div></div><div class="cact"><i class="ti ti-dots"></i></div></div><div class="hbars">
+          ${hbar('Exceeding','var(--green)',75,'12')}${hbar('Meeting','var(--indigo)',96,'15')}${hbar('Approaching','var(--gold)',44,'7')}${hbar('Missing','var(--red)',26,'4')}</div></div>
+      </div>
+    </div>`,
+
+  compensation: () => `
+    <div class="page">
+      ${phead('Outcome overview','Track outcomes, trends, and budget utilization','Q4 2024 · 40 ACTIVE ENTITIES','Q4 2024')}
+      <div class="kpis">
+        ${kpi('ti-currency-dollar','var(--indigo)','var(--indigo-50)','Current period','$525,000','+12.3%','up','vs last period','',0)}
+        ${kpi('ti-trending-up','var(--green)','var(--green-50)','Year-to-date','$1,850,000','+8.7%','up','vs last year','',0)}
+        ${kpi('ti-users','var(--indigo-light)','var(--indigo-50)','Average per entity','$46,250','40 entities','flat','','',0)}
+        ${kpi('ti-chart-pie','var(--gold)','var(--gold-50)','Budget utilization','87.5%','','flat','','',88)}
+      </div>
+      <div class="grid2">
+        <div class="card"><div class="card-h"><div><h3>Outcome by rule set</h3><div class="csub">Distribution across rule sets</div></div><div class="cact"><i class="ti ti-dots"></i></div></div>
+          <div class="donut-wrap">${donut([['#2D2F8F',47],['#4446B8',35],['#6668D8',10],['#E8A838',7],['#9A9CE0',1]])}
+          <div class="legend">${legend('#2D2F8F','Accelerator plan','47%')}${legend('#4446B8','Tiered plan','35%')}${legend('#6668D8','Basic plan','10%')}${legend('#E8A838','Team-based plan','7%')}${legend('#9A9CE0','Executive plan','1%')}</div></div></div>
+        <div class="card"><div class="card-h"><div><h3>Monthly outcome trend</h3><div class="csub">Actual vs budget · last 12 months</div></div><div class="cact"><i class="ti ti-dots"></i></div></div>${lineChart()}</div>
+      </div>
+    </div>`,
+
+  approvals: () => `
+    <div class="page">
+      <div class="phead"><div><h1>Approval center</h1><div class="sub">Manage approval requests across the platform</div></div><div class="pactions"><div class="ctl"><i class="ti ti-filter"></i> All types</div></div></div>
+      <div class="kpis">
+        ${kpi('ti-clock','var(--gold)','var(--gold-50)','Pending','0','','flat','','',0)}
+        ${kpi('ti-circle-check','var(--green)','var(--green-50)','Approved','0','','flat','','',0)}
+        ${kpi('ti-circle-x','var(--red)','var(--red-50)','Rejected','0','','flat','','',0)}
+        ${kpi('ti-arrow-up','var(--indigo-light)','var(--indigo-50)','Escalated','0','','flat','','',0)}
+      </div>
+      <div class="card"><div class="empty"><div class="ic"><i class="ti ti-clipboard-check"></i></div><b>You're all caught up</b><p>No approval requests match the selected filters.</p><button class="btn-pri" style="margin:16px auto 0"><i class="ti ti-history"></i> View history</button></div></div>
+    </div>`,
+
+  periods: () => `
+    <div class="page">
+      <div class="phead"><div><h1>Periods</h1><div class="sub">Create and manage periods for outcome calculations</div></div><div class="pactions"><button class="btn-pri"><i class="ti ti-plus"></i> Create period</button></div></div>
+      <div class="card flush">
+        <div class="card-h pad"><div><h3><i class="ti ti-calendar"></i> Periods</h3><div class="csub">6 periods configured</div></div></div>
+        <table class="tbl"><thead><tr><th>Period</th><th>Date range</th><th>Type</th><th>Status</th><th class="r">Actions</th></tr></thead><tbody>
+          ${prow('March 2026','Mar 1 – Mar 31, 2026')}${prow('February 2026','Feb 1 – Feb 28, 2026')}${prow('January 2026','Jan 1 – Jan 31, 2026')}${prow('December 2025','Dec 1 – Dec 31, 2025')}${prow('November 2025','Nov 1 – Nov 30, 2025')}${prow('October 2025','Oct 1 – Oct 31, 2025')}
+        </tbody></table>
+      </div>
+    </div>`,
+
+  data: () => `
+    <div class="page">
+      <div class="phead"><div><h1>Data operations</h1><div class="sub">Monitor data loads, quality metrics, and system health</div></div>
+        <div class="pactions"><button class="btn-sec"><i class="ti ti-upload"></i> Upload data</button><button class="btn-pri"><i class="ti ti-refresh"></i> Sync now</button></div></div>
+      <div class="kpis">
+        ${kpi('ti-database','var(--indigo)','var(--indigo-50)','Records today','2,290','','flat','','',0)}
+        ${kpi('ti-activity','var(--green)','var(--green-50)','Error rate','0.3%','Healthy','ok','','',0)}
+        ${kpi('ti-file-check','var(--indigo-light)','var(--indigo-50)','Data completeness','98.5%','','flat','','',98)}
+        ${kpi('ti-refresh','var(--gold)','var(--gold-50)','Last sync','Dec 15, 07:00','','flat','Scheduled','Daily 6AM',0,true)}
+      </div>
+      <div class="card flush">
+        <div class="card-h pad"><div><h3><i class="ti ti-history"></i> Recent data loads</h3><div class="csub">History of data synchronization operations</div></div><div class="cact"><i class="ti ti-dots"></i></div></div>
+        <table class="tbl"><thead><tr><th>Timestamp</th><th>Source</th><th class="r">Records</th><th class="r">Success</th><th class="r">Failed</th><th class="r">Duration</th><th>Status</th></tr></thead><tbody>
+          ${drow('Dec 15, 07:00 AM','Salesforce CRM','1,250','1,248','2','45s',true)}
+          ${drow('Dec 14, 07:00 AM','SAP ERP','890','890','0','32s',true)}
+          ${drow('Dec 13, 07:00 AM','Excel Upload','150','145','5','12s',true)}
+          ${drow('Dec 15, 09:30 AM','API Integration','500','0','500','5s',false)}
+          ${drow('Dec 12, 07:00 AM','Salesforce CRM','1,180','1,180','0','42s',true)}
+          ${drow('Dec 11, 07:00 AM','Manual Entry','25','25','0','3s',true)}
+        </tbody></table>
+      </div>
+    </div>`,
+
+  notifications: () => `
+    <div class="page">
+      <div class="phead"><div><h1>Notification center</h1><div class="sub">Manage your notifications and alert preferences</div></div></div>
+      <div class="tabs"><button class="on"><i class="ti ti-bell"></i> Notifications</button><button><i class="ti ti-settings"></i> Preferences</button></div>
+      <div class="split">
+        <div class="card" style="margin-top:0"><div class="empty"><div class="ic"><i class="ti ti-bell"></i></div><b>No notifications yet</b><p>New alerts about calculations, approvals and syncs will appear here.</p></div></div>
+        <div class="card summary" style="margin-top:0"><div class="card-h"><h3>Summary</h3></div>
+          <div class="srow">Total <span class="v">0</span></div>
+          <div class="srow">Unread <span class="v red">0</span></div>
+          <div class="srow">Read <span class="v">0</span></div>
+        </div>
+      </div>
+    </div>`
+};
+
+/* ---------- COMPONENT HELPERS ---------- */
+function phead(title,sub,meta,dateLabel){
+  return `<div class="phead"><div><h1>${title}</h1><div class="sub">${sub}</div>${meta?`<div class="phead-meta">${meta}</div>`:''}</div>
+    <div class="pactions"><div class="ctl"><i class="ti ti-calendar"></i> ${dateLabel} <i class="ti ti-chevron-down" style="font-size:13px"></i></div><div class="ctl" title="Refresh"><i class="ti ti-refresh"></i></div><button class="btn-pri"><i class="ti ti-download"></i> Export</button></div></div>`;
+}
+function kpi(ic,fg,bg,label,val,delta,dir,footL,footR,barPct,smallVal){
+  const icon = dir==='down'?'trending-down':dir==='flat'?'minus':dir==='ok'?'circle-check':'trending-up';
+  const deltaHtml = delta ? `<span class="kpi-delta ${dir}"><i class="ti ti-${icon}"></i>${delta}</span>` : '';
+  let foot='';
+  if(barPct>0){ foot=`<div class="kpi-foot"><span>${footL}</span><span class="mono">${footR}</span></div><div class="bar"><i style="width:${barPct}%"></i></div>`; }
+  else if(footR){ foot=`<div class="kpi-foot"><span>${footL}: <span class="mono">${footR}</span></span></div>`; }
+  return `<div class="kpi" style="--accent:${fg}"><div class="kpi-top"><div class="kpi-ic" style="background:${bg};color:${fg}"><i class="ti ${ic}"></i></div>${deltaHtml}</div>
+    <div class="kpi-label">${label}</div><div class="kpi-val ${smallVal?'sm':''}">${val}</div>${foot}</div>`;
+}
+function hbar(nm,color,pct,val){return `<div class="hbar"><span class="nm">${nm}</span><div class="track"><i style="width:${pct}%;background:${color}"></i></div><span class="vl">${val}</span></div>`;}
+function rankRow(pos,posColor,initials,name,role,amt,gr){return `<div class="rank"><div class="pos" style="background:${posColor}">${pos}</div><div class="av">${initials}</div><div class="nm"><b>${name}</b><span>${role}</span></div><div class="amt"><b>${amt}</b><span>↗ ${gr}</span></div></div>`;}
+function legend(color,nm,pct){return `<div class="row"><span class="dot" style="background:${color}"></span>${nm}<span class="pct">${pct}</span></div>`;}
+function prow(period,range){
+  return `<tr><td class="name">${period}</td><td class="mut">${range}</td><td><span class="pill neutral">Monthly</span></td><td><span class="pill open"><i class="ti ti-player-play" style="font-size:11px"></i> Open</span></td>
+    <td><div class="row-act"><button class="gbtn">Status</button><button class="iact del" aria-label="Delete"><i class="ti ti-trash"></i></button></div></td></tr>`;
+}
+function drow(ts,src,rec,succ,fail,dur,ok){
+  return `<tr><td class="mut">${ts}</td><td class="name">${src}</td><td class="num">${rec}</td><td class="num up">${succ}</td><td class="num ${fail==='0'?'mut':'down'}">${fail}</td><td class="num mut">${dur}</td>
+    <td>${ok?'<span class="pill success"><i class="ti ti-circle-check" style="font-size:11px"></i> Completed</span>':'<span class="pill danger"><i class="ti ti-circle-x" style="font-size:11px"></i> Failed</span>'}</td></tr>`;
+}
+function donut(segs){
+  const R=54,C=2*Math.PI*R; let off=0;
+  const rings = segs.map(([c,p])=>{const len=C*p/100; const seg=`<circle r="${R}" cx="70" cy="70" fill="none" stroke="${c}" stroke-width="22" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`;off+=len;return seg;}).join('');
+  return `<svg width="140" height="140" viewBox="0 0 140 140">${rings}<text x="70" y="66" text-anchor="middle" font-family="DM Mono" font-size="22" font-weight="500" fill="#16173B">$525K</text><text x="70" y="84" text-anchor="middle" font-family="DM Sans" font-size="10" fill="#8A90A6">this period</text></svg>`;
+}
+function lineChart(){
+  const a=[40,52,44,60,66,58,70,76,72,84,90,86], b=[38,46,48,55,60,62,66,70,74,78,82,84];
+  const W=440,H=190,pad=8; const x=i=>pad+i*(W-2*pad)/11, y=v=>H-12-(v/100)*(H-30);
+  const path=arr=>arr.map((v,i)=>`${i?'L':'M'}${x(i).toFixed(0)} ${y(v).toFixed(0)}`).join(' ');
+  const area=`${path(a)} L${x(11).toFixed(0)} ${H-12} L${x(0).toFixed(0)} ${H-12} Z`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="overflow:visible"><defs><linearGradient id="ar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4446B8" stop-opacity=".18"/><stop offset="1" stop-color="#4446B8" stop-opacity="0"/></linearGradient></defs>
+    ${[25,50,75].map(g=>`<line x1="0" y1="${y(g)}" x2="${W}" y2="${y(g)}" stroke="#EEF0F6" stroke-width="1"/>`).join('')}
+    <path d="${area}" fill="url(#ar)"/><path d="${path(b)}" fill="none" stroke="#E8A838" stroke-width="2" stroke-dasharray="5 4"/><path d="${path(a)}" fill="none" stroke="#4446B8" stroke-width="2.5"/>
+    ${a.map((v,i)=>`<circle cx="${x(i).toFixed(0)}" cy="${y(v).toFixed(0)}" r="3" fill="#fff" stroke="#4446B8" stroke-width="2"/>`).join('')}
+    <g font-family="DM Sans" font-size="10" fill="#8A90A6"><rect x="0" y="0" width="9" height="9" rx="2" fill="#4446B8"/><text x="13" y="8">Actual</text><rect x="64" y="0" width="9" height="9" rx="2" fill="#E8A838"/><text x="77" y="8">Budget</text></g></svg>`;
+}
+
+function go(name){
+  renderSidebar(name);
+  document.getElementById('view').innerHTML = PAGES[name]();
+  const c = CRUMB[name];
+  document.getElementById('crumb').innerHTML = `<span>Banco Cumbre</span><i class="ti ti-chevron-right"></i><span>${c[0]}</span><i class="ti ti-chevron-right"></i><b>${c[1]}</b>`;
+}
+go('analytics');
+</script>
+</body>
+</html>
