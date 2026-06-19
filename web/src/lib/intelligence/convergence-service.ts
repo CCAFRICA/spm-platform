@@ -79,6 +79,12 @@ interface ColumnValueStats {
 
 interface DataCapability {
   dataType: string;
+  // OB-216 Phase 1 (sheet-aware partition): structural partition identity =
+  // `${dataType}␟${column-signature}`. Distinguishes capabilities that share a data_type but
+  // carry different column schemas (e.g. MIR's Cobranza vs Ventas sheets, both
+  // data_type='transaction'). The signature is the SET of non-underscore column names as an
+  // opaque fingerprint — never branched on by meaning (Korean Test).
+  partitionKey: string;
   rowCount: number;
   numericFields: Array<{ field: string; avg: number; nonNullCount: number }>;
   categoricalFields: Array<{ field: string; distinctValues: string[]; count: number }>;
@@ -100,6 +106,13 @@ interface DataCapability {
 // provenance is now carried by `learning_provenance` (period-agnostic, write-time
 // metadata only). Data-location resolution keys by column name across all
 // operative-period batches. See VG entry T1-E-PG3 for the class naming.
+// OB-216 §2 (Phase 3'): the GENERAL aggregation-reduction set — how a bound column's multiple rows
+// per entity reduce to a single value. NOT a sum/snapshot binary. Recognized by the LLM per binding
+// (Decision 158), applied deterministically at resolution. 'snapshot' = a stock/balance value that is
+// the same on every row (take it once, do not sum); flow amounts sum; max/min/average/distinct_count
+// are plan-intent-driven.
+export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count';
+
 export interface ComponentBinding {
   column: string;
   field_identity: FieldIdentity;
@@ -107,6 +120,10 @@ export interface ComponentBinding {
   confidence: number;
   // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
   scale_factor?: number;
+  // OB-216 §2 (Phase 3'): how the bound column's multiple rows per entity reduce to one value —
+  // LLM-recognized from the column's nature (contextualIdentity / value-shape) + the field's intent
+  // role, deterministically applied by resolveColumnFromBatch. Absent ⇒ 'sum' (legacy flow behavior).
+  reduction?: ReductionKind;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
   // HF-272: per-component resolution-failure MARKER. Set when a required reference token
@@ -119,7 +136,10 @@ export interface ComponentBinding {
   // component as a loud `failed` (no silent $0).
   resolutionFailure?: {
     token: string;                  // the recognized reference token that matched no real column
-    reason: 'no_real_column_match';
+    // OB-216 §2-S5: widened from the single 'no_real_column_match' literal to carry the specific
+    // gap cause (no_proposal | llm_abstained:<reason> | proposed_column_absent_in_sheet |
+    // role_inconsistent:needs_<X>_got_<Y>). Consumers read it as a string (route.ts:2594).
+    reason: string;
     candidatesConsidered: number;   // how many real columns convergence weighed (0 = none existed)
   };
   // HF-222 Phase 3: learning provenance (audit metadata only).
@@ -335,15 +355,9 @@ export async function convergeBindings(
       reason: match.matchReason,
     });
 
-    if (match.matchConfidence < 0.5) continue;
-
-    // HF-226 Phase 2B: generateDerivationsForMatch call commented out
-    // (superseded by unified Pass 4 below). Function body retained for
-    // rollback safety; remove after three-tenant verification per directive
-    // §"Do NOT delete superseded functions yet".
-    //   const generated = generateDerivationsForMatch(match, cap, components, matches);
-    //   derivations.push(...generated);
-    //   for (const d of generated) signals.push({ ... });
+    // OB-216 Phase 3: the developer matchConfidence cutoff is removed (Decision 110). It gated only
+    // the per-match SIGNAL below — observation, not binding — and the synthesized-derivation path it
+    // once guarded is dead. Every structural match emits its observation signal; no tuned cutoff.
 
     // Emit per-match signal (preserving HF-219 surface) without a synthesized
     // derivation. The signal records the structural match outcome; the
@@ -416,7 +430,6 @@ export async function convergeBindings(
             distinctCount: stats.sampleCount,
             nullCount: 0,
             sampleSize: stats.sampleCount,
-            scaleInference: inferScale(stats),
           };
         }
       }
@@ -485,7 +498,7 @@ export async function convergeBindings(
               plan_id: ruleSetId,
               component_type: components[pr.componentIndex]?.calculationOp ?? 'unknown',
               bound_column: colName,
-              value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median, scale: dist.scaleInference } : null,
+              value_distribution: dist ? { min: dist.min, max: dist.max, median: dist.median } : null,
             },
             calculationRunId: calculationRunId ?? null,
           }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -511,7 +524,10 @@ export async function convergeBindings(
         const compTokens = tokenize(comp.name);
         const overlap = compTokens.filter(t => targetTokens.some(d => d.includes(t) || t.includes(d)));
         const score = overlap.length / Math.max(compTokens.length, 1);
-        if (score > 0.2 && (!bestCompMatch || score > bestCompMatch.score)) {
+        // OB-216 Phase 3: argmax over candidates with the structural floor 0 (any token overlap),
+        // not a developer cutoff (Decision 110). 0 is the bare structural floor ("is there overlap
+        // at all"), never a tuned threshold.
+        if (score > 0 && (!bestCompMatch || score > bestCompMatch.score)) {
           bestCompMatch = { comp, score };
         }
       }
@@ -957,7 +973,9 @@ async function loadMetricComprehensionSignals(
 // OB-162: Enhanced with field identity extraction
 // ──────────────────────────────────────────────
 
-async function inventoryData(
+// OB-216 Phase 1: exported so the partition can be verified in isolation (EPG-1). The convergence
+// entry (convergeBindings) calls it internally; export adds no behavior, only test reachability.
+export async function inventoryData(
   tenantId: string,
   supabase: SupabaseClient
 ): Promise<DataCapability[]> {
@@ -968,67 +986,96 @@ async function inventoryData(
   const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
   const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
 
-  // OB-162: Also read import_batch_id for convergence bindings
-  let q = supabase
-    .from('committed_data')
-    .select('data_type, row_data, metadata, import_batch_id')
-    .eq('tenant_id', tenantId)
-    .not('data_type', 'is', null)
-    .limit(500);
-  q = applyCommittedDataVisibility(q, hiddenBatchIds);
-  const { data: rows } = await q;
+  type InvRow = { data_type: string; row_data: Record<string, unknown> | null; metadata: Record<string, unknown> | null; import_batch_id: string };
 
-  // OB-128: Separately fetch rows with semantic_roles (SCI-committed data)
-  let q2 = supabase
-    .from('committed_data')
-    .select('data_type, row_data, metadata, import_batch_id')
-    .eq('tenant_id', tenantId)
-    .not('data_type', 'is', null)
-    .not('metadata->semantic_roles', 'is', null)
-    .limit(50);
-  q2 = applyCommittedDataVisibility(q2, hiddenBatchIds);
-  const { data: sciRows } = await q2;
+  // OB-216 Phase 1 (sheet-aware partition): the prior flat `.limit(500)` sample could miss small
+  // sheets entirely (e.g. a 30-row quota sheet or a 34-row roster), so a per-(data_type,
+  // column-signature) partition would be blind to them. Enumerate the tenant's VISIBLE import
+  // batches and sample EACH, so every batch's schema is represented before partitioning.
+  // import_batch_id is a structural source key (one batch = one source sheet); no column semantics.
+  // SAMPLE_ROWS_PER_BATCH is a coverage/perf SAMPLE BOUND, not a decision authority (Decision 110).
+  const SAMPLE_ROWS_PER_BATCH = 50;
+  const allRows: InvRow[] = [];
 
-  const allRows = [...(rows || [])];
-  if (sciRows) {
-    for (const sr of sciRows) {
-      const dt = sr.data_type as string;
-      if (!allRows.some(r => (r.data_type as string) === dt)) {
-        allRows.push(sr);
-      }
-    }
+  const { data: batchRows } = await supabase
+    .from('import_batches')
+    .select('id')
+    .eq('tenant_id', tenantId);
+  const visibleBatchIds = (batchRows || [])
+    .map(b => (b as { id?: string }).id)
+    .filter((id): id is string => !!id && !hiddenBatchIds.includes(id));
+
+  for (const batchId of visibleBatchIds) {
+    let bq = supabase
+      .from('committed_data')
+      .select('data_type, row_data, metadata, import_batch_id')
+      .eq('tenant_id', tenantId)
+      .eq('import_batch_id', batchId)
+      .not('data_type', 'is', null)
+      .limit(SAMPLE_ROWS_PER_BATCH);
+    bq = applyCommittedDataVisibility(bq, hiddenBatchIds);
+    const { data: bRows } = await bq;
+    if (bRows) allRows.push(...(bRows as InvRow[]));
+  }
+
+  // Fallback (robustness / SR-2): if batch enumeration yielded nothing (e.g. committed_data rows
+  // not tied to a listed import_batch), preserve the prior flat-sample behavior so no tenant
+  // silently loses its inventory.
+  if (allRows.length === 0) {
+    let q = supabase
+      .from('committed_data')
+      .select('data_type, row_data, metadata, import_batch_id')
+      .eq('tenant_id', tenantId)
+      .not('data_type', 'is', null)
+      .limit(500);
+    q = applyCommittedDataVisibility(q, hiddenBatchIds);
+    const { data: rows } = await q;
+    if (rows) allRows.push(...(rows as InvRow[]));
   }
 
   if (!allRows.length) return capabilities;
 
-  // Group by data_type
-  const byType = new Map<string, Array<Record<string, unknown>>>();
-  const countByType = new Map<string, number>();
-  const rolesByType = new Map<string, Record<string, string>>();
-  // OB-162: Collect field identities and batch IDs per data_type
-  const fieldIdentitiesByType = new Map<string, Record<string, FieldIdentity>>();
-  const batchIdsByType = new Map<string, Set<string>>();
+  // OB-216 Phase 1: partition by (data_type, column-signature) — the STRUCTURAL file boundary.
+  // The signature is the SET of non-underscore column names treated as an opaque fingerprint
+  // (sorted, joined). KOREAN TEST: the partition NEVER branches on what a column name MEANS — a
+  // column named in any language groups purely by the shape of the column-key set. Same-schema
+  // batches (e.g. monthly imports of one sheet) collapse to ONE capability; genuinely different
+  // schemas (different column sets) become distinct capabilities, even within one data_type. This
+  // replaces (a) the data_type-only grouping that merged distinct sheets, and (b) the HF-228
+  // schema-coverage loop, whose purpose (admit multiple schemas per data_type) is now native.
+  const sigOf = (rd: Record<string, unknown>): string =>
+    Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
+  const SEP = '␟'; // unit-separator: structural composite key delimiter, not content
+  const partitionKeyOf = (dataType: string, rd: Record<string, unknown>): string =>
+    `${dataType}${SEP}${sigOf(rd)}`;
+
+  const byPartition = new Map<string, Array<Record<string, unknown>>>();
+  const dataTypeByPartition = new Map<string, string>();
+  const countByPartition = new Map<string, number>();
+  const rolesByPartition = new Map<string, Record<string, string>>();
+  const fieldIdentitiesByPartition = new Map<string, Record<string, FieldIdentity>>();
+  const batchIdsByPartition = new Map<string, Set<string>>();
 
   for (const row of allRows) {
-    const dt = row.data_type as string;
-    if (!byType.has(dt)) byType.set(dt, []);
-    countByType.set(dt, (countByType.get(dt) || 0) + 1);
-    const samples = byType.get(dt)!;
-    if (samples.length < 30) {
-      const rd = row.row_data as Record<string, unknown> | null;
-      if (rd) samples.push(rd);
-    }
+    const dataType = row.data_type as string;
+    const rd = row.row_data as Record<string, unknown> | null;
+    if (!rd) continue;
+    const pk = partitionKeyOf(dataType, rd);
+    dataTypeByPartition.set(pk, dataType);
+    countByPartition.set(pk, (countByPartition.get(pk) || 0) + 1);
+    if (!byPartition.has(pk)) byPartition.set(pk, []);
+    const samples = byPartition.get(pk)!;
+    if (samples.length < 50) samples.push(rd);
 
-    // Collect batch IDs
     const batchId = row.import_batch_id as string | null;
     if (batchId) {
-      if (!batchIdsByType.has(dt)) batchIdsByType.set(dt, new Set());
-      batchIdsByType.get(dt)!.add(batchId);
+      if (!batchIdsByPartition.has(pk)) batchIdsByPartition.set(pk, new Set());
+      batchIdsByPartition.get(pk)!.add(batchId);
     }
 
-    // Extract semantic_roles from metadata
-    if (!rolesByType.has(dt)) {
-      const meta = row.metadata as Record<string, unknown> | null;
+    // Extract semantic_roles + field_identities from metadata (once per partition).
+    const meta = row.metadata as Record<string, unknown> | null;
+    if (!rolesByPartition.has(pk)) {
       const rawRoles = meta?.semantic_roles as Record<string, unknown> | undefined;
       if (rawRoles && Object.keys(rawRoles).length > 0) {
         const normalized: Record<string, string> = {};
@@ -1040,11 +1087,11 @@ async function inventoryData(
           }
         }
         if (Object.keys(normalized).length > 0) {
-          rolesByType.set(dt, normalized);
+          rolesByPartition.set(pk, normalized);
         }
       }
-
-      // OB-162: Extract field_identities from metadata (Decision 111)
+    }
+    if (!fieldIdentitiesByPartition.has(pk)) {
       const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
       if (fieldIds && Object.keys(fieldIds).length > 0) {
         const identities: Record<string, FieldIdentity> = {};
@@ -1055,44 +1102,22 @@ async function inventoryData(
             confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
           };
         }
-        fieldIdentitiesByType.set(dt, identities);
+        fieldIdentitiesByPartition.set(pk, identities);
       }
     }
   }
 
-  // HF-228 — schema-coverage extension. The 30-row insertion-order sample
-  // above can land entirely on rows of one row-data schema even when a
-  // data_type carries rows from multiple imports with different column sets
-  // (e.g., roster rows + quota rows both classified `entity`). Walk the
-  // remaining rows in `allRows` and admit at most one extra row per unseen
-  // column-key signature, capped at 50 samples per data_type. Korean Test:
-  // discrimination is by column-key structural signature, not by column
-  // name semantics or values.
-  for (const [dt, samples] of Array.from(byType.entries())) {
-    const sigOf = (rd: Record<string, unknown>) =>
-      Object.keys(rd).filter(k => !k.startsWith('_')).sort().join(',');
-    const seenSignatures = new Set(samples.map(rd => sigOf(rd)));
-    for (const row of allRows) {
-      if (samples.length >= 50) break;
-      if ((row.data_type as string) !== dt) continue;
-      const rd = row.row_data as Record<string, unknown> | null;
-      if (!rd) continue;
-      const sig = sigOf(rd);
-      if (seenSignatures.has(sig)) continue;
-      samples.push(rd);
-      seenSignatures.add(sig);
-    }
-  }
-
-  for (const [dataType, samples] of Array.from(byType.entries())) {
-    const roles = rolesByType.get(dataType) || {};
+  for (const [partitionKey, samples] of Array.from(byPartition.entries())) {
+    const dataType = dataTypeByPartition.get(partitionKey) || '';
+    const roles = rolesByPartition.get(partitionKey) || {};
     const targetFieldEntry = Object.entries(roles).find(([, role]) => role === 'performance_target');
-    const fieldIdentities = fieldIdentitiesByType.get(dataType) || {};
-    const batchIds = Array.from(batchIdsByType.get(dataType) || new Set<string>());
+    const fieldIdentities = fieldIdentitiesByPartition.get(partitionKey) || {};
+    const batchIds = Array.from(batchIdsByPartition.get(partitionKey) || new Set<string>());
 
     const cap: DataCapability = {
       dataType,
-      rowCount: countByType.get(dataType) || 0,
+      partitionKey,
+      rowCount: countByPartition.get(partitionKey) || 0,
       numericFields: [],
       categoricalFields: [],
       booleanFields: [],
@@ -1258,7 +1283,11 @@ function matchComponentsToData(
         }
       }
 
-      if (bestMatch && bestMatch.score > 0.3) {
+      // OB-216 Phase 3: accept the ARGMAX structural winner (bestMatch is set only when score > 0,
+      // line ~1274) — no developer acceptance floor (Decision 110). With Phase-2's all-capabilities
+      // candidate pool, the matched data_type drives only entity_identifier/period cap selection and
+      // variant grouping; binding correctness is the LLM recognition + structural validation.
+      if (bestMatch) {
         matches.push({
           component: comp,
           dataType: bestMatch.cap.dataType,
@@ -1289,7 +1318,9 @@ function matchComponentsToData(
       }
     }
 
-    if (bestDt && bestScore > 0.2) {
+    // OB-216 Phase 3: accept any token-overlap winner (bestDt is set only when score > 0) — argmax
+    // + structural floor 0, no developer cutoff (Decision 110).
+    if (bestDt) {
       matches.push({
         component: comp,
         dataType: bestDt,
@@ -1325,8 +1356,10 @@ function generateDerivationsForMatch(
   const sameDataTypeMatches = allMatches.filter(m => m.dataType === match.dataType);
   const isSharedBase = sameDataTypeMatches.length > 1;
 
+  // OB-216 Phase 3: superseded generateFilteredCountDerivations (token-overlap categorical match,
+  // a Korean-Test violation per DIAG-073 §5) removed; this dead branch returns no derivations.
   if (isSharedBase && capability.categoricalFields.length > 0) {
-    return generateFilteredCountDerivations(comp, match.dataType, capability);
+    return rules;
   }
 
   for (const metricName of comp.expectedMetrics) {
@@ -1677,6 +1710,218 @@ export function requiredTokensForComponent(component: PlanComponent): string[] {
   return Array.from(seen);
 }
 
+// OB-216 §GC-2: the NEEDED structural type for a requirement field, derived from how the field is
+// USED in the component's calculationIntent — over the FULL structuralType space, not a binary.
+export type NeededType = 'numeric' | 'categorical' | 'temporal' | 'identifier';
+
+// Acceptable column structuralTypes for each needed-type (used by binding validation, §2-S5).
+// 'categorical' deliberately also accepts numeric columns (a filter/compare can read a measure);
+// the asymmetry that matters is: a NUMERIC need must NOT bind a non-numeric attribute.
+export function acceptableStructuralTypes(needed: NeededType): Set<string> {
+  switch (needed) {
+    case 'numeric': return new Set(['measure', 'count']);
+    case 'categorical': return new Set(['attribute', 'measure', 'count', 'name']);
+    case 'temporal': return new Set(['temporal']);
+    case 'identifier': return new Set(['identifier', 'reference_key']);
+  }
+}
+
+/**
+ * Derive a requirement field's NEEDED structural type by walking the component's calculationIntent
+ * AST and classifying the field's USAGE CONTEXT. Korean Test (E910): branches ONLY on operation /
+ * prime types (arithmetic, aggregate, compare, conditional, temporal, join…), NEVER on a
+ * column-name literal or language string. No developer threshold.
+ *   - under an arithmetic op (multiply/subtract/divide/add) or an aggregate (sum/avg/min/max/count) → 'numeric'
+ *   - under a compare / conditional / filter / gate context                                          → 'categorical' (attribute-OK)
+ *   - under a temporal / date / period context                                                      → 'temporal'
+ *   - as a join / grouping / lookup key                                                              → 'identifier'
+ *   - bare reference with no qualifying context                                                      → 'numeric' (dominant kind)
+ */
+export function deriveNeededType(field: string, calculationIntent: unknown): NeededType {
+  const ARITH_PRIME = new Set(['arithmetic', 'aggregate']);
+  const ARITH_OP = new Set(['multiply', 'subtract', 'divide', 'add', 'sum', 'avg', 'average', 'mean', 'min', 'max']);
+  // 'count' is type-agnostic: counting rows by a field works for ANY structuralType (count of
+  // verified-flag rows, count of categories, count of ids). So count → categorical (permissive),
+  // NOT numeric — distinct from sum/avg/min/max which require a numeric measure.
+  const CMP = new Set(['compare', 'conditional', 'conditional_gate', 'gate', 'filter', 'predicate']);
+  const TEMPORAL = new Set(['temporal', 'date', 'period', 'prior_period']);
+  const IDKEY = new Set(['join', 'group', 'grouping', 'groupby', 'lookup', 'key', 'reference_join']);
+
+  const classify = (prime?: string, op?: string): NeededType | null => {
+    const p = (prime || '').toLowerCase();
+    const o = (op || '').toLowerCase();
+    if (o === 'count') return 'categorical';
+    if (ARITH_PRIME.has(p) || ARITH_OP.has(o)) return 'numeric';
+    if (CMP.has(p) || CMP.has(o)) return 'categorical';
+    if (TEMPORAL.has(p) || TEMPORAL.has(o)) return 'temporal';
+    if (IDKEY.has(p) || IDKEY.has(o)) return 'identifier';
+    return null;
+  };
+
+  const found = new Set<NeededType>();
+  const walk = (node: unknown, ctx: NeededType | null): void => {
+    if (!node || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : undefined;
+    const op = typeof obj.op === 'string' ? obj.op : undefined;
+    // A node that directly names the field is a usage site (covers both `prime:'reference',field`
+    // and `prime:'aggregate',op:'sum',field`). Its kind = its own classification, else enclosing ctx.
+    if (typeof obj.field === 'string' && obj.field === field) {
+      found.add(classify(prime, op) ?? ctx ?? 'numeric');
+      return;
+    }
+    const childCtx = classify(prime, op) ?? ctx;
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v)) v.forEach(x => walk(x, childCtx));
+      else if (v && typeof v === 'object') walk(v, childCtx);
+    }
+  };
+  walk(calculationIntent, null);
+
+  // A field used numerically ANYWHERE must be numeric (a measure also serves a compare). Otherwise
+  // take the most specific structural need observed.
+  if (found.has('numeric')) return 'numeric';
+  if (found.has('identifier')) return 'identifier';
+  if (found.has('temporal')) return 'temporal';
+  if (found.has('categorical')) return 'categorical';
+  return 'numeric';
+}
+
+// OB-216 §2-S3: a binding candidate column, LABELED with its sheet (partitionKey) and role tags.
+// The sheet label is the discriminator the old unlabeled cross-sheet measure pool lacked (DIAG-073).
+type LabeledCandidate = {
+  column: string;
+  partitionKey: string;        // structural sheet identity
+  structuralType: string;
+  contextualIdentity: string;
+  fi: FieldIdentity;
+  stats?: ColumnValueStats;
+  batchId: string;
+};
+
+// OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
+// confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
+type BindingProposal =
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind }
+  | { abstain: true; reason: string };
+
+// OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
+// {column, sheet, confidence} or {abstain, reason}. No measure-only pool, no developer threshold,
+// no column-name literal in the prompt. Sheet labels are OPAQUE (S1..Sn): the LLM discriminates by
+// each candidate's columns / structuralType / range, never by sheet-name meaning (Korean Test).
+async function recognizeBindingsViaAI(
+  components: PlanComponent[],
+  allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
+  labeledCandidates: LabeledCandidate[],
+  metricComprehension: MetricComprehensionSignal[] = [],
+): Promise<Record<string, BindingProposal>> {
+  const metricFields = Array.from(new Set(allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown')));
+  if (metricFields.length === 0 || labeledCandidates.length === 0) return {};
+
+  const sheetKeys = Array.from(new Set(labeledCandidates.map(c => c.partitionKey)));
+  const labelByKey = new Map<string, string>();
+  const keyByLabel = new Map<string, string>();
+  sheetKeys.forEach((k, i) => { const lbl = `S${i + 1}`; labelByKey.set(k, lbl); keyByLabel.set(lbl, k); });
+
+  // Per-metric semantic intent (HF-199 D2): plan-agent intent is authoritative context.
+  const intentByField = new Map<string, { intent: string; inputs: string }>();
+  for (const r of allRequirements) {
+    const ownerComp = components.find(c => c.name === r.compName);
+    const matchedSignal = metricComprehension.find(sig => {
+      const sv = sig.signal_value as Record<string, unknown> | null;
+      const sigLabel = (sv?.metric_label as string | undefined) ?? '';
+      return sigLabel === r.compName || sigLabel === ownerComp?.name;
+    });
+    if (matchedSignal) {
+      const sv = (matchedSignal.signal_value ?? {}) as Record<string, unknown>;
+      const intent = (sv.semantic_intent as string | undefined) ?? '';
+      const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
+      if (intent || inputs) intentByField.set(r.req.metricField, { intent, inputs });
+    }
+  }
+  const roleByField = new Map<string, string>();
+  for (const r of allRequirements) if (!roleByField.has(r.req.metricField)) roleByField.set(r.req.metricField, r.req.role);
+
+  const fieldList = metricFields.map((f, i) => {
+    const ctx = intentByField.get(f);
+    const parts = [`${i + 1}. field "${f}" (role: ${roleByField.get(f) ?? 'value'})`];
+    if (ctx?.intent) parts.push(`   plan intent: ${ctx.intent}`);
+    if (ctx?.inputs) parts.push(`   plan inputs: ${ctx.inputs}`);
+    return parts.join('\n');
+  }).join('\n');
+
+  const bySheet = new Map<string, LabeledCandidate[]>();
+  for (const c of labeledCandidates) {
+    const lbl = labelByKey.get(c.partitionKey)!;
+    if (!bySheet.has(lbl)) bySheet.set(lbl, []);
+    bySheet.get(lbl)!.push(c);
+  }
+  const candidateList = Array.from(bySheet.entries()).map(([lbl, cols]) => {
+    const lines = cols.map(c => {
+      const s = c.stats;
+      const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
+      return `    - "${c.column}" (type=${c.structuralType}, identity=${c.contextualIdentity})${range}`;
+    });
+    return `  SHEET ${lbl}:\n${lines.join('\n')}`;
+  }).join('\n');
+
+  const userPrompt = `REQUIRED FIELDS:
+${fieldList}
+
+CANDIDATE COLUMNS (grouped by sheet; each labeled with structural type, contextual identity, value range):
+${candidateList}
+
+For each required field above, return {"column","sheet","confidence","reduction"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.
+
+"reduction" = HOW this column's MULTIPLE ROWS for one entity over the period collapse to ONE value for this field's role:
+- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction).
+- "snapshot": a STOCK / balance / point-in-time value that is THE SAME on every row of the entity (a running balance, an assigned quota). Take it ONCE — NEVER sum it (summing multiplies it by the row count).
+- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period.
+- "last" / "first": the latest / earliest value. "distinct_count": the count of distinct values.
+Infer it from the column's contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when it is genuinely a flow.`;
+
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
+      options: { maxTokens: 900, responseFormat: 'json' as const },
+    }, false);
+    const result = response.result as Record<string, unknown>;
+    const validCols = new Set(labeledCandidates.map(c => `${c.partitionKey} ${c.column}`));
+    const validOps: ColumnMappingFilterOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'];
+    const proposals: Record<string, BindingProposal> = {};
+    for (const [field, val] of Object.entries(result)) {
+      if (!val || typeof val !== 'object') continue;
+      const obj = val as Record<string, unknown>;
+      if (obj.abstain === true) { proposals[field] = { abstain: true, reason: String(obj.reason ?? 'unspecified') }; continue; }
+      const col = typeof obj.column === 'string' ? obj.column : undefined;
+      const lbl = typeof obj.sheet === 'string' ? obj.sheet : undefined;
+      const pk = lbl ? keyByLabel.get(lbl) : undefined;
+      if (!col || !pk || !validCols.has(`${pk} ${col}`)) continue; // column must exist in the named sheet
+      const conf = typeof obj.confidence === 'number' ? obj.confidence : 0.5;
+      const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
+        ? (obj.filters as Array<Record<string, unknown>>)
+            .filter(f => typeof f.field === 'string' && f.value != null)
+            .map(f => ({
+              field: String(f.field),
+              operator: (typeof f.operator === 'string' && (validOps as string[]).includes(f.operator)) ? f.operator as ColumnMappingFilterOperator : 'eq',
+              value: f.value as string | number | boolean,
+            }))
+        : [];
+      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count'];
+      const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
+      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction };
+    }
+    const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}/${v.reduction}`).join(', ');
+    console.log(`[Convergence] OB-216 §2-S4 LLM binding proposals: {${summary}}`);
+    return proposals;
+  } catch (err) {
+    console.error('[Convergence] OB-216 §2-S4 LLM binding failed:', err);
+    return {};
+  }
+}
+
 /**
  * The tokens a component binding actually RESOLVED — roles whose entry carries a
  * real column and was not rejected (match_pass !== 'failed'). A token that is
@@ -1973,7 +2218,12 @@ export interface ColumnDistribution {
   distinctCount: number;
   nullCount: number;
   sampleSize: number;
-  scaleInference: 'ratio_0_1' | 'percentage_0_100' | 'integer_count' | 'integer_hundreds' | 'currency_large' | 'unknown';
+  // OB-216 Phase 3″: the prior `scaleInference` label bucketed columns by hardcoded
+  // magnitude cutoffs (a ratio ceiling, a percentage ceiling, count and currency
+  // bounds) — developer-assigned scale boundaries. Removed. Scale is now read directly
+  // from the distribution (min/max/median) by any consumer; the label was diagnostic-
+  // only (an observability signal field), never driving a binding, scale_factor, or
+  // plausibility decision.
 }
 
 export function profileColumnDistribution(
@@ -2005,43 +2255,15 @@ export function profileColumnDistribution(
   const max = n === 0 ? 0 : values[n - 1];
   const distinctCount = new Set(values).size;
 
-  // Scale inference — structural heuristics (Korean Test compliant)
-  let scaleInference: ColumnDistribution['scaleInference'] = 'unknown';
-  if (n > 0) {
-    const allNonNeg = min >= 0;
-    const allIntegers = values.every(v => Number.isInteger(v));
-
-    if (allNonNeg && max <= 1.5) {
-      scaleInference = 'ratio_0_1';
-    } else if (allNonNeg && max <= 150 && min < 1.5) {
-      scaleInference = 'percentage_0_100';
-    } else if (allNonNeg && allIntegers && max <= 50) {
-      scaleInference = 'integer_count';
-    } else if (allNonNeg && max > 50 && max <= 10000) {
-      scaleInference = 'integer_hundreds';
-    } else if (max > 10000) {
-      scaleInference = 'currency_large';
-    }
-  }
-
+  // OB-216 Phase 3″: no scale-bucket label — the distribution (min/max/median/p25/p75)
+  // is the scale signal. Removed the hardcoded magnitude cutoffs that previously
+  // classified the column into ratio/percentage/count/currency buckets.
   return {
     column: columnName,
     min, max, median, p25, p75,
     distinctCount, nullCount,
     sampleSize: n,
-    scaleInference,
   };
-}
-
-function inferScale(stats: ColumnValueStats): ColumnDistribution['scaleInference'] {
-  if (stats.sampleCount === 0) return 'unknown';
-  const allNonNeg = stats.min >= 0;
-  if (allNonNeg && stats.max <= 1.5) return 'ratio_0_1';
-  if (allNonNeg && stats.max <= 150 && stats.min < 1.5) return 'percentage_0_100';
-  if (allNonNeg && stats.max <= 50) return 'integer_count';
-  if (allNonNeg && stats.max > 50 && stats.max <= 10000) return 'integer_hundreds';
-  if (stats.max > 10000) return 'currency_large';
-  return 'unknown';
 }
 
 // ──────────────────────────────────────────────
@@ -2304,26 +2526,6 @@ function hasCompleteBindings(
   return true;
 }
 
-// HF-113: Validate that AI response is a metric→column mapping (not a narrative).
-// HF-227: accepts both the plain-string form (backward compatible) and the
-// enriched object form `{ column: string; filters?: [...] }` introduced by the
-// HF-227 prompt evolution.
-function isValidColumnMapping(
-  result: Record<string, unknown>,
-  metricFields: string[],
-  columnNames: string[],
-): boolean {
-  const mappedCount = metricFields.filter(m => {
-    const val = result[m];
-    if (typeof val === 'string') return columnNames.includes(val);
-    if (typeof val === 'object' && val !== null) {
-      const col = (val as Record<string, unknown>).column;
-      return typeof col === 'string' && columnNames.includes(col);
-    }
-    return false;
-  }).length;
-  return mappedCount >= Math.ceil(metricFields.length * 0.5);
-}
 
 // HF-227: Return shape of resolveColumnMappingsViaAI. Each metric maps to
 // either the column name as a plain string (backward-compatible) or to an
@@ -2342,196 +2544,6 @@ export type ColumnMappingFilter = {
 };
 export type ColumnMappingValue = string | { column: string; filters?: ColumnMappingFilter[] };
 
-// One AI call: match plan metric field names to data column contextual identities.
-//
-// HF-234 — separation of concerns: this call is the STRUCTURAL column-mapping
-// authority. It returns `{metric: column}` mappings only. Categorical-subset
-// filter discovery has moved to Pass 4 (generateAISemanticDerivations), which
-// produces metric_derivations rules that the engine applies AFTER role-bound
-// metric resolution. The prompt below no longer mentions categorical fields or
-// filter forms, so the LLM consistently returns the flat string shape that
-// `isValidColumnMapping` expects. Defensive object-form parsing in
-// `generateAllComponentBindings` is retained for backward compatibility.
-async function resolveColumnMappingsViaAI(
-  components: PlanComponent[],
-  allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
-  measureColumns: Array<{ name: string; fi: FieldIdentity; stats: ColumnValueStats }>,
-  metricComprehension: MetricComprehensionSignal[] = [], // HF-199 D2
-  categoricals: Array<{ field: string; distinctValues: string[] }> = [], // HF-269 B
-): Promise<Record<string, ColumnMappingValue>> {
-  const metricFields = allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown');
-  const columnNames = measureColumns.map(c => c.name);
-
-  // HF-199 D2: Build per-metric semantic intent map from comprehension signals.
-  // Match by component name (signal.metric_label) and then by metricField. Per
-  // AUD-004 v3 §2 E5, plan-agent semantic intent is authoritative; AI prompt
-  // includes it so column-to-metric binding has structured plan context.
-  // HF-226 Phase 2A: each map entry now carries the full signal_value via
-  // signalContext alongside the three derived strings, so the prompt builder
-  // can surface any field the plan-agent emitted (filters, expectedMetrics,
-  // calculationMethod, free-form predicate vocabulary).
-  const semanticIntentByMetricField = new Map<string, {
-    intent: string;
-    inputs: string;
-    signalContext: Record<string, unknown> | null;
-  }>();
-  for (const r of allRequirements) {
-    const ownerComp = components.find(c => c.name === r.compName);
-    const matchedSignal = metricComprehension.find(sig => {
-      const sv = sig.signal_value as Record<string, unknown> | null;
-      if (!sv) return false;
-      const sigLabel = (sv.metric_label as string | undefined) ?? '';
-      return sigLabel === r.compName || sigLabel === ownerComp?.name;
-    });
-    if (matchedSignal) {
-      const sv = (matchedSignal.signal_value ?? {}) as Record<string, unknown>;
-      const intent = (sv.semantic_intent as string | undefined) ?? '';
-      const inputs = sv.metric_inputs ? JSON.stringify(sv.metric_inputs).slice(0, 200) : '';
-      if (intent || inputs) {
-        semanticIntentByMetricField.set(r.req.metricField, { intent, inputs, signalContext: sv });
-      }
-    }
-  }
-
-  // Build metric list with semantic intent annotations when available
-  const metricList = metricFields.map((f, i) => {
-    const ctx = semanticIntentByMetricField.get(f);
-    if (ctx) {
-      const parts = [`${i + 1}. "${f}"`];
-      if (ctx.intent) parts.push(`   plan-agent intent: ${ctx.intent}`);
-      if (ctx.inputs) parts.push(`   plan-agent inputs: ${ctx.inputs}`);
-      return parts.join('\n');
-    }
-    return `${i + 1}. "${f}"`;
-  }).join('\n');
-
-  // Build column list with contextual identities.
-  // HF-253 (Cause B): surface the per-column value distribution (min/max/mean) that is
-  // already carried on `c.stats` (ColumnValueStats) but was previously discarded when
-  // building the prompt. The magnitude of a column is a structural discriminator: a
-  // computed ratio/achievement column (e.g. ~0-1.3) and a currency-magnitude operand
-  // (e.g. ~10^5) read identically by prose label but differ by orders of magnitude in
-  // their values. Korean Test: numeric min/max/mean only — no field-name or
-  // language-specific content is introduced.
-  const columnList = measureColumns.map((c, i) => {
-    const s = c.stats;
-    const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
-    // HF-263: key-space annotation. A cross-source column is keyed by a different entity
-    // than the primary identifier; prefer a same-batch alternative when one carries
-    // equivalent data, since same-batch columns resolve through resolveColumnFromBatch
-    // without a boundary join. Structural (cross_source_numeric flag), not name-based.
-    const crossSourceNote = c.fi.contextualIdentity === 'cross_source_numeric'
-      ? ' [WARN] CROSS-SOURCE: keyed by a different entity than the primary identifier - prefer same-batch alternatives when available'
-      : '';
-    return `${i + 1}. "${c.name}" (${c.fi.contextualIdentity})${range}${crossSourceNote}`;
-  }).join('\n');
-
-  // HF-269 B: surface the runtime CATEGORICAL DIMENSIONS (field + distinct values) so the AI can
-  // express the filter that turns a shared column into the per-plan metric (SUM(col) WHERE cat=X).
-  // Korean Test: every field name and value is read VERBATIM from runtime data
-  // (capabilities[*].categoricalFields[*].distinctValues) — no hardcoded names, no language literals.
-  const categoricalList = categoricals.length > 0
-    ? categoricals
-        .map((c, i) => `${i + 1}. "${c.field}" distinct values: [${c.distinctValues.map(v => `"${v}"`).join(', ')}]`)
-        .join('\n')
-    : '(none)';
-  // Enriched example built from runtime arrays (Korean Test: not literals). Falls back to structural
-  // placeholders only when no categorical dimension exists at runtime.
-  const firstCat = categoricals.find(c => c.distinctValues.length > 0);
-  const enrichedExample = firstCat
-    ? `{"${metricFields[0] || 'metric_a'}": {"column": "${columnNames[0] || 'Column_A'}", "filters": [{"field": "${firstCat.field}", "operator": "eq", "value": "${firstCat.distinctValues[0]}"}]}}`
-    : `{"${metricFields[0] || 'metric_a'}": {"column": "${columnNames[0] || 'Column_A'}", "filters": [{"field": "<categorical_col>", "operator": "eq", "value": "<one_of_its_distinct_values>"}]}}`;
-
-  // HF-114 / HF-199 D2: User prompt carries plan-agent semantic intent per metric.
-  // System prompt is SYSTEM_PROMPTS['convergence_mapping'] (anthropic-adapter.ts).
-  // HF-269 B: restores filter vocabulary (HF-234 removed it) — the binding the engine reads
-  // (Decision 111) must carry the authoritative comprehension's filter, not just a flat column.
-  const userPrompt = `Match each metric field to the best data column. Each column used at most once.
-Plan-agent intent and inputs (when shown) are AUTHORITATIVE — bind columns that satisfy the stated
-intent over columns that merely share contextual labels, for BOTH the column choice and the filter.
-When a metric field participates in a ratio (a numerator or denominator), use the value ranges shown
-in brackets as a consistency signal: prefer a column whose magnitude is consistent with the role the
-field plays. A value range bounded near 0-1 typically indicates an already-computed proportion.
-
-When a metric's plan-agent intent implies a SUBSET of a broader/shared column (the metric is that
-column summed/counted WHERE a categorical dimension equals a specific value), return the ENRICHED form
-{"column": "<col>", "filters": [{"field": "<categorical_col>", "operator": "eq", "value": "<distinct_value>"}]},
-choosing "field" ONLY from a listed CATEGORICAL DIMENSION and "value" ONLY from that field's listed
-distinct values. When no subset is implied, return the flat column-name string.
-
-METRIC FIELDS:
-${metricList}
-
-DATA COLUMNS:
-${columnList}
-
-CATEGORICAL DIMENSIONS (any filter "field" and "value" MUST come from these):
-${categoricalList}
-
-EXAMPLE OUTPUT (flat — no filter needed):
-{"${metricFields[0] || 'metric_a'}": "${columnNames[0] || 'Column_A'}"}
-
-EXAMPLE OUTPUT (filtered — metric is a subset of a shared column):
-${enrichedExample}`;
-
-  try {
-    const aiService = getAIService();
-
-    // HF-114: convergence_mapping task type — purpose-built system prompt + passthrough user prompt
-    const response = await aiService.execute({
-      task: 'convergence_mapping',
-      input: { userMessage: userPrompt },
-      options: { maxTokens: 500, responseFormat: 'json' as const },
-    }, false);
-
-    const result = response.result as Record<string, unknown>;
-
-    // Validate: at least some keys are metric fields with values being column names
-    if (!isValidColumnMapping(result, metricFields, columnNames)) {
-      console.error(`[Convergence] HF-114 AI response invalid (keys: ${Object.keys(result).join(', ')}). Falling back to boundary matching.`);
-      return {};
-    }
-
-    // HF-227: accept both string (legacy) and { column, filters? } (enriched)
-    // forms. Plain string remains valid output — Korean Test compliant because
-    // the parser inspects shape, not content. Empty filters arrays are
-    // equivalent to absent filters for the engine (rowMatchesFilters returns
-    // true on empty arrays).
-    const mapping: Record<string, ColumnMappingValue> = {};
-    for (const [key, val] of Object.entries(result)) {
-      if (typeof val === 'string' && columnNames.includes(val)) {
-        mapping[key] = val;
-      } else if (typeof val === 'object' && val !== null) {
-        const obj = val as Record<string, unknown>;
-        const col = obj.column;
-        if (typeof col === 'string' && columnNames.includes(col)) {
-          const validOps: ColumnMappingFilterOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'];
-          const filters: ColumnMappingFilter[] = Array.isArray(obj.filters)
-            ? (obj.filters as Array<Record<string, unknown>>)
-                .filter(f => typeof f.field === 'string' && f.value != null)
-                .map(f => {
-                  const op = typeof f.operator === 'string' && (validOps as string[]).includes(f.operator)
-                    ? (f.operator as ColumnMappingFilterOperator)
-                    : 'eq';
-                  return {
-                    field: String(f.field),
-                    operator: op,
-                    value: f.value as string | number | boolean,
-                  };
-                })
-            : [];
-          mapping[key] = filters.length > 0 ? { column: col, filters } : col;
-        }
-      }
-    }
-    console.log(`[Convergence] HF-114 AI mapping: ${JSON.stringify(mapping)}`);
-    return mapping;
-  } catch (err) {
-    console.error('[Convergence] HF-114 AI mapping failed:', err);
-  }
-
-  return {};
-}
 
 // ──────────────────────────────────────────────
 // HF-112: Generate Per-Component Input Bindings
@@ -2697,86 +2709,44 @@ async function generateAllComponentBindings(
     return;
   }
 
-  // Collect all measure columns across matched capabilities
-  const measureColumns: Array<{
-    name: string;
-    fi: FieldIdentity;
-    stats: ColumnValueStats;
-    batchId: string;
-  }> = [];
-  let primaryCap: DataCapability | undefined;
-
-  for (const match of matches) {
-    const cap = capabilities.find(c => c.dataType === match.dataType);
-    if (!cap) continue;
-    if (!primaryCap) {
-      primaryCap = cap;
-    }
-
+  // OB-216 §2-S3: labeled, role-aware candidate set from ALL sheet capabilities — not measure-only,
+  // not match-scoped. Each column carries its sheet (partitionKey), structuralType, contextualIdentity,
+  // and stats. The sheet LABEL is the discriminator the old unlabeled cross-sheet pool lacked
+  // (DIAG-073 §2.3). ALL role-bearing columns are candidates (attributes admitted, role-tagged),
+  // so an attribute requirement (e.g. a verified-flag) can bind its attribute column.
+  const labeledCandidates: LabeledCandidate[] = [];
+  const seenCand = new Set<string>();
+  for (const cap of capabilities) {
     for (const [colName, fi] of Object.entries(cap.fieldIdentities)) {
-      if (fi.structuralType === 'measure' && cap.columnStats[colName]) {
-        if (!measureColumns.some(mc => mc.name === colName)) {
-          measureColumns.push({ name: colName, fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '' });
-        }
-      }
+      const k = `${cap.partitionKey} ${colName}`;
+      if (seenCand.has(k)) continue;
+      seenCand.add(k);
+      labeledCandidates.push({
+        column: colName, partitionKey: cap.partitionKey,
+        structuralType: fi.structuralType, contextualIdentity: fi.contextualIdentity,
+        fi, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '',
+      });
     }
-    // Also include numeric columns with stats but no field identity
-    for (const nf of cap.numericFields) {
-      if (!measureColumns.some(mc => mc.name === nf.field) && cap.columnStats[nf.field]) {
-        measureColumns.push({
-          name: nf.field,
-          fi: { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 },
-          stats: cap.columnStats[nf.field],
-          batchId: cap.batchIds[0] || '',
-        });
-      }
-    }
-  }
-
-  if (measureColumns.length === 0 || !primaryCap) return;
-
-  // HF-112 / HF-199 D2: AI-assisted column mapping with metric_comprehension
-  // signals as authoritative semantic intent.
-  // HF-253: the mapping call is now made ONCE PER VARIANT GROUP (see the variant
-  // grouping below), not once globally. Requirements are collected per group.
-  //
-  // HF-234 — categorical-field aggregation REMOVED from this call site.
-  // Categorical-subset filter discovery has moved to Pass 4
-  // (generateAISemanticDerivations), which reads categoricalFields directly
-  // from the `capabilities` parameter and produces metric_derivations rules.
-  // The cross-data-type measure-column discovery below (HF-228) is preserved
-  // — it serves Call 1's structural column mapping for plans whose metrics
-  // span multiple capability data types.
-
-  // HF-302 (RC-1, DIAG-072): the HF-228 cross-data-type column add-loop is REMOVED.
-  // HF-228 pushed EVERY unmatched data_type's numeric columns into `measureColumns` as
-  // `cross_source_numeric` (confidence 0.4) — a SOFT discriminator only. After HF-269 Phase A
-  // removed the HARD cross-source guard (HF-263 P3.2), that flat pool let the AI bind a plan's
-  // component inputs to columns from a DIFFERENT data file than the plan's own (DIAG-072: a
-  // collections-file column bound to a sales-plan input → null → $0). The candidate pool is now
-  // scoped to the data_type(s) the BOUNDARY MATCHER
-  // associated with this plan's components (`measureColumns` above, built only from matched
-  // capabilities) — deterministic file affinity, keyed on data_type/batchId, no magnitude proxy,
-  // no name matching (Korean Test). A genuine cross-data_type need must surface through the
-  // component's declared cross-reference (boundary-matcher output), NOT a blanket add-all loop.
-  // (Do NOT restore HF-263 P3.2 — the magnitude-proxy redirect was deliberately deleted.)
-
-  // HF-275: compute each measure column's null-rate over the CALCULATION POPULATION
-  // (committed_data rows with entity_id IS NOT NULL — the individual payees HF-263 keeps;
-  // grouping/hub rows are excluded). A column 100% null on this population cannot produce
-  // a value for any payee; the binding loop below penalizes its match by (1 - null_rate)
-  // so a column with values on the population wins over a merely name-similar one. Computed
-  // once, scoped per column to its own data batch. Korean Test: structural property only.
-  const individualNullRates = await computeIndividualNullRates(
-    supabase,
-    measureColumns.map(c => ({ name: c.name, batchId: c.batchId })),
-  );
-  if (individualNullRates.size > 0) {
-    const allNull = Array.from(individualNullRates.entries()).filter(([, r]) => r >= 1).map(([c]) => c);
-    if (allNull.length > 0) {
-      console.log(`[Convergence] HF-275 columns 100% null on the calculation population (penalized out): ${allNull.join(', ')}`);
+    // numeric columns with stats but no field identity → inferred measure
+    for (const colName of Object.keys(cap.columnStats)) {
+      const k = `${cap.partitionKey} ${colName}`;
+      if (cap.fieldIdentities[colName] || seenCand.has(k)) continue;
+      seenCand.add(k);
+      const inferred: FieldIdentity = { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 };
+      labeledCandidates.push({
+        column: colName, partitionKey: cap.partitionKey,
+        structuralType: 'measure', contextualIdentity: 'inferred_numeric',
+        fi: inferred, stats: cap.columnStats[colName], batchId: cap.batchIds[0] || '',
+      });
     }
   }
+  if (labeledCandidates.length === 0) return;
+  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => c.structuralType === 'attribute').map(c => c.column).join(', ') || 'none'}]`);
+
+  // OB-216 §2-S5: the §2-S3 measure-only shim and the HF-275 null-rate scoring are removed — the
+  // binding loop below consumes `labeledCandidates` directly via LLM recognition (§2-S4) +
+  // structural validation (§D). Candidate selection is the LLM's; the guarantee is existence +
+  // role-consistency, not a null-rate-penalized boundary score.
 
   // HF-253: group matches by structural variantId before binding. The engine's
   // variant router (HF-119) evaluates exactly ONE variant per entity, so columns
@@ -2810,36 +2780,18 @@ async function generateAllComponentBindings(
     // Per-group component list (used for semantic-intent matching in the AI call).
     const groupComponents = groupMatches.map(m => m.component);
 
-    console.log(`[Convergence] HF-253 Requesting AI column mapping for variant group ${variantLabel}`);
-    // HF-269 B: collect the runtime categorical dimensions (field + distinct values) across all
-    // capabilities so the mapping call can express filters from real data (Korean Test — runtime only).
-    const categoricalDims: Array<{ field: string; distinctValues: string[] }> = [];
-    const seenCatFields = new Set<string>();
-    for (const cap of capabilities) {
-      for (const cf of cap.categoricalFields ?? []) {
-        if (!cf.field || seenCatFields.has(cf.field)) continue;
-        seenCatFields.add(cf.field);
-        categoricalDims.push({ field: cf.field, distinctValues: cf.distinctValues });
-      }
-    }
-    const aiMapping = await resolveColumnMappingsViaAI(
+    console.log(`[Convergence] OB-216 §2-S4 requesting LLM binding for variant group ${variantLabel}`);
+    const proposals = await recognizeBindingsViaAI(
       groupComponents,
       allRequirements,
-      measureColumns,
+      labeledCandidates,
       metricComprehension,
-      categoricalDims,
     );
-    console.log(`[Convergence] HF-253 AI proposed ${Object.keys(aiMapping).length} mappings for variant group ${variantLabel}`);
+    console.log(`[Convergence] OB-216 §2-S5 ${Object.keys(proposals).length} proposals for variant group ${variantLabel}`);
 
-    // Build bindings using AI mapping + boundary validation.
-    // HF-253: the exclusion map is reset PER VARIANT GROUP. This closes the
-    // cross-variant contention at BOTH consumer sites — the AI-mapping path and the
-    // boundary-fallback `candidates` filter (DD-2). Within a single variant group the
-    // (column → metricField) one-column-once guard is preserved unchanged (HF-243
-    // semantics): a column may be reused by a later component binding to the SAME
-    // field, but a different field cannot claim an already-bound column.
-    const boundColumnToField = new Map<string, string>();
-
+    // OB-216 §2-S5: bind each component's requirements from the LLM proposals (per field), with
+    // deterministic structural validation. No one-column-once exclusion map (per-field recognition);
+    // no boundary fallback. variantId scoping preserved (HF-253).
     for (const match of groupMatches) {
       const comp = match.component;
       const cap = capabilities.find(c => c.dataType === match.dataType);
@@ -2852,150 +2804,11 @@ async function generateAllComponentBindings(
     const requirements = extractInputRequirements(comp);
 
     for (const req of requirements) {
-      // HF-227: the AI mapping value may be a plain column-name string
-      // (backward compatible) or the enriched shape { column, filters? }.
-      // Extract both so filters land on the binding entry below.
-      const proposedMapping = aiMapping[req.metricField];
-      const proposedColumnName = typeof proposedMapping === 'string'
-        ? proposedMapping
-        : proposedMapping?.column;
-      const proposedFilters = typeof proposedMapping === 'object' && proposedMapping !== null && Array.isArray(proposedMapping.filters)
-        ? proposedMapping.filters
-        : [];
+      const proposal = proposals[req.metricField];
 
-      if (proposedColumnName) {
-        const mc = measureColumns.find(c => c.name === proposedColumnName);
-        const priorField = boundColumnToField.get(proposedColumnName);
-        const excluded = priorField !== undefined && priorField !== req.metricField;
-        // HF-275: population-aware quality signal. A column that is 100% null on the
-        // calculation population (committed_data rows with entity_id IS NOT NULL — the
-        // individual payees; grouping rows are excluded by HF-263) genuinely cannot
-        // produce a value for any payee, regardless of name similarity. Do NOT accept the
-        // AI's name-similar proposal in that case — fall through to boundary scoring (which
-        // is penalized by null-rate below) so a column with values on the population wins.
-        // Below 100% the proposal is accepted with a proportional confidence penalty.
-        const proposedNullRate = individualNullRates.get(proposedColumnName) ?? 0;
-        if (mc && !excluded && proposedNullRate >= 1) {
-          console.log(`[Convergence] HF-275 ${comp.name}:${req.role}: AI proposed "${proposedColumnName}" but it is 100% null on the calculation population — rejecting; falling through to population-penalized boundary scoring.`);
-        } else if (mc && !excluded) {
-          // Boundary validation of AI proposal
-          const { score: boundaryScore, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
-          const isValidated = !req.expectedRange || boundaryScore > 0.1;
-
-          bindings[compKey][req.role] = {
-            column: proposedColumnName,
-            field_identity: mc.fi,
-            match_pass: isValidated ? 1 : 2,  // 1=AI+validated, 2=AI-only
-            // HF-275: proportional population penalty — confidence × (1 - individual null rate).
-            confidence: (isValidated ? 0.9 : 0.6) * (1 - proposedNullRate),
-            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
-            learning_provenance: {
-              batch_id: mc.batchId,
-              learned_at: new Date().toISOString(),
-            },
-            // HF-227: filters live on the binding (Decision 111 single-structure
-            // completion). Empty array preserves byte-identical pre-HF-227
-            // engine behavior; populated array activates filter-respecting
-            // sum at the engine.
-            filters: proposedFilters,
-          };
-          boundColumnToField.set(proposedColumnName, req.metricField);
-          console.log(`[Convergence] HF-112 ${comp.name}:${req.role} → ${proposedColumnName} (AI${isValidated ? '+validated' : ''}, scale=${scaleFactor}, filters=${proposedFilters.length}, nullRate=${proposedNullRate.toFixed(2)})`);
-          continue;
-        }
-      }
-
-      // Fallback: boundary matching for unmapped requirements (HF-111 logic)
-      // HF-222 Phase 2: boundary-fallback acceptance uses distribution-derived
-      // distinguishability (see distinctEnoughToBind). The threshold is computed
-      // from the candidate distribution at decision time — no developer-stated
-      // numerical constants. Cluster cases refuse to bind and surface convergence
-      // gaps; clear-outlier cases bind.
-      // HF-243: same scoping as AI-mapping path — columns previously bound to the
-      // SAME field name remain candidates (variant duplicates); columns bound to a
-      // different field are excluded.
-      const candidates = measureColumns
-        .filter(mc => {
-          const pf = boundColumnToField.get(mc.name);
-          return pf === undefined || pf === req.metricField;
-        })
-        .map(mc => {
-          const { score, scaleFactor } = scoreColumnForRequirement(mc.name, mc.stats, req);
-          // HF-275: population-aware quality signal — multiply the match score by
-          // (1 - individual null rate). A column 100% null on the calculation population
-          // scores 0 and cannot win over a column with values; a partially-null column is
-          // penalized proportionally. DD-7: a column with values on the population
-          // (null rate 0) is unaffected. Korean Test: structural null-rate, no literals.
-          const nullRate = individualNullRates.get(mc.name) ?? 0;
-          return { ...mc, score: score * (1 - nullRate), scaleFactor };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      if (candidates.length > 0 && distinctEnoughToBind(candidates)) {
-        const best = candidates[0];
-        bindings[compKey][req.role] = {
-          column: best.name,
-          field_identity: best.fi,
-          match_pass: 3,  // Boundary-only fallback (distribution-derived acceptance)
-          confidence: Math.min(0.7, match.matchConfidence * (0.3 + best.score * 0.4)),
-          scale_factor: best.scaleFactor !== 1 ? best.scaleFactor : undefined,
-          learning_provenance: {
-            batch_id: best.batchId,
-            learned_at: new Date().toISOString(),
-          },
-        };
-        boundColumnToField.set(best.name, req.metricField);
-        console.log(`[Convergence] HF-222 ${comp.name}:${req.role} → ${best.name} (distribution-distinct, top=${candidates[0].score.toFixed(4)})`);
-      } else {
-        // HF-287: order-independent AI-explicit recovery. The boundary fallback could not
-        // distinctly bind (degenerate look-alike cluster, or no candidate). BEFORE surfacing a
-        // gap/marker, honor the AI's EXPLICIT per-token recognition: the AI may have deliberately
-        // mapped THIS token to a real column that an EARLIER token in this same variant group
-        // already claimed (intra-group column contention — DIAG-068/HF-287 root cause). The
-        // one-column-once guard on the AI-mapping path above is a speculative-reuse guard, not a
-        // veto over explicit recognition: a single physical column may legitimately satisfy
-        // multiple AI-mapped tokens (e.g. a loads column read by both a monthly-loads metric and a
-        // fleet-utilization ratio numerator). Binding here makes the result ORDER-INDEPENDENT —
-        // whichever contending token is processed first, the other recovers its AI-recognized
-        // column — closing the generation-sensitivity that flipped which variant aborted across
-        // re-imports. DD-7: this fires ONLY on the fallback-failure (would-be-unbound) path; every
-        // currently-binding token binds above and never reaches here. Decision 158 / Korean Test:
-        // binds the AI's structural per-token choice (no column-name literal, no language string).
-        const aiProposed = aiMapping[req.metricField];
-        const aiCol = typeof aiProposed === 'string' ? aiProposed : aiProposed?.column;
-        const aiMc = aiCol ? measureColumns.find(c => c.name === aiCol) : undefined;
-        const aiNullRate = aiCol ? (individualNullRates.get(aiCol) ?? 0) : 1;
-        if (aiMc && aiNullRate < 1) {
-          const { scaleFactor } = scoreColumnForRequirement(aiMc.name, aiMc.stats, req);
-          const aiFilters = typeof aiProposed === 'object' && aiProposed !== null && Array.isArray(aiProposed.filters) ? aiProposed.filters : [];
-          bindings[compKey][req.role] = {
-            column: aiMc.name,
-            field_identity: aiMc.fi,
-            match_pass: 2,  // AI-explicit recovery (recognized, not independently boundary-distinct)
-            confidence: 0.6 * (1 - aiNullRate),
-            scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
-            learning_provenance: {
-              batch_id: aiMc.batchId,
-              learned_at: new Date().toISOString(),
-            },
-            filters: aiFilters,
-          };
-          boundColumnToField.set(aiMc.name, req.metricField);
-          console.log(`[Convergence] HF-287 ${comp.name}:${req.role} → ${aiMc.name} (AI-explicit recovery over intra-group contention; nullRate=${aiNullRate.toFixed(2)})`);
-      } else if (candidates.length > 0) {
-        // Ambiguous: real columns exist but none is distinctly THE match, and the AI made no
-        // viable explicit proposal. Decision 108 / §6A territory, NOT the HF-272 hallucination-catch.
-        console.log(`[Convergence] HF-222: ${comp.name}:${req.role}: candidate distribution insufficient to bind (top=${candidates[0].score.toFixed(4)}, n=${candidates.length}); surfacing as convergence gap.`);
-      } else {
-        // HF-272: the required reference token resolved to NO real column — there is no
-        // measure column available for it to bind to (AI semantic mapping proposed none,
-        // and the boundary fallback had zero candidates). This is the relocated
-        // hallucination-catch. Record a per-component resolution-failure MARKER on the
-        // binding (no throw — Option 1: per-component failure, no run abort). The component
-        // still receives a binding entry so persistence is NOT skipped; calc surfaces it as
-        // a loud `failed` component, never a silent $0. The comparison is against the real
-        // columns convergence evaluated (measureColumns) — complete-by-construction, never
-        // an enumerated/declared list (AUD-009).
+      // §2-S5: no proposal or explicit abstention → convergence gap (never a forced bind).
+      if (!proposal || 'abstain' in proposal) {
+        const why = proposal ? (proposal as { reason: string }).reason : 'no_proposal';
         bindings[compKey][req.role] = {
           column: '',
           field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
@@ -3003,13 +2816,57 @@ async function generateAllComponentBindings(
           confidence: 0,
           resolutionFailure: {
             token: req.metricField,
-            reason: 'no_real_column_match',
-            candidatesConsidered: candidates.length,
+            reason: proposal ? `llm_abstained:${why}` : 'no_proposal',
+            candidatesConsidered: labeledCandidates.length,
           },
         };
-          console.log(`[Convergence] HF-272 ${comp.name}:${req.role}: token "${req.metricField}" resolved to NO real column (candidatesConsidered=${candidates.length}) — per-component resolution failure recorded (loud failed, not silent $0).`);
-        }
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role}: ${proposal ? `LLM abstained (${why})` : 'no proposal'} → convergence gap`);
+        continue;
       }
+
+      // §2-S5 structural validation (§D): (1) column exists in the proposed sheet; (2) its
+      // structuralType is consistent with the field's intent-usage-derived needed type. No threshold.
+      const sheetCap = capabilities.find(c => c.partitionKey === proposal.partitionKey);
+      const colFi: FieldIdentity | undefined = sheetCap?.fieldIdentities[proposal.column]
+        ?? (sheetCap && sheetCap.columnStats[proposal.column]
+              ? { structuralType: 'measure', contextualIdentity: 'inferred_numeric', confidence: 0.5 }
+              : undefined);
+      if (!sheetCap || !colFi) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: { token: req.metricField, reason: 'proposed_column_absent_in_sheet', candidatesConsidered: labeledCandidates.length },
+        };
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column}@${proposal.partitionKey.split('␟')[0]}: column not present in proposed sheet → gap`);
+        continue;
+      }
+      const needed = deriveNeededType(req.metricField, comp.calculationIntent);
+      if (!acceptableStructuralTypes(needed).has(colFi.structuralType)) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: { token: req.metricField, reason: `role_inconsistent:needs_${needed}_got_${colFi.structuralType}`, candidatesConsidered: labeledCandidates.length },
+        };
+        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (${colFi.structuralType}): role-inconsistent, needs ${needed} → gap`);
+        continue;
+      }
+
+      // Validated → write. The bound column's SHEET drives provenance; resolveColumnFromBatch scans
+      // all batches by column name, so a column resolves from its own sheet's rows — and a component
+      // whose fields bind on different sheets unions those sheets implicitly (§E batchIds union).
+      const stats = sheetCap.columnStats[proposal.column];
+      const scaleFactor = stats ? scoreColumnForRequirement(proposal.column, stats, req).scaleFactor : 1;
+      bindings[compKey][req.role] = {
+        column: proposal.column,
+        field_identity: colFi,
+        match_pass: 1,
+        confidence: proposal.confidence,
+        scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+        reduction: proposal.reduction !== 'sum' ? proposal.reduction : undefined,
+        filters: proposal.filters,
+        learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
+      };
+      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, needs=${needed}, conf=${proposal.confidence.toFixed(2)}, validated)`);
     }
 
     // HF-218 Component 1 — Entity identifier self-verification.
@@ -3024,8 +2881,15 @@ async function generateAllComponentBindings(
     //   4. Select highest-scoring candidate
     //   5. Fall back to cardinality-only if zero intersection across all candidates
     //   6. Persist with freshly-computed confidence; emit convergence:binding_selection signal
+    // OB-216 §2-S5: an entity-key column may be classified 'identifier' OR 'reference_key' (e.g.
+    // a per-sheet vendor key like a national-ID column is a reference_key). Consider BOTH as
+    // candidates; the cardinality×intersection score below disambiguates structurally (the key whose
+    // VALUES overlap the tenant's entity external_ids wins — Korean Test, value-overlap not name).
+    // Pre-Phase-1 the merged single capability happened to expose the entity key as 'identifier';
+    // per-sheet capabilities classify it 'reference_key', so the 'identifier'-only filter would pick
+    // a high-cardinality non-entity column (e.g. a folio) with zero entity overlap.
     const idEntries = Object.entries(cap.fieldIdentities)
-      .filter(([, fi]) => fi.structuralType === 'identifier');
+      .filter(([, fi]) => fi.structuralType === 'identifier' || fi.structuralType === 'reference_key');
     if (idEntries.length > 0) {
       type CandidateScore = {
         colName: string;
@@ -3163,83 +3027,6 @@ async function generateAllComponentBindings(
   }
 }
 
-/**
- * Generate COUNT derivation rules with category+boolean filters.
- *
- * HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
- * Korean Test (E910) violation: filter-value selection uses token-overlap
- * scoring between component-name and capability.categoricalFields[*].distinctValues,
- * which fails for non-English data. Pass 4 derives filters via structural
- * heuristics (column distributions, categorical-value statistics) per the
- * AI prompt at lines 2476-2528. Function body retained for rollback safety;
- * remove after three-tenant verification.
- */
-function generateFilteredCountDerivations(
-  component: PlanComponent,
-  dataType: string,
-  capability: DataCapability
-): MetricDerivationRule[] {
-  const rules: MetricDerivationRule[] = [];
-  const compTokens = tokenize(component.name);
-
-  let bestCatField: { field: string; matchedValue: string } | null = null;
-  let bestCatScore = 0;
-
-  for (const catField of capability.categoricalFields) {
-    for (const value of catField.distinctValues) {
-      const valueTokens = tokenize(value);
-      const overlap = compTokens.filter(t =>
-        valueTokens.some(v => v.includes(t) || t.includes(v))
-      );
-      const score = overlap.length / Math.max(valueTokens.length, 1);
-      if (score > bestCatScore) {
-        bestCatScore = score;
-        bestCatField = { field: catField.field, matchedValue: value };
-      }
-    }
-  }
-
-  if (!bestCatField || bestCatScore < 0.3) {
-    for (const metricName of component.expectedMetrics) {
-      const metricTokens = tokenize(metricName);
-      for (const catField of capability.categoricalFields) {
-        for (const value of catField.distinctValues) {
-          const valueTokens = tokenize(value);
-          const overlap = metricTokens.filter(t =>
-            valueTokens.some(v => v.includes(t) || t.includes(v))
-          );
-          const score = overlap.length / Math.max(metricTokens.length, 1);
-          if (score > bestCatScore) {
-            bestCatScore = score;
-            bestCatField = { field: catField.field, matchedValue: value };
-          }
-        }
-      }
-    }
-  }
-
-  if (!bestCatField) return rules;
-
-  const filters: MetricDerivationRule['filters'] = [
-    { field: bestCatField.field, operator: 'eq', value: bestCatField.matchedValue },
-  ];
-
-  if (capability.booleanFields.length > 0) {
-    const qualField = capability.booleanFields[0];
-    filters.push({ field: qualField.field, operator: 'eq', value: qualField.trueValue });
-  }
-
-  for (const metricName of component.expectedMetrics) {
-    rules.push({
-      metric: metricName,
-      operation: 'count',
-      source_pattern: dataType,
-      filters,
-    });
-  }
-
-  return rules;
-}
 
 // ──────────────────────────────────────────────
 // OB-185 Pass 4: AI-Assisted Semantic Derivation
