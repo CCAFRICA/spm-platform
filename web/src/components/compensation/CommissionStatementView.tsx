@@ -130,7 +130,6 @@ function ComponentCard({ component }: { component: StatementComponent }) {
   const [openTx, setOpenTx] = useState<string | null>(null);
   const { format } = useCurrency();
   const { format: formatDate } = useTenantDate();
-  const isClawback = component.pattern === 'clawback';
 
   return (
     <Card>
