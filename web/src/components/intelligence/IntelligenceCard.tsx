@@ -11,6 +11,7 @@
 
 import { type ReactNode, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface IntelligenceCardProps {
   accentColor: string; // tailwind class like 'border-indigo-500'
@@ -35,6 +36,7 @@ export function IntelligenceCard({
   tier = 'information',
 }: IntelligenceCardProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const isVialuce = useIsVialuce(); // HF-315: shared base for 17 stream cards → design-spec .card
 
   // Signal capture: fire onView when element enters viewport
   useEffect(() => {
@@ -53,6 +55,27 @@ export function IntelligenceCard({
     observer.observe(ref.current);
     return () => observer.disconnect();
   }, [onView]);
+
+  // HF-315: under Vialuce render the design-spec .card (white surface + line border + sh-1 shadow),
+  // with a left accent for information/action tiers and the label as a DM Mono uppercase eyebrow.
+  // The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <div
+        ref={ref}
+        data-element-id={elementId}
+        className={cn('card', fullWidth && 'col-span-full', className)}
+        style={tier !== 'status'
+          ? { borderLeft: `3px solid var(--vl-kpi-accent)`, marginTop: 0 }
+          : { marginTop: 0 }}
+      >
+        <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 12px' }}>
+          {label}
+        </p>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div
