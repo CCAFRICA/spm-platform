@@ -130,11 +130,11 @@ export function ObservatoryTab() {
   }
 
   return (
-    <div style={{ fontSize: '14px', color: '#E2E8F0', lineHeight: '1.5' }}>
+    <div style={{ fontSize: '14px', color: 'var(--strag-s2)', lineHeight: '1.5' }}>
       {/* ── Section: Heading ── */}
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>Command Center</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>Actionable fleet intelligence — every metric drives a decision</p>
+        <h2 style={{ color: 'var(--strag-s0)', fontSize: '18px', fontWeight: 700, margin: 0 }}>Command Center</h2>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>Actionable fleet intelligence — every metric drives a decision</p>
       </div>
 
       {/* HF-283 Phase 4.1: inline, user-visible tenant-load failure (replaces the silent spinner-reset) */}
@@ -191,7 +191,7 @@ export function ObservatoryTab() {
           />
           <ActionMetricCard
             icon={Clock}
-            iconColor="#94A3B8"
+            iconColor="var(--strag-s4)"
             label="AVG DAYS"
             value={overview.avgDaysInLifecycle > 0 ? `${overview.avgDaysInLifecycle}d` : '--'}
             subtitle="Draft to Paid"
@@ -215,14 +215,14 @@ export function ObservatoryTab() {
 
       {/* ── Section: Operations Queue (PRIMARY SURFACE) ── */}
       <div style={{
-        background: '#0F172A',
-        border: '1px solid #1E293B',
+        background: 'var(--strag-panel)',
+        border: '1px solid var(--strag-s8)',
         borderRadius: '12px',
         padding: '24px',
         marginBottom: '32px',
       }}>
         <h3 style={{
-          color: '#F8FAFC',
+          color: 'var(--strag-s0)',
           fontSize: '16px',
           fontWeight: 700,
           margin: '0 0 16px',
@@ -232,7 +232,7 @@ export function ObservatoryTab() {
             <span style={{
               marginLeft: '8px',
               fontSize: '13px',
-              color: '#94A3B8',
+              color: 'var(--strag-s4)',
               fontWeight: 500,
             }}>
               ({queue.length} {queue.length === 1 ? 'item' : 'items'})
@@ -258,7 +258,7 @@ export function ObservatoryTab() {
               const severityStyles = {
                 critical: { borderLeft: '4px solid #EF4444', background: 'rgba(239, 68, 68, 0.06)' },
                 warning: { borderLeft: '4px solid #F59E0B', background: 'rgba(245, 158, 11, 0.06)' },
-                info: { borderLeft: '4px solid #3B82F6', background: '#0F172A' },
+                info: { borderLeft: '4px solid #3B82F6', background: 'var(--strag-panel)' },
               };
               const style = severityStyles[item.severity];
 
@@ -278,10 +278,10 @@ export function ObservatoryTab() {
                   {item.severity === 'warning' && <AlertTriangle style={{ width: '16px', height: '16px', color: '#F59E0B', flexShrink: 0 }} />}
                   {item.severity === 'info' && <Info style={{ width: '16px', height: '16px', color: '#3B82F6', flexShrink: 0 }} />}
 
-                  <span style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--strag-s0)', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                     {item.tenantName}
                   </span>
-                  <span style={{ color: '#CBD5E1', fontSize: '14px', flex: 1 }}>
+                  <span style={{ color: 'var(--strag-s3)', fontSize: '14px', flex: 1 }}>
                     {item.message}
                   </span>
 
@@ -322,7 +322,7 @@ export function ObservatoryTab() {
       {/* ── Section: Tenant Fleet Cards ── */}
       <div>
         <h3 style={{
-          color: '#F8FAFC',
+          color: 'var(--strag-s0)',
           fontSize: '16px',
           fontWeight: 700,
           margin: '0 0 16px',
@@ -333,9 +333,9 @@ export function ObservatoryTab() {
               onClick={() => setShowTestTenants(!showTestTenants)}
               style={{
                 fontSize: '12px',
-                color: '#94A3B8',
+                color: 'var(--strag-s4)',
                 background: 'transparent',
-                border: '1px solid #334155',
+                border: '1px solid var(--strag-s7)',
                 borderRadius: '6px',
                 padding: '2px 8px',
                 marginLeft: '8px',
@@ -373,8 +373,8 @@ export function ObservatoryTab() {
                 onClick={() => handleSelectTenant(tenant.id)}
                 style={{
                   textAlign: 'left',
-                  background: '#0F172A',
-                  border: '1px solid #1E293B',
+                  background: 'var(--strag-panel)',
+                  border: '1px solid var(--strag-s8)',
                   borderRadius: '12px',
                   padding: '20px',
                   cursor: 'pointer',
@@ -392,7 +392,7 @@ export function ObservatoryTab() {
                       backgroundColor: healthColor,
                       flexShrink: 0,
                     }} />
-                    <span style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: 700 }}>
+                    <span style={{ color: 'var(--strag-s0)', fontSize: '16px', fontWeight: 700 }}>
                       {tenant.name}
                     </span>
                   </div>
@@ -411,14 +411,14 @@ export function ObservatoryTab() {
                     {selectingTenant === tenant.id ? (
                       <Loader2 style={{ width: '16px', height: '16px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
                     ) : (
-                      <ChevronRight style={{ width: '16px', height: '16px', color: '#94A3B8' }} />
+                      <ChevronRight style={{ width: '16px', height: '16px', color: 'var(--strag-s4)' }} />
                     )}
                   </div>
                 </div>
 
                 {/* Industry / Country */}
                 {(tenant.industry || tenant.country) && (
-                  <p style={{ color: '#94A3B8', fontSize: '13px', margin: '0 0 12px' }}>
+                  <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: '0 0 12px' }}>
                     {[tenant.industry, tenant.country].filter(Boolean).join(' \u00B7 ')}
                   </p>
                 )}
@@ -426,25 +426,25 @@ export function ObservatoryTab() {
                 {/* Stats row */}
                 <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', flexWrap: 'wrap' }}>
                   <div>
-                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Entities</span>
-                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.entityCount.toLocaleString()}</p>
+                    <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>Entities</span>
+                    <p style={{ color: 'var(--strag-s0)', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.entityCount.toLocaleString()}</p>
                   </div>
                   <div>
-                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Data Rows</span>
-                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{(tenant.dataRowCount ?? 0).toLocaleString()}</p>
+                    <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>Data Rows</span>
+                    <p style={{ color: 'var(--strag-s0)', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{(tenant.dataRowCount ?? 0).toLocaleString()}</p>
                   </div>
                   <div>
-                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Users</span>
-                    <p style={{ color: '#F8FAFC', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.userCount}</p>
+                    <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>Users</span>
+                    <p style={{ color: 'var(--strag-s0)', fontSize: '14px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '2px 0 0' }}>{tenant.userCount}</p>
                   </div>
                   <div>
-                    <span style={{ color: '#94A3B8', fontSize: '13px' }}>Period</span>
-                    <p style={{ color: '#CBD5E1', fontSize: '14px', margin: '2px 0 0' }}>{tenant.latestPeriodLabel || '\u2014'}</p>
+                    <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>Period</span>
+                    <p style={{ color: 'var(--strag-s3)', fontSize: '14px', margin: '2px 0 0' }}>{tenant.latestPeriodLabel || '\u2014'}</p>
                   </div>
                   {lastCalcDays !== null && (
                     <div>
-                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>Last calc</span>
-                      <p style={{ color: '#CBD5E1', fontSize: '14px', margin: '2px 0 0' }}>{lastCalcDays === 0 ? 'Today' : `${lastCalcDays}d ago`}</p>
+                      <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>Last calc</span>
+                      <p style={{ color: 'var(--strag-s3)', fontSize: '14px', margin: '2px 0 0' }}>{lastCalcDays === 0 ? 'Today' : `${lastCalcDays}d ago`}</p>
                     </div>
                   )}
                 </div>
@@ -475,7 +475,7 @@ export function ObservatoryTab() {
               justifyContent: 'center',
               gap: '12px',
               background: 'rgba(15, 23, 42, 0.4)',
-              border: '1px dashed #475569',
+              border: '1px dashed var(--strag-s6)',
               borderRadius: '12px',
               padding: '32px',
               cursor: 'pointer',
@@ -483,10 +483,10 @@ export function ObservatoryTab() {
               transition: 'border-color 0.15s',
             }}
           >
-            <PlusCircle style={{ width: '32px', height: '32px', color: '#94A3B8' }} />
+            <PlusCircle style={{ width: '32px', height: '32px', color: 'var(--strag-s4)' }} />
             <div style={{ textAlign: 'center' }}>
-              <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 600, margin: 0 }}>Create New Tenant</p>
-              <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '14px', fontWeight: 600, margin: 0 }}>Create New Tenant</p>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>Provision a new customer environment</p>
             </div>
           </button>
         </div>
@@ -512,15 +512,15 @@ function ActionMetricCard({
 }) {
   return (
     <div style={{
-      background: '#0F172A',
-      border: '1px solid #1E293B',
+      background: 'var(--strag-panel)',
+      border: '1px solid var(--strag-s8)',
       borderRadius: '10px',
       padding: '20px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <Icon style={{ width: '16px', height: '16px', color: iconColor }} />
         <span style={{
-          color: '#94A3B8',
+          color: 'var(--strag-s4)',
           fontSize: '13px',
           fontWeight: 600,
           textTransform: 'uppercase',
@@ -530,7 +530,7 @@ function ActionMetricCard({
         </span>
       </div>
       <p style={{
-        color: '#F8FAFC',
+        color: 'var(--strag-s0)',
         fontSize: '28px',
         fontWeight: 700,
         fontVariantNumeric: 'tabular-nums',
@@ -538,7 +538,7 @@ function ActionMetricCard({
       }}>
         {value}
       </p>
-      <p style={{ color: '#94A3B8', fontSize: '13px', marginTop: '4px' }}>
+      <p style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '4px' }}>
         {subtitle}
       </p>
     </div>
@@ -557,7 +557,7 @@ function lifecycleBadgeStyle(state: string): React.CSSProperties {
       return { background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.3)' };
     case 'PREVIEW':
     case 'DRAFT':
-      return { background: 'rgba(148, 163, 184, 0.15)', color: '#94A3B8', border: '1px solid rgba(148, 163, 184, 0.3)' };
+      return { background: 'rgba(148, 163, 184, 0.15)', color: 'var(--strag-s4)', border: '1px solid rgba(148, 163, 184, 0.3)' };
     case 'REJECTED':
       return { background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)' };
     default:

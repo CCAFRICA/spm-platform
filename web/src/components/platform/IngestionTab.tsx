@@ -23,7 +23,7 @@ import type { IngestionMetricsData } from '@/lib/data/platform-queries';
 
 /* ──── STYLES ──── */
 const LABEL_STYLE: React.CSSProperties = {
-  color: '#94A3B8',
+  color: 'var(--strag-s4)',
   fontSize: '13px',
   fontWeight: 500,
   textTransform: 'uppercase',
@@ -74,7 +74,7 @@ export function IngestionTab() {
 
   if (!data) {
     return (
-      <div className="text-center py-20" style={{ color: '#94A3B8', fontSize: '14px' }}>
+      <div className="text-center py-20" style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>
         Failed to load ingestion metrics
       </div>
     );
@@ -84,11 +84,11 @@ export function IngestionTab() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }} className="flex items-center gap-2">
+        <h2 style={{ color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 }} className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-violet-400" />
           Data Ingestion Pipeline
         </h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>
           Ingestion metrics across all tenants
         </p>
       </div>
@@ -115,7 +115,7 @@ export function IngestionTab() {
           <div className="overflow-x-auto">
             <table className="w-full" style={{ fontSize: '14px' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #27272a' }}>
+                <tr style={{ borderBottom: '1px solid var(--strag-z8)' }}>
                   <th style={{ ...LABEL_STYLE, textAlign: 'left', padding: '0 16px 8px 0' }}>Tenant</th>
                   <th style={{ ...LABEL_STYLE, textAlign: 'right', padding: '0 16px 8px 0' }}>Events</th>
                   <th style={{ ...LABEL_STYLE, textAlign: 'right', padding: '0 16px 8px 0' }}>Committed</th>
@@ -127,12 +127,12 @@ export function IngestionTab() {
               <tbody>
                 {data.perTenant.map(t => (
                   <tr key={t.tenantId} style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.4)' }}>
-                    <td style={{ color: '#E2E8F0', fontWeight: 500, padding: '10px 16px 10px 0' }}>{t.tenantName}</td>
-                    <td style={{ color: '#94A3B8', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.totalEvents}</td>
+                    <td style={{ color: 'var(--strag-s2)', fontWeight: 500, padding: '10px 16px 10px 0' }}>{t.tenantName}</td>
+                    <td style={{ color: 'var(--strag-s4)', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.totalEvents}</td>
                     <td style={{ color: '#34d399', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.committed}</td>
                     <td style={{ color: '#fbbf24', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.quarantined}</td>
                     <td style={{ color: '#f87171', textAlign: 'right', padding: '10px 16px 10px 0', fontVariantNumeric: 'tabular-nums' }}>{t.rejected}</td>
-                    <td style={{ color: '#94A3B8', textAlign: 'right', padding: '10px 0', fontVariantNumeric: 'tabular-nums' }}>{formatBytes(t.bytesIngested)}</td>
+                    <td style={{ color: 'var(--strag-s4)', textAlign: 'right', padding: '10px 0', fontVariantNumeric: 'tabular-nums' }}>{formatBytes(t.bytesIngested)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -150,7 +150,7 @@ export function IngestionTab() {
               const statusColor = e.status === 'committed' ? '#34d399'
                 : e.status === 'quarantined' ? '#fbbf24'
                 : e.status === 'rejected' ? '#f87171'
-                : '#94A3B8';
+                : 'var(--strag-s4)';
               const statusBg = e.status === 'committed' ? 'rgba(16, 185, 129, 0.15)'
                 : e.status === 'quarantined' ? 'rgba(245, 158, 11, 0.15)'
                 : e.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)'
@@ -165,16 +165,16 @@ export function IngestionTab() {
                   {e.status === 'quarantined' && <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: '#fbbf24' }} />}
                   {e.status === 'rejected' && <XCircle className="h-3.5 w-3.5 shrink-0" style={{ color: '#f87171' }} />}
                   {!['committed', 'quarantined', 'rejected'].includes(e.status) && (
-                    <Upload className="h-3.5 w-3.5 shrink-0" style={{ color: '#94A3B8' }} />
+                    <Upload className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--strag-s4)' }} />
                   )}
-                  <span style={{ color: '#E2E8F0', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--strag-s2)', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {e.fileName || 'Unknown file'}
                   </span>
-                  <span style={{ color: '#94A3B8', fontSize: '13px', flexShrink: 0 }}>{e.tenantName}</span>
+                  <span style={{ color: 'var(--strag-s4)', fontSize: '13px', flexShrink: 0 }}>{e.tenantName}</span>
                   <span style={{ color: statusColor, background: statusBg, fontSize: '13px', padding: '2px 6px', borderRadius: '4px', fontWeight: 500, flexShrink: 0 }}>
                     {e.status}
                   </span>
-                  <span style={{ color: '#94A3B8', fontSize: '13px', flexShrink: 0 }}>
+                  <span style={{ color: 'var(--strag-s4)', fontSize: '13px', flexShrink: 0 }}>
                     {new Date(e.createdAt).toLocaleString()}
                   </span>
                 </div>
@@ -187,9 +187,9 @@ export function IngestionTab() {
       {/* Empty state */}
       {data.totalEvents === 0 && (
         <div className="text-center py-12 rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
-          <Upload className="h-10 w-10 mx-auto mb-3" style={{ color: '#94A3B8' }} />
-          <p style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 500 }}>No ingestion events yet</p>
-          <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
+          <Upload className="h-10 w-10 mx-auto mb-3" style={{ color: 'var(--strag-s4)' }} />
+          <p style={{ color: 'var(--strag-s4)', fontSize: '14px', fontWeight: 500 }}>No ingestion events yet</p>
+          <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>
             Files will appear here once tenants start importing data
           </p>
         </div>
@@ -220,8 +220,8 @@ function MetricCard({ icon: Icon, label, value, subtitle, color }: {
         <Icon className={cn('h-4 w-4', colorMap[color])} />
         <span style={LABEL_STYLE}>{label}</span>
       </div>
-      <div style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700 }}>{value}</div>
-      <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '2px' }}>{subtitle}</div>
+      <div style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700 }}>{value}</div>
+      <div style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '2px' }}>{subtitle}</div>
     </div>
   );
 }
@@ -245,7 +245,7 @@ function StatusCard({ icon: Icon, label, count, total, color }: {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <Icon className={cn('h-4 w-4', colorMap[color].text)} />
-          <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500 }}>{label}</span>
+          <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500 }}>{label}</span>
         </div>
         <span className={cn('text-sm font-bold', colorMap[color].text)}>
           {count.toLocaleString()}
@@ -257,7 +257,7 @@ function StatusCard({ icon: Icon, label, count, total, color }: {
           style={{ width: `${Math.min(pctValue, 100)}%` }}
         />
       </div>
-      <div style={{ color: '#94A3B8', fontSize: '13px', marginTop: '6px' }}>
+      <div style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '6px' }}>
         {pctValue.toFixed(1)}% of {total.toLocaleString()} total
       </div>
     </div>

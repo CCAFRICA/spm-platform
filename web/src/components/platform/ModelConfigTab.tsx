@@ -22,8 +22,8 @@ interface ModelConfigData {
 }
 
 const card = {
-  background: '#0F172A',
-  border: '1px solid #1E293B',
+  background: 'var(--strag-panel)',
+  border: '1px solid var(--strag-s8)',
   borderRadius: '12px',
   padding: '24px',
 } as const;
@@ -93,10 +93,10 @@ export function ModelConfigTab() {
       <div key={task} style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '12px 16px', borderRadius: '8px',
-        background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #334155', gap: '16px',
+        background: 'rgba(30, 41, 59, 0.5)', border: '1px solid var(--strag-s7)', gap: '16px',
       }}>
         <div style={{ flex: 1 }}>
-          <code style={{ color: '#F1F5F9', fontSize: '13px', fontWeight: 600 }}>{task}</code>
+          <code style={{ color: 'var(--strag-s1)', fontSize: '13px', fontWeight: 600 }}>{task}</code>
           {rejects && (
             <span title="This model rejects sampling params (temperature); the adapter omits them automatically." style={{
               display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '10px',
@@ -111,7 +111,7 @@ export function ModelConfigTab() {
           value={current}
           onChange={e => setDraft(prev => ({ ...prev, [task]: e.target.value }))}
           style={{
-            background: '#1E293B', color: '#E2E8F0', border: '1px solid #475569',
+            background: 'var(--strag-s8)', color: 'var(--strag-s2)', border: '1px solid var(--strag-s6)',
             borderRadius: '6px', padding: '6px 10px', fontSize: '13px', minWidth: '220px',
           }}
         >
@@ -122,11 +122,11 @@ export function ModelConfigTab() {
   };
 
   return (
-    <div style={{ fontSize: '14px', color: '#E2E8F0', lineHeight: '1.5' }}>
+    <div style={{ fontSize: '14px', color: 'var(--strag-s2)', lineHeight: '1.5' }}>
       <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ color: '#F8FAFC', fontSize: '18px', fontWeight: 700, margin: 0 }}>Model Configuration</h2>
-          <p style={{ color: '#94A3B8', fontSize: '14px', marginTop: '4px' }}>
+          <h2 style={{ color: 'var(--strag-s0)', fontSize: '18px', fontWeight: 700, margin: 0 }}>Model Configuration</h2>
+          <p style={{ color: 'var(--strag-s4)', fontSize: '14px', marginTop: '4px' }}>
             The model used for each AI task. Plan-interpretation tasks default to Opus for rate-table
             completeness; everything else uses the general default. Changes take effect within ~60s.
           </p>
@@ -138,7 +138,7 @@ export function ModelConfigTab() {
             onClick={save}
             disabled={!dirty || saving}
             style={{
-              background: dirty ? '#4F46E5' : '#334155', color: '#fff', border: 'none',
+              background: dirty ? '#4F46E5' : 'var(--strag-disabled)', color: '#fff', border: 'none',
               borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: 600,
               cursor: !dirty || saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
             }}
@@ -149,8 +149,8 @@ export function ModelConfigTab() {
       </div>
 
       <div style={{ ...card, marginBottom: '20px' }}>
-        <h3 style={{ color: '#F8FAFC', fontSize: '15px', fontWeight: 700, margin: '0 0 4px' }}>Plan interpretation family</h3>
-        <p style={{ color: '#94A3B8', fontSize: '13px', margin: '0 0 16px' }}>
+        <h3 style={{ color: 'var(--strag-s0)', fontSize: '15px', fontWeight: 700, margin: '0 0 4px' }}>Plan interpretation family</h3>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '13px', margin: '0 0 16px' }}>
           The highest-reasoning step — must emit structurally complete rate tables (AUD-017).
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -159,7 +159,7 @@ export function ModelConfigTab() {
       </div>
 
       <div style={card}>
-        <h3 style={{ color: '#F8FAFC', fontSize: '15px', fontWeight: 700, margin: '0 0 16px' }}>General tasks</h3>
+        <h3 style={{ color: 'var(--strag-s0)', fontSize: '15px', fontWeight: 700, margin: '0 0 16px' }}>General tasks</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {data.allTasks.filter(t => !planSet.has(t)).map(renderRow)}
         </div>

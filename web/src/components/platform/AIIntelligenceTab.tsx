@@ -14,7 +14,7 @@ const CARD_STYLE: React.CSSProperties = {
 };
 
 const LABEL_STYLE: React.CSSProperties = {
-  color: '#94A3B8',
+  color: 'var(--strag-s4)',
   fontSize: '13px',
   fontWeight: 500,
   textTransform: 'uppercase',
@@ -61,8 +61,8 @@ export function AIIntelligenceTab() {
     return (
       <div className="space-y-8">
         <div>
-          <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
-          <p style={{ color: '#94A3B8', fontSize: '14px' }}>Classification accuracy, signal tracking, and confidence metrics</p>
+          <h2 style={{ color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
+          <p style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>Classification accuracy, signal tracking, and confidence metrics</p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -71,14 +71,14 @@ export function AIIntelligenceTab() {
               <Sparkles className="h-4 w-4 text-violet-400" />
               <span style={LABEL_STYLE}>Total Signals</span>
             </div>
-            <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>0</p>
+            <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>0</p>
           </div>
           <div className="rounded-2xl" style={CARD_STYLE}>
             <div className="flex items-center gap-2 mb-2">
               <BarChart3 className="h-4 w-4 text-violet-400" />
               <span style={LABEL_STYLE}>Avg Confidence</span>
             </div>
-            <p style={{ color: '#94A3B8', fontSize: '28px', fontWeight: 700 }}>--</p>
+            <p style={{ color: 'var(--strag-s4)', fontSize: '28px', fontWeight: 700 }}>--</p>
           </div>
         </div>
 
@@ -86,8 +86,8 @@ export function AIIntelligenceTab() {
           <div className="flex items-start gap-3 mb-4">
             <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h3 style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>AI signal tracking not yet active</h3>
-              <p style={{ color: '#94A3B8', fontSize: '14px' }}>
+              <h3 style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>AI signal tracking not yet active</h3>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>
                 Signals will appear here once the AI pipeline captures classification and mapping data
                 during file imports and plan interpretation.
               </p>
@@ -105,8 +105,8 @@ export function AIIntelligenceTab() {
     <div className="space-y-6">
       {/* Tab heading */}
       <div>
-        <h2 style={{ color: '#E2E8F0', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
-        <p style={{ color: '#94A3B8', fontSize: '14px' }}>Classification accuracy, calibration, and flywheel metrics</p>
+        <h2 style={{ color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 }}>AI Intelligence</h2>
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>Classification accuracy, calibration, and flywheel metrics</p>
       </div>
 
       {/* ── Hero metrics row (4 cards) ── */}
@@ -116,21 +116,21 @@ export function AIIntelligenceTab() {
             <Sparkles className="h-4 w-4 text-violet-400" />
             <span style={LABEL_STYLE}>Total Signals</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.totalSignals.toLocaleString()}</p>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{data.totalSignals.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl" style={CARD_STYLE}>
           <div className="flex items-center gap-2 mb-2">
             <BarChart3 className="h-4 w-4 text-violet-400" />
             <span style={LABEL_STYLE}>Avg Confidence</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{(data.avgConfidence * 100).toFixed(1)}%</p>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{(data.avgConfidence * 100).toFixed(1)}%</p>
         </div>
         <div className="rounded-2xl" style={CARD_STYLE}>
           <div className="flex items-center gap-2 mb-2">
             <Target className="h-4 w-4 text-violet-400" />
             <span style={LABEL_STYLE}>Acceptance Rate</span>
           </div>
-          <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             {health ? `${(health.overallAccuracy * 100).toFixed(1)}%` : '--'}
           </p>
         </div>
@@ -141,7 +141,7 @@ export function AIIntelligenceTab() {
           </div>
           <div className="flex items-center gap-2">
             {health ? <TrendIcon direction={health.trendDirection} /> : null}
-            <p style={{ color: '#F8FAFC', fontSize: '28px', fontWeight: 700 }}>
+            <p style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700 }}>
               {health ? health.trendDirection.charAt(0).toUpperCase() + health.trendDirection.slice(1) : '--'}
             </p>
           </div>
@@ -159,28 +159,28 @@ export function AIIntelligenceTab() {
           <h3 style={{ ...LABEL_STYLE, marginBottom: '12px' }}>AI Health Summary</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <p style={{ color: '#94A3B8', fontSize: '12px' }}>Calibration Error</p>
-              <p style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: 600 }}>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '12px' }}>Calibration Error</p>
+              <p style={{ color: 'var(--strag-s2)', fontSize: '16px', fontWeight: 600 }}>
                 {(health.calibrationError * 100).toFixed(1)}%
               </p>
             </div>
             <div>
-              <p style={{ color: '#94A3B8', fontSize: '12px' }}>Acceptance Rate</p>
-              <p style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: 600 }}>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '12px' }}>Acceptance Rate</p>
+              <p style={{ color: 'var(--strag-s2)', fontSize: '16px', fontWeight: 600 }}>
                 {(health.overallAccuracy * 100).toFixed(1)}%
               </p>
             </div>
             <div>
-              <p style={{ color: '#94A3B8', fontSize: '12px' }}>Avg Confidence</p>
-              <p style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: 600 }}>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '12px' }}>Avg Confidence</p>
+              <p style={{ color: 'var(--strag-s2)', fontSize: '16px', fontWeight: 600 }}>
                 {(health.avgConfidence * 100).toFixed(1)}%
               </p>
             </div>
             <div>
-              <p style={{ color: '#94A3B8', fontSize: '12px' }}>Trend Direction</p>
+              <p style={{ color: 'var(--strag-s4)', fontSize: '12px' }}>Trend Direction</p>
               <div className="flex items-center gap-1">
                 <TrendIcon direction={health.trendDirection} size={14} />
-                <p style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: 600 }}>
+                <p style={{ color: 'var(--strag-s2)', fontSize: '16px', fontWeight: 600 }}>
                   {health.trendDirection.charAt(0).toUpperCase() + health.trendDirection.slice(1)}
                 </p>
               </div>
@@ -198,8 +198,8 @@ export function AIIntelligenceTab() {
               <div key={at.signalType} className="px-3 py-3 rounded-lg border border-zinc-800 bg-zinc-900/30">
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <p style={{ color: '#E2E8F0', fontSize: '14px' }}>{formatSignalType(at.signalType)}</p>
-                    <p style={{ color: '#94A3B8', fontSize: '12px' }}>{at.total} signals</p>
+                    <p style={{ color: 'var(--strag-s2)', fontSize: '14px' }}>{formatSignalType(at.signalType)}</p>
+                    <p style={{ color: 'var(--strag-s4)', fontSize: '12px' }}>{at.total} signals</p>
                   </div>
                   <ConfidenceBadge value={at.acceptanceRate} label="accept" />
                 </div>
@@ -215,7 +215,7 @@ export function AIIntelligenceTab() {
       {data.calibration && data.calibration.length > 0 && (
         <div className="rounded-2xl" style={CARD_STYLE}>
           <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Calibration Curve</h3>
-          <p style={{ color: '#64748B', fontSize: '12px', marginBottom: '12px' }}>
+          <p style={{ color: 'var(--strag-s5)', fontSize: '12px', marginBottom: '12px' }}>
             Stated confidence vs actual accuracy per bucket. Perfect calibration = bars match.
           </p>
           <CalibrationChart buckets={data.calibration} />
@@ -226,7 +226,7 @@ export function AIIntelligenceTab() {
       {data.flywheel && data.flywheel.length > 0 && (
         <div className="rounded-2xl" style={CARD_STYLE}>
           <h3 style={{ ...LABEL_STYLE, marginBottom: '16px' }}>Flywheel Trend</h3>
-          <p style={{ color: '#64748B', fontSize: '12px', marginBottom: '12px' }}>
+          <p style={{ color: 'var(--strag-s5)', fontSize: '12px', marginBottom: '12px' }}>
             Acceptance rate over time — the improvement story.
           </p>
           <FlywheelChart points={data.flywheel} />
@@ -240,8 +240,8 @@ export function AIIntelligenceTab() {
           {data.signalsByType.map(st => (
             <div key={st.signalType} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-zinc-800 bg-zinc-900/30">
               <div>
-                <p style={{ color: '#E2E8F0', fontSize: '14px' }}>{formatSignalType(st.signalType)}</p>
-                <p style={{ color: '#94A3B8', fontSize: '13px' }}>{st.count} signals</p>
+                <p style={{ color: 'var(--strag-s2)', fontSize: '14px' }}>{formatSignalType(st.signalType)}</p>
+                <p style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>{st.count} signals</p>
               </div>
               <ConfidenceBadge value={st.avgConfidence} />
             </div>
@@ -256,8 +256,8 @@ export function AIIntelligenceTab() {
           <div className="space-y-2">
             {data.perTenant.map(t => (
               <div key={t.tenantId} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
-                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{t.tenantName}</span>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{t.signalCount} signals</span>
+                <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500, flex: 1 }}>{t.tenantName}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{t.signalCount} signals</span>
                 <ConfidenceBadge value={t.avgConfidence} />
               </div>
             ))}
@@ -272,18 +272,18 @@ export function AIIntelligenceTab() {
           <div className="space-y-2">
             {data.aiSubstrate.surfaces.map((s, i) => (
               <div key={`${s.surface}-${i}`} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
-                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(s.surface)}</span>
-                <span style={{ color: s.kind === 'agent' ? '#34d399' : '#94A3B8', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.kind === 'agent' ? 'agent' : 'single call'}</span>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.provider ?? '—'} / {s.model ?? '—'}</span>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.calls} calls</span>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${s.totalCostUSD.toFixed(4)}</span>
+                <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(s.surface)}</span>
+                <span style={{ color: s.kind === 'agent' ? '#34d399' : 'var(--strag-s4)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s.kind === 'agent' ? 'agent' : 'single call'}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.provider ?? '—'} / {s.model ?? '—'}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{s.calls} calls</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${s.totalCostUSD.toFixed(4)}</span>
                 {typeof s.cacheHitRate === 'number' && (
-                  <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(s.cacheHitRate * 100)}% cache</span>
+                  <span style={{ color: 'var(--strag-s4)', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(s.cacheHitRate * 100)}% cache</span>
                 )}
               </div>
             ))}
           </div>
-          <p style={{ color: '#64748B', fontSize: '11px', marginTop: '10px' }}>
+          <p style={{ color: 'var(--strag-s5)', fontSize: '11px', marginTop: '10px' }}>
             Read-only. Provider/model/cost per AI surface — single-call from cost events, agents from agent_invocations.
           </p>
         </div>
@@ -294,7 +294,7 @@ export function AIIntelligenceTab() {
         <div className="rounded-2xl" style={CARD_STYLE}>
           <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
             <h3 style={LABEL_STYLE}>Agent Operations</h3>
-            <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: 'var(--strag-s4)', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
               {data.agentOps.totalRuns} runs · ${data.agentOps.totalCostUSD.toFixed(4)} · {Math.round(data.agentOps.cacheHitRate * 100)}% cache
             </span>
           </div>
@@ -310,25 +310,25 @@ export function AIIntelligenceTab() {
           <div className="space-y-2">
             {data.agentOps.agents.map((a) => (
               <div key={a.agentName} className="flex items-center gap-4 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/30">
-                <span style={{ color: '#E2E8F0', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(a.agentName)}</span>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{a.runs} runs</span>
+                <span style={{ color: 'var(--strag-s2)', fontSize: '14px', fontWeight: 500, flex: 1 }}>{formatSignalType(a.agentName)}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{a.runs} runs</span>
                 <span style={{ color: '#34d399', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.completed} ok</span>
                 {a.failed > 0 && <span style={{ color: '#f87171', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.failed} fail</span>}
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${a.totalCostUSD.toFixed(4)}</span>
-                <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.avgLatencyMs}ms</span>
-                <span style={{ color: '#94A3B8', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(a.cacheHitRate * 100)}% cache</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>${a.totalCostUSD.toFixed(4)}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{a.avgLatencyMs}ms</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>{Math.round(a.cacheHitRate * 100)}% cache</span>
               </div>
             ))}
           </div>
 
           {data.agentOps.recent.length > 0 && (
             <div style={{ marginTop: '14px' }}>
-              <div style={{ color: '#64748B', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>Recent runs</div>
+              <div style={{ color: 'var(--strag-s5)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>Recent runs</div>
               <div className="space-y-1">
                 {data.agentOps.recent.slice(0, 10).map((r, i) => (
-                  <div key={i} className="flex items-center gap-3 px-2 py-1 text-[12px]" style={{ color: '#94A3B8', fontVariantNumeric: 'tabular-nums' }}>
+                  <div key={i} className="flex items-center gap-3 px-2 py-1 text-[12px]" style={{ color: 'var(--strag-s4)', fontVariantNumeric: 'tabular-nums' }}>
                     <span style={{ color: agentStatusColor(r.status), fontWeight: 600, width: '64px' }}>{r.status}</span>
-                    <span style={{ flex: 1, color: '#CBD5E1' }}>{formatSignalType(r.agentName)}</span>
+                    <span style={{ flex: 1, color: 'var(--strag-s3)' }}>{formatSignalType(r.agentName)}</span>
                     <span>{r.turnCount} turns</span>
                     <span>{r.cacheHit ? 'cache' : `${r.latencyMs ?? '—'}ms`}</span>
                     <span>${(r.costUsd ?? 0).toFixed(4)}</span>
@@ -337,7 +337,7 @@ export function AIIntelligenceTab() {
               </div>
             </div>
           )}
-          <p style={{ color: '#64748B', fontSize: '11px', marginTop: '10px' }}>
+          <p style={{ color: 'var(--strag-s5)', fontSize: '11px', marginTop: '10px' }}>
             Read-only. agent_invocations runtime — status mix, cost, cache-hit rate, latency per agent.
           </p>
         </div>
@@ -353,7 +353,7 @@ function agentStatusColor(status: string): string {
     case 'failed': return '#f87171';
     case 'cached': return '#60a5fa';
     case 'running': return '#fbbf24';
-    default: return '#94A3B8';
+    default: return 'var(--strag-s4)';
   }
 }
 
@@ -376,11 +376,11 @@ function ConfidenceBadge({ value, label }: { value: number; label?: string }) {
 function TrendIcon({ direction, size = 20 }: { direction: string; size?: number }) {
   if (direction === 'improving') return <TrendingUp size={size} style={{ color: '#34d399' }} />;
   if (direction === 'declining') return <TrendingDown size={size} style={{ color: '#f87171' }} />;
-  return <Minus size={size} style={{ color: '#94A3B8' }} />;
+  return <Minus size={size} style={{ color: 'var(--strag-s4)' }} />;
 }
 
 function AccuracyBar({ accepted, corrected, rejected, total }: { accepted: number; corrected: number; rejected: number; total: number }) {
-  if (total === 0) return <div style={{ height: 8, background: '#27272a', borderRadius: 4 }} />;
+  if (total === 0) return <div style={{ height: 8, background: 'var(--strag-z8)', borderRadius: 4 }} />;
   const pending = total - accepted - corrected - rejected;
   const pctA = (accepted / total) * 100;
   const pctC = (corrected / total) * 100;
@@ -389,17 +389,17 @@ function AccuracyBar({ accepted, corrected, rejected, total }: { accepted: numbe
 
   return (
     <div>
-      <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#27272a' }}>
+      <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: 'var(--strag-z8)' }}>
         {pctA > 0 && <div style={{ width: `${pctA}%`, background: '#34d399' }} />}
         {pctC > 0 && <div style={{ width: `${pctC}%`, background: '#fbbf24' }} />}
         {pctR > 0 && <div style={{ width: `${pctR}%`, background: '#f87171' }} />}
-        {pctP > 0 && <div style={{ width: `${pctP}%`, background: '#3f3f46' }} />}
+        {pctP > 0 && <div style={{ width: `${pctP}%`, background: 'var(--strag-z7)' }} />}
       </div>
       <div className="flex gap-3 mt-1">
         <span style={{ color: '#34d399', fontSize: '11px' }}>{accepted} accepted</span>
         <span style={{ color: '#fbbf24', fontSize: '11px' }}>{corrected} corrected</span>
         <span style={{ color: '#f87171', fontSize: '11px' }}>{rejected} rejected</span>
-        {pending > 0 && <span style={{ color: '#71717a', fontSize: '11px' }}>{pending} pending</span>}
+        {pending > 0 && <span style={{ color: 'var(--strag-z5)', fontSize: '11px' }}>{pending} pending</span>}
       </div>
     </div>
   );
@@ -428,28 +428,28 @@ function CalibrationChart({ buckets }: { buckets: NonNullable<AIIntelligenceData
                 fill="rgba(52, 211, 153, 0.5)" stroke="rgba(52, 211, 153, 0.8)" strokeWidth={1} />
               {/* Label */}
               <text x={x + barW} y={chartH + 14} textAnchor="middle"
-                style={{ fill: '#94A3B8', fontSize: '10px' }}>
+                style={{ fill: 'var(--strag-s4)', fontSize: '10px' }}>
                 {b.range}
               </text>
               {/* Count */}
               <text x={x + barW} y={chartH + 28} textAnchor="middle"
-                style={{ fill: '#64748B', fontSize: '9px' }}>
+                style={{ fill: 'var(--strag-s5)', fontSize: '9px' }}>
                 n={b.count}
               </text>
             </g>
           );
         })}
         {/* Zero line */}
-        <line x1={0} y1={chartH} x2={chartW} y2={chartH} stroke="#3f3f46" strokeWidth={1} />
+        <line x1={0} y1={chartH} x2={chartW} y2={chartH} stroke="var(--strag-z7)" strokeWidth={1} />
       </svg>
       <div className="flex gap-4 mt-2">
         <div className="flex items-center gap-1">
           <div style={{ width: 12, height: 12, borderRadius: 2, background: 'rgba(99, 102, 241, 0.5)', border: '1px solid rgba(99, 102, 241, 0.8)' }} />
-          <span style={{ color: '#94A3B8', fontSize: '11px' }}>Stated Confidence</span>
+          <span style={{ color: 'var(--strag-s4)', fontSize: '11px' }}>Stated Confidence</span>
         </div>
         <div className="flex items-center gap-1">
           <div style={{ width: 12, height: 12, borderRadius: 2, background: 'rgba(52, 211, 153, 0.5)', border: '1px solid rgba(52, 211, 153, 0.8)' }} />
-          <span style={{ color: '#94A3B8', fontSize: '11px' }}>Actual Accuracy</span>
+          <span style={{ color: 'var(--strag-s4)', fontSize: '11px' }}>Actual Accuracy</span>
         </div>
       </div>
     </div>
@@ -484,14 +484,14 @@ function FlywheelChart({ points }: { points: NonNullable<AIIntelligenceData['fly
     <div style={{ overflowX: 'auto' }}>
       <svg width={chartW} height={chartH + 30} style={{ display: 'block' }}>
         {/* Y-axis labels */}
-        <text x={padX - 4} y={padY + 4} textAnchor="end" style={{ fill: '#64748B', fontSize: '10px' }}>100%</text>
-        <text x={padX - 4} y={padY + innerH / 2 + 4} textAnchor="end" style={{ fill: '#64748B', fontSize: '10px' }}>50%</text>
-        <text x={padX - 4} y={padY + innerH + 4} textAnchor="end" style={{ fill: '#64748B', fontSize: '10px' }}>0%</text>
+        <text x={padX - 4} y={padY + 4} textAnchor="end" style={{ fill: 'var(--strag-s5)', fontSize: '10px' }}>100%</text>
+        <text x={padX - 4} y={padY + innerH / 2 + 4} textAnchor="end" style={{ fill: 'var(--strag-s5)', fontSize: '10px' }}>50%</text>
+        <text x={padX - 4} y={padY + innerH + 4} textAnchor="end" style={{ fill: 'var(--strag-s5)', fontSize: '10px' }}>0%</text>
 
         {/* Grid lines */}
-        <line x1={padX} y1={padY} x2={padX + innerW} y2={padY} stroke="#27272a" strokeWidth={1} />
-        <line x1={padX} y1={padY + innerH / 2} x2={padX + innerW} y2={padY + innerH / 2} stroke="#27272a" strokeWidth={1} strokeDasharray="4 4" />
-        <line x1={padX} y1={padY + innerH} x2={padX + innerW} y2={padY + innerH} stroke="#3f3f46" strokeWidth={1} />
+        <line x1={padX} y1={padY} x2={padX + innerW} y2={padY} stroke="var(--strag-z8)" strokeWidth={1} />
+        <line x1={padX} y1={padY + innerH / 2} x2={padX + innerW} y2={padY + innerH / 2} stroke="var(--strag-z8)" strokeWidth={1} strokeDasharray="4 4" />
+        <line x1={padX} y1={padY + innerH} x2={padX + innerW} y2={padY + innerH} stroke="var(--strag-z7)" strokeWidth={1} />
 
         {/* Signal count bars */}
         {points.map((p, i) => {
@@ -510,7 +510,7 @@ function FlywheelChart({ points }: { points: NonNullable<AIIntelligenceData['fly
         {/* Data points */}
         {linePoints.map((p, i) => (
           <circle key={`pt-${i}`} cx={p.x} cy={p.y} r={3}
-            fill="#34d399" stroke="#18181b" strokeWidth={1.5} />
+            fill="#34d399" stroke="var(--strag-z9)" strokeWidth={1.5} />
         ))}
 
         {/* Period labels */}
@@ -518,7 +518,7 @@ function FlywheelChart({ points }: { points: NonNullable<AIIntelligenceData['fly
           const x = padX + (i / Math.max(points.length - 1, 1)) * innerW;
           return (
             <text key={`label-${i}`} x={x} y={chartH + 16} textAnchor="middle"
-              style={{ fill: '#64748B', fontSize: '10px' }}>
+              style={{ fill: 'var(--strag-s5)', fontSize: '10px' }}>
               {p.period}
             </text>
           );
@@ -527,11 +527,11 @@ function FlywheelChart({ points }: { points: NonNullable<AIIntelligenceData['fly
       <div className="flex gap-4 mt-1">
         <div className="flex items-center gap-1">
           <div style={{ width: 12, height: 3, borderRadius: 1, background: '#34d399' }} />
-          <span style={{ color: '#94A3B8', fontSize: '11px' }}>Acceptance Rate</span>
+          <span style={{ color: 'var(--strag-s4)', fontSize: '11px' }}>Acceptance Rate</span>
         </div>
         <div className="flex items-center gap-1">
           <div style={{ width: 12, height: 12, borderRadius: 2, background: 'rgba(99, 102, 241, 0.15)' }} />
-          <span style={{ color: '#94A3B8', fontSize: '11px' }}>Signal Volume</span>
+          <span style={{ color: 'var(--strag-s4)', fontSize: '11px' }}>Signal Volume</span>
         </div>
       </div>
     </div>

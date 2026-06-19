@@ -51,11 +51,11 @@ const CARD_STYLE = {
 };
 
 const TEXT = {
-  heading: { color: '#E2E8F0', fontSize: '18px', fontWeight: 600 } as React.CSSProperties,
-  body: { color: '#E2E8F0', fontSize: '14px' } as React.CSSProperties,
-  secondary: { color: '#94A3B8', fontSize: '13px' } as React.CSSProperties,
-  label: { color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' } as React.CSSProperties,
-  hero: { color: '#F8FAFC', fontSize: '28px', fontWeight: 700 } as React.CSSProperties,
+  heading: { color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 } as React.CSSProperties,
+  body: { color: 'var(--strag-s2)', fontSize: '14px' } as React.CSSProperties,
+  secondary: { color: 'var(--strag-s4)', fontSize: '13px' } as React.CSSProperties,
+  label: { color: 'var(--strag-s4)', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' } as React.CSSProperties,
+  hero: { color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700 } as React.CSSProperties,
 };
 
 /* ──── PIPELINE STAGES ──── */
@@ -210,7 +210,7 @@ export function OnboardingTab() {
           onClick={() => setShowWizard(true)}
           className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors"
           style={{
-            background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+            background: 'linear-gradient(135deg, var(--strag-violet), #6366f1)',
             color: '#ffffff',
             fontSize: '14px',
           }}
@@ -222,10 +222,10 @@ export function OnboardingTab() {
 
       {/* Pipeline Summary */}
       <div className="grid grid-cols-4 gap-4">
-        <SummaryCard label="Total Tenants" value={totalTenants} color="#F8FAFC" />
+        <SummaryCard label="Total Tenants" value={totalTenants} color="var(--strag-s0)" />
         <SummaryCard label="Fully Onboarded" value={fullyOnboarded} color="#34d399" />
         <SummaryCard label="In Progress" value={inProgress} color="#fbbf24" />
-        <SummaryCard label="Not Started" value={notStarted} color="#71717a" />
+        <SummaryCard label="Not Started" value={notStarted} color="var(--strag-z5)" />
       </div>
 
       {/* Per-Tenant Pipeline */}
@@ -256,7 +256,7 @@ export function OnboardingTab() {
                     <p style={{ ...TEXT.body, fontWeight: 600 }} className="truncate">{tenant.name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span style={{ ...TEXT.secondary, fontSize: '13px' }}>{tenant.userCount} users</span>
-                      <span style={{ color: '#94A3B8', fontSize: '13px' }}>{tenant.dataCount} rows</span>
+                      <span style={{ color: 'var(--strag-s4)', fontSize: '13px' }}>{tenant.dataCount} rows</span>
                       {tenant.latestLifecycleState && (
                         <span className={cn(
                           'px-1.5 py-0.5 rounded-full border',
@@ -315,7 +315,7 @@ export function OnboardingTab() {
                   </div>
 
                   {/* Created date */}
-                  <span style={{ color: '#94A3B8', fontSize: '13px', textAlign: 'right' }} className="tabular-nums">
+                  <span style={{ color: 'var(--strag-s4)', fontSize: '13px', textAlign: 'right' }} className="tabular-nums">
                     {new Date(tenant.createdAt).toLocaleDateString()}
                   </span>
                 </div>
@@ -541,16 +541,16 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
             <div
               className="flex items-center justify-center w-8 h-8 rounded-full transition-colors"
               style={{
-                background: i < stepIndex ? '#34d399' : i === stepIndex ? '#7c3aed' : 'rgba(39,39,42,0.8)',
-                color: i <= stepIndex ? '#fff' : '#71717a',
+                background: i < stepIndex ? '#34d399' : i === stepIndex ? 'var(--strag-violet)' : 'rgba(39,39,42,0.8)',
+                color: i <= stepIndex ? '#fff' : 'var(--strag-z5)',
                 fontSize: '13px',
                 fontWeight: 600,
               }}
             >
               {i < stepIndex ? <Check className="h-4 w-4" /> : i + 1}
             </div>
-            <span style={{ ...TEXT.secondary, color: i === stepIndex ? '#E2E8F0' : '#94A3B8', fontSize: '13px' }}>{s.label}</span>
-            {i < WIZARD_STEPS.length - 1 && <div style={{ width: '24px', height: '2px', background: i < stepIndex ? '#34d399' : '#27272a' }} />}
+            <span style={{ ...TEXT.secondary, color: i === stepIndex ? 'var(--strag-s2)' : 'var(--strag-s4)', fontSize: '13px' }}>{s.label}</span>
+            {i < WIZARD_STEPS.length - 1 && <div style={{ width: '24px', height: '2px', background: i < stepIndex ? '#34d399' : 'var(--strag-z8)' }} />}
           </div>
         ))}
       </div>
@@ -594,8 +594,8 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     className="text-left px-3 py-2 rounded-lg border transition-colors"
                     style={{
                       background: wizard.industry === ind ? 'rgba(124, 58, 237, 0.15)' : 'rgba(39,39,42,0.5)',
-                      borderColor: wizard.industry === ind ? '#7c3aed' : 'rgba(39,39,42,0.6)',
-                      color: '#E2E8F0',
+                      borderColor: wizard.industry === ind ? 'var(--strag-violet)' : 'rgba(39,39,42,0.6)',
+                      color: 'var(--strag-s2)',
                       fontSize: '14px',
                     }}
                   >
@@ -665,15 +665,15 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                   className="w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-colors"
                   style={{
                     background: wizard.tier === opt.tier ? 'rgba(124, 58, 237, 0.15)' : 'rgba(39,39,42,0.5)',
-                    borderColor: wizard.tier === opt.tier ? '#7c3aed' : 'rgba(39,39,42,0.6)',
+                    borderColor: wizard.tier === opt.tier ? 'var(--strag-violet)' : 'rgba(39,39,42,0.6)',
                   }}
                 >
                   <div className="flex items-center gap-3">
                     <div
                       className="w-5 h-5 rounded-full border-2 flex items-center justify-center"
-                      style={{ borderColor: wizard.tier === opt.tier ? '#7c3aed' : '#52525b' }}
+                      style={{ borderColor: wizard.tier === opt.tier ? 'var(--strag-violet)' : 'var(--strag-z6)' }}
                     >
-                      {wizard.tier === opt.tier && <div className="w-3 h-3 rounded-full" style={{ background: '#7c3aed' }} />}
+                      {wizard.tier === opt.tier && <div className="w-3 h-3 rounded-full" style={{ background: 'var(--strag-violet)' }} />}
                     </div>
                     <span style={{ ...TEXT.body, fontWeight: 500 }}>{opt.label}</span>
                   </div>
@@ -718,7 +718,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                       <div
                         className="w-5 h-5 mt-0.5 rounded border-2 flex items-center justify-center flex-shrink-0"
                         style={{
-                          borderColor: selected ? '#34d399' : '#52525b',
+                          borderColor: selected ? '#34d399' : 'var(--strag-z6)',
                           background: selected ? '#34d399' : 'transparent',
                         }}
                       >
@@ -729,7 +729,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                         <p style={TEXT.secondary}>{info.description}</p>
                       </div>
                     </div>
-                    <span style={{ color: '#94A3B8', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <span style={{ color: 'var(--strag-s4)', fontSize: '14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       ${MODULE_FEES[key]?.[wizard.tier]?.toLocaleString()}/mo
                     </span>
                   </button>
@@ -764,14 +764,14 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
                   style={{
                     background: wizard.complexity === opt.value || (opt.value === 'unsure' && wizard.complexity === 'moderate') ? 'rgba(124, 58, 237, 0.15)' : 'rgba(39,39,42,0.5)',
-                    borderColor: wizard.complexity === opt.value ? '#7c3aed' : 'rgba(39,39,42,0.6)',
+                    borderColor: wizard.complexity === opt.value ? 'var(--strag-violet)' : 'rgba(39,39,42,0.6)',
                   }}
                 >
                   <div
                     className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                    style={{ borderColor: wizard.complexity === opt.value ? '#7c3aed' : '#52525b' }}
+                    style={{ borderColor: wizard.complexity === opt.value ? 'var(--strag-violet)' : 'var(--strag-z6)' }}
                   >
-                    {wizard.complexity === opt.value && <div className="w-3 h-3 rounded-full" style={{ background: '#7c3aed' }} />}
+                    {wizard.complexity === opt.value && <div className="w-3 h-3 rounded-full" style={{ background: 'var(--strag-violet)' }} />}
                   </div>
                   <div>
                     <p style={{ ...TEXT.body, fontWeight: 500 }}>{opt.label}</p>
@@ -801,7 +801,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     className="w-full flex items-center justify-between px-4 py-4 rounded-lg border transition-colors text-left"
                     style={{
                       background: selected ? 'rgba(124, 58, 237, 0.15)' : 'rgba(39,39,42,0.5)',
-                      borderColor: selected ? '#7c3aed' : 'rgba(39,39,42,0.6)',
+                      borderColor: selected ? 'var(--strag-violet)' : 'rgba(39,39,42,0.6)',
                       opacity: restricted ? 0.4 : 1,
                       cursor: restricted ? 'not-allowed' : 'pointer',
                     }}
@@ -809,9 +809,9 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     <div className="flex items-start gap-3">
                       <div
                         className="w-5 h-5 mt-0.5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                        style={{ borderColor: selected ? '#7c3aed' : '#52525b' }}
+                        style={{ borderColor: selected ? 'var(--strag-violet)' : 'var(--strag-z6)' }}
                       >
-                        {selected && <div className="w-3 h-3 rounded-full" style={{ background: '#7c3aed' }} />}
+                        {selected && <div className="w-3 h-3 rounded-full" style={{ background: 'var(--strag-violet)' }} />}
                       </div>
                       <div>
                         <p style={{ ...TEXT.body, fontWeight: 600 }}>{info.name}</p>
@@ -913,7 +913,7 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button
             onClick={goBack}
             className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors hover:bg-white/5"
-            style={{ ...TEXT.body, color: '#94A3B8' }}
+            style={{ ...TEXT.body, color: 'var(--strag-s4)' }}
           >
             <ArrowLeft className="h-4 w-4" />
             {stepIndex === 0 ? 'Cancel' : 'Back'}
@@ -923,8 +923,8 @@ function TenantWizard({ onClose, onCreated }: { onClose: () => void; onCreated: 
             disabled={!canNext() || isCreating}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors"
             style={{
-              background: canNext() && !isCreating ? (step === 'review' ? '#34d399' : '#7c3aed') : '#27272a',
-              color: canNext() && !isCreating ? '#fff' : '#52525b',
+              background: canNext() && !isCreating ? (step === 'review' ? '#34d399' : 'var(--strag-violet)') : 'var(--strag-z8)',
+              color: canNext() && !isCreating ? '#fff' : 'var(--strag-z6)',
               fontSize: '14px',
               cursor: canNext() && !isCreating ? 'pointer' : 'not-allowed',
             }}
@@ -1007,7 +1007,7 @@ function PostCreationScreen({ tenantName, tenantId, onDone }: { tenantName: stri
             <button
               onClick={() => setShowInvite(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium"
-              style={{ background: '#7c3aed', color: '#fff', fontSize: '14px' }}
+              style={{ background: 'var(--strag-violet)', color: '#fff', fontSize: '14px' }}
             >
               <UserPlus className="h-4 w-4" /> Invite Admin
             </button>
@@ -1071,8 +1071,8 @@ function PostCreationScreen({ tenantName, tenantId, onDone }: { tenantName: stri
                 disabled={isInviting || !inviteEmail || !inviteName}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
                 style={{
-                  background: inviteEmail && inviteName ? '#7c3aed' : '#27272a',
-                  color: inviteEmail && inviteName ? '#fff' : '#52525b',
+                  background: inviteEmail && inviteName ? 'var(--strag-violet)' : 'var(--strag-z8)',
+                  color: inviteEmail && inviteName ? '#fff' : 'var(--strag-z6)',
                   fontSize: '14px',
                   cursor: inviteEmail && inviteName ? 'pointer' : 'not-allowed',
                 }}
@@ -1117,7 +1117,7 @@ function PostCreationScreen({ tenantName, tenantId, onDone }: { tenantName: stri
         <button
           onClick={onDone}
           className="px-5 py-2.5 rounded-lg font-medium"
-          style={{ background: '#34d399', color: '#0A0E1A', fontSize: '14px' }}
+          style={{ background: '#34d399', color: 'var(--strag-app)', fontSize: '14px' }}
         >
           Done — Back to Pipeline
         </button>

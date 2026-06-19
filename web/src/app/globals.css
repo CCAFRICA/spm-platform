@@ -72,6 +72,20 @@
     --strag-z7: #3f3f46;      /* zinc-700 */
     --strag-violet: #7c3aed;  /* action buttons (violet) */
 
+    /* HF-311: Observatory inline-hex neutral scale (current = EXACT hex → byte-safe;
+       bliss = ink/light per the HF-307 scale mapping at L246+). Slate/zinc. */
+    --strag-s7: #334155;      /* slate-700 → border */
+    --strag-s6: #475569;      /* slate-600 → muted-2 */
+    --strag-s5: #64748b;      /* slate-500 → muted */
+    --strag-s4: #94a3b8;      /* slate-400 → muted */
+    --strag-s3: #cbd5e1;      /* slate-300 → ink-3 */
+    --strag-s2: #e2e8f0;      /* slate-200 → ink-2 */
+    --strag-s1: #f1f5f9;      /* slate-100 → ink */
+    --strag-s0: #f8fafc;      /* slate-50  → ink */
+    --strag-z6: #52525b;      /* zinc-600 → muted-2 */
+    --strag-z5: #71717a;      /* zinc-500 → muted */
+    --strag-disabled: #334155;/* disabled-fill (white label sits on it) → stays dark under bliss */
+
     /* OB-201 font tokens — current maps to the in-use DM Sans / DM Mono (parity set) */
     --font-display: var(--font-dm-sans), system-ui, sans-serif;
     --font-body: var(--font-dm-sans), system-ui, sans-serif;
@@ -170,6 +184,20 @@
     --strag-z8: oklch(0.97 0.025 274);      /* indigo-soft */
     --strag-z7: oklch(0.92 0.01 274);       /* border */
     --strag-violet: oklch(0.34 0.16 274);   /* indigo action */
+
+    /* HF-311: Observatory neutral scale under bliss — mirrors the L246+ class mapping so
+       inline #94a3b8 adapts identically to class slate-400 (light surfaces / ink text). */
+    --strag-s7: oklch(0.92 0.01 274);       /* border */
+    --strag-s6: oklch(0.62 0.045 274);      /* muted-2 */
+    --strag-s5: oklch(0.52 0.06 274);       /* muted */
+    --strag-s4: oklch(0.52 0.06 274);       /* muted */
+    --strag-s3: oklch(0.40 0.07 274);       /* ink-3 */
+    --strag-s2: oklch(0.32 0.09 274);       /* ink-2 */
+    --strag-s1: oklch(0.24 0.11 274);       /* ink */
+    --strag-s0: oklch(0.24 0.11 274);       /* ink */
+    --strag-z6: oklch(0.62 0.045 274);      /* muted-2 */
+    --strag-z5: oklch(0.52 0.06 274);       /* muted */
+    --strag-disabled: oklch(0.40 0.07 274); /* ink-3: dark enough that a white label stays legible */
 
     /* HF-307 authoritative brand tokens — RAW OKLCH (used directly by the design vocabulary).
        --color-* aliases keep the existing consumers (.eyebrow/.vl-card/sidebar/nav) working. */
@@ -396,7 +424,9 @@ html[data-theme="bliss"] [data-variant="default"][role="button"] {
 
 /* Cards: white surface, hairline border (via --card-* vars), 10px radius, warm shadow. */
 html[data-theme="bliss"] .vl-card {
-  border-radius: var(--radius-lg);
+  /* HF-311 Item 8: marketing card radius is 10px — softer than the 4px line-precision
+     --radius (inputs/buttons). Overrides the Card's rounded-2xl only under bliss. */
+  border-radius: 10px;
   box-shadow: var(--shadow-card);
 }
 
@@ -496,3 +526,14 @@ html[data-theme="bliss"] .bg-gray-100 { background-color: oklch(var(--secondary)
 html[data-theme="bliss"] .bg-slate-200 { background-color: oklch(var(--muted)); }
 html[data-theme="bliss"] .text-slate-900 { color: oklch(var(--foreground)); }
 html[data-theme="bliss"] .text-slate-700 { color: oklch(var(--muted-foreground)); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-311 Item 7 — shadcn modal scrim under bliss. dialog.tsx + alert-dialog.tsx are
+   STOCK installs using a `bg-black/80` Radix overlay (no stable scrim data-attr; the
+   class is overlay-only across the app). A pure-black 80% scrim clashes with the light
+   indigo bliss surface — soften to an indigo-tinted backdrop. Override via scoped CSS
+   (stock files not edited). current is untouched (not data-theme="bliss").
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-theme="bliss"] .bg-black\/80.fixed.inset-0 {
+  background-color: oklch(0.24 0.11 274 / 0.45);
+}

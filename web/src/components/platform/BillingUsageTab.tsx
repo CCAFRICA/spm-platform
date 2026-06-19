@@ -37,11 +37,11 @@ const CARD_STYLE: React.CSSProperties = {
 };
 
 const TEXT = {
-  heading: { color: '#E2E8F0', fontSize: '18px', fontWeight: 600 } as React.CSSProperties,
-  body: { color: '#E2E8F0', fontSize: '14px' } as React.CSSProperties,
-  secondary: { color: '#94A3B8', fontSize: '13px' } as React.CSSProperties,
-  label: { color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' } as React.CSSProperties,
-  hero: { color: '#F8FAFC', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' as const } as React.CSSProperties,
+  heading: { color: 'var(--strag-s2)', fontSize: '18px', fontWeight: 600 } as React.CSSProperties,
+  body: { color: 'var(--strag-s2)', fontSize: '14px' } as React.CSSProperties,
+  secondary: { color: 'var(--strag-s4)', fontSize: '13px' } as React.CSSProperties,
+  label: { color: 'var(--strag-s4)', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' } as React.CSSProperties,
+  hero: { color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' as const } as React.CSSProperties,
 };
 
 interface TenantBillingRow {
@@ -220,14 +220,14 @@ export function BillingUsageTab() {
               <span style={{ ...TEXT.body, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
                 {tenant.batchCount}
               </span>
-              <span style={{ color: '#F8FAFC', fontSize: '16px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+              <span style={{ color: 'var(--strag-s0)', fontSize: '16px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
                 ${tenant.monthlyBill.toLocaleString()}
               </span>
               <span className="flex justify-center">
                 {expandedId === tenant.id ? (
-                  <ChevronUp className="h-4 w-4" style={{ color: '#94A3B8' }} />
+                  <ChevronUp className="h-4 w-4" style={{ color: 'var(--strag-s4)' }} />
                 ) : (
-                  <ChevronDown className="h-4 w-4" style={{ color: '#94A3B8' }} />
+                  <ChevronDown className="h-4 w-4" style={{ color: 'var(--strag-s4)' }} />
                 )}
               </span>
             </button>
@@ -309,7 +309,7 @@ export function BillingUsageTab() {
                   <span style={{ ...TEXT.secondary, fontSize: '13px' }} className="truncate">{m.metricName.replace(/_/g, ' ')}</span>
                 </div>
                 <p style={{ ...TEXT.body, fontSize: '18px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m.eventCount}</p>
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{m.periodKey}</span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{m.periodKey}</span>
               </div>
             ))}
           </div>
@@ -330,7 +330,7 @@ function UsageBar({ label, current, included }: { label: string; current: number
         <span style={{ ...TEXT.secondary, fontSize: '13px' }}>{label}</span>
         <span style={{ ...TEXT.body, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>{current}/{included}</span>
       </div>
-      <div style={{ height: '6px', background: '#1e293b', borderRadius: '3px', overflow: 'hidden' }}>
+      <div style={{ height: '6px', background: 'var(--strag-s8)', borderRadius: '3px', overflow: 'hidden' }}>
         <div
           style={{
             height: '100%',
