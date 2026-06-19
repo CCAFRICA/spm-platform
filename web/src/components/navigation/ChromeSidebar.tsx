@@ -26,6 +26,7 @@ import { useLocale } from '@/contexts/locale-context';
 import { WORKSPACES, getWorkspaceRoutesForRole } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 import { UserIdentity } from './mission-control/UserIdentity';
+import { VialuceSidebar } from './mission-control/VialuceSidebar';
 // Separator removed — Cycle/Queue/Pulse panels moved to Navbar Status Chip
 import { Button } from '@/components/ui/button';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
@@ -153,8 +154,12 @@ export function ChromeSidebar() {
   // HF-306 §3.2: under bliss the active-nav accent is indigo (not the per-workspace teal/purple).
   // Read post-mount so SSR (false) matches initial client render — no hydration mismatch.
   const [isBliss, setIsBliss] = useState(false);
+  // OB-221: detect the Vialuce theme to swap in the redesigned rail (else-branch unchanged).
+  const [isVialuce, setIsVialuce] = useState(false);
   useEffect(() => {
-    setIsBliss(document.documentElement.getAttribute('data-theme') === 'bliss');
+    const t = document.documentElement.getAttribute('data-theme');
+    setIsBliss(t === 'bliss');
+    setIsVialuce(t === 'vialuce');
   }, []);
   const blissIndigo = '#2D2F8F';
 
@@ -214,6 +219,25 @@ export function ChromeSidebar() {
 
   // Workspace accent color
   const wsAccent = isBliss ? blissIndigo : (activeWsConfig?.accentColor || 'hsl(262, 83%, 58%)');
+
+  // OB-221: Vialuce theme → redesigned deep-indigo rail. The else (existing) markup below is
+  // UNCHANGED, so Current/Bliss cannot regress (regression gate: scoped CSS + this branch).
+  if (isVialuce) {
+    return (
+      <>
+        <div
+          className={cn('fixed inset-0 z-40 bg-black/50 md:hidden transition-opacity', isMobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')}
+          onClick={toggleMobileOpen}
+        />
+        <div
+          className={cn('fixed left-0 top-0 z-50 h-screen md:z-30', isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0')}
+          style={{ width: 264 }}
+        >
+          <VialuceSidebar />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
