@@ -100,7 +100,8 @@ icons                                                   → lucide-react (Tabler
 - **Login gold CTA** — login auto-themes (palette + DM fonts); its primary button renders indigo `--primary` (on-brand), not gold — a scoped gold override is a minor residual.
 
 ## 7. SHA / PR
-HEAD `18ef0c24` on `ob-221-vialuce-theme`. PR: (added on creation). DO NOT MERGE — SR-44.
+Implementation HEAD `18ef0c24` (Phase 5); report/comment commit `5ea5c93e`; branch `ob-221-vialuce-theme`.
+**PR #553 — https://github.com/CCAFRICA/spm-platform/pull/553**. DO NOT MERGE — architect merges + browser-verifies (SR-44).
 
 ## 8. ARTIFACT SYNC
 ```
