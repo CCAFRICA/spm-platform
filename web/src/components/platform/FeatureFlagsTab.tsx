@@ -97,6 +97,17 @@ export function FeatureFlagsTab() {
         body: JSON.stringify({ key: 'active_ui_theme', value: theme }),
       });
       if (res.ok) {
+        // HF-313 Defect 4: this selector already sent the INTERNAL value (theme = 'current'|'bliss'|
+        // 'vialuce' from THEME_ORDER, NOT the 'Dark' display label) — the architect's value/label
+        // hypothesis was incorrect. The real reason "Dark" didn't take effect: a per-user
+        // profiles.preferences.theme OVERRIDES the global active_ui_theme (layout.tsx precedence,
+        // HF-309). So an admin who set a personal theme while testing won't see a global change. Sync
+        // the acting admin's per-user preference to the new global so the Observatory selection honors
+        // for them (and for users without a personal override the global default already applies).
+        await fetch('/api/user/theme', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme }),
+        }).catch(() => { /* non-fatal: global already saved; per-user sync best-effort */ });
         // The theme is applied server-side in the root layout; reload to re-render with it.
         window.location.reload();
       } else {
