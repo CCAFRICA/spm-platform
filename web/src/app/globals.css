@@ -794,3 +794,14 @@ html[data-theme="vialuce"] .empty p{font-size:12.5px;margin-top:5px}
   html[data-theme="vialuce"] .sb{position:fixed;left:0;top:0;z-index:50;transform:translateX(-100%)}
   html[data-theme="vialuce"] .sb.open{transform:none}
 }
+
+/* ─── HF-312: login primary CTA → gold (scoped). The login button uses an inline indigo
+   backgroundColor + JS hover; !important lets the Vialuce override beat the inline style. Dark/Bliss
+   carry no rule here → existing indigo login button unchanged (regression-safe). ─── */
+html[data-theme="vialuce"] [data-login-cta]{
+  background:var(--vl-raw-gold) !important;
+  color:#3a2606 !important;
+}
+html[data-theme="vialuce"] [data-login-cta]:hover{
+  background:var(--vl-raw-gold-light) !important;
+}

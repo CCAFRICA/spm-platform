@@ -10,6 +10,7 @@ import { NavigationProvider, useNavigation } from '@/contexts/navigation-context
 import { ChromeSidebar } from '@/components/navigation/ChromeSidebar';
 import { CommandPalette } from '@/components/navigation/command-palette/CommandPalette';
 import { Navbar } from '@/components/navigation/Navbar';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { PersonaSwitcher } from '@/components/persona/PersonaSwitcher';
 import { cn } from '@/lib/utils';
 import { isMfaRoute } from '@/lib/auth/mfa-route-guard';
@@ -33,6 +34,8 @@ interface AuthShellProps {
  */
 function AuthShellInner({ children }: AuthShellProps) {
   const { isRailCollapsed, activeWorkspace, isMobileOpen, toggleMobileOpen } = useNavigation();
+  // HF-312: Vialuce rail is a fixed 252px (design spec); Dark/Bliss keep the 264/collapsed offset.
+  const isVialuce = useIsVialuce();
 
   return (
     <>
@@ -41,7 +44,7 @@ function AuthShellInner({ children }: AuthShellProps) {
         data-workspace={activeWorkspace}
         className={cn(
           'transition-all duration-300 ease-in-out',
-          isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]'
+          isVialuce ? 'md:pl-[252px]' : (isRailCollapsed ? 'md:pl-16' : 'md:pl-[264px]')
         )}
       >
         <Navbar onMenuToggle={toggleMobileOpen} isMobileMenuOpen={isMobileOpen} />

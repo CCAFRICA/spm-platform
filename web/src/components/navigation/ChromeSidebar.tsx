@@ -231,7 +231,7 @@ export function ChromeSidebar() {
         />
         <div
           className={cn('fixed left-0 top-0 z-50 h-screen md:z-30', isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0')}
-          style={{ width: 264 }}
+          style={{ width: 252 }}  /* HF-312: design spec rail width (was 264) */
         >
           <VialuceSidebar />
         </div>
