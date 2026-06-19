@@ -344,15 +344,9 @@ export async function convergeBindings(
       reason: match.matchReason,
     });
 
-    if (match.matchConfidence < 0.5) continue;
-
-    // HF-226 Phase 2B: generateDerivationsForMatch call commented out
-    // (superseded by unified Pass 4 below). Function body retained for
-    // rollback safety; remove after three-tenant verification per directive
-    // §"Do NOT delete superseded functions yet".
-    //   const generated = generateDerivationsForMatch(match, cap, components, matches);
-    //   derivations.push(...generated);
-    //   for (const d of generated) signals.push({ ... });
+    // OB-216 Phase 3: the developer matchConfidence cutoff is removed (Decision 110). It gated only
+    // the per-match SIGNAL below — observation, not binding — and the synthesized-derivation path it
+    // once guarded is dead. Every structural match emits its observation signal; no tuned cutoff.
 
     // Emit per-match signal (preserving HF-219 surface) without a synthesized
     // derivation. The signal records the structural match outcome; the
@@ -520,7 +514,10 @@ export async function convergeBindings(
         const compTokens = tokenize(comp.name);
         const overlap = compTokens.filter(t => targetTokens.some(d => d.includes(t) || t.includes(d)));
         const score = overlap.length / Math.max(compTokens.length, 1);
-        if (score > 0.2 && (!bestCompMatch || score > bestCompMatch.score)) {
+        // OB-216 Phase 3: argmax over candidates with the structural floor 0 (any token overlap),
+        // not a developer cutoff (Decision 110). 0 is the bare structural floor ("is there overlap
+        // at all"), never a tuned threshold.
+        if (score > 0 && (!bestCompMatch || score > bestCompMatch.score)) {
           bestCompMatch = { comp, score };
         }
       }
@@ -1276,7 +1273,11 @@ function matchComponentsToData(
         }
       }
 
-      if (bestMatch && bestMatch.score > 0.3) {
+      // OB-216 Phase 3: accept the ARGMAX structural winner (bestMatch is set only when score > 0,
+      // line ~1274) — no developer acceptance floor (Decision 110). With Phase-2's all-capabilities
+      // candidate pool, the matched data_type drives only entity_identifier/period cap selection and
+      // variant grouping; binding correctness is the LLM recognition + structural validation.
+      if (bestMatch) {
         matches.push({
           component: comp,
           dataType: bestMatch.cap.dataType,
@@ -1307,7 +1308,9 @@ function matchComponentsToData(
       }
     }
 
-    if (bestDt && bestScore > 0.2) {
+    // OB-216 Phase 3: accept any token-overlap winner (bestDt is set only when score > 0) — argmax
+    // + structural floor 0, no developer cutoff (Decision 110).
+    if (bestDt) {
       matches.push({
         component: comp,
         dataType: bestDt,
@@ -1343,8 +1346,10 @@ function generateDerivationsForMatch(
   const sameDataTypeMatches = allMatches.filter(m => m.dataType === match.dataType);
   const isSharedBase = sameDataTypeMatches.length > 1;
 
+  // OB-216 Phase 3: superseded generateFilteredCountDerivations (token-overlap categorical match,
+  // a Korean-Test violation per DIAG-073 §5) removed; this dead branch returns no derivations.
   if (isSharedBase && capability.categoricalFields.length > 0) {
-    return generateFilteredCountDerivations(comp, match.dataType, capability);
+    return rules;
   }
 
   for (const metricName of comp.expectedMetrics) {
@@ -3025,83 +3030,6 @@ async function generateAllComponentBindings(
   }
 }
 
-/**
- * Generate COUNT derivation rules with category+boolean filters.
- *
- * HF-226 Phase 2B: Superseded by unified derivation pass (generateAISemanticDerivations).
- * Korean Test (E910) violation: filter-value selection uses token-overlap
- * scoring between component-name and capability.categoricalFields[*].distinctValues,
- * which fails for non-English data. Pass 4 derives filters via structural
- * heuristics (column distributions, categorical-value statistics) per the
- * AI prompt at lines 2476-2528. Function body retained for rollback safety;
- * remove after three-tenant verification.
- */
-function generateFilteredCountDerivations(
-  component: PlanComponent,
-  dataType: string,
-  capability: DataCapability
-): MetricDerivationRule[] {
-  const rules: MetricDerivationRule[] = [];
-  const compTokens = tokenize(component.name);
-
-  let bestCatField: { field: string; matchedValue: string } | null = null;
-  let bestCatScore = 0;
-
-  for (const catField of capability.categoricalFields) {
-    for (const value of catField.distinctValues) {
-      const valueTokens = tokenize(value);
-      const overlap = compTokens.filter(t =>
-        valueTokens.some(v => v.includes(t) || t.includes(v))
-      );
-      const score = overlap.length / Math.max(valueTokens.length, 1);
-      if (score > bestCatScore) {
-        bestCatScore = score;
-        bestCatField = { field: catField.field, matchedValue: value };
-      }
-    }
-  }
-
-  if (!bestCatField || bestCatScore < 0.3) {
-    for (const metricName of component.expectedMetrics) {
-      const metricTokens = tokenize(metricName);
-      for (const catField of capability.categoricalFields) {
-        for (const value of catField.distinctValues) {
-          const valueTokens = tokenize(value);
-          const overlap = metricTokens.filter(t =>
-            valueTokens.some(v => v.includes(t) || t.includes(v))
-          );
-          const score = overlap.length / Math.max(metricTokens.length, 1);
-          if (score > bestCatScore) {
-            bestCatScore = score;
-            bestCatField = { field: catField.field, matchedValue: value };
-          }
-        }
-      }
-    }
-  }
-
-  if (!bestCatField) return rules;
-
-  const filters: MetricDerivationRule['filters'] = [
-    { field: bestCatField.field, operator: 'eq', value: bestCatField.matchedValue },
-  ];
-
-  if (capability.booleanFields.length > 0) {
-    const qualField = capability.booleanFields[0];
-    filters.push({ field: qualField.field, operator: 'eq', value: qualField.trueValue });
-  }
-
-  for (const metricName of component.expectedMetrics) {
-    rules.push({
-      metric: metricName,
-      operation: 'count',
-      source_pattern: dataType,
-      filters,
-    });
-  }
-
-  return rules;
-}
 
 // ──────────────────────────────────────────────
 // OB-185 Pass 4: AI-Assisted Semantic Derivation
