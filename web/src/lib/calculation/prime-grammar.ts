@@ -278,14 +278,27 @@ export function validatePrimeTree(
 
     const rule = PRIME_GRAMMAR[prime as PrimeType];
 
-    // Op discriminator check
+    // Op discriminator check. Most ops-bearing primes carry the op at top-level `obj.op`
+    // (arithmetic/compare/logical/aggregate). OB-222: `filter` is the exception — its operator lives
+    // at predicate.operator (PrimePredicate), not at obj.op. Reading obj.op for a filter node
+    // spuriously rejected every well-formed filter as op_unknown (latent until the grammar prompt
+    // began illustrating filter->aggregate, OB-222 Phase 2). Read the operator from the correct
+    // location per prime — which also makes the filter's predicate.operator actually validated.
     if (rule.ops) {
-      const op = typeof obj.op === 'string' ? obj.op : undefined;
+      let op: string | undefined;
+      if (prime === 'filter') {
+        const pred = obj.predicate as Record<string, unknown> | undefined;
+        op = typeof pred?.operator === 'string' ? pred.operator : undefined;
+      } else {
+        op = typeof obj.op === 'string' ? obj.op : undefined;
+      }
       if (!op || !rule.ops.includes(op)) {
         violations.push({
           check: 'op_unknown',
           nodePath: path,
-          message: `Prime "${prime}" requires op in {${rule.ops.join(', ')}}, got "${String(op)}".`,
+          message: prime === 'filter'
+            ? `Prime "filter" requires predicate.operator in {${rule.ops.join(', ')}}, got "${String(op)}".`
+            : `Prime "${prime}" requires op in {${rule.ops.join(', ')}}, got "${String(op)}".`,
           severity: 'critical',
         });
       }
