@@ -43,7 +43,68 @@ import { toDecimal, toNumber, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import type { PlanComponent } from '@/types/compensation-plan';
 
-export type AttributionPattern = 'additive' | 'qualified' | 'non-attributable';
+export type AttributionPattern = 'additive' | 'qualified' | 'non-attributable' | 'clawback';
+
+/**
+ * OB-218: a parsed `temporal_adjustment` (per-transaction reversal) modifier. The column names are
+ * DATA VOCABULARY carried by the plan modifier (above the Deterministic Calculation Boundary) and
+ * are read here structurally (Korean Test) — never hardcoded in engine code.
+ */
+export interface TemporalAdjustmentModifier {
+  /** Column on the RETURN row whose value references the original transaction (e.g. Folio_Original). */
+  returnField: string;
+  /** Column on the ORIGINAL row that the reference points to (e.g. Folio). */
+  originalField: string;
+  /** Optional scoping of the original lookup: committed_data.data_type. */
+  originalDataType?: string;
+  /** Optional scoping of the original lookup: row_data._sheetName (for generic data_type tenants). */
+  originalSheet?: string;
+  /** Fraction of the original commission reversed (1.0 = full reversal). */
+  recoveryRate: number;
+  /** How many prior periods to search (advisory; reference keys are typically globally unique). */
+  lookbackPeriods: number;
+}
+
+/**
+ * OB-218: extract a per-transaction-reversal modifier from a component, if present. Reads
+ * `component.modifiers` or `component.calculationIntent.modifiers`. Returns null when absent.
+ */
+export function extractTemporalAdjustment(component: PlanComponent): TemporalAdjustmentModifier | null {
+  const ci = component.calculationIntent as Record<string, unknown> | undefined;
+  const modifiers: unknown[] =
+    ((component as unknown as Record<string, unknown>).modifiers as unknown[]) ??
+    (ci?.modifiers as unknown[]) ??
+    [];
+  if (!Array.isArray(modifiers)) return null;
+  const mod = modifiers.find((m) => {
+    const r = m as Record<string, unknown>;
+    return r?.modifier === 'temporal_adjustment' && r?.adjustmentType === 'per_transaction_reversal';
+  }) as Record<string, unknown> | undefined;
+  if (!mod) return null;
+  const refMap = (mod.referenceMapping as Record<string, unknown>) ?? {};
+  const returnField = typeof refMap.returnField === 'string' ? refMap.returnField : null;
+  const originalField = typeof refMap.originalField === 'string' ? refMap.originalField : null;
+  if (!returnField || !originalField) return null; // malformed modifier → treat as absent
+  return {
+    returnField,
+    originalField,
+    originalDataType: typeof refMap.originalDataType === 'string' ? refMap.originalDataType : undefined,
+    originalSheet: typeof refMap.originalSheet === 'string' ? refMap.originalSheet : undefined,
+    recoveryRate: typeof mod.recoveryRate === 'number' ? mod.recoveryRate : 1.0,
+    lookbackPeriods: typeof mod.lookbackPeriods === 'number' ? mod.lookbackPeriods : 1,
+  };
+}
+
+/**
+ * OB-218: the reversal computation — pure decimal.js, below the calculation boundary (Decision 158,
+ * zero LLM). contribution = −recoveryRate × originalContribution.
+ */
+export function computeReversal(
+  recoveryRate: number | string | Decimal,
+  originalContribution: number | string | Decimal,
+): Decimal {
+  return toDecimal(recoveryRate).neg().mul(toDecimal(originalContribution));
+}
 
 /** A single linear term: outcome contribution = rate × Σ(per-row metricField). */
 export interface AdditiveTerm {
@@ -144,6 +205,9 @@ export function analyzePrimeDag(intent: unknown): DagAnalysis {
  * a given entity's outcome was actually produced by an attributable term.
  */
 export function classifyAttributionPattern(component: PlanComponent): AttributionPattern {
+  // OB-218 Pattern D: a per-transaction-reversal modifier takes precedence over the prime-DAG
+  // walk — the component's payout is a cross-period reversal, not an in-period additive term.
+  if (extractTemporalAdjustment(component)) return 'clawback';
   const intent = component.calculationIntent;
   if (!intent) return 'non-attributable';
   const { terms, hasGate } = analyzePrimeDag(intent);
@@ -173,10 +237,16 @@ export function extractTransactionRef(
     | undefined;
   if (!fieldIdentities || typeof fieldIdentities !== 'object') return null;
 
+  // OB-218: exclude BOTH the convergence binding's entity_identifier column (passed in) AND the
+  // row's own metadata.entity_id_field. On transaction sheets these can differ (e.g. binding key
+  // ID_Empleado vs metadata.entity_id_field Sucursal); excluding only one let the OTHER entity-key
+  // column (an `identifier`) be mis-picked as the transaction_ref (the employee id, not a txn id).
+  const metaEntityIdField = typeof metadata.entity_id_field === 'string' ? metadata.entity_id_field : null;
   const candidates: Array<{ col: string; isTxn: boolean }> = [];
   for (const [col, fi] of Object.entries(fieldIdentities)) {
     if (!fi || fi.structuralType !== 'identifier') continue;
     if (entityIdField && col === entityIdField) continue;
+    if (metaEntityIdField && col === metaEntityIdField) continue;
     if (rowData[col] === null || rowData[col] === undefined || rowData[col] === '') continue;
     candidates.push({ col, isTxn: fi.contextualIdentity === 'transaction_identifier' });
   }
