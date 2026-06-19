@@ -7,6 +7,7 @@ import { BarChart3, TrendingUp, TrendingDown, DollarSign, PieChart, Target, Arro
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useTenant, useCurrency, useTerm, useFeature } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { pageVariants, containerVariants, itemVariants } from '@/lib/animations';
 
 export default function SalesFinancePage() {
@@ -17,6 +18,7 @@ export default function SalesFinancePage() {
   const repTerm = useTerm('salesRep', true);
   const salesFinanceEnabled = useFeature('salesFinance');
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   // Redirect if feature not enabled
   useEffect(() => {
@@ -62,13 +64,22 @@ export default function SalesFinancePage() {
   ];
 
   return (
+    // HF-313: Vialuce page frame (.page) + .phead header; motion variants preserved; else byte-identical.
     <motion.div
       variants={pageVariants}
       initial="initial"
       animate="animate"
-      className="p-6 space-y-6"
+      className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}
     >
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Finance</h1>
+            <div className="sub">Revenue, cost, and margin analysis from transactional data</div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <BarChart3 className="h-6 w-6 text-primary" />
@@ -78,6 +89,7 @@ export default function SalesFinancePage() {
           Revenue, cost, and margin analysis from transactional data
         </p>
       </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

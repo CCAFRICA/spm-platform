@@ -5,6 +5,7 @@ import { Users, TrendingUp, Target, Trophy, AlertTriangle, Building2 } from 'luc
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getMeseros, getFranquicias, getSalesByMesero, getSalesByFranquicia } from '@/lib/restaurant-service';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
@@ -44,6 +45,7 @@ export default function MyTeamPage() {
   const { format } = useCurrency();
   const [data, setData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
@@ -150,6 +152,27 @@ export default function MyTeamPage() {
 
   // OB-29 Phase 9: Non-hospitality view - show empty state (no mock data)
   if (!isHospitality) {
+    // HF-313: Vialuce renders .page + .phead + .empty design-spec state; else byte-identical.
+    if (isVialuce) {
+      return (
+        <div className="page space-y-6">
+          <div className="phead">
+            <div>
+              <h1>My Team</h1>
+              <div className="sub">Team performance overview</div>
+            </div>
+          </div>
+          <div className="empty">
+            <div className="ic"><Users className="h-7 w-7" /></div>
+            <b>No Team Data Available</b>
+            <p>
+              Team performance data will appear here once calculations have been run
+              and you have team members assigned.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6 space-y-6">
         <div>
@@ -200,8 +223,19 @@ export default function MyTeamPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Mi Equipo - Todas las Franquicias</h1>
+            <div className="sub">
+              Regional performance view ({data.franchiseStats.length} franchises, {data.serverStats.length} servers)
+            </div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Users className="h-6 w-6 text-primary" />
@@ -211,6 +245,7 @@ export default function MyTeamPage() {
           Regional performance view ({data.franchiseStats.length} franchises, {data.serverStats.length} servers)
         </p>
       </div>
+      )}
 
       {/* Total Stats */}
       <div className="grid md:grid-cols-4 gap-4">

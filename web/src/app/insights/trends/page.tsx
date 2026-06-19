@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/contexts/locale-context';
 import { useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 
 // Enhanced mock data with more detail
 const yoyData = [
@@ -94,6 +95,7 @@ export default function TrendsPage() {
   const { locale } = useLocale();
   const { symbol } = useCurrency();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   // Compact formatter for chart axes (e.g. $1.2M, $450K)
   const formatCompact = (amount: number): string => {
@@ -132,9 +134,38 @@ export default function TrendsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-6 py-8">
+    // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
+    <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
+      <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
         {/* Header */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>{isSpanish ? 'An\u00e1lisis de Tendencias' : 'Trends Analysis'}</h1>
+              <div className="sub">
+                {isSpanish
+                  ? 'Tendencias hist\u00f3ricas, m\u00e9tricas de crecimiento y proyecciones'
+                  : 'Historical trends, growth metrics, and projections'}
+              </div>
+            </div>
+            <div className="pactions">
+              <Select value={timeRange} onValueChange={setTimeRange}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ytd">{isSpanish ? 'A\u00f1o actual' : 'YTD'}</SelectItem>
+                  <SelectItem value="12m">{isSpanish ? '\u00daltimos 12m' : 'Last 12m'}</SelectItem>
+                  <SelectItem value="24m">{isSpanish ? '\u00daltimos 24m' : 'Last 24m'}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExport}>
+                <Download className="h-4 w-4 mr-2" />
+                {isSpanish ? 'Exportar' : 'Export'}
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-50">
@@ -163,6 +194,7 @@ export default function TrendsPage() {
             </Button>
           </div>
         </div>
+        )}
 
         {/* Growth Metrics Cards */}
         <div className="grid gap-4 md:grid-cols-3 mb-8">

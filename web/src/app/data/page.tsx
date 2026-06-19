@@ -28,6 +28,7 @@ import {
   FileText,
   Activity,
 } from "lucide-react";
+import { useIsVialuce } from "@/hooks/use-is-vialuce";
 
 // Mock data operations data
 const dataMetrics = {
@@ -161,10 +162,30 @@ function getSeverityStyle(severity: string): { bg: string; text: string } {
 }
 
 export default function DataPage() {
+  // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  const isVialuce = useIsVialuce();
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-6 py-8">
+      <div className={isVialuce ? "page" : "container mx-auto px-6 py-8"}>
         {/* Header */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Data Operations</h1>
+              <div className="sub">Monitor data loads, quality metrics, and system health</div>
+            </div>
+            <div className="pactions flex gap-2">
+              <Button variant="outline" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Upload Data
+              </Button>
+              <Button className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Sync Now
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-50">
@@ -185,6 +206,7 @@ export default function DataPage() {
             </Button>
           </div>
         </div>
+        )}
 
         {/* Data Quality Metrics */}
         <div className="grid gap-4 md:grid-cols-4 mb-6">

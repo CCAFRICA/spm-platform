@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
@@ -86,6 +87,7 @@ export default function StatementsPage() {
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
   const tenantId = currentTenant?.id || '';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   // WS7-A / HALT-ACCESS #2 (SR-39): scope the statement to what the viewer may see, enforced
   // through the READ (not the UI). allowedEntityIds = the viewer's accessible set: admin/canSeeAll
@@ -355,6 +357,15 @@ export default function StatementsPage() {
 
   // ── Loading state ──
   if (loading) {
+    // HF-313: Vialuce renders the loading state inside the .page frame; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
+          <span className="ml-2 text-sm text-zinc-500">Loading statement...</span>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-gradient-to-br from-zinc-950 to-zinc-900 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
@@ -364,18 +375,29 @@ export default function StatementsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 to-zinc-900">
-      <div className="max-w-4xl mx-auto px-6 py-8">
+    // HF-313: Vialuce uses the .page frame directly (no dark gradient shell); else the original
+    // gradient-shell wrapper stays byte-identical. Both branches render the same body below.
+    <div className={isVialuce ? '' : 'min-h-screen bg-gradient-to-br from-zinc-950 to-zinc-900'}>
+      <div className={isVialuce ? 'page' : 'max-w-4xl mx-auto px-6 py-8'}>
         {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-600 to-emerald-700">
-            <FileText className="h-5 w-5 text-white" />
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Commission Statement</h1>
+              <div className="sub">{currentTenant?.name || 'Select tenant'}</div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-zinc-100">Commission Statement</h1>
-            <p className="text-sm text-zinc-500">{currentTenant?.name || 'Select tenant'}</p>
+        ) : (
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-600 to-emerald-700">
+              <FileText className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-zinc-100">Commission Statement</h1>
+              <p className="text-sm text-zinc-500">{currentTenant?.name || 'Select tenant'}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Entity + Period selectors */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -446,15 +468,28 @@ export default function StatementsPage() {
 
         {/* Statement content */}
         {!statement ? (
-          <div className="text-center py-20">
-            <FileText className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">No Statement Available</h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto">
-              {!selectedEntityId
-                ? 'Select an entity to view their commission statement.'
-                : 'No calculation results found for this entity and period.'}
-            </p>
-          </div>
+          // HF-313: Vialuce design-spec .empty state ("never a dead end"); else unchanged.
+          isVialuce ? (
+            <div className="empty">
+              <div className="ic"><FileText className="h-7 w-7" /></div>
+              <b>No Statement Available</b>
+              <p>
+                {!selectedEntityId
+                  ? 'Select an entity to view their commission statement.'
+                  : 'No calculation results found for this entity and period.'}
+              </p>
+            </div>
+          ) : (
+            <div className="text-center py-20">
+              <FileText className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
+              <h2 className="text-lg font-semibold text-zinc-300 mb-2">No Statement Available</h2>
+              <p className="text-sm text-zinc-500 max-w-md mx-auto">
+                {!selectedEntityId
+                  ? 'Select an entity to view their commission statement.'
+                  : 'No calculation results found for this entity and period.'}
+              </p>
+            </div>
+          )
         ) : (
           <div className="space-y-6">
             {/* Total Payout Card */}

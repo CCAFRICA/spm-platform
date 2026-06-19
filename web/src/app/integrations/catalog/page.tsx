@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/dialog';
 import { useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface Product {
   id: string;
@@ -91,6 +92,7 @@ export default function ProductCatalogPage() {
   const { format } = useCurrency();
   const { locale } = useLocale();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [products, setProducts] = useState<Product[]>(mockProducts);
   const [searchTerm, setSearchTerm] = useState('');
@@ -189,29 +191,50 @@ export default function ProductCatalogPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Package className="h-6 w-6 text-primary" />
-            {isSpanish ? 'Catálogo de Productos' : 'Product Catalog'}
-          </h1>
-          <p className="text-muted-foreground">
-            {isSpanish ? 'Administra tu catálogo de productos y precios' : 'Manage your product catalog and pricing'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Catálogo de Productos' : 'Product Catalog'}</h1>
+            <div className="sub">
+              {isSpanish ? 'Administra tu catálogo de productos y precios' : 'Manage your product catalog and pricing'}
+            </div>
+          </div>
+          <div className="pactions flex gap-2">
+            <Button variant="outline" onClick={() => setSchemaModalOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Esquema' : 'Schema'}
+            </Button>
+            <Button onClick={openCreateModal}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Nuevo Producto' : 'New Product'}
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setSchemaModalOpen(true)}>
-            <Settings className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Esquema' : 'Schema'}
-          </Button>
-          <Button onClick={openCreateModal}>
-            <Plus className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Nuevo Producto' : 'New Product'}
-          </Button>
+      ) : (
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Package className="h-6 w-6 text-primary" />
+              {isSpanish ? 'Catálogo de Productos' : 'Product Catalog'}
+            </h1>
+            <p className="text-muted-foreground">
+              {isSpanish ? 'Administra tu catálogo de productos y precios' : 'Manage your product catalog and pricing'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setSchemaModalOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Esquema' : 'Schema'}
+            </Button>
+            <Button onClick={openCreateModal}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Nuevo Producto' : 'New Product'}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <Card>

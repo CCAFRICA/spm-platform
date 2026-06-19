@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTerm } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface Location {
   id: string;
@@ -73,6 +74,7 @@ const states = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla', 'Querétaro'];
 
 export default function ConfigurationLocationsPage() {
   const { locale } = useLocale();
+  const isVialuce = useIsVialuce();
   const locationTerm = useTerm('location');
   const locationPluralTerm = useTerm('location', true);
   const isSpanish = locale === 'es-MX';
@@ -151,23 +153,40 @@ export default function ConfigurationLocationsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary" />
-            {isSpanish ? `Configuración de ${locationPluralTerm}` : `${locationPluralTerm} Configuration`}
-          </h1>
-          <p className="text-muted-foreground">
-            {isSpanish ? `Administra las ${locationPluralTerm.toLowerCase()} de tu organización` : `Manage your organization's ${locationPluralTerm.toLowerCase()}`}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? `Configuración de ${locationPluralTerm}` : `${locationPluralTerm} Configuration`}</h1>
+            <div className="sub">
+              {isSpanish ? `Administra las ${locationPluralTerm.toLowerCase()} de tu organización` : `Manage your organization's ${locationPluralTerm.toLowerCase()}`}
+            </div>
+          </div>
+          <div className="pactions">
+            <Button onClick={openCreateModal}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? `Nueva ${locationTerm}` : `New ${locationTerm}`}
+            </Button>
+          </div>
         </div>
-        <Button onClick={openCreateModal}>
-          <Plus className="h-4 w-4 mr-2" />
-          {isSpanish ? `Nueva ${locationTerm}` : `New ${locationTerm}`}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Building2 className="h-6 w-6 text-primary" />
+              {isSpanish ? `Configuración de ${locationPluralTerm}` : `${locationPluralTerm} Configuration`}
+            </h1>
+            <p className="text-muted-foreground">
+              {isSpanish ? `Administra las ${locationPluralTerm.toLowerCase()} de tu organización` : `Manage your organization's ${locationPluralTerm.toLowerCase()}`}
+            </p>
+          </div>
+          <Button onClick={openCreateModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            {isSpanish ? `Nueva ${locationTerm}` : `New ${locationTerm}`}
+          </Button>
+        </div>
+      )}
 
       {/* Filters */}
       <Card>

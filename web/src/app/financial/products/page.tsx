@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState, useMemo } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -51,6 +52,7 @@ export default function ProductMixPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { scope } = usePersona();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -137,6 +139,18 @@ export default function ProductMixPage() {
   }
 
   if (!data) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>No Product Data</b>
+            <p>Import POS data to see product mix analytics.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -157,8 +171,17 @@ export default function ProductMixPage() {
   const PIE_COLORS = ['#f59e0b', '#3b82f6'];
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Product Mix</h1>
+            <div className="sub">Food vs beverage category analysis across locations</div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
           <ShoppingBag className="h-6 w-6 text-primary" />
@@ -166,6 +189,7 @@ export default function ProductMixPage() {
         </h1>
         <p className="text-zinc-400">Food vs beverage category analysis across locations</p>
       </div>
+      )}
 
       {/* Commentary (PG-44) */}
       <Card>

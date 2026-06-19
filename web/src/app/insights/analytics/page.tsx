@@ -50,6 +50,7 @@ import type {
 import { TIME_GRANULARITIES } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 
 type TimeRange = '7d' | '30d' | '90d' | 'ytd' | '1y';
 
@@ -94,6 +95,7 @@ export default function AnalyticsDashboardPage() {
   const { currentTenant } = useTenant();
   const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id;
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [granularity, setGranularity] = useState<TimeGranularity>('weekly');
@@ -231,8 +233,49 @@ export default function AnalyticsDashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div className="flex items-center gap-4">
+            {(selectedMetric || drillPath.length > 0) && (
+              <Button variant="ghost" size="sm" onClick={handleBackFromDetail}>
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                {isSpanish ? 'Volver' : 'Back'}
+              </Button>
+            )}
+            <div>
+              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <div className="sub">{isSpanish ? dashboard.period.labelEs : dashboard.period.label}</div>
+            </div>
+          </div>
+          <div className="pactions">
+            <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
+              <SelectTrigger className="w-[160px]">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(TIME_RANGES) as TimeRange[]).map((range) => (
+                  <SelectItem key={range} value={range}>
+                    {isSpanish ? TIME_RANGES[range].es : TIME_RANGES[range].en}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Button variant="outline" size="icon" onClick={loadDashboard} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+
+            <Button onClick={() => setShowExport(true)}>
+              <Download className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Exportar' : 'Export'}
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {(selectedMetric || drillPath.length > 0) && (
@@ -276,6 +319,7 @@ export default function AnalyticsDashboardPage() {
           </Button>
         </div>
       </div>
+      )}
 
       {/* Drill Path Breadcrumb */}
       {drillPath.length > 0 && (

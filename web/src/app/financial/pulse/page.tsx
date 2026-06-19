@@ -11,6 +11,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -43,6 +44,7 @@ export default function NetworkPulseDashboard() {
   const router = useRouter();
   const { persona, entityId, scope } = usePersona();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const tenantId = currentTenant?.id;
 
@@ -105,6 +107,22 @@ export default function NetworkPulseDashboard() {
   }
 
   if (!networkMetrics) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>{isSpanish ? 'Sin Datos Financieros' : 'No Financial Data'}</b>
+            <p>
+              {isSpanish
+                ? 'Importe datos POS a traves de Operar > Importar Paquete de Datos para ver el rendimiento de su red.'
+                : 'Import POS data through Operate > Import Data Package to see your network performance.'}
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -258,8 +276,26 @@ export default function NetworkPulseDashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Pulso de Red' : 'Network Pulse'}</h1>
+            <div className="sub">
+              {currentTenant?.displayName || currentTenant?.name || (isSpanish ? 'Rendimiento de la franquicia' : 'Franchise performance')}
+              {' — '}
+              {isSpanish ? 'rendimiento en tiempo real' : 'real-time performance'}
+            </div>
+          </div>
+          <div className="pactions">
+            <Badge variant="outline" className="text-xs">
+              {networkMetrics.activeLocations}/{networkMetrics.totalLocations} {isSpanish ? 'ubicaciones activas' : 'active locations'}
+            </Badge>
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -276,6 +312,7 @@ export default function NetworkPulseDashboard() {
           {networkMetrics.activeLocations}/{networkMetrics.totalLocations} {isSpanish ? 'ubicaciones activas' : 'active locations'}
         </Badge>
       </div>
+      )}
 
       {/* SECTION A: Hero Metrics Row — each with reference frame (PG-17) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

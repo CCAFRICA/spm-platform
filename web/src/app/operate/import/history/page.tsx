@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { cn } from '@/lib/utils';
 import { formatFileSize } from '@/lib/ingestion/file-validator';
 import { pageVariants } from '@/lib/animations';
@@ -59,6 +60,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: typeof CheckCircle; l
 
 export default function ImportHistoryPage() {
   const { currentTenant } = useTenant();
+  const isVialuce = useIsVialuce();
   const [events, setEvents] = useState<IngestionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -118,28 +120,49 @@ export default function ImportHistoryPage() {
       variants={pageVariants}
       initial="initial"
       animate="animate"
-      className="p-6"
+      className={isVialuce ? 'page' : 'p-6'}
     >
-      <div className="max-w-6xl mx-auto">
+      <div className={isVialuce ? '' : 'max-w-6xl mx-auto'}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-100">Import History</h1>
-            <p className="text-sm text-zinc-400 mt-1">
-              Immutable audit trail of all file ingestion events
-            </p>
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Import History</h1>
+              <div className="sub">Immutable audit trail of all file ingestion events</div>
+            </div>
+            <div className="pactions">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchEvents}
+                disabled={loading}
+                className="gap-2"
+              >
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                Refresh
+              </Button>
+            </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchEvents}
-            disabled={loading}
-            className="gap-2"
-          >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            Refresh
-          </Button>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-100">Import History</h1>
+              <p className="text-sm text-zinc-400 mt-1">
+                Immutable audit trail of all file ingestion events
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchEvents}
+              disabled={loading}
+              className="gap-2"
+            >
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              Refresh
+            </Button>
+          </div>
+        )}
 
         {/* Status filter pills */}
         <div className="flex flex-wrap gap-2 mb-4">
@@ -176,15 +199,23 @@ export default function ImportHistoryPage() {
             </CardContent>
           </Card>
         ) : filtered.length === 0 ? (
-          <Card className="border-zinc-800 bg-zinc-900/50">
-            <CardContent className="p-8 text-center">
-              <FileText className="h-8 w-8 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 font-medium">No import events found</p>
-              <p className="text-zinc-600 text-sm mt-1">
-                Upload files via the Import page to see events here
-              </p>
-            </CardContent>
-          </Card>
+          isVialuce ? (
+            <div className="empty">
+              <div className="ic"><FileText className="h-7 w-7" /></div>
+              <b>No import events found</b>
+              <p>Upload files via the Import page to see events here</p>
+            </div>
+          ) : (
+            <Card className="border-zinc-800 bg-zinc-900/50">
+              <CardContent className="p-8 text-center">
+                <FileText className="h-8 w-8 text-zinc-600 mx-auto mb-3" />
+                <p className="text-zinc-400 font-medium">No import events found</p>
+                <p className="text-zinc-600 text-sm mt-1">
+                  Upload files via the Import page to see events here
+                </p>
+              </CardContent>
+            </Card>
+          )
         ) : (
           <div className="space-y-2">
             {filtered.map(event => {

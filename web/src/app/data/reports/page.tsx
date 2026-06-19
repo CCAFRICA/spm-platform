@@ -15,6 +15,7 @@ import {
 import { Download, Calendar, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageVariants, containerVariants, itemVariants } from '@/lib/animations';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { RevenueByPeriod } from '@/components/reports/revenue-by-period';
 import { RevenueByRep } from '@/components/reports/revenue-by-rep';
 import { RevenueByProduct } from '@/components/reports/revenue-by-product';
@@ -32,6 +33,7 @@ import {
 } from '@/lib/financial-service';
 
 export default function ReportsPage() {
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState('2024');
 
@@ -74,8 +76,37 @@ export default function ReportsPage() {
       exit="exit"
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
     >
-      <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
+      <div className={isVialuce ? 'page' : 'container mx-auto px-4 md:px-6 py-6 md:py-8'}>
         {/* Header */}
+        {isVialuce ? (
+          <div className="phead">
+            <div>
+              <h1>Financial Reports</h1>
+              <div className="sub">Analyze revenue, outcomes, and performance</div>
+            </div>
+            <div className="pactions flex gap-2">
+              <Select value={period} onValueChange={setPeriod}>
+                <SelectTrigger className="w-[120px]">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2024">2024</SelectItem>
+                  <SelectItem value="2023">2023</SelectItem>
+                  <SelectItem value="2022">2022</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleRefresh}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+              <Button onClick={() => handleExport('all')}>
+                <Download className="h-4 w-4 mr-2" />
+                Export All
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-50">
@@ -107,6 +138,7 @@ export default function ReportsPage() {
             </Button>
           </div>
         </div>
+        )}
 
         {/* Summary Cards */}
         {isLoading ? (

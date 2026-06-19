@@ -16,6 +16,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
@@ -395,6 +396,7 @@ export default function OperateLandingPage() {
   const tenantId = currentTenant?.id ?? '';
   const hasICM = ruleSetCount > 0;
   const tenantName = currentTenant?.name ?? '';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -515,14 +517,24 @@ export default function OperateLandingPage() {
   const NextIcon = ACTION_ICONS[nextAction.icon];
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    // HF-313: Vialuce page frame (.page padding/max-width/center); else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6 max-w-6xl mx-auto'}>
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-zinc-100">
-          {isSpanish ? 'Centro de Operaciones' : 'Operations Overview'}
-          {tenantName ? ` \u2014 ${tenantName}` : ''}
-        </h1>
-      </div>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Centro de Operaciones' : 'Operations Overview'}</h1>
+            {tenantName && <div className="sub">{tenantName}</div>}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-xl font-bold text-zinc-100">
+            {isSpanish ? 'Centro de Operaciones' : 'Operations Overview'}
+            {tenantName ? ` \u2014 ${tenantName}` : ''}
+          </h1>
+        </div>
+      )}
 
       {/* Section 3: Deterministic Commentary (above cards per spec) */}
       <p className="text-sm text-zinc-300 leading-relaxed">{commentary}</p>

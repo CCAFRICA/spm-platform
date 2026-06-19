@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { toast } from 'sonner';
 import {
   Bell,
@@ -62,6 +63,7 @@ export default function NotificationsPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const tenantId = currentTenant?.id;
   const userId = user?.id || 'user-1';
 
@@ -204,27 +206,48 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Bell className="h-6 w-6 text-primary" />
-            {isSpanish ? 'Centro de Notificaciones' : 'Notification Center'}
-          </h1>
-          <p className="text-muted-foreground">
-            {isSpanish
-              ? 'Gestiona tus notificaciones y preferencias de alerta'
-              : 'Manage your notifications and alert preferences'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Centro de Notificaciones' : 'Notification Center'}</h1>
+            <div className="sub">
+              {isSpanish
+                ? 'Gestiona tus notificaciones y preferencias de alerta'
+                : 'Manage your notifications and alert preferences'}
+            </div>
+          </div>
+          {unreadCount > 0 && (
+            <div className="pactions">
+              <Button variant="outline" onClick={handleMarkAllAsRead}>
+                <CheckCheck className="h-4 w-4 mr-2" />
+                {isSpanish ? 'Marcar todo como le\u00eddo' : 'Mark all as read'}
+              </Button>
+            </div>
+          )}
         </div>
-        {unreadCount > 0 && (
-          <Button variant="outline" onClick={handleMarkAllAsRead}>
-            <CheckCheck className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Marcar todo como le\u00eddo' : 'Mark all as read'}
-          </Button>
-        )}
-      </div>
+      ) : (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Bell className="h-6 w-6 text-primary" />
+              {isSpanish ? 'Centro de Notificaciones' : 'Notification Center'}
+            </h1>
+            <p className="text-muted-foreground">
+              {isSpanish
+                ? 'Gestiona tus notificaciones y preferencias de alerta'
+                : 'Manage your notifications and alert preferences'}
+            </p>
+          </div>
+          {unreadCount > 0 && (
+            <Button variant="outline" onClick={handleMarkAllAsRead}>
+              <CheckCheck className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Marcar todo como le\u00eddo' : 'Mark all as read'}
+            </Button>
+          )}
+        </div>
+      )}
 
       <Tabs defaultValue="notifications">
         <TabsList>

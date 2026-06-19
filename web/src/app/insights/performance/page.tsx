@@ -39,6 +39,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getFranquicias, getFinancialSummary, getSalesByFranquicia } from '@/lib/restaurant-service';
 import { Leaderboard } from '@/components/charts/leaderboard';
 import type { Cheque, Franquicia } from '@/types/cheques';
@@ -98,6 +99,7 @@ export default function InsightsPerformancePage() {
   const { format, symbol } = useCurrency();
   const [data, setData] = useState<ExecutiveData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
@@ -206,8 +208,17 @@ export default function InsightsPerformancePage() {
   // TechCorp view
   if (!isHospitality) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <div className="container mx-auto px-6 py-8">
+      // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
+      <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
+        <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
+          {isVialuce ? (
+            <div className="phead">
+              <div>
+                <h1>Performance Overview</h1>
+                <div className="sub">Team performance metrics and leaderboard</div>
+              </div>
+            </div>
+          ) : (
           <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
               Performance Overview
@@ -216,6 +227,7 @@ export default function InsightsPerformancePage() {
               Team performance metrics and leaderboard
             </p>
           </div>
+          )}
 
           {/* Summary Stats */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -453,8 +465,17 @@ export default function InsightsPerformancePage() {
   ];
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Executive View - National</h1>
+            <div className="sub">Performance summary across all franchises</div>
+          </div>
+        </div>
+      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Building2 className="h-6 w-6 text-primary" />
@@ -464,6 +485,7 @@ export default function InsightsPerformancePage() {
           Performance summary across all franchises
         </p>
       </div>
+      )}
 
       {/* Top Stats */}
       <div className="grid md:grid-cols-4 gap-4">

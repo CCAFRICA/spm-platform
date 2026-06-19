@@ -14,6 +14,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -63,6 +64,7 @@ export default function LeakageMonitorPage() {
   const { currentTenant } = useTenant();
   const tenantId = currentTenant?.id;
   const { scope } = usePersona();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -119,6 +121,18 @@ export default function LeakageMonitorPage() {
   }
 
   if (!pageData) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>No Financial Data</b>
+            <p>Import POS data to see leakage analytics.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -157,8 +171,31 @@ export default function LeakageMonitorPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Leakage Monitor</h1>
+            <div className="sub">Revenue leakage analytics and threshold monitoring</div>
+          </div>
+          <div className="pactions">
+            <Select value={periodFilter} onValueChange={setPeriodFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full">Full Period</SelectItem>
+                <SelectItem value="w1">Week 1</SelectItem>
+                <SelectItem value="w2">Week 2</SelectItem>
+                <SelectItem value="w3">Week 3</SelectItem>
+                <SelectItem value="w4">Week 4</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100">Leakage Monitor</h1>
@@ -177,6 +214,7 @@ export default function LeakageMonitorPage() {
           </SelectContent>
         </Select>
       </div>
+      )}
 
       {/* Commentary (PG-44) */}
       {commentaryLines.length > 0 && (

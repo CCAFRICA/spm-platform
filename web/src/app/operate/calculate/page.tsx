@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
@@ -43,6 +44,7 @@ import { EntityTable } from '@/components/results/EntityTable';
 
 function CalculatePageInner() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -454,17 +456,32 @@ function CalculatePageInner() {
       {/* OB-192: OperateSelector removed — Calculate page uses body period selector as sole control.
           Plan cards are the plan selector. Period dropdown is inline below. */}
 
-      <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* HF-313: Vialuce page frame (.page padding/max-width/center); else unchanged. */}
+      <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6 max-w-7xl mx-auto'}>
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold text-zinc-100">Calculate</h1>
-            <p className="text-sm text-zinc-500">Select a plan and period, then calculate.</p>
+        {isVialuce ? (
+          <div className="phead">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div>
+                <h1>Calculate</h1>
+                <div className="sub">Select a plan and period, then calculate.</div>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div className="flex-1">
+              <h1 className="text-xl font-bold text-zinc-100">Calculate</h1>
+              <p className="text-sm text-zinc-500">Select a plan and period, then calculate.</p>
+            </div>
+          </div>
+        )}
 
         {/* Period selector (inline) — B2.3: enhanced readability */}
         <div className="flex items-center gap-3">

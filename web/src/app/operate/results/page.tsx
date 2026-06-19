@@ -24,6 +24,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useOperate } from '@/contexts/operate-context';
@@ -99,6 +100,7 @@ interface ResultRow {
 
 function ResultsDashboardPageInner() {
   const router = useRouter();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { user } = useAuth();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
@@ -406,6 +408,28 @@ function ResultsDashboardPageInner() {
   }
 
   if (isLoaded && results.length === 0) {
+    // HF-313: Vialuce renders the design-spec .empty state ("never a dead end"); else unchanged.
+    if (isVialuce) {
+      return (
+        <div>
+          <OperateSelector />
+          <div className="page">
+            <div className="empty">
+              <div className="ic"><BarChart3 className="h-7 w-7" /></div>
+              <b>No calculation results available</b>
+              <p>
+                {!selectedBatchId
+                  ? 'Select a batch above, or run a calculation first.'
+                  : 'No results found for the selected batch.'}
+              </p>
+              <Button className="mt-4" onClick={() => router.push('/operate')}>
+                Go to Operations Center
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div>
         <OperateSelector />
@@ -491,19 +515,36 @@ function ResultsDashboardPageInner() {
       {/* OB-92: Shared selector bar */}
       <OperateSelector />
 
-      <div className="p-6 space-y-6">
+      {/* HF-313: Vialuce page frame (.page padding/max-width/center); else unchanged. */}
+      <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold">Results Proof View</h1>
-          <p className="text-slate-400 text-sm">
-            {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1>Results Proof View</h1>
+              <div className="sub">
+                {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.push('/operate')}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold">Results Proof View</h1>
+            <p className="text-slate-400 text-sm">
+              {entityCount} entities | Batch: {batchLabel || (selectedBatchId ?? '').slice(0, 8)}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* OB-210 Unit A: Insight Agent narrative leads the surface (AI front-and-center, Bloodwork-toned) */}
       <InsightNarrative narrative={insight} />

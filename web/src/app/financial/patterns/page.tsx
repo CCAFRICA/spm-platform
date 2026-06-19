@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -47,6 +48,7 @@ export default function OperationalPatternsPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { scope } = usePersona();
+  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {
     if (scope.canSeeAll) return undefined;
@@ -113,6 +115,18 @@ export default function OperationalPatternsPage() {
   }
 
   if (!data) {
+    // HF-313: Vialuce renders the design-spec .empty state; else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>No Data</b>
+            <p>Import POS data to see operational patterns.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -142,8 +156,34 @@ export default function OperationalPatternsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    // HF-313: Vialuce page frame (.page) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>Operational Patterns</h1>
+            <div className="sub">Hourly and day-of-week revenue patterns</div>
+          </div>
+          <div className="pactions">
+            <Select value={locationFilter} onValueChange={handleLocationChange}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All Locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Locations</SelectItem>
+                {locationGroups.map(group => (
+                  group.locations.map(loc => (
+                    <SelectItem key={loc.id} value={loc.id}>
+                      {loc.name}
+                    </SelectItem>
+                  ))
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
@@ -168,6 +208,7 @@ export default function OperationalPatternsPage() {
           </SelectContent>
         </Select>
       </div>
+      )}
 
       {/* Commentary (PG-44) */}
       <Card>

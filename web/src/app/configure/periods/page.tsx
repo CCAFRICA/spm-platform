@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -139,6 +140,7 @@ function formatDateDisplay(dateStr: string): string {
 export default function PeriodsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
+  const isVialuce = useIsVialuce();
   const tenantId = currentTenant?.id;
   const isSpanish = locale === 'es-MX';
 
@@ -377,24 +379,43 @@ export default function PeriodsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-100">
-            {isSpanish ? 'Períodos' : 'Periods'}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {isSpanish
-              ? 'Crear y gestionar períodos para cálculos'
-              : 'Create and manage periods for outcome calculations'}
-          </p>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Períodos' : 'Periods'}</h1>
+            <div className="sub">
+              {isSpanish
+                ? 'Crear y gestionar períodos para cálculos'
+                : 'Create and manage periods for outcome calculations'}
+            </div>
+          </div>
+          <div className="pactions">
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Crear Período' : 'Create Period'}
+            </Button>
+          </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          {isSpanish ? 'Crear Período' : 'Create Period'}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-100">
+              {isSpanish ? 'Períodos' : 'Periods'}
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              {isSpanish
+                ? 'Crear y gestionar períodos para cálculos'
+                : 'Create and manage periods for outcome calculations'}
+            </p>
+          </div>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            {isSpanish ? 'Crear Período' : 'Create Period'}
+          </Button>
+        </div>
+      )}
 
       {/* Periods Table */}
       <Card>
