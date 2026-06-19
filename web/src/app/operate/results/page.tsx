@@ -892,14 +892,27 @@ function ResultsDashboardPageInner() {
                                     </span>
                                   )}
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs"
-                                  onClick={(e) => { e.stopPropagation(); router.push(`/investigate/trace/${row.entityId}?from=results`); }}
-                                >
-                                  Full Trace →
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                  {/* OB-219: per-transaction commission statement drill-down */}
+                                  {selectedBatch?.periodId && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs"
+                                      onClick={(e) => { e.stopPropagation(); router.push(`/operate/statement/${row.entityId}/${selectedBatch.periodId}`); }}
+                                    >
+                                      Commission Statement →
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs"
+                                    onClick={(e) => { e.stopPropagation(); router.push(`/investigate/trace/${row.entityId}?from=results`); }}
+                                  >
+                                    Full Trace →
+                                  </Button>
+                                </div>
                               </div>
 
                               {/* L3: Component detail cards */}
