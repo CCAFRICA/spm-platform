@@ -76,7 +76,7 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
     <div className="top">
       {/* Mobile menu toggle — replaces Navbar's hamburger under Vialuce (hidden on desktop). */}
       {onMenuToggle && (
-        <div className="top-icon md:hidden" onClick={onMenuToggle} role="button" aria-label="Menu">
+        <div className="top-icon md:hidden" onClick={onMenuToggle} role="button" aria-label={isSpanish ? 'Menú' : 'Menu'}>
           <Menu className="h-[18px] w-[18px]" />
         </div>
       )}

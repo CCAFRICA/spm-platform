@@ -13,7 +13,7 @@
  *   .persona (footer, docked)   → persona override (fixes the floating-over-content defect)
  *   .sb-back "← Observatory"     → VL admin returns to the tenant picker (/select-tenant); omitted
  *                                  for non-admins (no Observatory concept for them)
- *   .btn-gold "Calculate"        → the primary CTA; relocated to the rail head (this shell has no topbar)
+ *   (the gold "Calculate" CTA now lives in VialuceTopbar — its design-spec home — not here; HF-312)
  *   .sb-user                    → authenticated user
  * Icons: lucide-react (the platform's icon lib; the design's Tabler `.ti` webfont is not installed —
  * documented substitution). Labels come from the i18n-bearing WORKSPACES config (label/labelEs),
