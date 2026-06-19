@@ -6,6 +6,7 @@ import { DollarSign, TrendingUp, FileText, Percent } from 'lucide-react';
 import { formatCurrency, formatPercent } from '@/lib/financial-service';
 import { containerVariants, itemVariants } from '@/lib/animations';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface SummaryCard {
   title: string;
@@ -33,6 +34,7 @@ export function SummaryCards({
   revenueChange = 18.4,
   dealsChange = 12.5,
 }: SummaryCardsProps) {
+  const isVialuce = useIsVialuce(); // HF-315: KPI cards → design-spec .kpi vocabulary (DM Mono values)
   const cards: SummaryCard[] = [
     {
       title: 'Total Revenue',
@@ -63,6 +65,40 @@ export function SummaryCards({
       color: 'text-amber-600',
     },
   ];
+
+  if (isVialuce) {
+    return (
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+      >
+        {cards.map((card, index) => (
+          <motion.div key={card.title} variants={itemVariants} custom={index}>
+            <div className="kpi" style={{ marginTop: 0 }}>
+              <div className="kpi-top">
+                <div className="kpi-ic" style={{ background: 'var(--vl-indigo-50)', color: 'var(--vialuce-indigo)' }}>
+                  {card.icon}
+                </div>
+                {card.change !== undefined && (
+                  <span className={cn('kpi-delta', card.change >= 0 ? 'up' : 'down')}>
+                    <TrendingUp className={cn('h-3 w-3', card.change < 0 && 'rotate-180')} />
+                    {card.change >= 0 ? '+' : ''}{card.change}%
+                  </span>
+                )}
+              </div>
+              <p className="kpi-label">{card.title}</p>
+              <p className="kpi-val">{card.value}</p>
+              {card.change !== undefined && card.changeLabel && (
+                <p className="kpi-foot">{card.changeLabel}</p>
+              )}
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

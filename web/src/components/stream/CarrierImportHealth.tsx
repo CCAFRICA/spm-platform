@@ -20,6 +20,7 @@ import { CircleAlert } from 'lucide-react';
 import { IntelligenceCard } from '@/components/intelligence/IntelligenceCard';
 import { CarrierContentUnitBrowser } from './CarrierContentUnitBrowser';
 import { CarrierEntityExplorer } from './CarrierEntityExplorer';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import type { CarrierIntelligence } from '@/lib/carrier/types';
 
 // HF-291 R3: status thresholds as named constants (confidence is 0–100), to be
@@ -73,7 +74,15 @@ const DOT: Record<Health, string> = {
   red: 'bg-rose-400',
 };
 
+// HF-315: under Vialuce the health verdict dot maps to the design-spec status palette.
+const VL_DOT: Record<Health, string> = {
+  green: 'var(--vl-success)',
+  amber: 'var(--vl-raw-gold)',
+  red: 'var(--vl-danger)',
+};
+
 export function CarrierImportHealth({ carrier, accentColor, onView }: { carrier: CarrierIntelligence; accentColor: string; onView?: () => void }) {
+  const isVialuce = useIsVialuce(); // HF-315: design-spec text/number/action vocabulary inside the .card base
   const [reviewOpen, setReviewOpen] = useState(false);
   const [entitiesOpen, setEntitiesOpen] = useState(false);
   const { dataSnapshot, entities, imports, classification, pipelineReadiness } = carrier;
@@ -85,6 +94,55 @@ export function CarrierImportHealth({ carrier, accentColor, onView }: { carrier:
     : `${entities.withExternalId.toLocaleString()} bound`;
   const prior = vsPrior(carrier);
   const conf = classification.avgConfidence;
+
+  if (isVialuce) {
+    return (
+      <IntelligenceCard accentColor={accentColor} label="Data Health" elementId="carrier-data-health" fullWidth onView={onView} tier={health === 'green' ? 'status' : 'action'}>
+        {/* Status indicator — the verdict */}
+        <span className="absolute top-5 right-5 flex items-center gap-1.5">
+          {health === 'red' && <CircleAlert className="h-3.5 w-3.5" style={{ color: 'var(--vl-danger)' }} />}
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: VL_DOT[health] }} />
+        </span>
+
+        {/* Line 1 — counts + freshness (DM Mono numbers) */}
+        <div className="flex items-baseline justify-between gap-4 pr-6">
+          <p style={{ fontSize: '13px', color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>
+            {dataSnapshot.totalRows.toLocaleString()} rows · {entities.total.toLocaleString()} entit{entities.total !== 1 ? 'ies' : 'y'} ({bound}) · {dataSnapshot.contentUnits.length} content unit{dataSnapshot.contentUnits.length !== 1 ? 's' : ''}
+          </p>
+          <span className="whitespace-nowrap" style={{ fontSize: '11.5px', color: 'var(--vl-text-soft)' }}>Last import: {relativeTime(imports.latestBatch?.createdAt ?? null)}</span>
+        </div>
+
+        {/* Line 2 — classification verdict + reference frame */}
+        <div className="flex items-baseline justify-between gap-4 mt-1 pr-6">
+          <p style={{ fontSize: '12px', color: 'var(--vl-text-muted)' }}>
+            Classification: {confidenceLabel(conf)}{conf != null && ` (${Math.round(conf)}%)`}
+          </p>
+          {prior && <span className="whitespace-nowrap" style={{ fontSize: '11.5px', color: 'var(--vl-text-soft)', fontFamily: 'var(--vl-font-mono)' }}>vs prior: {prior}</span>}
+        </div>
+
+        {/* Actions — Review Data (primary) + View Entities (secondary). */}
+        <div className="mt-3 flex items-center gap-4">
+          <button
+            onClick={() => setReviewOpen(o => !o)}
+            className="inline-flex items-center gap-1"
+            style={{ fontSize: '12.5px', fontWeight: 'var(--vl-fw-med)', color: 'var(--vialuce-indigo)' }}
+          >
+            {reviewOpen ? 'Hide Data' : 'Review Data'} <span aria-hidden="true">&rarr;</span>
+          </button>
+          <button
+            onClick={() => setEntitiesOpen(o => !o)}
+            className="inline-flex items-center gap-1"
+            style={{ fontSize: '12.5px', color: 'var(--vl-text-muted)' }}
+          >
+            {entitiesOpen ? 'Hide Entities' : 'View Entities'} <span aria-hidden="true">&rarr;</span>
+          </button>
+        </div>
+
+        {reviewOpen && <CarrierContentUnitBrowser contentUnits={dataSnapshot.contentUnits} />}
+        {entitiesOpen && <CarrierEntityExplorer sample={entities.sample} total={entities.total} />}
+      </IntelligenceCard>
+    );
+  }
 
   return (
     <IntelligenceCard accentColor={accentColor} label="Data Health" elementId="carrier-data-health" fullWidth onView={onView} tier={health === 'green' ? 'status' : 'action'}>

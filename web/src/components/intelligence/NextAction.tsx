@@ -15,6 +15,15 @@ import {
   Upload, Clock, Send, CheckCircle2, Target, Star, Lightbulb,
 } from 'lucide-react';
 import { computeNextAction, type NextActionContext } from '@/lib/intelligence/next-action-engine';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// HF-316: under Vialuce the priority accents map onto the design-spec palette (action→indigo,
+// success→success, info→slate) on a light surface.
+const VIALUCE_PRIORITY: Record<string, { bg: string; border: string; accent: string }> = {
+  action: { bg: 'var(--vl-indigo-50)', border: 'var(--vl-indigo-100)', accent: 'var(--vialuce-indigo)' },
+  success: { bg: 'var(--vl-success-50)', border: 'var(--vl-success-50)', accent: 'var(--vl-success)' },
+  info: { bg: 'var(--vl-bg)', border: 'var(--vl-line)', accent: 'var(--vl-raw-slate)' },
+};
 
 // ──────────────────────────────────────────────
 // Props
@@ -46,11 +55,55 @@ const PRIORITY_COLORS: Record<string, { bg: string; border: string; text: string
 
 export function NextAction({ context }: NextActionProps) {
   const action = useMemo(() => computeNextAction(context), [context]);
+  const isVialuce = useIsVialuce(); // HF-316: bar→light surface + design-spec priority accent
 
   if (!action) return null;
 
   const colors = PRIORITY_COLORS[action.priority] || PRIORITY_COLORS.info;
   const IconComponent = ICON_MAP[action.icon] || Lightbulb;
+
+  // HF-316: under Vialuce the bar is a light surface with a left accent + indigo/success/slate by
+  // priority; the action link uses the accent color. The else-branch is byte-identical (Dark/Bliss
+  // cannot regress).
+  if (isVialuce) {
+    const v = VIALUCE_PRIORITY[action.priority] || VIALUCE_PRIORITY.info;
+    return (
+      <div
+        style={{
+          background: v.bg,
+          border: `1px solid ${v.border}`,
+          borderLeft: `3px solid ${v.accent}`,
+          borderRadius: 'var(--vl-r-md)',
+          padding: '10px 16px',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+          <IconComponent size={16} style={{ color: v.accent, flexShrink: 0 }} />
+          <span style={{ color: 'var(--vl-text)', fontSize: '13px', lineHeight: '1.4' }}>
+            {action.message}
+          </span>
+        </div>
+        <Link
+          href={action.actionRoute}
+          style={{
+            color: v.accent,
+            fontSize: '13px',
+            fontWeight: 600,
+            textDecoration: 'none',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          {action.actionLabel} →
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div

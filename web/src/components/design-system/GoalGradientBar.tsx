@@ -2,6 +2,8 @@
 
 /** @cognitiveFit progress — "How close am I to the next tier?" */
 
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
 interface Tier {
   pct: number;
   label: string;
@@ -13,6 +15,7 @@ interface GoalGradientBarProps {
 }
 
 export function GoalGradientBar({ currentPct, tiers }: GoalGradientBarProps) {
+  const isVialuce = useIsVialuce(); // HF-315: indigo→gold gradient + DM Mono gap number under Vialuce
   const sortedTiers = [...tiers].sort((a, b) => a.pct - b.pct);
   // Cap display at 200% to prevent extreme bar widths from bad data
   const cappedPct = Math.min(currentPct, 200);
@@ -21,6 +24,69 @@ export function GoalGradientBar({ currentPct, tiers }: GoalGradientBarProps) {
   // Find next tier
   const nextTier = sortedTiers.find(t => t.pct > cappedPct);
   const gap = nextTier ? nextTier.pct - cappedPct : 0;
+
+  if (isVialuce) {
+    // Gradient warms toward gold as you approach the next tier (indigo base → gold signal).
+    const gradient = cappedPct >= 100
+      ? 'linear-gradient(90deg, var(--vl-raw-indigo), var(--vl-raw-gold-light), var(--vl-raw-gold))'
+      : cappedPct >= 80
+      ? 'linear-gradient(90deg, var(--vl-raw-indigo-deep), var(--vl-raw-indigo), var(--vl-raw-gold-light))'
+      : 'linear-gradient(90deg, var(--vl-raw-indigo-deep), var(--vl-raw-indigo))';
+
+    const widthPct = `${Math.min((cappedPct / maxPct) * 100, 100)}%`;
+
+    return (
+      <div className="space-y-2">
+        <div className="relative h-4 w-full rounded-full overflow-visible" style={{ background: 'var(--vl-line-soft)' }}>
+          {/* Progress bar with gradient */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
+            style={{ width: widthPct, background: gradient }}
+          />
+          {/* Tier landmarks */}
+          {sortedTiers.map(tier => {
+            const tierPos = (tier.pct / maxPct) * 100;
+            if (tierPos > 100) return null;
+            return (
+              <div
+                key={tier.pct}
+                className="absolute top-0 h-full flex flex-col items-center"
+                style={{ left: `${tierPos}%` }}
+              >
+                <div className="w-px h-full" style={{ background: 'var(--vl-line)' }} />
+                <span
+                  className="absolute -bottom-5 text-[10px] whitespace-nowrap -translate-x-1/2"
+                  style={{ color: 'var(--vl-text-soft)', fontFamily: 'var(--vl-font-mono)' }}
+                >
+                  {tier.label}
+                </span>
+              </div>
+            );
+          })}
+          {/* Current position dot */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full z-10 transition-all duration-700"
+            style={{
+              left: widthPct,
+              transform: 'translate(-50%, -50%)',
+              background: 'var(--vl-surface)',
+              border: '2px solid var(--vialuce-indigo)',
+              boxShadow: 'var(--vl-sh-1)',
+            }}
+          />
+        </div>
+        {/* Gap text */}
+        {nextTier && gap > 0 && (
+          <p className="text-xs mt-4" style={{ color: 'var(--vl-text-muted)' }}>
+            Solo{' '}
+            <span style={{ color: 'var(--vialuce-indigo)', fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number }}>{gap.toFixed(1)}%</span>{' '}
+            m&aacute;s para{' '}
+            <span style={{ color: 'var(--vl-text)', fontWeight: 'var(--vl-fw-med)' as unknown as number }}>{nextTier.label}</span>
+          </p>
+        )}
+      </div>
+    );
+  }
 
   // Gradient warms as you approach the next tier
   const gradientClass = cappedPct >= 100

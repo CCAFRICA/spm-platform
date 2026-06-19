@@ -46,6 +46,7 @@ import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeAdminInsights } from '@/lib/intelligence/insight-engine';
 import { NextAction } from '@/components/intelligence/NextAction';
 import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 /** Dynamic lifecycle transition labels (OB-58) */
 const TRANSITION_LABELS: Record<string, { label: string; labelEs: string; next: string }> = {
@@ -76,6 +77,30 @@ const CARD_STYLE = {
   padding: '20px',
 };
 
+// HF-315: Vialuce surface tokens — dark zinc cards regress to invisible on the white
+// page, so under Vialuce the section cards become the design-spec .card surface and the
+// gradient hero keeps its indigo identity (matches the Vialuce KPI accent ramp).
+const VL_HERO_STYLE = {
+  background: 'linear-gradient(135deg, var(--vl-raw-indigo) 0%, var(--vl-raw-indigo-deep) 100%)',
+  border: '1px solid var(--vl-line)',
+  borderRadius: 'var(--vl-r-lg)',
+  padding: '20px',
+  boxShadow: 'var(--vl-sh-1)',
+};
+
+const VL_CARD_STYLE = {
+  background: 'var(--vl-surface)',
+  border: '1px solid var(--vl-line)',
+  borderRadius: 'var(--vl-r-lg)',
+  padding: '20px',
+  boxShadow: 'var(--vl-sh-1)',
+};
+
+// HF-315: section eyebrow + value text colors that read on white under Vialuce.
+const VL_LABEL = 'var(--vl-text-soft)';   // replaces #94A3B8 / #71717a section labels
+const VL_VALUE = 'var(--vl-text)';        // replaces #e4e4e7 / #d4d4d8 strong values
+const VL_MUTED = 'var(--vl-text-muted)';  // replaces #a1a1aa secondary text
+
 export function AdminDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format } = useCurrency();
@@ -86,6 +111,13 @@ export function AdminDashboard() {
   const tenantId = currentTenant?.id ?? '';
   const hasFinancial = useFeature('financial');
   const searchParams = useSearchParams();
+  const isVialuce = useIsVialuce(); // HF-315: dark zinc DS-001 cards → design-spec .card surfaces + readable text
+  // Theme-aware surface + section text. Non-Vialuce keeps the exact dark literals (byte-identical).
+  const cardStyle = isVialuce ? VL_CARD_STYLE : CARD_STYLE;
+  const heroStyle = isVialuce ? VL_HERO_STYLE : HERO_STYLE;
+  const labelColor = isVialuce ? VL_LABEL : '#94A3B8';
+  const valueColor = isVialuce ? VL_VALUE : '#e4e4e7';
+  const mutedColor = isVialuce ? VL_MUTED : '#94A3B8';
 
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -357,16 +389,16 @@ export function AdminDashboard() {
       {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       {/* OB-86: AI Quality Card */}
       {data.aiMetrics && (
-        <div style={CARD_STYLE}>
+        <div style={cardStyle}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-violet-400" />
-              <span style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 AI Quality
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <span style={{ color: '#94A3B8', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: labelColor, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
                 {data.aiMetrics.totalSignals} signals
               </span>
               <span className={`text-xs font-medium tabular-nums px-2 py-0.5 rounded-full border ${
@@ -380,7 +412,7 @@ export function AdminDashboard() {
               </span>
               {data.aiMetrics.trendDirection === 'improving' && <TrendingUp size={14} style={{ color: '#34d399' }} />}
               {data.aiMetrics.trendDirection === 'declining' && <TrendingDown size={14} style={{ color: '#f87171' }} />}
-              {data.aiMetrics.trendDirection === 'stable' && <Minus size={14} style={{ color: '#94A3B8' }} />}
+              {data.aiMetrics.trendDirection === 'stable' && <Minus size={14} style={{ color: labelColor }} />}
             </div>
           </div>
         </div>
@@ -402,7 +434,7 @@ export function AdminDashboard() {
       {/* ── Row 1: Hero (5) + Distribution (4) + Lifecycle (3) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Hero Card — 4A: budget context + advance button */}
-        <div className="col-span-12 lg:col-span-5" style={HERO_STYLE}>
+        <div className="col-span-12 lg:col-span-5" style={heroStyle}>
           <p style={{ color: 'rgba(199, 210, 254, 0.6)', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             {isSpanish ? 'Total Compensacion' : 'Total Compensation'} · {activePeriodLabel}
           </p>
@@ -446,8 +478,8 @@ export function AdminDashboard() {
         </div>
 
         {/* Distribution Histogram */}
-        <div className="col-span-12 lg:col-span-4" style={CARD_STYLE}>
-          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+        <div className="col-span-12 lg:col-span-4" style={cardStyle}>
+          <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             {isSpanish ? 'Distribucion' : 'Distribution'}
           </p>
           {data.attainmentDistribution.length > 0 ? (
@@ -456,28 +488,28 @@ export function AdminDashboard() {
               {distStats && (
                 <div className="flex gap-4 mt-3">
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Promedio' : 'Average'}</p>
-                    <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.avg.toFixed(0)}%</p>
+                    <p style={{ color: labelColor, fontSize: '13px' }}>{isSpanish ? 'Promedio' : 'Average'}</p>
+                    <p className="text-sm font-medium" style={{ color: valueColor }}>{distStats.avg.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Mediana' : 'Median'}</p>
-                    <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.median.toFixed(0)}%</p>
+                    <p style={{ color: labelColor, fontSize: '13px' }}>{isSpanish ? 'Mediana' : 'Median'}</p>
+                    <p className="text-sm font-medium" style={{ color: valueColor }}>{distStats.median.toFixed(0)}%</p>
                   </div>
                   <div>
-                    <p style={{ color: '#94A3B8', fontSize: '13px' }}>{isSpanish ? 'Desv.Est' : 'Std.Dev'}</p>
-                    <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{distStats.stdDev.toFixed(1)}%</p>
+                    <p style={{ color: labelColor, fontSize: '13px' }}>{isSpanish ? 'Desv.Est' : 'Std.Dev'}</p>
+                    <p className="text-sm font-medium" style={{ color: valueColor }}>{distStats.stdDev.toFixed(1)}%</p>
                   </div>
                 </div>
               )}
             </>
           ) : (
-            <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de distribucion.' : 'No distribution data.'}</p>
+            <p className="text-sm" style={{ color: labelColor }}>{isSpanish ? 'Sin datos de distribucion.' : 'No distribution data.'}</p>
           )}
         </div>
 
         {/* Lifecycle — 4C: ensure all phases visible */}
-        <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
-          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+        <div className="col-span-12 lg:col-span-3" style={cardStyle}>
+          <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             {isSpanish ? 'Ciclo de Vida' : 'Lifecycle'}
           </p>
           <LifecycleStepper
@@ -489,14 +521,14 @@ export function AdminDashboard() {
       {/* ── Row 2: Locations vs Budget (7) + Components + Exceptions (5) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Locations vs Budget — 4D: outlier flags */}
-        <div className="col-span-12 lg:col-span-7" style={CARD_STYLE}>
+        <div className="col-span-12 lg:col-span-7" style={cardStyle}>
           <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
             <div className="flex items-center gap-2">
-              <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 Locations vs Budget
               </p>
               {isBudgetEstimated && (
-                <span style={{ color: '#94A3B8', fontSize: '13px', fontStyle: 'italic' }}>(estimated)</span>
+                <span style={{ color: labelColor, fontSize: '13px', fontStyle: 'italic' }}>(estimated)</span>
               )}
             </div>
             {isUniformDelta && isBudgetEstimated && (
@@ -543,7 +575,7 @@ export function AdminDashboard() {
                 );
               })
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de ubicacion.' : 'No location data.'}</p>
+              <p className="text-sm" style={{ color: labelColor }}>{isSpanish ? 'Sin datos de ubicacion.' : 'No location data.'}</p>
             )}
           </div>
         </div>
@@ -551,20 +583,20 @@ export function AdminDashboard() {
         {/* Components + Exceptions */}
         <div className="col-span-12 lg:col-span-5 space-y-4">
           {/* Component Stack */}
-          <div style={CARD_STYLE}>
-            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+          <div style={cardStyle}>
+            <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
               {isSpanish ? 'Composicion de Componentes' : 'Component Composition'}
             </p>
             {data.componentComposition.length > 0 ? (
               <ComponentStack components={data.componentComposition} total={data.totalPayout} />
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin datos de componentes.' : 'No component data.'}</p>
+              <p className="text-sm" style={{ color: labelColor }}>{isSpanish ? 'Sin datos de componentes.' : 'No component data.'}</p>
             )}
           </div>
 
           {/* Exceptions */}
-          <div style={CARD_STYLE}>
-            <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+          <div style={cardStyle}>
+            <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
               {isSpanish ? 'Excepciones Activas' : 'Active Exceptions'} ({data.exceptions.length})
             </p>
             {data.exceptions.length > 0 ? (
@@ -579,16 +611,16 @@ export function AdminDashboard() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm" style={{ color: '#94A3B8' }}>{isSpanish ? 'Sin excepciones activas.' : 'No active exceptions.'}</p>
+              <p className="text-sm" style={{ color: labelColor }}>{isSpanish ? 'Sin excepciones activas.' : 'No active exceptions.'}</p>
             )}
           </div>
         </div>
       </div>
 
       {/* ── Row 3: Period Readiness Checklist (4E) ── */}
-      <div style={CARD_STYLE}>
+      <div style={cardStyle}>
         <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-          <p style={{ color: '#94A3B8', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <p style={{ color: labelColor, fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Period Readiness
           </p>
           <span style={{
@@ -600,7 +632,7 @@ export function AdminDashboard() {
           </span>
         </div>
         {/* Progress bar */}
-        <div style={{ height: '4px', background: 'rgba(39,39,42,0.8)', borderRadius: '2px', marginBottom: '16px' }}>
+        <div style={{ height: '4px', background: isVialuce ? '#EEF0F6' : 'rgba(39,39,42,0.8)', borderRadius: '2px', marginBottom: '16px' }}>
           <div style={{
             height: '4px',
             borderRadius: '2px',
@@ -621,13 +653,13 @@ export function AdminDashboard() {
               {criterion.met ? (
                 <CheckCircle2 size={16} style={{ color: '#34d399', flexShrink: 0 }} />
               ) : (
-                <Circle size={16} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                <Circle size={16} style={{ color: labelColor, flexShrink: 0 }} />
               )}
               <div className="flex-1 min-w-0">
-                <p style={{ color: criterion.met ? '#d4d4d8' : '#a1a1aa', fontSize: '13px' }}>
+                <p style={{ color: criterion.met ? valueColor : mutedColor, fontSize: '13px' }}>
                   {isSpanish ? criterion.labelEs : criterion.label}
                 </p>
-                <p style={{ color: '#94A3B8', fontSize: '13px' }}>{criterion.detail}</p>
+                <p style={{ color: labelColor, fontSize: '13px' }}>{criterion.detail}</p>
               </div>
             </div>
           ))}

@@ -11,6 +11,7 @@
 
 import { cn } from '@/lib/utils';
 import { Trophy } from 'lucide-react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { IntelligenceCard } from './IntelligenceCard';
 
 interface LeaderboardEntry {
@@ -68,6 +69,69 @@ export function RelativePositionCard({
   }));
 
   const allRows = [...aboveRows, viewerRow, ...belowRows];
+  const isVialuce = useIsVialuce(); // HF-316: leaderboard→.rank rows, rank+amount→DM Mono, indigo viewer
+
+  // HF-316: under Vialuce the leaderboard snippet uses the design-spec .rank rows (DM Mono position +
+  // amount, indigo viewer highlight). The IntelligenceCard wrapper supplies the .card surface. The
+  // else-branch is byte-identical to the original (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <IntelligenceCard
+        accentColor={accentColor}
+        label="Your Position"
+        elementId="relative-position"
+        onView={onView}
+      >
+        {/* Rank summary */}
+        <div className="flex items-center gap-2 mb-3">
+          <Trophy className="h-4 w-4" style={{ color: 'var(--vialuce-gold)' }} />
+          <span className="text-sm" style={{ color: 'var(--vl-text-muted)' }}>
+            Rank <b style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' }}>{rank}</b> of{' '}
+            <span style={{ fontFamily: 'var(--vl-font-mono)' }}>{totalEntities}</span>
+          </span>
+        </div>
+
+        {/* Leaderboard snippet */}
+        <div>
+          {allRows.map(row => (
+            <div
+              key={row.rank}
+              className="rank"
+              style={row.isViewer
+                ? { background: 'var(--vl-indigo-50)', boxShadow: 'inset 0 0 0 1px var(--vl-indigo-100)' }
+                : undefined}
+            >
+              <span
+                className="pos"
+                style={{ background: row.isViewer ? 'var(--vialuce-indigo)' : 'var(--vl-raw-slate)' }}
+              >
+                {row.rank}
+              </span>
+              <div className="nm" style={{ flex: 1, minWidth: 0 }}>
+                <b
+                  className="block truncate"
+                  style={{
+                    color: row.isViewer
+                      ? 'var(--vialuce-indigo)'
+                      : row.isAnonymized
+                        ? 'var(--vl-text-soft)'
+                        : 'var(--vl-text)',
+                  }}
+                >
+                  {row.name}
+                </b>
+              </div>
+              <div className="amt">
+                <b style={{ color: row.isViewer ? 'var(--vialuce-indigo)' : 'var(--vl-text-muted)' }}>
+                  {formatCurrency(row.amount)}
+                </b>
+              </div>
+            </div>
+          ))}
+        </div>
+      </IntelligenceCard>
+    );
+  }
 
   return (
     <IntelligenceCard

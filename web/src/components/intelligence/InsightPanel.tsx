@@ -23,6 +23,16 @@ import {
 } from 'lucide-react';
 import type { InsightCard } from '@/lib/intelligence/insight-engine';
 import type { NarrationResponse } from '@/lib/intelligence/narration-service';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// HF-316: under Vialuce the insight type colors map onto the design-spec palette (warning→danger,
+// recommendation→indigo, opportunity→success, observation→slate) for the per-card left accent.
+const VIALUCE_TYPE_COLORS: Record<string, string> = {
+  warning: 'var(--vl-danger)',
+  recommendation: 'var(--vialuce-indigo)',
+  opportunity: 'var(--vl-success)',
+  observation: 'var(--vl-raw-slate)',
+};
 
 // ──────────────────────────────────────────────
 // Props
@@ -79,6 +89,7 @@ export function InsightPanel({
   const [expanded, setExpanded] = useState(true);
   const insightsRef = useRef<string>('');
   const accent = ACCENT_COLORS[persona] || ACCENT_COLORS.admin;
+  const isVialuce = useIsVialuce(); // HF-316: panel→.card, narrative→.insight banner, chip→.pill open
 
   // Sort: warnings first, then recommendations, opportunities, observations
   const sortedInsights = useMemo(() => {
@@ -124,6 +135,75 @@ export function InsightPanel({
   }, [sortedInsights, fetchNarrative]);
 
   if (insights.length === 0) return null;
+
+  // HF-316: under Vialuce the panel is a .card surface, the LLM narrative is the .insight gold banner,
+  // the count is a .pill open, per-insight cards sit on a light surface with a design-spec left accent,
+  // and metric labels are DM Mono. The else-branch is byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <div className="card" style={{ marginTop: 0, marginBottom: '16px', padding: expanded ? '20px' : '12px 20px' }}>
+        {/* Header */}
+        <div
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Lightbulb size={18} style={{ color: 'var(--vialuce-gold)' }} />
+            <span style={{ color: 'var(--vl-text)', fontSize: '16px', fontWeight: 600 }}>
+              {locale === 'es' ? 'Inteligencia' : 'Intelligence'}
+            </span>
+            <span className="pill open">
+              {sortedInsights.length} {locale === 'es' ? 'hallazgos' : 'findings'}
+            </span>
+          </div>
+          {expanded
+            ? <ChevronUp size={16} style={{ color: 'var(--vl-text-soft)' }} />
+            : <ChevronDown size={16} style={{ color: 'var(--vl-text-soft)' }} />
+          }
+        </div>
+
+        {expanded && (
+          <div style={{ marginTop: '16px' }}>
+            {/* Narrative (LLM-enhanced, optional) */}
+            {narrativeLoading && !narrative && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <div
+                  className="animate-spin h-3.5 w-3.5 border-2 border-t-transparent rounded-full"
+                  style={{ borderColor: 'var(--vl-indigo-100)', borderTopColor: 'transparent' }}
+                />
+                <p style={{ color: 'var(--vl-text-soft)', fontSize: '13px', fontStyle: 'italic' }}>
+                  {locale === 'es' ? 'Generando resumen...' : 'Generating summary...'}
+                </p>
+              </div>
+            )}
+            {narrative && (
+              <div className="insight" style={{ marginBottom: '16px' }}>
+                <div className="spark"><Lightbulb size={17} /></div>
+                <div>
+                  <div className="lbl">{locale === 'es' ? 'RESUMEN' : 'SUMMARY'}</div>
+                  <div className="det" style={{ marginTop: 0 }}>{narrative}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Insight cards grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
+              {sortedInsights.map(insight => (
+                <InsightCardComponent key={insight.id} insight={insight} accent={accent} isVialuce />
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div style={{ marginTop: '12px', textAlign: 'right' }}>
+              <span style={{ color: 'var(--vl-text-soft)', fontSize: '11px' }}>
+                Powered by Vialuce Intelligence
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -230,12 +310,78 @@ export function InsightPanel({
 function InsightCardComponent({
   insight,
   accent,
+  isVialuce,
 }: {
   insight: InsightCard;
   accent: string;
+  isVialuce?: boolean;
 }) {
   const typeColor = TYPE_COLORS[insight.type] || '#94a3b8';
   const IconComponent = ICON_MAP[insight.icon] || Lightbulb;
+
+  // HF-316: Vialuce insight card — light surface, design-spec left accent, DM Mono metric label.
+  if (isVialuce) {
+    const vColor = VIALUCE_TYPE_COLORS[insight.type] || 'var(--vl-raw-slate)';
+    return (
+      <div
+        style={{
+          background: 'var(--vl-surface)',
+          border: '1px solid var(--vl-line)',
+          borderLeft: `3px solid ${vColor}`,
+          borderRadius: 'var(--vl-r-md)',
+          padding: '14px',
+          boxShadow: 'var(--vl-sh-1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+          <IconComponent size={16} style={{ color: vColor, marginTop: '2px', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ color: 'var(--vl-text)', fontSize: '13px', fontWeight: 600, lineHeight: '1.3' }}>
+              {insight.title}
+            </p>
+          </div>
+          {insight.metricLabel && (
+            <span
+              style={{
+                background: 'var(--vl-bg)',
+                color: vColor,
+                fontFamily: 'var(--vl-font-mono)',
+                fontSize: '11px',
+                padding: '2px 6px',
+                borderRadius: 'var(--vl-r-sm)',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              {insight.metricLabel}
+            </span>
+          )}
+        </div>
+
+        <p style={{ color: 'var(--vl-text-muted)', fontSize: '12px', lineHeight: '1.5', marginTop: '6px' }}>
+          {insight.body}
+        </p>
+
+        {insight.action && (
+          <div style={{ marginTop: '8px' }}>
+            {insight.actionRoute ? (
+              <a
+                href={insight.actionRoute}
+                style={{ color: 'var(--vialuce-indigo)', fontSize: '12px', fontWeight: 500, textDecoration: 'none' }}
+              >
+                {insight.action} →
+              </a>
+            ) : (
+              <span style={{ color: 'var(--vialuce-indigo)', fontSize: '12px', fontWeight: 500 }}>
+                {insight.action}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

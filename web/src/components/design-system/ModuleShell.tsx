@@ -14,6 +14,7 @@ import { useModule } from '@/lib/design-system/module-context';
 import { TRANSITION_TOKENS, LAYOUT_TOKENS } from '@/lib/design-system/tokens';
 import { cn } from '@/lib/utils';
 import * as LucideIcons from 'lucide-react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface ModuleShellProps {
   children: React.ReactNode;
@@ -30,6 +31,7 @@ export function ModuleShell({
 }: ModuleShellProps) {
   const { moduleConfig, moduleId, isTransitioning } = useModule();
   const pathname = usePathname();
+  const isVialuce = useIsVialuce(); // HF-315: breadcrumb bar → light .top/.crumb chrome under Vialuce
 
   // Get the icon component
   const IconComponent = moduleConfig?.icon
@@ -64,32 +66,61 @@ export function ModuleShell({
 
       {/* Breadcrumb */}
       {showBreadcrumb && !customBreadcrumb && (
-        <div className="flex items-center gap-2 px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-sm">
-          {IconComponent && (
-            <IconComponent
-              className="h-4 w-4"
-              style={{ color: moduleConfig?.accent }}
-            />
-          )}
-          <nav className="flex items-center text-sm">
-            {breadcrumbItems.map((item, index) => (
-              <React.Fragment key={item.href}>
-                {index > 0 && (
-                  <LucideIcons.ChevronRight className="h-3 w-3 mx-1 text-slate-400" />
-                )}
-                <span
-                  className={cn(
-                    item.isLast
-                      ? 'font-medium text-slate-900 dark:text-slate-100'
-                      : 'text-slate-500 dark:text-slate-400'
+        isVialuce ? (
+          <div
+            className="flex items-center gap-2 px-6 py-3 backdrop-blur-sm"
+            style={{ borderBottom: '1px solid var(--vl-line)', background: 'rgba(255,255,255,.85)' }}
+          >
+            {IconComponent && (
+              <IconComponent className="h-4 w-4" style={{ color: 'var(--vialuce-indigo)' }} />
+            )}
+            <nav className="flex items-center text-sm">
+              {breadcrumbItems.map((item, index) => (
+                <React.Fragment key={item.href}>
+                  {index > 0 && (
+                    <LucideIcons.ChevronRight className="h-3 w-3 mx-1" style={{ color: 'var(--vl-text-soft)' }} />
                   )}
-                >
-                  {item.label}
-                </span>
-              </React.Fragment>
-            ))}
-          </nav>
-        </div>
+                  <span
+                    style={
+                      item.isLast
+                        ? { color: 'var(--vl-text)', fontWeight: 'var(--vl-fw-med)' as unknown as number }
+                        : { color: 'var(--vl-text-muted)' }
+                    }
+                  >
+                    {item.label}
+                  </span>
+                </React.Fragment>
+              ))}
+            </nav>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-sm">
+            {IconComponent && (
+              <IconComponent
+                className="h-4 w-4"
+                style={{ color: moduleConfig?.accent }}
+              />
+            )}
+            <nav className="flex items-center text-sm">
+              {breadcrumbItems.map((item, index) => (
+                <React.Fragment key={item.href}>
+                  {index > 0 && (
+                    <LucideIcons.ChevronRight className="h-3 w-3 mx-1 text-slate-400" />
+                  )}
+                  <span
+                    className={cn(
+                      item.isLast
+                        ? 'font-medium text-slate-900 dark:text-slate-100'
+                        : 'text-slate-500 dark:text-slate-400'
+                    )}
+                  >
+                    {item.label}
+                  </span>
+                </React.Fragment>
+              ))}
+            </nav>
+          </div>
+        )
       )}
 
       {customBreadcrumb}

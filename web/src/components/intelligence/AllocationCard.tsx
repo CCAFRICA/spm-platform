@@ -17,6 +17,7 @@
 
 import { Crosshair, ArrowRight, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { IntelligenceCard } from './IntelligenceCard';
 
 interface AllocationCardProps {
@@ -42,6 +43,67 @@ export function AllocationCard({
   onFocus,
   onView,
 }: AllocationCardProps) {
+  const isVialuce = useIsVialuce(); // HF-316: projected impact→DM Mono, indigo CTA, muted disclosure
+
+  // HF-316: Vialuce content uses DM Mono for the projected number, indigo CTA, and design-spec text
+  // tokens. The IntelligenceCard wrapper supplies the .card surface. The else-branch is byte-identical
+  // to the original (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <IntelligenceCard
+        accentColor={accentColor}
+        label="Focus Recommendation"
+        elementId="allocation-recommendation"
+        onView={onView}
+      >
+        {/* Value: highlighted component name */}
+        <div className="flex items-center gap-2.5 mb-3">
+          <Crosshair className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--vialuce-indigo)' }} />
+          <p className="text-lg font-semibold" style={{ color: 'var(--vl-text)' }}>
+            {componentName}
+          </p>
+        </div>
+
+        {/* Context: rationale */}
+        <p className="text-sm leading-relaxed mb-3" style={{ color: 'var(--vl-text-muted)' }}>
+          {rationale}
+        </p>
+
+        {/* Impact: projected earnings */}
+        <p className="text-xs" style={{ color: 'var(--vl-text-soft)' }}>
+          Projected impact:{' '}
+          <span className="font-semibold" style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-success)' }}>
+            +{formatCurrency(projectedImpact)}
+          </span>
+        </p>
+
+        {/* Action: Focus Here */}
+        {onFocus && (
+          <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--vl-line-soft)' }}>
+            <button
+              onClick={onFocus}
+              className="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+              style={{ color: 'var(--vialuce-indigo)' }}
+            >
+              {actionLabel}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Confidence disclosure */}
+        {confidence === 'structural' && (
+          <div className="mt-3 flex items-start gap-2 text-xs" style={{ color: 'var(--vl-text-soft)' }}>
+            <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Structural recommendation based on plan design. Trend-aware projections require 2+ periods.
+            </span>
+          </div>
+        )}
+      </IntelligenceCard>
+    );
+  }
+
   return (
     <IntelligenceCard
       accentColor={accentColor}

@@ -11,6 +11,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { IntelligenceCard } from './IntelligenceCard';
 
 interface HeatmapEntity {
@@ -47,6 +48,17 @@ function attainmentToIntensity(attainment: number): string {
   return 'bg-transparent';
 }
 
+// HF-316: Vialuce heat ramp — indigo deepens with attainment (light surface, no dark Tailwind alphas).
+function attainmentToVialuceBg(attainment: number): string {
+  if (attainment >= 150) return 'rgba(45,47,143,0.18)';   // indigo-deep
+  if (attainment >= 120) return 'rgba(68,70,184,0.16)';   // indigo
+  if (attainment >= 100) return 'rgba(102,104,216,0.13)'; // indigo-light
+  if (attainment >= 80) return 'rgba(102,104,216,0.08)';
+  if (attainment >= 50) return 'rgba(232,168,56,0.12)';   // gold accent (mid)
+  if (attainment > 0) return 'rgba(216,79,79,0.10)';      // danger (low)
+  return 'transparent';
+}
+
 export function TeamHeatmapCard({
   accentColor,
   entities,
@@ -54,6 +66,7 @@ export function TeamHeatmapCard({
   onEntityClick,
   onView,
 }: TeamHeatmapCardProps) {
+  const isVialuce = useIsVialuce(); // HF-315: hook must precede any early return (rules-of-hooks)
   if (entities.length === 0) return null;
 
   // Derive component column headers from the data (Korean Test). OB-206: rows arrive
@@ -62,6 +75,70 @@ export function TeamHeatmapCard({
   const componentNames = entities[0]?.components.map(c => c.name) ?? [];
   const MAX_ROWS = 20;
   const shown = entities.slice(0, MAX_ROWS);
+
+  // HF-316: under Vialuce render the design-spec .tbl (DM Mono numeric cells, light surface) with an
+  // indigo heat ramp. The IntelligenceCard wrapper supplies the .card surface. The else-branch is
+  // byte-identical to the original (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    return (
+      <IntelligenceCard
+        accentColor={accentColor}
+        label="Team Coaching Grid · sorted by coaching priority"
+        elementId="team-heatmap"
+        fullWidth
+        onView={onView}
+      >
+        <div className="overflow-x-auto -mx-2">
+          <table className="tbl min-w-[480px]">
+            <thead>
+              <tr>
+                <th className="sticky left-0" style={{ background: '#FAFBFE' }}>Entity</th>
+                {componentNames.map(name => (
+                  <th key={name} className="r max-w-[80px]">
+                    <span className="block truncate">{name}</span>
+                  </th>
+                ))}
+                <th className="r">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(entity => (
+                <tr
+                  key={entity.entityId}
+                  className={cn(onEntityClick && 'cursor-pointer')}
+                  style={entity.isHighlight ? { boxShadow: 'inset 0 0 0 1px var(--vl-indigo-100)' } : undefined}
+                  onClick={() => onEntityClick?.(entity.entityId)}
+                >
+                  <td
+                    className="name sticky left-0 max-w-[120px]"
+                    style={{ background: 'var(--vl-surface)' }}
+                  >
+                    <span className="block truncate">{entity.entityName}</span>
+                  </td>
+                  {entity.components.map(comp => (
+                    <td
+                      key={comp.name}
+                      className="num"
+                      style={{ backgroundColor: attainmentToVialuceBg(comp.attainment) }}
+                    >
+                      <span className="whitespace-nowrap">{formatCurrency(comp.payout)}</span>
+                    </td>
+                  ))}
+                  <td className="num" style={{ fontWeight: 'var(--vl-fw-med)' as never }}>
+                    <span className="whitespace-nowrap">{formatCurrency(entity.totalPayout)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px]" style={{ color: 'var(--vl-text-soft)' }}>
+          Cell = per-component payout; intensity = performance relative to the top performer on that component.
+          {entities.length > MAX_ROWS && ` Showing top ${MAX_ROWS} of ${entities.length} by coaching priority.`}
+        </p>
+      </IntelligenceCard>
+    );
+  }
 
   return (
     <IntelligenceCard

@@ -9,6 +9,8 @@
  * no inline recharts parallel.
  */
 
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
 export interface DistributionBucket {
   label: string;
   count: number;
@@ -59,11 +61,22 @@ export function DistributionChart({
   stdDev: stdDevProp,
   showReferenceLines,
 }: DistributionChartProps) {
+  const isVialuce = useIsVialuce(); // HF-315: indigo-ramp bars + DM Mono labels under Vialuce
+  // HF-315: under Vialuce remap the dark default bucket palette to the indigo ramp
+  // (low→deep indigo … high→gold accent). Explicit caller-supplied bucket colors are honored as-is.
+  const VIALUCE_RAMP = [
+    'var(--vl-raw-indigo-deep)',  // <70%
+    'var(--vl-raw-indigo)',       // 70-85%
+    'var(--vl-raw-indigo-light)', // 85-100%
+    '#9A9CE0',                    // 100-120%
+    'var(--vl-raw-gold)',         // 120%+ accent
+  ];
   // Bucket source: explicit (currency/payout) or computed attainment bands (default).
   const bucketCounts = buckets
-    ? buckets.map(b => ({ ...b, color: b.color ?? '#60a5fa' }))
-    : ATTAINMENT_BUCKETS.map(bucket => ({
+    ? buckets.map((b, i) => ({ ...b, color: b.color ?? (isVialuce ? VIALUCE_RAMP[i % VIALUCE_RAMP.length] : '#60a5fa') }))
+    : ATTAINMENT_BUCKETS.map((bucket, i) => ({
         ...bucket,
+        color: isVialuce ? VIALUCE_RAMP[i % VIALUCE_RAMP.length] : bucket.color,
         count: data.filter(v => v >= bucket.min && v < bucket.max).length,
       }));
   const maxCount = Math.max(...bucketCounts.map(b => b.count), 1);
@@ -78,6 +91,63 @@ export function DistributionChart({
   // Reference-line placement: the bucket index whose [min,max) contains mean / median.
   const meanIdx = showReferenceLines ? bucketCounts.findIndex(b => mean >= b.min && mean < b.max) : -1;
   const medianIdx = showReferenceLines ? bucketCounts.findIndex(b => median >= b.min && median < b.max) : -1;
+
+  if (isVialuce) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-end gap-1.5 h-24">
+          {bucketCounts.map((bucket, i) => {
+            const heightPct = (bucket.count / maxCount) * 100;
+            const isMean = i === meanIdx;
+            const isMedian = i === medianIdx && medianIdx !== meanIdx;
+            return (
+              <div key={bucket.label} className="flex-1 flex flex-col items-center gap-1">
+                {showReferenceLines && (isMean || isMedian) ? (
+                  <span
+                    className="text-[8px] uppercase tracking-wide"
+                    style={{ fontFamily: 'var(--vl-font-mono)', color: isMean ? 'var(--vialuce-indigo)' : 'var(--vl-raw-gold)' }}
+                  >
+                    {isMean ? 'Mean' : 'Median'}
+                  </span>
+                ) : (
+                  <span className="text-[9px]" style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-soft)' }}>{bucket.count}</span>
+                )}
+                <div className="w-full relative" style={{ height: '64px' }}>
+                  <div
+                    className="absolute bottom-0 w-full rounded-t-md transition-all duration-500"
+                    style={{
+                      height: `${heightPct}%`,
+                      backgroundColor: bucket.color,
+                      minHeight: bucket.count > 0 ? '4px' : '0px',
+                    }}
+                  />
+                  {/* mean/median reference marker */}
+                  {showReferenceLines && (isMean || isMedian) && (
+                    <div
+                      className="absolute top-0 bottom-0 left-1/2 w-px border-l border-dashed"
+                      style={{ borderColor: isMean ? 'var(--vialuce-indigo)' : 'var(--vl-raw-gold)' }}
+                    />
+                  )}
+                </div>
+                <span className="text-[10px]" style={{ color: 'var(--vl-text-soft)' }}>{bucket.label}</span>
+              </div>
+            );
+          })}
+        </div>
+        {benchmarkLine !== undefined && (
+          <div className="text-[10px] text-center" style={{ color: 'var(--vl-text-soft)' }}>
+            Benchmark:{' '}
+            <span style={{ fontFamily: 'var(--vl-font-mono)' }}>{valueFormatter ? valueFormatter(benchmarkLine) : `${benchmarkLine}%`}</span>
+          </div>
+        )}
+        <div className="flex gap-4 text-[11px]" style={{ color: 'var(--vl-text-muted)' }}>
+          <span>Mean: <span style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' }}>{fmt(mean)}</span></span>
+          <span>Median: <span style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' }}>{fmt(median)}</span></span>
+          <span>Std Dev: <span style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text)' }}>{fmt(stdDev)}</span></span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

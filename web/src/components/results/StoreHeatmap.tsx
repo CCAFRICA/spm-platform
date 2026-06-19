@@ -5,6 +5,10 @@
 
 import React, { useMemo, useState } from 'react';
 import type { StoreComponentCell, ComponentDef, EntityResult } from '@/lib/data/results-loader';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// OB-221: indigo ramp (deep→light, gold accent) replaces per-component dark hex for heatmap intensity.
+const VIALUCE_RAMP = ['#2D2F8F', '#4446B8', '#6668D8', '#9A9CE0', '#E8A838'];
 
 interface StoreHeatmapProps {
   storeComponentMatrix: StoreComponentCell[];
@@ -32,6 +36,7 @@ export function StoreHeatmap({
   formatCurrency,
   onStoreFilter,
 }: StoreHeatmapProps) {
+  const isVialuce = useIsVialuce(); // OB-221: container → .card; heatmap → indigo intensity; numbers → DM Mono
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
   // Build lookup: store → componentId → cell
@@ -84,6 +89,17 @@ export function StoreHeatmap({
   });
 
   if (displayStores.length <= 1 && displayStores[0] === 'unassigned') {
+    if (isVialuce) {
+      return (
+        <div className="card">
+          <div className="empty">
+            <div className="ic">⊞</div>
+            <b>Population Pattern</b>
+            <p>No store association available. Entity-level results shown in the table below.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-zinc-800/60 p-6">
         <p className="text-[11px] text-zinc-500 uppercase tracking-wider font-medium mb-3">
@@ -92,6 +108,116 @@ export function StoreHeatmap({
         <p className="text-sm text-zinc-500">
           No store association available. Entity-level results shown in the table below.
         </p>
+      </div>
+    );
+  }
+
+  if (isVialuce) {
+    return (
+      <div className="card" style={{ position: 'relative' }}>
+        <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 16px' }}>
+          Population Pattern — Store &times; Component
+        </p>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table className="tbl" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ minWidth: 120 }}>Store</th>
+                <th className="r" style={{ width: 32 }}>#</th>
+                {componentDefinitions.map((cd, i) => (
+                  <th key={cd.id} style={{ textAlign: 'center', minWidth: 80 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 3, flexShrink: 0, background: VIALUCE_RAMP[i % VIALUCE_RAMP.length] }} />
+                      <span style={{ maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cd.name}>{cd.name}</span>
+                    </div>
+                  </th>
+                ))}
+                <th className="r" style={{ minWidth: 80 }}>Avg Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayStores.map(store => {
+                const storeData = storeTotals.get(store);
+                const entityCount = storeData?.count || 0;
+                const avgTotal = entityCount > 0 ? (storeData?.total || 0) / entityCount : 0;
+                const compCells = cellLookup.get(store);
+
+                return (
+                  <tr key={store} style={{ cursor: 'pointer' }} onClick={() => onStoreFilter(store)}>
+                    <td className="name" style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={store}>
+                      {store === 'unassigned' ? '—' : store}
+                    </td>
+                    <td className="num">{entityCount}</td>
+                    {componentDefinitions.map((cd, i) => {
+                      const cell = compCells?.get(cd.id);
+                      const avg = cell?.avgPayout || 0;
+                      const intensity = maxAvgPayout > 0 ? avg / maxAvgPayout : 0;
+                      const rampColor = VIALUCE_RAMP[i % VIALUCE_RAMP.length];
+
+                      return (
+                        <td
+                          key={cd.id}
+                          style={{ textAlign: 'center', position: 'relative' }}
+                          onMouseEnter={(e) => {
+                            const rect = (e.target as HTMLElement).getBoundingClientRect();
+                            setTooltip({
+                              x: rect.left + rect.width / 2,
+                              y: rect.top - 8,
+                              store,
+                              component: cd.name,
+                              avgPayout: avg,
+                              entityCount: cell?.entityCount || 0,
+                            });
+                          }}
+                          onMouseLeave={() => setTooltip(null)}
+                        >
+                          <div
+                            style={{
+                              borderRadius: 'var(--vl-r-md)',
+                              height: 28,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontFamily: 'var(--vl-font-mono)',
+                              fontSize: '10px',
+                              backgroundColor: intensity > 0
+                                ? `${rampColor}${Math.round(intensity * 64 + 16).toString(16).padStart(2, '0')}`
+                                : 'var(--vl-line-soft)',
+                              color: intensity > 0.3 ? 'var(--vl-text)' : 'var(--vl-text-soft)',
+                            }}
+                          >
+                            {avg > 0 ? formatCurrency(avg) : '—'}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="num">{formatCurrency(avgTotal)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Tooltip */}
+        {tooltip && (
+          <div
+            style={{
+              position: 'fixed', zIndex: 50, background: 'var(--vl-surface)', border: '1px solid var(--vl-line)',
+              borderRadius: 'var(--vl-r-md)', padding: '8px 12px', boxShadow: 'var(--vl-sh-1)', pointerEvents: 'none',
+              left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)',
+            }}
+          >
+            <p style={{ fontSize: '12px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', margin: 0 }}>{tooltip.component}</p>
+            <p style={{ fontSize: '12px', color: 'var(--vl-text-muted)', margin: '2px 0 0' }}>
+              Store: {tooltip.store} &middot; {tooltip.entityCount} entities
+            </p>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '12px', color: 'var(--vl-text)', margin: '2px 0 0' }}>
+              Avg: {formatCurrency(tooltip.avgPayout)}
+            </p>
+          </div>
+        )}
       </div>
     );
   }

@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Lightbulb, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface AssessmentPanelProps {
   persona: 'admin' | 'manager' | 'rep';
@@ -21,6 +22,7 @@ interface AssessmentPanelProps {
 }
 
 export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#6366f1', tenantId }: AssessmentPanelProps) {
+  const isVialuce = useIsVialuce(); // HF-315: AI assessment → design-spec .insight (gold) banner under Vialuce
   const [assessment, setAssessment] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(true);
@@ -69,6 +71,67 @@ export function AssessmentPanel({ persona, data, locale = 'es', accentColor = '#
 
   const lang = locale === 'en' ? 'en' : 'es';
   const title = titles[persona]?.[lang] || titles.admin[lang];
+
+  // HF-315: under Vialuce render the design-spec .insight banner (gold spark chip + mono eyebrow + body).
+  // Behavior (fetch/expand/refresh) and i18n strings are reused unchanged.
+  if (isVialuce) {
+    return (
+      <div className="insight" style={{ flexDirection: 'column' }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', width: '100%' }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span className="spark"><Lightbulb size={17} /></span>
+            <div>
+              <div className="lbl">{lang === 'es' ? 'INTELIGENCIA · IA' : 'INTELLIGENCE · AI'}</div>
+              <b>{title}</b>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); fetchAssessment(); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+            >
+              <RefreshCw size={14} style={{ color: 'var(--vl-text-soft)' }} className={loading ? 'animate-spin' : ''} />
+            </button>
+            {expanded
+              ? <ChevronUp size={16} style={{ color: 'var(--vl-text-soft)' }} />
+              : <ChevronDown size={16} style={{ color: 'var(--vl-text-soft)' }} />}
+          </div>
+        </div>
+        {expanded && (
+          <div style={{ marginTop: '12px', width: '100%' }}>
+            {loading && !assessment && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="animate-spin h-3.5 w-3.5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#E8A83860', borderTopColor: 'transparent' }} />
+                <p style={{ color: 'var(--vl-text-muted)', fontSize: '13px', fontStyle: 'italic' }}>
+                  {lang === 'es' ? 'Analizando datos del panel...' : 'Analyzing dashboard data...'}
+                </p>
+              </div>
+            )}
+            {error && !loading && (
+              <p style={{ color: 'var(--vl-danger)', fontSize: '13px' }}>
+                {lang === 'es' ? 'Evaluacion no disponible. Verifica la configuracion de la API.' : 'Assessment unavailable. Check API configuration.'}
+              </p>
+            )}
+            {assessment && (
+              <div style={{ position: 'relative' }}>
+                {loading && (
+                  <div style={{ position: 'absolute', top: 0, right: 0 }}>
+                    <div className="animate-spin h-3 w-3 border-2 border-t-transparent rounded-full" style={{ borderColor: '#E8A83860', borderTopColor: 'transparent' }} />
+                  </div>
+                )}
+                <div style={{ color: 'var(--vl-text-muted)', fontSize: '14px', lineHeight: '1.6' }} className="prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:my-0.5 [&_p]:my-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1">
+                  <ReactMarkdown>{assessment}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

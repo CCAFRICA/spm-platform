@@ -7,6 +7,10 @@ import React, { useMemo } from 'react';
 import Link from 'next/link';
 import type { EntityResult, ComponentDef } from '@/lib/data/results-loader';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// OB-221: indigo ramp for attainment-track fills under Vialuce (replaces per-component dark hex).
+const VIALUCE_RAMP = ['#2D2F8F', '#4446B8', '#6668D8', '#9A9CE0', '#E8A838'];
 
 interface NarrativeSpineProps {
   entity: EntityResult;
@@ -26,6 +30,7 @@ export function NarrativeSpine({
   peerAverages,
   formatCurrency,
 }: NarrativeSpineProps) {
+  const isVialuce = useIsVialuce(); // OB-221: badges → .pill, spine tracks → indigo ramp, payout → DM Mono
   const colorMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const cd of componentDefinitions) {
@@ -115,6 +120,111 @@ export function NarrativeSpine({
     }
     return max * 1.1; // 10% headroom
   }, [sortedComps]);
+
+  // Vialuce: explanation layer on the white surface. Narrative reads in body color, exception badges
+  // become design-spec .pill chips, attainment spine fills use the indigo ramp, and every payout/percent
+  // is DM Mono. The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    const pillVariant = (type: ExceptionBadge['type']): string =>
+      type === 'gate_failed' ? 'danger' : type === 'below_average' ? 'neutral' : 'success';
+    return (
+      <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Narrative */}
+        <div>
+          <p style={{ fontSize: '13px', color: 'var(--vl-text)', lineHeight: 1.6, margin: 0 }}>{narrative}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {badges.map((badge, i) => (
+              <span key={i} className={`pill ${pillVariant(badge.type)}`}>
+                {badge.type === 'gate_failed' && <span>&#10005;</span>}
+                {badge.type === 'above_average' && <span>&#9650;</span>}
+                {badge.type === 'below_average' && <span>&#9651;</span>}
+                {badge.type === 'normal' && <span>&#10003;</span>}
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Spine tracks */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sortedComps.map((comp, ci) => {
+            const color = comp.payout > 0 ? VIALUCE_RAMP[ci % VIALUCE_RAMP.length] : 'var(--vl-danger)';
+            const hasAttainment = comp.attainment !== null;
+
+            let gatePosition: number | null = null;
+            if (comp.componentType === 'conditional_gate' && comp.details) {
+              const condMetric = comp.details.conditionMetric;
+              if (condMetric) gatePosition = (100 / maxAttainment) * 100;
+            }
+
+            const fillWidth = hasAttainment && maxAttainment > 0
+              ? Math.min((comp.attainment! / maxAttainment) * 100, 100)
+              : 0;
+            const refPosition = (100 / maxAttainment) * 100;
+
+            return (
+              <div key={comp.componentId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '12px', color: 'var(--vl-text-muted)', width: 120, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={comp.componentName}>
+                  {comp.componentName}
+                </span>
+
+                <div style={{ flex: 1, position: 'relative', height: 20 }}>
+                  {hasAttainment ? (
+                    <>
+                      <div style={{ position: 'absolute', inset: 0, borderRadius: 6, background: 'var(--vl-line-soft)' }} />
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 6, width: `${fillWidth}%`, background: color, opacity: 0.35, transition: 'all .5s' }} />
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: 'var(--vl-line)', left: `${refPosition}%` }} />
+                      <span style={{ position: 'absolute', top: -2, fontFamily: 'var(--vl-font-mono)', fontSize: '8px', color: 'var(--vl-text-soft)', transform: 'translateX(-50%)', left: `${refPosition}%` }}>
+                        100%
+                      </span>
+                      {gatePosition !== null && (
+                        <>
+                          <div style={{ position: 'absolute', top: 0, bottom: 0, width: 2, left: `${gatePosition}%`, background: comp.gateStatus === 'passed' ? 'var(--vl-success)' : 'var(--vl-danger)' }} />
+                          <span style={{ position: 'absolute', top: -2, fontFamily: 'var(--vl-font-mono)', fontSize: '8px', transform: 'translateX(-50%)', left: `${gatePosition}%`, color: comp.gateStatus === 'passed' ? 'var(--vl-success)' : 'var(--vl-danger)' }}>
+                            gate
+                          </span>
+                        </>
+                      )}
+                      <div style={{ position: 'absolute', top: '50%', left: `${fillWidth}%`, transform: 'translate(-50%, -50%)', width: 12, height: 12, borderRadius: '50%', border: '2px solid var(--vl-surface)', background: color, transition: 'all .5s' }} />
+                      <span style={{ position: 'absolute', top: '50%', left: `${fillWidth}%`, transform: 'translateY(-50%)', marginLeft: 8, fontFamily: 'var(--vl-font-mono)', fontSize: '10px', color }}>
+                        {comp.attainment!.toFixed(0)}%
+                      </span>
+                    </>
+                  ) : (
+                    <div style={{ position: 'absolute', inset: 0, borderRadius: 6, background: 'var(--vl-line-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--vl-text-soft)', fontStyle: 'italic' }}>
+                        {comp.componentType === 'scalar_multiply' ? 'flat rate' : 'no data'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '12px', width: 80, textAlign: 'right', flexShrink: 0, color: comp.payout > 0 ? 'var(--vl-text)' : 'var(--vl-text-soft)' }}>
+                  {formatCurrency(comp.payout)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Source data teaser (L2) */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--vl-line-soft)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--vl-text-soft)' }}>
+            {entity.sourceSheets.length > 0 && (
+              <span>Sources: {entity.sourceSheets.join(', ')}</span>
+            )}
+          </div>
+          <Link
+            href={`/investigate/trace/${entity.entityId}?from=results`}
+            style={{ fontSize: '10px', color: 'var(--vialuce-indigo)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            View Full Trace &rarr;
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-6 py-5 space-y-4">

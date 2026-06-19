@@ -37,6 +37,7 @@ import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeManagerInsights } from '@/lib/intelligence/insight-engine';
 import { NextAction } from '@/components/intelligence/NextAction';
 import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(217, 119, 6, 0.7), rgba(161, 98, 7, 0.6))',
@@ -51,6 +52,30 @@ const CARD_STYLE = {
   borderRadius: '16px',
   padding: '20px',
 };
+
+// HF-315: Vialuce surfaces — dark zinc cards regress on the white page. The Manager hero
+// keeps its gold identity (the Vialuce signal accent); section cards become the .card surface.
+const VL_HERO_STYLE = {
+  background: 'linear-gradient(135deg, var(--vl-raw-gold) 0%, #C98A1E 100%)',
+  border: '1px solid var(--vl-line)',
+  borderRadius: 'var(--vl-r-lg)',
+  padding: '20px',
+  boxShadow: 'var(--vl-sh-1)',
+};
+
+const VL_CARD_STYLE = {
+  background: 'var(--vl-surface)',
+  border: '1px solid var(--vl-line)',
+  borderRadius: 'var(--vl-r-lg)',
+  padding: '20px',
+  boxShadow: 'var(--vl-sh-1)',
+};
+
+// HF-315: section eyebrow + value text that read on white under Vialuce.
+const VL_LABEL = 'var(--vl-text-soft)';   // replaces #71717a section labels
+const VL_VALUE = 'var(--vl-text)';        // replaces #e4e4e7 / #d4d4d8 strong values
+const VL_MUTED = 'var(--vl-text-muted)';  // replaces #a1a1aa secondary text
+const VL_TRACK = '#EEF0F6';               // replaces dark rgba(39,39,42,0.8) progress tracks
 
 const SEVERITY_STYLES: Record<string, { bg: string; border: string; accent: string }> = {
   opportunity: { bg: 'rgba(16, 185, 129, 0.1)', border: 'rgba(16, 185, 129, 0.3)', accent: '#34d399' },
@@ -90,6 +115,14 @@ export function ManagerDashboard() {
   const tenantId = currentTenant?.id ?? '';
   const hasFinancial = useFeature('financial');
   const isSpanish = locale === 'es-MX';
+  const isVialuce = useIsVialuce(); // HF-315: dark zinc DS-001 cards → design-spec .card surfaces + readable text
+  // Theme-aware surface + section text. Non-Vialuce keeps the exact dark literals (byte-identical).
+  const cardStyle = isVialuce ? VL_CARD_STYLE : CARD_STYLE;
+  const heroStyle = isVialuce ? VL_HERO_STYLE : HERO_STYLE;
+  const labelColor = isVialuce ? VL_LABEL : '#71717a';
+  const valueColor = isVialuce ? VL_VALUE : '#e4e4e7';
+  const mutedColor = isVialuce ? VL_MUTED : '#a1a1aa';
+  const trackColor = isVialuce ? VL_TRACK : 'rgba(39,39,42,0.8)';
 
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -222,7 +255,7 @@ export function ManagerDashboard() {
   if (!data || data.teamMembers.length === 0) {
     return (
       <div className="text-center py-16 space-y-3">
-        <p style={{ color: '#a1a1aa' }}>
+        <p style={{ color: mutedColor }}>
           {isSpanish ? 'No hay datos de equipo para este periodo.' : 'No team data for this period.'}
         </p>
         <p className="text-sm" style={{ color: '#52525b' }}>
@@ -271,7 +304,7 @@ export function ManagerDashboard() {
       {/* ── Row 1: Zone Hero (4) + Pacing (3) + Acceleration (5) ── */}
       <div className="grid grid-cols-12 gap-4">
         {/* Zone Hero */}
-        <div className="col-span-12 lg:col-span-4" style={HERO_STYLE}>
+        <div className="col-span-12 lg:col-span-4" style={heroStyle}>
           <p style={{ color: 'rgba(254, 243, 199, 0.6)', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Total del Equipo
           </p>
@@ -299,8 +332,8 @@ export function ManagerDashboard() {
 
         {/* Pacing Indicator (5C) */}
         {pacing && (
-          <div className="col-span-12 lg:col-span-3" style={CARD_STYLE}>
-            <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+          <div className="col-span-12 lg:col-span-3" style={cardStyle}>
+            <p style={{ color: labelColor, fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
               Pacing
             </p>
             <div className="flex items-center gap-2 mb-3">
@@ -318,10 +351,10 @@ export function ManagerDashboard() {
             {/* Days progress bar */}
             <div style={{ marginBottom: '12px' }}>
               <div className="flex justify-between mb-1">
-                <span style={{ color: '#71717a', fontSize: '10px' }}>Day {pacing.daysPassed}/{pacing.daysInPeriod}</span>
-                <span style={{ color: '#a1a1aa', fontSize: '10px' }}>{pacing.daysRemaining}d left</span>
+                <span style={{ color: labelColor, fontSize: '10px' }}>Day {pacing.daysPassed}/{pacing.daysInPeriod}</span>
+                <span style={{ color: mutedColor, fontSize: '10px' }}>{pacing.daysRemaining}d left</span>
               </div>
-              <div style={{ height: '4px', background: 'rgba(39,39,42,0.8)', borderRadius: '2px' }}>
+              <div style={{ height: '4px', background: trackColor, borderRadius: '2px' }}>
                 <div style={{
                   height: '4px',
                   borderRadius: '2px',
@@ -333,19 +366,19 @@ export function ManagerDashboard() {
             </div>
             <div className="space-y-2">
               <div className="flex justify-between">
-                <span style={{ color: '#71717a', fontSize: '11px' }}>Run rate</span>
-                <span style={{ color: '#e4e4e7', fontSize: '11px', fontWeight: 500 }}>
+                <span style={{ color: labelColor, fontSize: '11px' }}>Run rate</span>
+                <span style={{ color: valueColor, fontSize: '11px', fontWeight: 500 }}>
                   {format(pacing.dailyRate)}/day
                 </span>
               </div>
               <div className="flex justify-between">
-                <span style={{ color: '#71717a', fontSize: '11px' }}>Target</span>
-                <span style={{ color: '#a1a1aa', fontSize: '11px' }}>
+                <span style={{ color: labelColor, fontSize: '11px' }}>Target</span>
+                <span style={{ color: mutedColor, fontSize: '11px' }}>
                   {format(pacing.targetDailyRate)}/day
                 </span>
               </div>
               <div className="flex justify-between">
-                <span style={{ color: '#71717a', fontSize: '11px' }}>Projected</span>
+                <span style={{ color: labelColor, fontSize: '11px' }}>Projected</span>
                 <span style={{ color: pacing.projectedPct >= 100 ? '#34d399' : '#fbbf24', fontSize: '11px', fontWeight: 500 }}>
                   {pacing.projectedPct.toFixed(0)}% of target
                 </span>
@@ -355,8 +388,8 @@ export function ManagerDashboard() {
         )}
 
         {/* Acceleration Opportunities (with tier proximity 5A) */}
-        <div className={`col-span-12 ${pacing ? 'lg:col-span-5' : 'lg:col-span-8'}`} style={CARD_STYLE}>
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+        <div className={`col-span-12 ${pacing ? 'lg:col-span-5' : 'lg:col-span-8'}`} style={cardStyle}>
+          <p style={{ color: labelColor, fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
             Oportunidades de Aceleracion
           </p>
           {allOpportunities.length > 0 ? (
@@ -377,8 +410,8 @@ export function ManagerDashboard() {
                       padding: '14px',
                     }}
                   >
-                    <p className="text-sm font-medium" style={{ color: '#e4e4e7' }}>{signal.entityName}</p>
-                    <p className="text-xs mt-1" style={{ color: '#a1a1aa' }}>{signal.opportunity}</p>
+                    <p className="text-sm font-medium" style={{ color: valueColor }}>{signal.entityName}</p>
+                    <p className="text-xs mt-1" style={{ color: mutedColor }}>{signal.opportunity}</p>
                     <button
                       className="mt-2 text-xs font-medium px-3 py-1 rounded-md transition-opacity hover:opacity-80"
                       style={{ background: sev.accent, color: '#18181b' }}
@@ -390,21 +423,21 @@ export function ManagerDashboard() {
               })}
             </div>
           ) : (
-            <p className="text-sm" style={{ color: '#71717a' }}>Sin oportunidades de aceleracion identificadas.</p>
+            <p className="text-sm" style={{ color: labelColor }}>Sin oportunidades de aceleracion identificadas.</p>
           )}
         </div>
       </div>
 
       {/* ── Row 2: Team Performance with Momentum (full width) ── */}
-      <div style={CARD_STYLE}>
+      <div style={cardStyle}>
         <div className="flex items-center justify-between mb-4">
-          <p style={{ color: '#71717a', fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <p style={{ color: labelColor, fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             Rendimiento del Equipo
           </p>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               <span className="w-px h-3" style={{ background: 'rgba(255,255,255,0.4)' }} />
-              <span style={{ color: '#71717a', fontSize: '10px' }}>Promedio zona: {avgAttainment.toFixed(0)}%</span>
+              <span style={{ color: labelColor, fontSize: '10px' }}>Promedio zona: {avgAttainment.toFixed(0)}%</span>
             </span>
           </div>
         </div>
@@ -417,11 +450,11 @@ export function ManagerDashboard() {
             return (
               <div key={member.entityId} className="flex items-center gap-3">
                 {/* Rank */}
-                <span className="text-xs tabular-nums font-medium w-5 text-right" style={{ color: '#71717a' }}>
+                <span className="text-xs tabular-nums font-medium w-5 text-right" style={{ color: labelColor }}>
                   {idx + 1}
                 </span>
                 {/* Name */}
-                <span className="text-xs w-28 truncate flex-shrink-0" style={{ color: '#d4d4d8' }}>
+                <span className="text-xs w-28 truncate flex-shrink-0" style={{ color: valueColor }}>
                   {member.entityName}
                 </span>
                 {/* BenchBar */}
@@ -465,7 +498,7 @@ export function ManagerDashboard() {
                   )}
                 </div>
                 {/* Payout */}
-                <span className="tabular-nums w-20 text-right flex-shrink-0" style={{ color: '#a1a1aa', fontSize: '11px' }}>
+                <span className="tabular-nums w-20 text-right flex-shrink-0" style={{ color: mutedColor, fontSize: '11px' }}>
                   {format(member.totalPayout)}
                 </span>
                 {/* Streak badge */}

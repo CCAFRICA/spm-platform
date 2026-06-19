@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export interface WaterfallStep {
   label: string;
@@ -19,6 +20,7 @@ function fmtAmt(v: number, sym: string) {
 }
 
 export function CalculationWaterfall({ steps, currency = '$' }: CalculationWaterfallProps) {
+  const isVialuce = useIsVialuce(); // HF-316: indigo total, success/danger steps, DM Mono numbers under Vialuce
   const bars = useMemo(() => {
     let runningTotal = 0;
     const maxAbs = steps.reduce((max, s) => {
@@ -46,10 +48,64 @@ export function CalculationWaterfall({ steps, currency = '$' }: CalculationWater
   }, [steps]);
 
   if (steps.length === 0) {
+    if (isVialuce) {
+      return (
+        <div className="empty">
+          <div className="ic">∑</div>
+          <b>Sin detalles de calculo.</b>
+        </div>
+      );
+    }
     return <p className="text-sm text-zinc-500">Sin detalles de calculo.</p>;
   }
 
   const maxVal = bars[0]?.maxAbs ?? 1;
+
+  if (isVialuce) {
+    return (
+      <div className="space-y-1">
+        {bars.map((bar, i) => {
+          const isTotal = bar.type === 'total';
+          const isAdd = bar.type === 'add';
+
+          const leftPercent = (Math.min(bar.start, bar.end) / maxVal) * 50 + 50;
+          const widthPercent = (Math.abs(bar.end - bar.start) / maxVal) * 50;
+
+          // Design-spec ramp: total = indigo, additions = success, subtractions = danger.
+          const vlBar = isTotal ? 'var(--vl-raw-indigo)' : isAdd ? 'var(--vl-success)' : 'var(--vl-danger)';
+          const vlText = isTotal ? 'var(--vialuce-indigo)' : isAdd ? 'var(--vl-success)' : 'var(--vl-danger)';
+
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-28 truncate text-right flex-shrink-0" style={{ fontSize: '11px', color: 'var(--vl-text-muted)' }}>
+                {bar.label}
+              </span>
+              <div className="flex-1 relative h-5">
+                {i > 0 && !isTotal && (
+                  <div
+                    className="absolute top-0 h-full w-px"
+                    style={{ left: `${(bars[i - 1].end / maxVal) * 50 + 50}%`, background: 'var(--vl-line)' }}
+                  />
+                )}
+                <div
+                  className="absolute top-0.5 h-4"
+                  style={{
+                    left: `${leftPercent}%`,
+                    width: `${Math.max(widthPercent, 0.5)}%`,
+                    borderRadius: '4px',
+                    background: vlBar,
+                  }}
+                />
+              </div>
+              <span className="w-24 text-right flex-shrink-0" style={{ fontSize: '11px', fontFamily: 'var(--vl-font-mono)', color: vlText }}>
+                {bar.type === 'subtract' ? '-' : ''}{fmtAmt(Math.abs(bar.value), currency)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1">

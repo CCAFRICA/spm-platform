@@ -5,6 +5,10 @@
 
 import React, { useEffect, useState } from 'react';
 import type { ComponentTotal, ComponentDef } from '@/lib/data/results-loader';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+
+// OB-221: indigo ramp for the component-breakdown bars under Vialuce (replaces per-component dark hex).
+const VIALUCE_RAMP = ['var(--vl-raw-indigo-deep)', 'var(--vl-raw-indigo)', 'var(--vl-raw-indigo-light)', '#9A9CE0', 'var(--vl-raw-gold)'];
 
 interface ResultsHeroProps {
   totalPayout: number;
@@ -50,6 +54,7 @@ export function ResultsHero({
   planName,
   formatCurrency,
 }: ResultsHeroProps) {
+  const isVialuce = useIsVialuce(); // OB-221: hero → .card; total + stats + bar figures → DM Mono, indigo ramp
   const avgPerEntity = resultCount > 0 ? totalPayout / resultCount : 0;
   const activeComponents = componentTotals.filter(c => c.total > 0).length;
 
@@ -62,6 +67,86 @@ export function ResultsHero({
   for (const cd of componentDefinitions) {
     colorMap.set(cd.id, cd.color);
     colorMap.set(cd.name, cd.color);
+  }
+
+  // Vialuce: white .card hero. Total payout is a DM-Mono .kpi-val; the three stat tiles read as mini KPIs;
+  // the component breakdown bars use the indigo ramp (deep→light, gold accent). Else-branch byte-identical.
+  if (isVialuce) {
+    return (
+      <div className="card" style={{ marginTop: 0, padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 0 }} className="lg:grid-cols-2">
+          {/* Left: Total payout */}
+          <div style={{ padding: '28px' }}>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 6px' }}>
+              Total Payout
+            </p>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number, fontSize: '40px', letterSpacing: '-.5px', color: 'var(--vl-text)', lineHeight: 1.1, margin: 0 }}>
+              <AnimatedNumber value={totalPayout} formatCurrency={formatCurrency} />
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)', marginTop: 8 }}>{planName}</p>
+
+            {/* Stat tiles */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12, marginTop: 24 }}>
+              <div style={{ borderRadius: 'var(--vl-r-md)', background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', padding: 12 }}>
+                <p style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--vl-text-soft)', margin: 0 }}>Entities</p>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number, fontSize: '18px', color: 'var(--vl-text)', margin: '2px 0 0' }}>
+                  {resultCount.toLocaleString()}
+                </p>
+              </div>
+              <div style={{ borderRadius: 'var(--vl-r-md)', background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', padding: 12 }}>
+                <p style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--vl-text-soft)', margin: 0 }}>Average</p>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number, fontSize: '18px', color: 'var(--vl-text)', margin: '2px 0 0' }}>
+                  {formatCurrency(avgPerEntity)}
+                </p>
+              </div>
+              <div style={{ borderRadius: 'var(--vl-r-md)', background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', padding: 12 }}>
+                <p style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--vl-text-soft)', margin: 0 }}>Active</p>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number, fontSize: '18px', color: 'var(--vl-text)', margin: '2px 0 0' }}>
+                  {activeComponents}<span style={{ color: 'var(--vl-text-soft)', fontSize: '13px' }}>/{componentDefinitions.length}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Component breakdown bars (indigo ramp) */}
+          <div style={{ padding: '28px', borderTop: '1px solid var(--vl-line)' }} className="lg:border-t-0 lg:border-l">
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 16px' }}>
+              Component Breakdown
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sortedComponents.map((comp, i) => {
+                const pct = totalPayout > 0 ? (comp.total / totalPayout) * 100 : 0;
+                const barWidth = maxTotal > 0 ? (comp.total / maxTotal) * 100 : 0;
+                const color = VIALUCE_RAMP[i % VIALUCE_RAMP.length];
+
+                return (
+                  <div key={comp.componentId}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: color }} />
+                      <span style={{ flex: 1, fontSize: '13px', color: 'var(--vl-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={comp.componentName}>
+                        {comp.componentName}
+                      </span>
+                      <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', color: 'var(--vl-text-soft)', padding: '1px 6px', borderRadius: 6, background: 'var(--vl-bg)' }}>
+                        {comp.componentType.replace(/_/g, ' ')}
+                      </span>
+                      <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '13px', color: 'var(--vl-text)', width: 80, textAlign: 'right' }}>
+                        {formatCurrency(comp.total)}
+                      </span>
+                      <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', width: 40, textAlign: 'right' }}>
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div style={{ marginLeft: 22, background: 'var(--vl-line-soft)', borderRadius: 'var(--vl-r-pill)', height: 6, overflow: 'hidden' }}>
+                      <div style={{ height: 6, borderRadius: 'var(--vl-r-pill)', width: `${barWidth}%`, background: color, transition: 'all .5s' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
