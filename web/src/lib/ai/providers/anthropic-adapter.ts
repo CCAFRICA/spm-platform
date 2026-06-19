@@ -947,7 +947,7 @@ For each required field, choose the column whose MEANING best satisfies the requ
 - You MAY abstain for a field when no candidate is a sound fit — return an abstain object with a reason instead of forcing a pick (insufficient evidence is a valid answer; do not guess).
 
 Respond ONLY with valid JSON, no preamble, no markdown — an object keyed by required field name. Each value is either:
-  {"column": "<column name>", "sheet": "<sheet label>", "confidence": <0.0-1.0>}
+  {"column": "<column name>", "sheet": "<sheet label>", "confidence": <0.0-1.0>, "reduction": "<sum|snapshot|max|min|average|last|first|distinct_count>"}
 or, to abstain:
   {"abstain": true, "reason": "<why no candidate fits>"}
 Optionally add "filters": [{"field":"<categorical column>","operator":"eq","value":"<one of its listed values>"}] when the field is a subset of a shared column.`,

@@ -106,6 +106,13 @@ interface DataCapability {
 // provenance is now carried by `learning_provenance` (period-agnostic, write-time
 // metadata only). Data-location resolution keys by column name across all
 // operative-period batches. See VG entry T1-E-PG3 for the class naming.
+// OB-216 §2 (Phase 3'): the GENERAL aggregation-reduction set — how a bound column's multiple rows
+// per entity reduce to a single value. NOT a sum/snapshot binary. Recognized by the LLM per binding
+// (Decision 158), applied deterministically at resolution. 'snapshot' = a stock/balance value that is
+// the same on every row (take it once, do not sum); flow amounts sum; max/min/average/distinct_count
+// are plan-intent-driven.
+export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count';
+
 export interface ComponentBinding {
   column: string;
   field_identity: FieldIdentity;
@@ -113,6 +120,10 @@ export interface ComponentBinding {
   confidence: number;
   // HF-111: Scale factor for percentage columns (e.g., 100 when column is 0-1 ratio but boundary is 0-100)
   scale_factor?: number;
+  // OB-216 §2 (Phase 3'): how the bound column's multiple rows per entity reduce to one value —
+  // LLM-recognized from the column's nature (contextualIdentity / value-shape) + the field's intent
+  // role, deterministically applied by resolveColumnFromBatch. Absent ⇒ 'sum' (legacy flow behavior).
+  reduction?: ReductionKind;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
   // HF-272: per-component resolution-failure MARKER. Set when a required reference token
@@ -1792,7 +1803,7 @@ type LabeledCandidate = {
 // OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
 // confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
 type BindingProposal =
-  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[] }
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind }
   | { abstain: true; reason: string };
 
 // OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
@@ -1861,7 +1872,14 @@ ${fieldList}
 CANDIDATE COLUMNS (grouped by sheet; each labeled with structural type, contextual identity, value range):
 ${candidateList}
 
-For each required field above, return {"column","sheet","confidence"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.`;
+For each required field above, return {"column","sheet","confidence","reduction"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.
+
+"reduction" = HOW this column's MULTIPLE ROWS for one entity over the period collapse to ONE value for this field's role:
+- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction).
+- "snapshot": a STOCK / balance / point-in-time value that is THE SAME on every row of the entity (a running balance, an assigned quota). Take it ONCE — NEVER sum it (summing multiplies it by the row count).
+- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period.
+- "last" / "first": the latest / earliest value. "distinct_count": the count of distinct values.
+Infer it from the column's contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when it is genuinely a flow.`;
 
   try {
     const aiService = getAIService();
@@ -1892,9 +1910,11 @@ For each required field above, return {"column","sheet","confidence"} choosing "
               value: f.value as string | number | boolean,
             }))
         : [];
-      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters };
+      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count'];
+      const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
+      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction };
     }
-    const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}`).join(', ');
+    const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}/${v.reduction}`).join(', ');
     console.log(`[Convergence] OB-216 §2-S4 LLM binding proposals: {${summary}}`);
     return proposals;
   } catch (err) {
@@ -2866,6 +2886,7 @@ async function generateAllComponentBindings(
         match_pass: 1,
         confidence: proposal.confidence,
         scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
+        reduction: proposal.reduction !== 'sum' ? proposal.reduction : undefined,
         filters: proposal.filters,
         learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
       };

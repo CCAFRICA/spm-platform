@@ -149,8 +149,13 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
     }
 
     case 'reference': {
+      // OB-216 §G.1: coerce non-numeric to ZERO (mirror the `aggregate` prime). A categorical/text
+      // value that reaches a numeric reference (e.g. a mis-bound attribute) must not crash
+      // `new Decimal()` — it degrades to 0. Korean Test: "non-numeric → 0", no column-name literal.
       const raw = context.metrics[node.field];
-      return raw === undefined || raw === null ? ZERO : toDecimal(raw);
+      if (raw === undefined || raw === null) return ZERO;
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return Number.isFinite(n) ? toDecimal(n) : ZERO;
     }
 
     case 'arithmetic': {

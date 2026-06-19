@@ -1457,7 +1457,7 @@ export async function POST(request: NextRequest) {
         // `continue` remains as defense-in-depth; the `rawValue === null` case below stays a silent
         // per-entity skip on purpose (per-entity data absence, NOT a binding gap — DD-7).
         if (!fieldBinding?.column) continue;
-        const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters);
+        const rawValue = resolveColumnFromBatch(fieldBinding.column, lookupKey, fieldBinding.filters, fieldBinding.reduction);
         if (rawValue === null) continue;
         const scaled = fieldBinding.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
         dagMetrics[field] = scaled;
@@ -1512,8 +1512,8 @@ export async function POST(request: NextRequest) {
         : null;
 
       // HF-227: filters read from the binding entry, not from metric_derivations.
-      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters);
-      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters);
+      const rawNumValue = resolveColumnFromBatch(numBinding.column, lookupKey, numBinding.filters, numBinding.reduction);
+      const rawDenValue = resolveColumnFromBatch(denBinding.column, lookupKey, denBinding.filters, denBinding.reduction);
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1542,7 +1542,7 @@ export async function POST(request: NextRequest) {
     if (actualBinding?.column) {
       // HF-227: filters live on the binding entry (Decision 111 single-
       // structure completion; replaces HF-226's findMetricFilters bridge).
-      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, actualBinding.filters);
+      const rawActualValue = resolveColumnFromBatch(actualBinding.column, lookupKey, actualBinding.filters, actualBinding.reduction);
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1564,7 +1564,7 @@ export async function POST(request: NextRequest) {
       // HF-222 Phase 3: gate on column.
       if (targetBinding?.column) {
         // HF-227: filters read from the binding entry directly.
-        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, targetBinding.filters);
+        const rawTargetValue = resolveColumnFromBatch(targetBinding.column, lookupKey, targetBinding.filters, targetBinding.reduction);
         let targetValue = rawTargetValue;
         if (targetBinding.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
@@ -1610,6 +1610,7 @@ export async function POST(request: NextRequest) {
     column: string,
     entityExternalId: string,
     filters?: MetricDerivationRule['filters'],
+    reduction: string = 'sum',  // OB-216 §2 (Phase 3'): binding-recognised reduction; default flow-sum
   ): number | null {
     // HF-302 (RC-2, DIAG-072): select the batch whose rows actually CARRY `column` (non-null) for this
     // entity — not merely the first batch with ANY rows. After RC-3 an entity can have rows in multiple
@@ -1646,8 +1647,7 @@ export async function POST(request: NextRequest) {
     // is a pure capability addition: callers that don't pass filters get
     // byte-identical behavior to today (Meridian / BCL preserved).
     const hasActiveFilters = Array.isArray(filters) && filters.length > 0;
-    let sum = 0;
-    let found = false;
+    const nums: number[] = [];
     let filteredOut = 0;
     const perRowValues: unknown[] = [];
     for (const rd of entityRows) {
@@ -1659,22 +1659,47 @@ export async function POST(request: NextRequest) {
       perRowValues.push(val);
       if (val === null || val === undefined) continue;
       if (typeof val === 'number') {
-        sum += val;
-        found = true;
+        nums.push(val);
       } else if (typeof val === 'string') {
         const parsed = parseFloat(val.replace(/[,$\s]/g, ''));
-        if (!isNaN(parsed)) {
-          sum += parsed;
-          found = true;
+        if (!isNaN(parsed)) nums.push(parsed);
+      }
+    }
+
+    // OB-216 §2 (Phase 3'): apply the BINDING-RECOGNISED reduction over the entity's rows. Default
+    // 'sum' is byte-identical to pre-OB-216 (a flow / per-transaction amount). 'snapshot'/'last'/
+    // 'first' take a single value — a stock/balance repeated across the entity's rows, where summing
+    // would N× inflate it (the DIAG-073 / Plan-3 Saldo_Pendiente defect). max/min/average/
+    // distinct_count are plan-intent-driven. Deterministic application of the LLM-recognised policy.
+    const found = nums.length > 0;
+    let result = 0;
+    if (found) {
+      switch (reduction) {
+        case 'snapshot': {
+          // OB-216 §2.0 data-shape guard: 'snapshot' means a STOCK value that is INVARIANT across the
+          // entity's rows (a balance/quota repeated per row). Honour it ONLY when the values are
+          // actually all-equal; if they VARY (a flow the recogniser mislabelled from semantics — e.g.
+          // a monthly revenue goal that differs per month), fall back to SUM. This keeps the recognised
+          // reduction from regressing flow / multi-row tenants (BCL) while fixing the MIR stock defect.
+          result = nums.every(n => n === nums[0]) ? nums[0] : nums.reduce((a, b) => a + b, 0);
+          break;
         }
+        case 'last': result = nums[nums.length - 1]; break;
+        case 'first': result = nums[0]; break;
+        case 'max': result = Math.max(...nums); break;
+        case 'min': result = Math.min(...nums); break;
+        case 'average': result = nums.reduce((a, b) => a + b, 0) / nums.length; break;
+        case 'distinct_count': result = new Set(nums).size; break;
+        case 'sum':
+        default: result = nums.reduce((a, b) => a + b, 0); break;
       }
     }
 
     if (shouldEmitTrace(entityExternalId)) {
-      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | rowCount=${entityRows.length} | filteredOut=${filteredOut} | perRowValues=${JSON.stringify(perRowValues)} | sum=${sum} | found=${found} | returned=${found ? sum : 'null'}`);
+      bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=${reduction} | rowCount=${entityRows.length} | filteredOut=${filteredOut} | perRowValues=${JSON.stringify(perRowValues)} | result=${result} | found=${found} | returned=${found ? result : 'null'}`);
     }
 
-    return found ? sum : null;
+    return found ? result : null;
   }
 
   // ── 6. Evaluate each entity using DUAL-PATH: current engine + intent executor ──
@@ -2676,6 +2701,11 @@ export async function POST(request: NextRequest) {
         // HF-238 Phase 3: allEntityRowsForPeriod replaces the pre-computed
         // scopeAggregates surface; the scope prime walks these rows directly.
         allEntityRows: allEntityRowsForPeriod,
+        // OB-216 §2 (Phase 3'): default `activeRows` to the ENTITY'S OWN rows so an UNSCOPED
+        // aggregate (e.g. Plan 3 `sum(Monto_Cobrado)`) operates over the entity's transactions
+        // rather than an empty set → 0. The `scope` prime still OVERRIDES activeRows to peer rows
+        // for hierarchical/override semantics. Korean Test: structural (the entity's rows), no literal.
+        activeRows: entityRowsFlat.map(r => (r.row_data ?? {}) as Record<string, unknown>),
         // HF-211: Route intent-executor [CalcTrace] emissions through buffer (only for traced
         // entities) so they flush after the [CalcRecon] block at handler exit.
         traceCollector: shouldEmitTrace(entityInfo?.external_id ?? entityId) ? bufferTrace : undefined,

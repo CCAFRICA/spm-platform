@@ -21,6 +21,10 @@ export interface ConvergenceBindingEntry {
   confidence?: number;
   // HF-111: Scale factor for percentage columns (e.g., 100 when ratio → percentage).
   scale_factor?: number;
+  // OB-216 §2 (Phase 3'): LLM-recognised reduction over an entity's multiple rows per period —
+  // 'sum' (flow, default) | 'snapshot'/'last'/'first' (stock/balance) | 'max'/'min'/'average'/
+  // 'distinct_count'. Applied deterministically by resolveColumnFromBatch.
+  reduction?: 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count';
   // HF-216: Optional via-join for entity-axis bridging across data_types.
   // When present on entity_identifier binding, the resolver performs a
   // two-stage lookup: entity external_id → roster_field value → measure column.
