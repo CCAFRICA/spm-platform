@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 
-const VALID = new Set(['current', 'bliss']);
+const VALID = new Set(['current', 'bliss', 'vialuce']); // OB-221: third theme
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const theme = body?.theme;
     if (typeof theme !== 'string' || !VALID.has(theme)) {
-      return NextResponse.json({ error: 'theme must be "current" or "bliss"' }, { status: 400 });
+      return NextResponse.json({ error: 'theme must be "current", "bliss", or "vialuce"' }, { status: 400 });
     }
 
     // Merge into preferences for THIS user's profile row(s) only (scoped by auth_user_id).
