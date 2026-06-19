@@ -142,9 +142,37 @@ function rowMatchesPredicate(
  * Boolean primes (compare, logical) return Decimal(1) for true, Decimal(0)
  * for false; conditional treats Decimal > 0 as truthy.
  */
+/** OB-220: is a raw operand value numeric (number, or a numeric-looking non-empty string)? */
+function isNumericRaw(v: unknown): boolean {
+  return typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)));
+}
+
+/**
+ * OB-220: the RAW value of a compare operand, before decimal coercion — so the `compare` case can
+ * detect categorical (string) operands and compare them as values. `constant` → its literal (which
+ * may be a category string the PrimeNode type widens to number); `reference` → the resolved metric
+ * (numeric); any computed sub-tree → its numeric outcome.
+ */
+function rawOperand(node: PrimeNode, context: EvalContext): string | number | null {
+  if (node.prime === 'constant') return node.value;
+  if (node.prime === 'reference') {
+    const raw = context.metrics[node.field];
+    return raw === undefined || raw === null ? null : raw;
+  }
+  return toNumber(evaluate(node, context));
+}
+
 export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
   switch (node.prime) {
     case 'constant': {
+      // OB-220: a non-numeric (categorical) constant — e.g. a category code "ALI" — must not crash
+      // `new Decimal()`. In a numeric context it degrades to 0 (mirror of the `reference` rule); string
+      // constants are compared as RAW values in the `compare` case below. Korean Test: type detection,
+      // not value detection — no column/value literal.
+      const cv = node.value as unknown; // PrimeNode types value as number, but AI intents carry category strings.
+      if (typeof cv === 'string' && (cv.trim() === '' || isNaN(Number(cv)))) {
+        return ZERO;
+      }
       return toDecimal(node.value);
     }
 
@@ -171,6 +199,25 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
     }
 
     case 'compare': {
+      // OB-220: type-aware comparison. A categorical condition (e.g. Categoria == "ALI") routes string
+      // operands here; the prior code passed both through `new Decimal()` and crashed
+      // ([DecimalError] Invalid argument: ALI). Detect non-numeric operands from their RAW values and
+      // do string equality/inequality; ordering operators on strings are not meaningful in compensation
+      // logic (SR-34: structured warning, return false — never crash, never silent wrong-type ordering).
+      // Korean Test: type detection, not value detection.
+      const lRaw = rawOperand(node.inputs[0], context);
+      const rRaw = rawOperand(node.inputs[1], context);
+      if (!isNumericRaw(lRaw) || !isNumericRaw(rRaw)) {
+        const ls = lRaw === null || lRaw === undefined ? '' : String(lRaw);
+        const rs = rRaw === null || rRaw === undefined ? '' : String(rRaw);
+        switch (node.op) {
+          case 'eq':  return ls === rs ? toDecimal(1) : ZERO;
+          case 'neq': return ls !== rs ? toDecimal(1) : ZERO;
+          default:
+            console.warn(`[PrimeDAG] OB-220: ordering operator '${node.op}' on non-numeric operands ('${ls}' vs '${rs}') — returning false`);
+            return ZERO;
+        }
+      }
       // OB-200 Phase 2: scale reconciliation site (single authority per the
       // directive — no scale logic anywhere else in the evaluator). When one
       // side is a constant carrying meta={unit,scale,confidence} and the other
