@@ -1724,7 +1724,10 @@ export function acceptableStructuralTypes(needed: NeededType): Set<string> {
  */
 export function deriveNeededType(field: string, calculationIntent: unknown): NeededType {
   const ARITH_PRIME = new Set(['arithmetic', 'aggregate']);
-  const ARITH_OP = new Set(['multiply', 'subtract', 'divide', 'add', 'sum', 'avg', 'average', 'mean', 'min', 'max', 'count']);
+  const ARITH_OP = new Set(['multiply', 'subtract', 'divide', 'add', 'sum', 'avg', 'average', 'mean', 'min', 'max']);
+  // 'count' is type-agnostic: counting rows by a field works for ANY structuralType (count of
+  // verified-flag rows, count of categories, count of ids). So count → categorical (permissive),
+  // NOT numeric — distinct from sum/avg/min/max which require a numeric measure.
   const CMP = new Set(['compare', 'conditional', 'conditional_gate', 'gate', 'filter', 'predicate']);
   const TEMPORAL = new Set(['temporal', 'date', 'period', 'prior_period']);
   const IDKEY = new Set(['join', 'group', 'grouping', 'groupby', 'lookup', 'key', 'reference_join']);
@@ -1732,6 +1735,7 @@ export function deriveNeededType(field: string, calculationIntent: unknown): Nee
   const classify = (prime?: string, op?: string): NeededType | null => {
     const p = (prime || '').toLowerCase();
     const o = (op || '').toLowerCase();
+    if (o === 'count') return 'categorical';
     if (ARITH_PRIME.has(p) || ARITH_OP.has(o)) return 'numeric';
     if (CMP.has(p) || CMP.has(o)) return 'categorical';
     if (TEMPORAL.has(p) || TEMPORAL.has(o)) return 'temporal';
