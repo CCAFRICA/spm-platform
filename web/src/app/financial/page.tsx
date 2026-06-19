@@ -12,6 +12,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-312
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,7 @@ export default function FinancialLandingPage() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<NetworkPulseData | null>(null);
+  const isVialuce = useIsVialuce(); // HF-312: Vialuce page-template adoption (else-branch unchanged)
 
   // HF-060: Rep persona redirects to their Server Detail page
   useEffect(() => {
@@ -91,6 +93,22 @@ export default function FinancialLandingPage() {
   }
 
   if (!networkMetrics) {
+    // HF-312: Vialuce renders the design-spec .empty state ("never a dead end"); else unchanged.
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="empty">
+            <div className="ic"><Activity className="h-7 w-7" /></div>
+            <b>{isSpanish ? 'Sin Datos Financieros' : 'No Financial Data'}</b>
+            <p>
+              {isSpanish
+                ? 'Importe datos POS a traves de Operar > Importar Paquete de Datos para ver el rendimiento de su red.'
+                : 'Import POS data through Operate > Import Data Package to see your network performance.'}
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6">
         <Card className="max-w-xl mx-auto">
@@ -239,19 +257,33 @@ export default function FinancialLandingPage() {
   }
 
   return (
-    <div className="p-6 space-y-8">
+    // HF-312: Vialuce page frame (.page padding/max-width/center) + .phead header; else unchanged.
+    <div className={isVialuce ? 'page space-y-8' : 'p-6 space-y-8'}>
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Activity className="h-6 w-6 text-primary" />
-          {isSpanish ? 'Finanzas' : 'Financial'}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {currentTenant?.displayName || currentTenant?.name || ''}
-          {' — '}
-          {isSpanish ? 'Resumen de salud de la red' : 'Network health summary'}
-        </p>
-      </div>
+      {isVialuce ? (
+        <div className="phead">
+          <div>
+            <h1>{isSpanish ? 'Finanzas' : 'Financial'}</h1>
+            <div className="sub">
+              {(currentTenant?.displayName || currentTenant?.name || '')}
+              {' — '}
+              {isSpanish ? 'Resumen de salud de la red' : 'Network health summary'}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Activity className="h-6 w-6 text-primary" />
+            {isSpanish ? 'Finanzas' : 'Financial'}
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            {currentTenant?.displayName || currentTenant?.name || ''}
+            {' — '}
+            {isSpanish ? 'Resumen de salud de la red' : 'Network health summary'}
+          </p>
+        </div>
+      )}
 
       {/* SECTION 1: Brand Health Cards */}
       <section>
