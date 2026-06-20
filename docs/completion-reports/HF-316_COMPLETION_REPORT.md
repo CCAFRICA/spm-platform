@@ -90,8 +90,8 @@ English (existing literals reused).
 ---
 
 ## 5. SHA / PR
-Commits: directive `68ac2b61` · Prong 1 `36c319bd` · Prong 2 `ad33abe5` (+ report). PR: (added on creation).
-DO NOT MERGE — SR-44.
+Commits: directive `68ac2b61` · Prong 1 `36c319bd` · Prong 2 `ad33abe5` (+ report).
+**PR #560 — https://github.com/CCAFRICA/spm-platform/pull/560**. DO NOT MERGE — SR-44.
 
 ## 6. ARTIFACT SYNC
 ```
