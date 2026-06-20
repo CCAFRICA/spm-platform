@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-319: branch the inline-dark reference strip
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ import {
 
 export default function DataQualityPage() {
   const { locale } = useLocale();
+  const isVialuce = useIsVialuce();
   const [isScanning, setIsScanning] = useState(false);
 
   const isSpanish = locale === 'es-MX';
@@ -75,7 +77,7 @@ export default function DataQualityPage() {
   return (
     <div className="p-6 space-y-6">
       {/* OB-102 Phase 7: Reference frame */}
-      <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+      <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
         <span>{isSpanish ? 'Escaneo' : 'Scan'}: <span className="text-zinc-200">{scanDate}</span></span>
         <span className="text-zinc-600">|</span>
         <span>{qualityIssues.length} {isSpanish ? 'hallazgos' : 'findings'}</span>
