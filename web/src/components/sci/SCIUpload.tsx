@@ -6,6 +6,7 @@
 import { useCallback, useState, useRef } from 'react';
 import { Upload, FileSpreadsheet, FileText, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 export interface ParsedFileData {
   fileName: string;
@@ -189,6 +190,7 @@ async function parseExcelFile(file: File): Promise<ParsedFileData> {
 }
 
 export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, fileName }: SCIUploadProps) {
+  const isVialuce = useIsVialuce(); // HF-315: SCI upload zone → design-spec .card / file rows / .empty drop zone under Vialuce
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<FileInfo[]>([]);
   const [parsing, setParsing] = useState(false);
@@ -271,6 +273,14 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
 
   // Collapsed state — just show filename
   if (collapsed && fileName) {
+    if (isVialuce) {
+      return (
+        <div className="card" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+          <FileSpreadsheet size={16} style={{ color: 'var(--vl-text-muted)' }} />
+          <span style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{fileName}</span>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
         <FileSpreadsheet className="w-4 h-4 text-zinc-400" />
@@ -281,6 +291,28 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
 
   // Analyzing state — show file info + progress
   if (analyzing && selectedFiles.length > 0) {
+    if (isVialuce) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {selectedFiles.map((file, i) => (
+            <div key={i} className="card" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+              <FileSpreadsheet size={20} style={{ color: 'var(--vialuce-indigo)' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: '13px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{file.name}</p>
+                <p style={{ fontSize: '11.5px', color: 'var(--vl-text-soft)', margin: '2px 0 0' }}>
+                  {formatFileSize(file.size)}
+                  {file.sheetCount > 0 && ` · ${file.sheetCount} sheet${file.sheetCount !== 1 ? 's' : ''}`}
+                </p>
+              </div>
+              <div className="pill open">
+                <Loader2 size={14} className="animate-spin" />
+                {isDocumentFormat(file.name) ? 'Analyzing document...' : 'Understanding your data...'}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         {selectedFiles.map((file, i) => (
@@ -307,6 +339,16 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
 
   // Parsing state
   if (parsing) {
+    if (isVialuce) {
+      return (
+        <div className="card" style={{ marginTop: 0 }}>
+          <div className="empty">
+            <div className="ic"><Loader2 size={28} className="animate-spin" /></div>
+            <b>Reading your file...</b>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center py-20 rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/50">
         <Loader2 className="w-8 h-8 text-zinc-400 animate-spin mb-3" />
@@ -317,6 +359,35 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
 
   // File selected but not yet sent for analysis — show preview
   if (selectedFiles.length > 0 && !analyzing) {
+    if (isVialuce) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {selectedFiles.map((file, i) => (
+            <div key={i} className="card" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+              {isDocumentFormat(file.name) ? (
+                <FileText size={20} style={{ color: 'var(--vl-danger)' }} />
+              ) : (
+                <FileSpreadsheet size={20} style={{ color: 'var(--vl-success)' }} />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: '13px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{file.name}</p>
+                <p style={{ fontSize: '11.5px', color: 'var(--vl-text-soft)', margin: '2px 0 0' }}>
+                  {formatFileSize(file.size)}
+                  {file.sheetCount > 0 && ` · ${file.sheetCount} sheet${file.sheetCount !== 1 ? 's' : ''}`}
+                </p>
+              </div>
+              <button
+                onClick={() => removeFile(i)}
+                className="iact del"
+                style={{ cursor: 'pointer' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         {selectedFiles.map((file, i) => (
@@ -346,6 +417,43 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
   }
 
   // Default: drop zone
+  if (isVialuce) {
+    return (
+      <div
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onClick={onBrowse}
+        className="card"
+        style={{
+          marginTop: 0,
+          cursor: 'pointer',
+          borderStyle: 'dashed',
+          borderWidth: '2px',
+          transition: 'all .2s',
+          ...(isDragOver
+            ? { borderColor: 'var(--vialuce-indigo)', background: 'var(--vl-indigo-50)' }
+            : {}),
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={ACCEPTED_EXTENSIONS.join(',')}
+          onChange={onInputChange}
+          className="hidden"
+        />
+        <div className="empty">
+          <div className="ic"><Upload size={28} /></div>
+          <b>{isDragOver ? 'Drop your file here' : 'Drop a file to get started'}</b>
+          <p>or <span style={{ color: 'var(--vialuce-indigo)' }}>browse</span> to choose</p>
+          <p>Supports XLSX, CSV, TSV, PDF, PPTX, and DOCX</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onDrop={onDrop}

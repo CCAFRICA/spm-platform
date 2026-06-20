@@ -10,6 +10,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import type {
   SCIProposal as SCIProposalType,
   ContentUnitProposal,
@@ -29,6 +30,10 @@ const BADGE_STYLES: Record<string, string> = {
 };
 
 function VerdictBadge({ classification }: { classification: AgentType }) {
+  const isVialuce = useIsVialuce(); // HF-315: classification badge → design-spec .pill under Vialuce
+  if (isVialuce) {
+    return <span className="pill open">{classification}</span>;
+  }
   return (
     <span className={cn(
       'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border',
@@ -92,6 +97,7 @@ function ContentUnitCard({
   unit, originalClassification, rowCount, liveState, isFailed, isExcluded, isConfirmed, busy, canRetry,
   onToggleConfirm, isExpanded, onToggleExpand, onChangeClassification, onRetry, onAssign, onExclude,
 }: ContentUnitCardProps) {
+  const isVialuce = useIsVialuce(); // HF-315: each content unit → design-spec .card; state/verdict chips → .pill
   const isOverridden = originalClassification != null && originalClassification !== unit.classification;
   const [showClassMenu, setShowClassMenu] = useState(false);
   const [showAssign, setShowAssign] = useState(false);
@@ -112,14 +118,25 @@ function ContentUnitCard({
   const graphContradicts = graphImplied != null && graphImplied !== unit.classification;
 
   return (
-    <div className={cn(
-      'border rounded-lg transition-colors',
-      isExcluded ? 'border-zinc-800/50 opacity-40' :
-      isFailed ? 'border-rose-700/40 bg-rose-950/15' :
-      needsReview && !isConfirmed ? 'border-amber-500/30 bg-amber-500/5' :
-      isConfirmed ? 'border-emerald-500/30 bg-emerald-500/5' :
-      'border-zinc-700/50'
-    )}>
+    <div
+      className={isVialuce ? 'card' : cn(
+        'border rounded-lg transition-colors',
+        isExcluded ? 'border-zinc-800/50 opacity-40' :
+        isFailed ? 'border-rose-700/40 bg-rose-950/15' :
+        needsReview && !isConfirmed ? 'border-amber-500/30 bg-amber-500/5' :
+        isConfirmed ? 'border-emerald-500/30 bg-emerald-500/5' :
+        'border-zinc-700/50'
+      )}
+      style={isVialuce ? {
+        marginTop: 0,
+        padding: 0,
+        overflow: 'hidden',
+        ...(isExcluded ? { opacity: 0.5 } : {}),
+        ...(isFailed ? { borderLeft: '3px solid var(--vl-danger)' } :
+          needsReview && !isConfirmed ? { borderLeft: '3px solid var(--vialuce-gold)' } :
+          isConfirmed ? { borderLeft: '3px solid var(--vl-success)' } : {}),
+      } : undefined}
+    >
       <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={onToggleExpand}>
         {/* Checkbox — only confirmable (non-failed, non-excluded) units */}
         <input
@@ -139,17 +156,28 @@ function ContentUnitCard({
 
         {/* D9a: in-progress chip while an action reprocesses (busy until the durable read returns) */}
         {busy ? (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
-            <span className="h-2.5 w-2.5 animate-spin rounded-full border border-indigo-400 border-t-transparent" />
-            Processing…
-          </span>
+          isVialuce ? (
+            <span className="pill open">
+              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-current border-t-transparent" />
+              Processing…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-indigo-400 border-t-transparent" />
+              Processing…
+            </span>
+          )
         ) : isExcluded ? (
           /* D9b: excluded units stay in the list with explicit excluded treatment */
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-600 bg-zinc-700/30 text-zinc-400">Excluded</span>
+          isVialuce
+            ? <span className="pill neutral">Excluded</span>
+            : <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border border-zinc-600 bg-zinc-700/30 text-zinc-400">Excluded</span>
         ) : (
           <>
             {stateKey && STATE_CHIP[stateKey] && (
-              <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', STATE_CHIP[stateKey])}>{STATE_LABEL[stateKey]}</span>
+              isVialuce
+                ? <span className={cn('pill', stateKey === 'failed_interpretation' ? 'danger' : 'success')}>{STATE_LABEL[stateKey]}</span>
+                : <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', STATE_CHIP[stateKey])}>{STATE_LABEL[stateKey]}</span>
             )}
             {!isFailed && <VerdictBadge classification={unit.classification} />}
             {!isFailed && isOverridden && <span className="text-[10px] text-amber-400/70 font-medium">(was {originalClassification})</span>}
@@ -194,25 +222,27 @@ function ContentUnitCard({
       {/* Resolution action set — HOLDS on the failed card (DS-027 §4.4) */}
       {isFailed && !isExcluded && (
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={onToggleExpand} className="rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800">
+          <button type="button" onClick={onToggleExpand} className={isVialuce ? 'btn-sec' : 'rounded border border-zinc-600 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800'}>
             {isExpanded ? 'Hide detail' : 'View detail'}
           </button>
-          <button type="button" onClick={onRetry} disabled={busy || !canRetry} className="rounded border border-indigo-500/40 px-2 py-0.5 text-xs text-indigo-300 hover:bg-indigo-500/10 disabled:opacity-40">
+          <button type="button" onClick={onRetry} disabled={busy || !canRetry} className={isVialuce ? 'btn-pri' : 'rounded border border-indigo-500/40 px-2 py-0.5 text-xs text-indigo-300 hover:bg-indigo-500/10 disabled:opacity-40'} style={isVialuce && (busy || !canRetry) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}>
             {busy ? '…' : 'Retry'}
           </button>
           <div className="relative inline-block">
-            <button type="button" onClick={() => setShowAssign(!showAssign)} disabled={busy} className="rounded border border-violet-500/40 px-2 py-0.5 text-xs text-violet-300 hover:bg-violet-500/10 disabled:opacity-40">
+            <button type="button" onClick={() => setShowAssign(!showAssign)} disabled={busy} className={isVialuce ? 'btn-sec' : 'rounded border border-violet-500/40 px-2 py-0.5 text-xs text-violet-300 hover:bg-violet-500/10 disabled:opacity-40'} style={isVialuce && busy ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}>
               Assign ▾
             </button>
             {showAssign && (
-              <div className="absolute left-0 z-50 mt-1 rounded border border-zinc-700 bg-zinc-800 shadow-xl">
+              <div className={isVialuce ? 'card' : 'absolute left-0 z-50 mt-1 rounded border border-zinc-700 bg-zinc-800 shadow-xl'} style={isVialuce ? { position: 'absolute', left: 0, zIndex: 50, marginTop: 4, padding: 4, minWidth: 120 } : undefined}>
                 {CLASSIFICATIONS.map(c => (
-                  <button key={c} type="button" onClick={() => { setShowAssign(false); onAssign(c); }} className="block w-full px-3 py-1.5 text-left text-xs capitalize text-zinc-200 hover:bg-violet-500/10">{c}</button>
+                  isVialuce
+                    ? <button key={c} type="button" onClick={() => { setShowAssign(false); onAssign(c); }} style={{ display: 'block', width: '100%', padding: '6px 10px', textAlign: 'left', fontSize: '12px', textTransform: 'capitalize', color: 'var(--vl-text)', background: 'none', border: 'none', borderRadius: 'var(--vl-r-sm)', cursor: 'pointer' }}>{c}</button>
+                    : <button key={c} type="button" onClick={() => { setShowAssign(false); onAssign(c); }} className="block w-full px-3 py-1.5 text-left text-xs capitalize text-zinc-200 hover:bg-violet-500/10">{c}</button>
                 ))}
               </div>
             )}
           </div>
-          <button type="button" onClick={onExclude} disabled={busy} className="rounded border border-rose-500/40 px-2 py-0.5 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
+          <button type="button" onClick={onExclude} disabled={busy} className={isVialuce ? 'iact del' : 'rounded border border-rose-500/40 px-2 py-0.5 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40'} style={isVialuce ? { width: 'auto', padding: '0 12px', height: 34, fontSize: '12.5px', ...(busy ? { opacity: 0.4, cursor: 'not-allowed' } : {}) } : undefined}>
             Exclude
           </button>
         </div>
@@ -340,6 +370,7 @@ interface SCIProposalProps {
 }
 
 export function SCIProposalView({ proposal, fileName, rawData, tenantId, storagePaths, onConfirmAll, onCancel }: SCIProposalProps) {
+  const isVialuce = useIsVialuce(); // HF-315: proposal header/footer → design-spec type + .btn-pri/.btn-sec under Vialuce
   const importSessionId = proposal.importSessionId;
 
   const rowCountMap = useMemo(() => {
@@ -469,10 +500,10 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-base font-semibold text-zinc-100">{fileName}</h2>
-        <p className="text-xs text-zinc-500 mt-1">
+        <h2 className={isVialuce ? undefined : 'text-base font-semibold text-zinc-100'} style={isVialuce ? { fontSize: '16px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', margin: 0 } : undefined}>{fileName}</h2>
+        <p className={isVialuce ? undefined : 'text-xs text-zinc-500 mt-1'} style={isVialuce ? { fontSize: '12px', color: 'var(--vl-text-soft)', margin: '4px 0 0' } : undefined}>
           {effectiveUnits.length} content unit{effectiveUnits.length !== 1 ? 's' : ''} detected
-          {failedCount > 0 && <span className="text-rose-400">{' '}· {failedCount} holding at failed interpretation</span>}
+          {failedCount > 0 && <span className={isVialuce ? undefined : 'text-rose-400'} style={isVialuce ? { color: 'var(--vl-danger)' } : undefined}>{' '}· {failedCount} holding at failed interpretation</span>}
         </p>
       </div>
 
@@ -507,17 +538,28 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
       </div>
 
       {/* Footer — D8: enabled with any non-empty selection; label reflects the subset */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
-        <button onClick={confirmAllConfirmable} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-2">
+      <div
+        className={isVialuce ? undefined : 'flex items-center justify-between px-4 py-3 border-t border-zinc-800'}
+        style={isVialuce ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--vl-line)' } : undefined}
+      >
+        <button
+          onClick={confirmAllConfirmable}
+          className={isVialuce ? undefined : 'text-sm text-zinc-500 hover:text-zinc-300 transition-colors underline underline-offset-2'}
+          style={isVialuce ? { fontSize: '13px', color: 'var(--vialuce-indigo)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 } : undefined}
+        >
           Select all{confirmableUnits.length < effectiveUnits.length ? ` (${confirmableUnits.length} importable)` : ''}
         </button>
         <div className="flex items-center gap-3">
-          <button onClick={onCancel} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
+          <button
+            onClick={onCancel}
+            className={isVialuce ? 'btn-sec' : 'text-sm text-zinc-500 hover:text-zinc-300 transition-colors'}
+          >Cancel</button>
           <button
             onClick={handleImport}
             disabled={!canImport}
-            className={cn('px-5 py-2 rounded-lg font-medium text-sm transition-colors',
+            className={isVialuce ? 'btn-pri' : cn('px-5 py-2 rounded-lg font-medium text-sm transition-colors',
               canImport ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed')}
+            style={isVialuce && !canImport ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
           >
             {canImport
               ? `Import ${confirmedRows.toLocaleString()} rows · ${confirmedUnits.length} of ${effectiveUnits.length} units`

@@ -14,6 +14,7 @@
 
 import React from 'react';
 import type { AdminBriefingData, BriefingComponent, BriefingEntity } from '@/lib/data/briefing-loader';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ──────────────────────────────────────────────
 // Lifecycle Stepper
@@ -222,6 +223,138 @@ interface AdminBriefingProps {
 }
 
 export function AdminBriefing({ data, formatCurrency }: AdminBriefingProps) {
+  const isVialuce = useIsVialuce(); // HF-315: admin briefing → design-spec .kpi hero + .card sections + .tbl performers; numbers DM Mono
+
+  // Vialuce: the indigo-gradient hero becomes a white .card with a DM Mono eyebrow + .kpi-val total and
+  // a 4-up .kpi stat grid; each section is a .card with a mono uppercase header; the Top/Attention
+  // performer lists become .tbl tables (td.num for payouts). Inner bars (lifecycle, histogram, component
+  // totals, trend) reuse the existing functions — they read fine under the dark CSS safety net (Prong 1).
+  // The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    const sortedComponents = [...data.componentTotals].sort((a, b) => b.payout - a.payout);
+    const cardHead = (label: string) => (
+      <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 14px' }}>
+        {label}
+      </p>
+    );
+    const performerTable = (entities: BriefingEntity[]) => (
+      <div className="card flush" style={{ marginTop: 0 }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>#</th>
+                <th>Name</th>
+                <th>Branch</th>
+                <th className="r">Payout</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entities.map(e => (
+                <tr key={e.entityId}>
+                  <td className="num mut">{e.rank}</td>
+                  <td className="name" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.displayName}>{e.displayName}</td>
+                  <td className="mut">{e.branch}</td>
+                  <td className="num">{formatCurrency(e.totalPayout)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="space-y-6">
+        {/* 1. System Health Hero */}
+        <div className="kpi" style={{ marginTop: 0, padding: '24px 28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)' }}>System Health</span>
+            <span className="pill neutral">{data.periodLabel}</span>
+          </div>
+          <p className="kpi-val" style={{ fontSize: '40px' }}>{formatCurrency(data.totalPayout)}</p>
+          <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)', marginTop: 4 }}>{data.planName}</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 22 }}>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Entities</p>
+              <p className="kpi-val sm">{data.entityCount}</p>
+            </div>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Average</p>
+              <p className="kpi-val sm">{formatCurrency(data.avgPayout)}</p>
+            </div>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Median</p>
+              <p className="kpi-val sm">{formatCurrency(data.medianPayout)}</p>
+            </div>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Batch</p>
+              <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '12px', color: 'var(--vl-text-muted)', marginTop: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={data.batchId}>{data.batchId.slice(0, 8)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Lifecycle Stepper */}
+        <div className="card" style={{ marginTop: 0 }}>
+          {cardHead('Batch Lifecycle')}
+          <LifecycleStepper currentState={data.lifecycleState} />
+        </div>
+
+        {/* 3. Distribution + 4. Component Totals */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card" style={{ marginTop: 0 }}>
+            {cardHead('Payout Distribution')}
+            <DistributionHistogram distribution={data.distribution} />
+          </div>
+          <div className="card" style={{ marginTop: 0 }}>
+            {cardHead('Component Totals')}
+            {/* Stacked bar reused from inner fn; legend rendered as design-spec .legend */}
+            <div style={{ display: 'flex', height: 16, borderRadius: 'var(--vl-r-pill)', overflow: 'hidden', background: 'var(--vl-line-soft)', marginBottom: 16 }}>
+              {sortedComponents.map(comp => {
+                const pct = data.totalPayout > 0 ? (comp.payout / data.totalPayout) * 100 : 0;
+                return (
+                  <div key={comp.id} style={{ width: `${pct}%`, backgroundColor: comp.color }} title={`${comp.name}: ${formatCurrency(comp.payout)} (${pct.toFixed(1)}%)`} />
+                );
+              })}
+            </div>
+            <div className="legend" style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 9 }}>
+              {sortedComponents.map(comp => {
+                const pct = data.totalPayout > 0 ? (comp.payout / data.totalPayout) * 100 : 0;
+                return (
+                  <div key={comp.id} className="row">
+                    <span className="dot" style={{ backgroundColor: comp.color }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</span>
+                    <span style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-muted)' }}>{formatCurrency(comp.payout)}</span>
+                    <span className="pct" style={{ color: 'var(--vl-text-soft)' }}>{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* 5. Top + Bottom */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card" style={{ marginTop: 0 }}>
+            {cardHead('Top Performers')}
+            {performerTable(data.topPerformers)}
+          </div>
+          <div className="card" style={{ marginTop: 0 }}>
+            {cardHead('Attention Needed')}
+            {performerTable(data.bottomPerformers)}
+          </div>
+        </div>
+
+        {/* 6. System Trend */}
+        <div className="card" style={{ marginTop: 0 }}>
+          {cardHead('Period Trend')}
+          <SystemTrend trend={data.trend} formatCurrency={formatCurrency} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 1. System Health Hero */}

@@ -22,6 +22,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import type { Database } from '@/lib/supabase/database.types';
 
 type CalcResultRow = Database['public']['Tables']['calculation_results']['Row'];
@@ -109,6 +110,7 @@ export function PlanResults({
   batchDate,
   onClose,
 }: PlanResultsProps) {
+  const isVialuce = useIsVialuce(); // OB-221: summary KPIs → .kpi, breakdown → .card .bar, entity table → .card.flush + .tbl, empty → .empty
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<'name' | 'total'>('total');
@@ -167,6 +169,17 @@ export function PlanResults({
   const paginatedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   if (results.length === 0) {
+    if (isVialuce) {
+      return (
+        <div className="card">
+          <div className="empty">
+            <div className="ic"><BarChart3 size={30} /></div>
+            <b>No results yet for this plan.</b>
+            <p>Select a period and calculate to see results.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <Card>
         <CardContent className="py-12 text-center">
@@ -175,6 +188,268 @@ export function PlanResults({
           <p className="text-xs text-zinc-600 mt-1">Select a period and calculate to see results.</p>
         </CardContent>
       </Card>
+    );
+  }
+
+  // Vialuce: header + 3 .kpi cards + breakdown .card with .bar segments + entity table as .card.flush/.tbl.
+  // Numbers in DM Mono via .kpi-val / td.num. The else-branch below is the existing dark rendering, byte-identical.
+  if (isVialuce) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '-.3px', margin: 0 }}>{planName}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--vl-font-mono)', fontSize: 11.5, color: 'var(--vl-text-soft)', marginTop: 6 }}>
+              <span>{entityCount} entities</span>
+              <span style={{ color: 'var(--vl-line)' }}>&middot;</span>
+              <span>{componentTotals.length} components</span>
+              {lifecycleState && (
+                <>
+                  <span style={{ color: 'var(--vl-line)' }}>&middot;</span>
+                  <span className="pill neutral">{lifecycleState}</span>
+                </>
+              )}
+              {batchDate && (
+                <>
+                  <span style={{ color: 'var(--vl-line)' }}>&middot;</span>
+                  <span>{new Date(batchDate).toLocaleDateString()}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="btn-sec">Close</button>
+        </div>
+
+        {/* Summary KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+          <div className="kpi">
+            <div className="kpi-label">Entities</div>
+            <div className="kpi-val">{entityCount.toLocaleString()}</div>
+          </div>
+          <div className="kpi" style={{ ['--accent' as string]: 'var(--vl-success)' }}>
+            <div className="kpi-label">Total</div>
+            <div className="kpi-val" style={{ color: 'var(--vl-success)' }}>{formatCurrency(totalPayout)}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Average</div>
+            <div className="kpi-val">{formatCurrency(avgPayout)}</div>
+          </div>
+        </div>
+
+        {/* Component breakdown */}
+        {componentTotals.length > 0 && (
+          <div className="card">
+            <div className="card-h"><h3>Component Breakdown</h3></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {componentTotals.map(comp => {
+                const pct = totalPayout > 0 ? (comp.total / totalPayout) * 100 : 0;
+                return (
+                  <div key={comp.componentId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 12, color: 'var(--vl-text-muted)', width: 128, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={comp.componentName}>
+                      {comp.componentName}
+                    </span>
+                    <div className="bar" style={{ flex: 1, marginTop: 0 }}>
+                      <i style={{ width: `${pct}%` }} />
+                    </div>
+                    <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 12, color: 'var(--vl-text)', width: 96, textAlign: 'right' }}>
+                      {formatCurrency(comp.total)}
+                    </span>
+                    <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 11, color: 'var(--vl-text-soft)', width: 40, textAlign: 'right' }}>
+                      {pct.toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Entity table */}
+        <div className="card flush">
+          <div className="card-h pad">
+            <h3><Users className="ti" size={18} /> Entity Results</h3>
+            <div style={{ position: 'relative', width: 224 }}>
+              <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', height: 14, width: 14, color: 'var(--vl-text-soft)' }} />
+              <input
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, fontSize: 12, background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }}
+              />
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}></th>
+                  <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('name'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>
+                    ID
+                  </th>
+                  <th>Name</th>
+                  {componentTotals.map(cc => (
+                    <th key={cc.componentId} className="r">{cc.componentName}</th>
+                  ))}
+                  <th className="r" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('total'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRows.map(row => {
+                  const isExpanded = expandedEntity === row.entityId;
+                  return (
+                    <React.Fragment key={row.entityId}>
+                      <tr
+                        style={{ cursor: 'pointer', ...(isExpanded ? { background: '#FBFBFE' } : {}) }}
+                        onClick={() => setExpandedEntity(isExpanded ? null : row.entityId)}
+                      >
+                        <td>
+                          {isExpanded
+                            ? <ChevronDown style={{ height: 14, width: 14, color: 'var(--vl-text-muted)' }} />
+                            : <ChevronRight style={{ height: 14, width: 14, color: 'var(--vl-text-soft)' }} />}
+                        </td>
+                        <td style={{ fontFamily: 'var(--vl-font-mono)', fontWeight: 'var(--vl-fw-med)' as unknown as number }}>
+                          {row.externalId || row.entityId.slice(0, 8)}
+                        </td>
+                        <td className="mut" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.entityName}>
+                          {row.entityName !== row.externalId ? row.entityName : '-'}
+                        </td>
+                        {componentTotals.map(cc => {
+                          const comp = row.components.find(c => c.componentId === cc.componentId);
+                          return (
+                            <td key={cc.componentId} className="num">
+                              {comp ? formatCurrency(comp.outputValue) : '-'}
+                            </td>
+                          );
+                        })}
+                        <td className="num" style={{ fontWeight: 'var(--vl-fw-bold)' as unknown as number }}>
+                          {formatCurrency(row.totalPayout)}
+                        </td>
+                      </tr>
+
+                      {/* Expanded: component drill-down */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={componentTotals.length + 4} style={{ padding: 0 }}>
+                            <div style={{ borderTop: '1px solid var(--vl-line)', background: '#FBFBFE', padding: '16px 32px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                  <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: 0 }}>
+                                    Detail — {row.entityName}
+                                  </p>
+                                  {row.overallAttainment !== null && (
+                                    <span className={cn('pill', row.overallAttainment >= 100 ? 'success' : row.overallAttainment >= 80 ? 'open' : 'danger')}>
+                                      {row.overallAttainment.toFixed(1)}% attainment
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  className="btn-sec"
+                                  onClick={(e) => { e.stopPropagation(); router.push(`/investigate/trace/${row.entityId}?from=calculate`); }}
+                                >
+                                  Full Trace &rarr;
+                                </button>
+                              </div>
+
+                              {row.components.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  {row.components.map(c => {
+                                    const pct = row.totalPayout > 0 ? (c.outputValue / row.totalPayout) * 100 : 0;
+                                    const hasDetail = c.goal !== undefined || c.actual !== undefined || c.attainment !== undefined || c.formula;
+                                    const hasMetrics = c.metrics && Object.keys(c.metrics).length > 0;
+                                    return (
+                                      <div key={c.componentId} style={{ borderRadius: 'var(--vl-r-md)', border: '1px solid var(--vl-line)', background: 'var(--vl-surface)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                          <span style={{ fontSize: 12, fontWeight: 'var(--vl-fw-med)' as unknown as number, width: 128, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.componentName}>
+                                            {c.componentName}
+                                          </span>
+                                          <div className="bar" style={{ flex: 1, marginTop: 0 }}>
+                                            <i style={{ width: `${pct}%` }} />
+                                          </div>
+                                          <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 12, fontWeight: 'var(--vl-fw-med)' as unknown as number, width: 80, textAlign: 'right' }}>
+                                            {formatCurrency(c.outputValue)}
+                                          </span>
+                                          <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 11, color: 'var(--vl-text-soft)', width: 40, textAlign: 'right' }}>
+                                            {pct.toFixed(0)}%
+                                          </span>
+                                        </div>
+
+                                        {hasDetail && (
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 20, rowGap: 4, paddingLeft: 4, fontSize: 12 }}>
+                                            {c.componentType && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Type: <span style={{ color: 'var(--vl-text)' }}>{c.componentType}</span></span>
+                                            )}
+                                            {c.goal !== undefined && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Goal: <span style={{ color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>{c.goal.toLocaleString()}</span></span>
+                                            )}
+                                            {c.actual !== undefined && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Actual: <span style={{ color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>{c.actual.toLocaleString()}</span></span>
+                                            )}
+                                            {c.attainment !== undefined && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Attainment: <span style={{ fontFamily: 'var(--vl-font-mono)', color: c.attainment >= 100 ? 'var(--vl-success)' : 'var(--vialuce-gold)' }}>{c.attainment.toFixed(1)}%</span></span>
+                                            )}
+                                            {c.rate !== undefined && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Rate: <span style={{ color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>{(c.rate * 100).toFixed(1)}%</span></span>
+                                            )}
+                                            {c.formula && (
+                                              <span style={{ color: 'var(--vl-text-soft)' }}>Formula: <span style={{ color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>{c.formula}</span></span>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {hasMetrics && (
+                                          <div style={{ paddingLeft: 4, paddingTop: 4, borderTop: '1px solid var(--vl-line-soft)' }}>
+                                            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', marginBottom: 4 }}>Metrics</p>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 16, rowGap: 4, fontSize: 12 }}>
+                                              {Object.entries(c.metrics!).map(([key, val]) => (
+                                                <span key={key} style={{ color: 'var(--vl-text-soft)' }}>
+                                                  {key}: <span style={{ color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' }}>
+                                                    {typeof val === 'number' ? val.toLocaleString() : String(val)}
+                                                  </span>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p style={{ fontSize: 12, color: 'var(--vl-text-soft)' }}>No component details available.</p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid var(--vl-line)' }}>
+              <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 11, color: 'var(--vl-text-soft)', margin: 0 }}>
+                {(currentPage - 1) * pageSize + 1}&ndash;{Math.min(currentPage * pageSize, filteredRows.length)} of {filteredRows.length}
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="iact" style={{ opacity: currentPage <= 1 ? 0.3 : 1, cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}>
+                  <ArrowLeft style={{ height: 14, width: 14 }} />
+                </button>
+                <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 11, color: 'var(--vl-text-soft)' }}>{currentPage}/{totalPages}</span>
+                <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)} className="iact" style={{ opacity: currentPage >= totalPages ? 0.3 : 1, cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}>
+                  <ArrowRight style={{ height: 14, width: 14 }} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 

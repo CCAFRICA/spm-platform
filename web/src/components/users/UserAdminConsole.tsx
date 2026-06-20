@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 import { Users, Search, UserPlus, MoreHorizontal } from 'lucide-react';
 import { HierarchyReviewPanel } from '@/components/users/HierarchyReviewPanel';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface ApiUser {
   id: string; displayName: string; email: string; role: string; status: string;
@@ -41,6 +42,7 @@ const CRED_BADGE: Record<string, string> = {
 };
 
 export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
+  const isVialuce = useIsVialuce(); // OB-221: directory + roster → .card / .card.flush + .tbl, credential state → .pill, empty → .empty
   const isPlatform = scope === 'platform';
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [roster, setRoster] = useState<RosterEntity[]>([]);
@@ -112,6 +114,163 @@ export function UserAdminConsole({ scope }: { scope: 'tenant' | 'platform' }) {
     const r = roleFilter === 'all' || u.role === roleFilter;
     return s && r;
   }).sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email)), [users, search, roleFilter]);
+
+  // OB-221 / HF-315: under Vialuce render directory + roster as design-spec cards (.card / .card.flush + .tbl),
+  // credential state as .pill, empty/loading as .empty. Shadcn primitives (Select / Dropdown / Dialog /
+  // AlertDialog) and all action handlers are reused unchanged. The else-branch below is byte-identical dark.
+  const CRED_PILL: Record<string, string> = { active: 'success', invited: 'open', disabled: 'neutral' };
+  if (isVialuce) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ fontSize: 23, fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '-.3px', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}><Users size={22} />{isPlatform ? 'Platform Users' : 'Users'}</h1>
+            <p style={{ fontSize: 13.5, color: 'var(--vl-text-muted)', marginTop: 4 }}>{isPlatform ? 'Manage users across every tenant.' : 'Manage platform access for your workspace.'}</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {isPlatform && (
+              <Select value={selectedTenant || 'all'} onValueChange={v => setSelectedTenant(v === 'all' ? '' : v)}>
+                <SelectTrigger className="w-[200px]"><SelectValue placeholder="All tenants" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All tenants</SelectItem>
+                  {tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            <InviteDialog scope={scope} tenants={tenants} selectedTenant={selectedTenant} open={inviteOpen} setOpen={setInviteOpen} onDone={load} />
+          </div>
+        </div>
+
+        <div className="card flush">
+          <div className="card-h pad">
+            <div>
+              <h3>User Directory</h3>
+              <div className="csub">{filtered.length} of {users.length} users</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--vl-line-soft)' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', height: 14, width: 14, color: 'var(--vl-text-soft)' }} />
+              <input placeholder="Search by name or email..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7, fontSize: 12.5, background: 'var(--vl-bg)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }} />
+            </div>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="All roles" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                {(isPlatform ? ['platform', ...TENANT_ROLES] : TENANT_ROLES).map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {loading ? <div className="empty"><b>Loading users…</b></div>
+            : filtered.length === 0 ? (
+              <div className="empty">
+                <div className="ic"><Users size={30} /></div>
+                <b>{users.length === 0 ? 'No users for this scope.' : 'No users match your filters.'}</b>
+              </div>
+            )
+            : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="tbl">
+                <thead><tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>State</th>
+                  <th>Linked entity</th>
+                  <th>Last sign-in</th>
+                  <th style={{ width: 40 }}></th>
+                </tr></thead>
+                <tbody>
+                  {filtered.map(u => (
+                    <tr key={u.id}>
+                      <td className="name">{u.displayName || '—'}</td>
+                      <td className="mut">{u.email}</td>
+                      <td>
+                        {u.role === 'platform' ? <span className="pill open">platform</span>
+                          : <Select defaultValue={u.role} onValueChange={v => changeRole(u, v)}>
+                              <SelectTrigger className="w-[120px] h-7 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>{TENANT_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>)}</SelectContent>
+                            </Select>}
+                      </td>
+                      <td><span className={`pill ${CRED_PILL[u.credentialState] || 'neutral'}`}>{u.credentialState}</span></td>
+                      <td className="mut">{u.linkedEntity ? `${u.linkedEntity.displayName}${u.linkedEntity.externalId ? ` (${u.linkedEntity.externalId})` : ''}` : <span style={{ color: 'var(--vl-text-soft)' }}>—</span>}</td>
+                      <td className="mut">{u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleDateString() : <span style={{ color: 'var(--vl-text-soft)' }}>never</span>}</td>
+                      <td>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => reset(u)}>Send password reset (F4)</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => sendCred(u, 'invite_resend')}>Resend invite (F9)</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => sendCred(u, 'magiclink')}>Send sign-in link (F9)</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => toggle(u)}>{u.credentialState === 'disabled' ? 'Enable (F6)' : 'Disable (F6)'}</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled={u.credentialState !== 'disabled'} className="text-rose-400 focus:text-rose-300" onClick={() => setEraseTarget(u)}>Erase (F10)</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* F7/F11 roster — entities without platform access (multi-select bulk promote) */}
+        {roster.length > 0 && (
+          <div className="card">
+            <div className="card-h">
+              <div>
+                <h3>Entities without platform access</h3>
+                <div className="csub">{roster.length} roster {roster.length === 1 ? 'entity' : 'entities'} not yet linked to a user — select and promote to grant access (F7/F11).</div>
+              </div>
+              {picked.size > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--vl-text-soft)' }}>{picked.size} selected as</span>
+                  <Select value={bulkRole} onValueChange={setBulkRole}>
+                    <SelectTrigger className="w-[110px] h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{TENANT_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <button className="btn-pri" onClick={bulkPromote}>Promote {picked.size}</button>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {roster.slice(0, 100).map(e => (
+                <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 12, borderRadius: 'var(--vl-r-sm)', border: '1px solid var(--vl-line)', padding: '8px 12px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={picked.has(e.id)} onChange={() => togglePick(e.id)} style={{ accentColor: 'var(--vialuce-indigo)' }} />
+                  <span style={{ fontSize: 13, color: 'var(--vl-text)', flex: 1 }}>{e.displayName}{e.externalId ? <span style={{ color: 'var(--vl-text-soft)', marginLeft: 4 }}>({e.externalId})</span> : null}</span>
+                  <PromoteButton entity={e} tenantId={(isPlatform ? selectedTenant : '') || e.tenantId || ''} onDone={load} />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* F.3 hierarchy review — tenant scope */}
+        {!isPlatform && <HierarchyReviewPanel />}
+
+        {/* F10 erase confirmation */}
+        <AlertDialog open={!!eraseTarget} onOpenChange={o => { if (!o) setEraseTarget(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Erase this user?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This is irreversible. <b>Destroyed:</b> sign-in identity, name, and email (anonymized).{' '}
+                <b>Retained (tombstone):</b> the uuid row and audit history, with all PII nulled — required for compliance. The user can no longer authenticate.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction className="bg-rose-600 hover:bg-rose-500" onClick={() => { if (eraseTarget) void erase(eraseTarget); setEraseTarget(null); }}>Erase permanently</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">

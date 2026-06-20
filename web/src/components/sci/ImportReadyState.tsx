@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, XCircle, ArrowRight, Upload, AlertTriangle, RotateCcw, MinusCircle, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
 import type { SessionStateView, UnitStateView, ImportTelemetry } from '@/lib/sci/comprehension-state-service';
@@ -36,7 +37,15 @@ interface ImportReadyStateProps {
 type Disposition = 'imported' | 'failed' | 'excluded' | 'resolved';
 interface CompletionRow { key: string; sheetName: string; disposition: Disposition; rows: number; classification?: AgentType; reason?: string | null; }
 
-function Conclusion({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Conclusion({ label, value, accent, isVialuce }: { label: string; value: string; accent?: boolean; isVialuce?: boolean }) {
+  if (isVialuce) {
+    return (
+      <div style={{ padding: '2px 0' }}>
+        <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '14px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: accent ? 'var(--vl-success)' : 'var(--vl-text)', margin: 0 }}>{value}</p>
+        <p style={{ fontSize: '11px', color: 'var(--vl-text-soft)', margin: '1px 0 0' }}>{label}</p>
+      </div>
+    );
+  }
   return (
     <div className="py-0.5">
       <p className={cn('text-sm tabular-nums', accent ? 'text-emerald-300 font-medium' : 'text-zinc-200')}>{value}</p>
@@ -59,6 +68,7 @@ export function ImportReadyState({
   results, totalRowsCommitted, tenantId, importSessionId, planName, componentCount, sourceDateRange,
   onNavigateToCalculate, onImportMore, onRetryFailed,
 }: ImportReadyStateProps) {
+  const isVialuce = useIsVialuce(); // HF-315: import-complete summary → design-spec KPIs / session .tbl / .insight banners under Vialuce
   const router = useRouter();
   const [sessionUnits, setSessionUnits] = useState<UnitStateView[] | null>(null);
   const [telemetry, setTelemetry] = useState<ImportTelemetry | null>(null);
@@ -134,6 +144,217 @@ export function ImportReadyState({
     excluded: { label: 'excluded', cls: 'border-zinc-600 bg-zinc-700/30 text-zinc-400' },
     resolved: { label: 'resolved — not committed', cls: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' },
   };
+
+  // Vialuce: the import-complete screen becomes design-spec surfaces — a header .card with KPI stat boxes,
+  // the truthful session listing as a .card.flush + .tbl with .pill dispositions, the reconciliation flag and
+  // the carrier briefing as gold .insight banners, telemetry conclusions in DM Mono. Strings/handlers reused.
+  if (isVialuce) {
+    const DISPO_PILL: Record<Exclude<Disposition, 'imported'>, { label: string; cls: string }> = {
+      failed: { label: DISPO_CHIP.failed.label, cls: 'pill danger' },
+      excluded: { label: DISPO_CHIP.excluded.label, cls: 'pill neutral' },
+      resolved: { label: DISPO_CHIP.resolved.label, cls: 'pill success' },
+    };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        {/* Header card + KPI stat boxes */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            {notImportedRows.length > 0
+              ? <AlertTriangle size={20} style={{ color: 'var(--vialuce-gold)' }} />
+              : <Check size={20} style={{ color: 'var(--vl-success)' }} />}
+            <h2 style={{ fontSize: '16px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', margin: 0 }}>{title}</h2>
+          </div>
+
+          <div style={{ display: 'grid', gap: 16, gridTemplateColumns: `repeat(${(hasPlan ? 1 : 0) + (sourceDateRange ? 1 : 0) + 1}, minmax(0, 1fr))`, marginBottom: 20 }}>
+            <div className="kpi">
+              <div className="kpi-label">Records imported</div>
+              <div className="kpi-val">{committedRows.toLocaleString()}</div>
+            </div>
+            {sourceDateRange && (
+              <div className="kpi">
+                <div className="kpi-label">Source date range</div>
+                <div className="kpi-val sm">{sourceDateRange.min} — {sourceDateRange.max}</div>
+              </div>
+            )}
+            {hasPlan && (
+              <div className="kpi">
+                <div className="kpi-label">Components</div>
+                <div className="kpi-val">{componentCount != null ? componentCount.toString() : '—'}</div>
+              </div>
+            )}
+          </div>
+
+          {(hasPlan || sourceDateRange) && (
+            <>
+              <div style={{ height: 1, background: 'var(--vl-line)', margin: '0 0 16px' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                {hasPlan && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--vl-text-soft)' }}>Plan</span>
+                    <span style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{planName}</span>
+                  </div>
+                )}
+                {sourceDateRange && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--vl-text-soft)' }}>Source dates</span>
+                    <span style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{sourceDateRange.min} through {sourceDateRange.max}</span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Session summary (truthful) */}
+          <div style={{ height: 1, background: 'var(--vl-line)', margin: '0 0 12px' }} />
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', letterSpacing: '.6px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 12px' }}>
+            Session — {importedCount} of {total} units imported · {committedRows.toLocaleString()} rows
+            {notImportedRows.length > 0 && ` · ${notImportedRows.length} not imported`}
+          </p>
+          <div className="card flush" style={{ marginTop: 0 }}>
+            <table className="tbl">
+              <tbody>
+                {importedRows.map(r => (
+                  <tr key={r.key}>
+                    <td style={{ width: 28 }}>
+                      <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', background: 'var(--vl-success-50)' }}>
+                        <Check size={11} style={{ color: 'var(--vl-success)' }} />
+                      </span>
+                    </td>
+                    <td className="name">{r.sheetName}</td>
+                    <td className="mut">{r.classification ? CLASSIFICATION_LABELS[r.classification] : ''}</td>
+                    <td className="num">{r.rows > 0 ? `${r.rows.toLocaleString()} rows` : 'Acknowledged'}</td>
+                  </tr>
+                ))}
+                {notImportedRows.map(r => {
+                  const pill = DISPO_PILL[r.disposition as Exclude<Disposition, 'imported'>];
+                  return (
+                    <tr key={r.key}>
+                      <td style={{ width: 28 }}>
+                        {r.disposition === 'failed'
+                          ? <XCircle size={14} style={{ color: 'var(--vl-danger)' }} />
+                          : <MinusCircle size={14} style={{ color: 'var(--vl-text-soft)' }} />}
+                      </td>
+                      <td className="mut" style={r.disposition === 'excluded' ? { textDecoration: 'line-through' } : undefined}>
+                        {r.sheetName}
+                        {r.reason && <span style={{ display: 'block', fontSize: '11px', color: 'var(--vl-text-soft)', marginTop: 2 }}>{r.reason.replace(/_/g, ' ')}</span>}
+                      </td>
+                      <td><span className={pill.cls}>{pill.label}</span></td>
+                      <td className="num mut">not committed</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {auditVerdict?.divergent && (
+            <div className="insight" style={{ marginTop: 16, marginBottom: 0 }}>
+              <span className="spark"><AlertTriangle size={17} /></span>
+              <div>
+                <div className="lbl">TELEMETRY RECONCILIATION</div>
+                <p style={{ fontSize: '12.5px', color: 'var(--vl-text-muted)', margin: 0 }}>
+                  Telemetry reconciliation: the settle audit found {auditVerdict.fields?.length ?? 0} field
+                  {(auditVerdict.fields?.length ?? 0) === 1 ? '' : 's'} where the live counters diverged from
+                  scanned truth ({(auditVerdict.fields ?? []).join(', ')}). Scanned truth is recorded on the
+                  session record for review.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {telemetry && (
+            <>
+              <div style={{ height: 1, background: 'var(--vl-line)', margin: '24px 0' }} />
+              <div className="card" style={{ marginTop: 0, background: 'var(--vl-bg)' }}>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 12px' }}>What just happened</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+                  <div>
+                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-success)', margin: '0 0 6px' }}>Memory saved</p>
+                    <Conclusion isVialuce label="LLM calls bypassed" value={`${telemetry.llm.bypassedByMemory}`} accent={telemetry.llm.bypassedByMemory > 0} />
+                    <Conclusion isVialuce label="Atoms recalled" value={telemetry.atoms.claimedFromMemory.toLocaleString()} />
+                    <Conclusion isVialuce label="Bindings injected" value={`${telemetry.fieldBindingsInjected}`} />
+                  </div>
+                  <div>
+                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vialuce-indigo)', margin: '0 0 6px' }}>Learned</p>
+                    <Conclusion isVialuce label="Atoms (novel)" value={telemetry.atoms.novelComprehended.toLocaleString()} />
+                    <Conclusion isVialuce label="Fingerprints stored" value={`${telemetry.fingerprints.storedNew}`} />
+                    <Conclusion isVialuce label="Signals captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+                  </div>
+                  <div>
+                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 6px' }}>Cost</p>
+                    <Conclusion isVialuce label="LLM calls made" value={`${telemetry.llm.made}`} />
+                    <Conclusion isVialuce label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
+                    <Conclusion isVialuce label="Pulses" value={`${telemetry.pulses.committed}`} />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {results.some(r => !r.success) && onRetryFailed && (
+            <div style={{ marginTop: 16 }}>
+              <button onClick={onRetryFailed} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '13px', color: 'var(--vialuce-gold)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <RotateCcw size={14} /> Retry failed items
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Carrier intelligence briefing → gold insight */}
+        {carrier && (
+          <div className="insight" style={{ marginBottom: 0, flexDirection: 'column' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span className="spark"><Activity size={17} /></span>
+              <div style={{ flex: 1 }}>
+                <div className="lbl">CARRIER INTELLIGENCE</div>
+                <p style={{ fontSize: '14px', color: 'var(--vl-text)', margin: 0 }}>
+                  {carrier.dataSnapshot.totalRows.toLocaleString()} rows · {carrier.entities.total.toLocaleString()} entit{carrier.entities.total !== 1 ? 'ies' : 'y'} · {carrier.dataSnapshot.contentUnits.length} content unit{carrier.dataSnapshot.contentUnits.length !== 1 ? 's' : ''}
+                </p>
+                {(() => {
+                  const note = confidenceNote(carrier.classification.avgConfidence);
+                  return note ? <p style={{ fontSize: '12px', color: 'var(--vl-text-muted)', margin: '4px 0 0' }}>{carrier.classification.avgConfidence}% — {note.label}</p> : null;
+                })()}
+                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {(() => {
+                    const r = carrier.pipelineReadiness;
+                    if (r.hasPlan && r.hasBindings) {
+                      return <button onClick={onNavigateToCalculate} className="btn-pri">Calculate <ArrowRight size={16} /></button>;
+                    }
+                    if (!r.hasPlan) {
+                      return <button onClick={() => router.push('/operate/import')} className="btn-pri">Upload Plan <ArrowRight size={16} /></button>;
+                    }
+                    return <button onClick={() => router.push('/operate/calculate')} className="btn-pri">Review Bindings <ArrowRight size={16} /></button>;
+                  })()}
+                  <button onClick={() => router.push('/stream')} style={{ fontSize: '13px', color: 'var(--vialuce-indigo)', background: 'none', border: 'none', cursor: 'pointer' }}>View in Stream &rarr;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Actions — plan-aware */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button onClick={onImportMore} className="btn-sec">
+            <Upload size={16} /> Import more data
+          </button>
+          {hasPlan && (
+            <button onClick={onNavigateToCalculate} disabled={!calculateReady} className="btn-pri" style={!calculateReady ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}>
+              Go to Calculate <ArrowRight size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Guidance — plan-aware next action */}
+        <div style={{ fontSize: '12px', color: 'var(--vl-text-soft)', textAlign: 'center' }}>
+          {!hasData
+            ? 'No data imported. Import data to enable calculation.'
+            : !hasPlan
+              ? 'Imported data is saved. A plan is needed before calculation — configure one to continue.'
+              : 'Import complete. Go to Calculate to run calculations, or import additional data.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
