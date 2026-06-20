@@ -556,15 +556,29 @@ html[data-theme="vialuce"] {
      1a) shadcn tokens consumed via oklch(var(--token)/α) in tailwind.config. Vialuce shares the
          bliss indigo+gold brand family, so these mirror the proven bliss light values (architect
          verifies the rendered result per R2 Verification Model). */
-  --background:0.97 0.005 280; --foreground:0.24 0.11 274;
+  /* HF-319 ROOT-CAUSE FIX (Cause A — semantic-token values): the shadcn token classes
+     bg-background / bg-muted / border-border / border-input resolve straight to oklch(var(--token))
+     and are NOT reachable by the HF-313/316/317/318 utility-class safety net (which only targets
+     bg-zinc/slate/gray neutral palettes). Their values here were DESATURATED COOL-GRAY (chroma
+     ~.005-.008, hue 280) → they rendered gray on the light Vialuce surface, on every page that
+     uses a shadcn Card/Badge/muted-panel/border. Retuned to the design-spec indigo-tinted lights.
+     A token-value edit is GLOBAL — one place re-colors every consumer. Before → after (hex):
+       --background 0.97 0.005 280  #F4F4F7 gray  →  0.9711 0.0081 278.6  #F4F5FB (--vl-bg)
+       --muted      0.95 0.008 280  #EAEBEE gray  →  0.9594 0.0094 279.7  #F0F1F8 (--vl-line-soft)
+       --border     0.93 0.008 280  #E6E6EB gray  →  0.9381 0.0123 276.1  #E8EAF3 (--vl-line)
+       --input      0.93 0.008 280  #E6E6EB gray  →  0.9381 0.0123 276.1  #E8EAF3 (--vl-line)
+     Unchanged: --card/--popover (1 0 0 = #FFFFFF, already correct), --accent (gold signal),
+     --secondary (already indigo-tinted, acceptable). Scoped to html[data-theme="vialuce"] only —
+     Dark/Bliss token blocks are separate and untouched. */
+  --background:0.9711 0.0081 278.6; --foreground:0.24 0.11 274;
   --card:1 0 0; --card-foreground:0.24 0.11 274;
   --popover:1 0 0; --popover-foreground:0.24 0.11 274;
   --primary:0.40 0.16 274; --primary-foreground:1 0 0;
   --secondary:0.97 0.025 274; --secondary-foreground:0.34 0.16 274;
-  --muted:0.95 0.008 280; --muted-foreground:0.50 0.04 274;
+  --muted:0.9594 0.0094 279.7; --muted-foreground:0.50 0.04 274;
   --accent:0.79 0.14 76; --accent-foreground:0.24 0.11 274;
   --destructive:0.58 0.20 25; --destructive-foreground:1 0 0;
-  --border:0.93 0.008 280; --input:0.93 0.008 280; --ring:0.79 0.14 76;
+  --border:0.9381 0.0123 276.1; --input:0.9381 0.0123 276.1; --ring:0.79 0.14 76;
   --chart-1:0.34 0.16 274; --chart-2:0.45 0.15 274; --chart-3:0.58 0.13 274; --chart-4:0.70 0.10 274; --chart-5:0.79 0.14 76;
   --radius:0.625rem;
   /* 1b) design-system tokens (hex) consumed directly by the scoped Vialuce components */

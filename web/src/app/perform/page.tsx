@@ -433,6 +433,10 @@ interface FinancialOnlyProps {
 }
 
 function FinancialOnlyPerformance({ data, isSpanish, formatCurrency, onNavigate }: FinancialOnlyProps) {
+  // HF-319 Surface-C class (inline dark cards bypass the CSS net) — the FinancialOnly stat cards
+  // carried unbranched rgba(24,24,27) backgrounds → gray under Vialuce. Branch to white .card.
+  // (Hook must precede the early return below — rules-of-hooks.)
+  const isVialuce = useIsVialuce();
   if (!data) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -457,7 +461,10 @@ function FinancialOnlyPerformance({ data, isSpanish, formatCurrency, onNavigate 
           <div
             key={stat.label}
             className="rounded-lg px-5 py-4"
-            style={{
+            style={isVialuce ? {
+              background: stat.alert ? 'var(--vl-gold-50)' : 'var(--vl-surface)',
+              border: stat.alert ? '1px solid var(--vialuce-gold)' : '1px solid var(--vl-line)',
+            } : {
               background: stat.alert ? 'rgba(245, 158, 11, 0.08)' : 'rgba(24, 24, 27, 0.5)',
               border: stat.alert ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(63, 63, 70, 1)',
             }}

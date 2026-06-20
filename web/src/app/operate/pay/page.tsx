@@ -124,7 +124,7 @@ function PayPageInner() {
     <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
       {/* OB-102 Phase 7: Reference frame */}
       {latestBatch && (
-        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           <span>{displaySpanish ? 'Periodo' : 'Period'}: <span className="text-zinc-200">{cycleState?.periodLabel ?? '—'}</span></span>
           <span className="text-zinc-600">|</span>
           <span>{entityCount} {displaySpanish ? 'entidades' : 'entities'}</span>
@@ -137,7 +137,7 @@ function PayPageInner() {
 
       {/* OB-102 Phase 7: Commentary */}
       {payCommentary && (
-        <div className="rounded-xl px-5 py-3" style={{ background: 'rgba(24, 24, 27, 0.6)', border: '1px solid rgba(39, 39, 42, 0.4)' }}>
+        <div className="rounded-xl px-5 py-3" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)' } : { background: 'rgba(24, 24, 27, 0.6)', border: '1px solid rgba(39, 39, 42, 0.4)' }}>
           <p className="text-sm text-zinc-400 leading-relaxed">{payCommentary}</p>
         </div>
       )}

@@ -550,7 +550,7 @@ function ResultsDashboardPageInner() {
       <InsightNarrative narrative={insight} />
 
       {/* Reference Frame — context banner */}
-      <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+      <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', boxShadow: 'var(--vl-sh-1)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
         <div className="flex items-center gap-4 text-xs text-zinc-400">
           {selectedBatch && (
             <>
@@ -573,25 +573,23 @@ function ResultsDashboardPageInner() {
 
       {/* L5: Outcome Summary — Hero + Compact Stats + Distribution */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
-        {/* Hero: Total Payout */}
-        <div className="lg:col-span-5 rounded-2xl p-6" style={{ background: 'linear-gradient(to bottom right, rgba(79, 70, 229, 0.8), rgba(109, 40, 217, 0.8))', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
-          <p className="text-xs text-indigo-200/70 uppercase tracking-wider mb-1">Total Payout</p>
-          <div className="text-3xl font-bold text-white">
+        {/* Hero: Total Payout — HF-319 Surface C: inline dark-indigo gradient (no JS branch) rendered
+            dark under Vialuce because inline styles bypass the CSS net. Convert to a white .card with an
+            indigo accent (DM Mono indigo number) under Vialuce; dark gradient unchanged for Dark/Bliss. */}
+        <div className="lg:col-span-5 rounded-2xl p-6" style={isVialuce
+          ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', borderLeft: '3px solid var(--vl-kpi-accent)', boxShadow: 'var(--vl-sh-1)' }
+          : { background: 'linear-gradient(to bottom right, rgba(79, 70, 229, 0.8), rgba(109, 40, 217, 0.8))', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+          <p className={isVialuce ? 'text-xs uppercase tracking-wider mb-1' : 'text-xs text-indigo-200/70 uppercase tracking-wider mb-1'} style={isVialuce ? { color: 'var(--vl-text-soft)', fontFamily: 'var(--vl-font-mono)' } : undefined}>Total Payout</p>
+          <div className="text-3xl font-bold text-white" style={isVialuce ? { color: 'var(--vl-kpi-accent)', fontFamily: 'var(--vl-font-mono)' } : undefined}>
             <AnimatedNumber value={totalPayout} prefix="$" decimals={0} />
           </div>
           <div className="mt-4 grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-[10px] text-indigo-200/50 uppercase">Entities</p>
-              <p className="text-sm font-semibold text-white">{entityCount.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-indigo-200/50 uppercase">Mean</p>
-              <p className="text-sm font-semibold text-white">{formatCurrency(avgPayout)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-indigo-200/50 uppercase">Median</p>
-              <p className="text-sm font-semibold text-white">{stats ? formatCurrency(stats.median) : '-'}</p>
-            </div>
+            {[{ l: 'Entities', v: entityCount.toLocaleString() }, { l: 'Mean', v: formatCurrency(avgPayout) }, { l: 'Median', v: stats ? formatCurrency(stats.median) : '-' }].map(s => (
+              <div key={s.l}>
+                <p className="text-[10px] text-indigo-200/50 uppercase" style={isVialuce ? { color: 'var(--vl-text-soft)' } : undefined}>{s.l}</p>
+                <p className="text-sm font-semibold text-white" style={isVialuce ? { color: 'var(--vl-text)', fontFamily: 'var(--vl-font-mono)' } : undefined}>{s.v}</p>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -600,7 +598,7 @@ function ResultsDashboardPageInner() {
             For a population view we show payout-vs-mean (the correct regime-1/population representation —
             never empty), and a regime legend. Attainment-vs-target distribution renders only where the
             engine persists per-component attainment (R2). */}
-        <div className="lg:col-span-4 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="lg:col-span-4 rounded-2xl p-5" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', boxShadow: 'var(--vl-sh-1)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           {(() => {
             // OB-208 D-1: prefer a regime-3 ATTAINMENT distribution (actual÷target via the canonical
             // binding — now computable); fall back to payout-vs-mean for regime-1/population.
@@ -631,7 +629,7 @@ function ResultsDashboardPageInner() {
         </div>
 
         {/* Deterministic Commentary */}
-        <div className="lg:col-span-3 rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="lg:col-span-3 rounded-2xl p-5" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', boxShadow: 'var(--vl-sh-1)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           <p className="text-xs text-zinc-400 uppercase tracking-wider mb-3">Assessment</p>
           <div className="space-y-2 text-sm text-zinc-300 leading-relaxed">
             {resultCommentary.map((line, i) => (
@@ -798,7 +796,7 @@ function ResultsDashboardPageInner() {
 
       {/* Component Breakdown — BenchmarkBar (comparison) */}
       {componentTotals.length > 0 && (
-        <div className="rounded-2xl p-5" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="rounded-2xl p-5" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', boxShadow: 'var(--vl-sh-1)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           <p className="text-xs text-zinc-400 uppercase tracking-wider mb-4">Component Breakdown</p>
           <div className="space-y-3">
             {componentTotals.map(comp => {
