@@ -113,3 +113,27 @@ test('HF-281: requiredTokensForComponent — multi-field DAG', () => {
   const r = requiredTokensForComponent({ name: 'x', index: 0, calculationIntent: multiFieldIntent } as never);
   assert.deepEqual(r.sort(), ['actual_income', 'hub_route_volume', 'target_income']);
 });
+
+// ── OB-223 §1.6: a clawback component (temporal_adjustment modifier) needs NO bindings ──
+test('OB-223: clawback component with temporal_adjustment modifier + empty bindings → not flagged', () => {
+  const clawbackComponents = {
+    variants: [{ variantId: '0', components: [
+      { name: 'Ajuste por Devolucion (Clawback)', calculationIntent: { prime: 'constant', value: 0 },
+        modifiers: [{ modifier: 'temporal_adjustment', adjustmentType: 'per_transaction_reversal',
+          referenceMapping: { returnField: 'Folio_Original', originalField: 'Folio' }, recoveryRate: 1.0 }] },
+      { name: 'Utilización de Flota', calculationIntent: ratioIntent }, // normal component, still validated
+    ] }],
+  };
+  // No binding for the clawback component (component_0); component_1 incomplete.
+  const incomplete = findIncompleteBindings(clawbackComponents, { component_1: {} });
+  // Only the normal component_1 is flagged; the clawback component_0 is skipped despite no binding.
+  assert.ok(!incomplete.some(b => b.componentName.includes('Clawback')), 'clawback component must not be flagged');
+  assert.ok(incomplete.some(b => b.componentKey === 'component_1'), 'the normal component is still validated');
+});
+
+test('OB-223: temporal_adjustment modifier under calculationIntent.modifiers is also detected', () => {
+  const c = { variants: [{ variantId: '0', components: [
+    { name: 'Clawback', calculationIntent: { prime: 'constant', value: 0, modifiers: [{ modifier: 'temporal_adjustment' }] } },
+  ] }] };
+  assert.deepEqual(findIncompleteBindings(c, {}), [], 'no bindings required for a clawback component');
+});

@@ -492,9 +492,20 @@ EMISSION DISCIPLINE (HF-252 — read this before drafting the intent):
 
 A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`scope_aggregate\`, \`prior_component\`.
 
-DO NOT reference categorical entity properties (role, level, tier, classification, type, segment) inside a component's \`structure\`. If a plan pays different rates to different categories of people, that is VARIANT differentiation — the platform's variant assignment routes each entity to the correct variant and evaluates the matching component. Do NOT encode the categorical differentiation as a conditional or attribute reference inside the structure.
+PER-ENTITY vs PER-ROW differentiation — DISTINGUISH THESE (OB-223):
+  • PER-ENTITY category = a property of the PAYEE (role, level, tier, seniority, classification of the
+    person/account). One entity has ONE value. This is VARIANT differentiation — emit the component once
+    per category and route via \`applies_to\` (below). Do NOT encode it as a conditional/attribute ref.
+  • PER-ROW / PER-TRANSACTION attribute = a property that VARIES across a single entity's own
+    transaction rows (product category, channel, region, status on each sale). One entity's rows span
+    MANY values. This is NOT variant differentiation (a variant is per-entity; one entity can't be in
+    four product categories at once). Express it with filter→aggregate INSIDE the component's
+    calculationIntent prime DAG (see PRIME GRAMMAR "ENGINE AGGREGATION MODEL" + SC-07): one
+    \`filter{field,operator:"eq",value}\`→\`aggregate{op,field}\` per category value, combined with
+    arithmetic. Do NOT use \`scope_aggregate\` (that scopes to peer ENTITIES, not transaction rows) and
+    do NOT emit a per-category variant.
 
-When a component's rates or outputs differ by an entity category:
+When a component's rates or outputs differ by an ENTITY category (per-entity, not per-row):
   • Emit the component ONCE per category — each emission is its own per-component call.
   • Declare which category each emission applies to via the top-level \`applies_to\` field.
   • The platform routes each entity to the variant whose components match its category.
@@ -504,6 +515,23 @@ When a component's rates or outputs differ by an entity category:
   • \`["<category-id>", ...]\` — applies only to the listed category id(s). Category ids match what the plan_skeleton call enumerated in \`employeeTypes\`.
 
 \`attribute\` ReferenceSource is reserved for numeric attributes (entity-level numeric properties consumed by the calculation, e.g., a quota the entity carries). It MUST NOT drive categorical payout differentiation.
+
+ACCELERATOR / MULTIPLIER folding (OB-223) — when a plan applies an accelerator or multiplier to a base
+amount (e.g. "if total sales ≥ threshold, multiply the commission by 1.25"), fold the multiplier INSIDE
+the base component as a conditional wrapper — do NOT emit a separate component for the multiplier. A
+separate component that outputs a scalar (1.0 / 1.25) is ADDED to the dollar commission by the engine
+(components are summed), producing a wrong result. Correct shape:
+  conditional(condition: compare(<threshold metric>, <threshold>, gte), then: multiply(<base>, <multiplier>), else: <base>)
+The base computation appears in BOTH branches; only the multiplier differs.
+
+CLAWBACK / REVERSAL (OB-223, binding) — a component that reverses or adjusts a PRIOR period's CALCULATED
+result (returns, chargebacks, clawbacks) MUST carry a \`temporal_adjustment\` modifier and its
+calculationIntent MUST be \`constant(0)\` as the in-period base. The reversal amount is the stored OUTPUT
+of a prior calculation — the engine retrieves it (Pattern D). DO NOT reference prior-plan rates/outputs
+as data-column inputs (they are not in the data). Emit, as a sibling \`modifiers\` array on the component:
+  modifiers: [{ "modifier":"temporal_adjustment", "adjustmentType":"per_transaction_reversal",
+    "referenceMapping": { "returnField":"<col on the return row referencing the original txn>",
+                          "originalField":"<matching col on the original row>" }, "recoveryRate": <0..1> }]
 
 <<COMPONENT_TYPE_LIST>>
 

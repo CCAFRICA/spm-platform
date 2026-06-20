@@ -1946,6 +1946,30 @@ export function mappedTokensForBinding(binding: Record<string, ComponentBinding>
  * variant-grouped engine format); `convergenceBindings` is
  * input_bindings.convergence_bindings (keyed component_<index>).
  */
+// OB-223 §1.6: a component that reverses/adjusts a prior period's RESULT (OB-218 clawback,
+// Pattern D) does NOT bind input columns — the engine bypasses metric resolution and uses
+// retrieveOriginalTrace. Detect the temporal_adjustment modifier wherever it may sit (component
+// .modifiers, .calculationIntent.modifiers, or .metadata.modifiers). Korean Test: structural —
+// keys on the modifier discriminator, no column/value literal. Returns false for every BCL/Meridian
+// component (none carry this modifier) → binding-completeness behavior byte-identical for them.
+function hasTemporalAdjustmentModifier(component: unknown): boolean {
+  const c = component as Record<string, unknown> | null;
+  if (!c || typeof c !== 'object') return false;
+  const ci = c.calculationIntent as Record<string, unknown> | undefined;
+  const md = c.metadata as Record<string, unknown> | undefined;
+  const pools: unknown[] = [c.modifiers, ci?.modifiers, md?.modifiers, c.modifier, md?.modifier];
+  for (const pool of pools) {
+    if (Array.isArray(pool)) {
+      if (pool.some(m => (m as Record<string, unknown>)?.modifier === 'temporal_adjustment')) return true;
+    } else if (pool && typeof pool === 'object') {
+      if ((pool as Record<string, unknown>).modifier === 'temporal_adjustment') return true;
+    } else if (pool === 'temporal_adjustment') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function findIncompleteBindings(
   componentsJson: unknown,
   convergenceBindings: Record<string, Record<string, ComponentBinding>> | undefined | null,
@@ -1953,6 +1977,9 @@ export function findIncompleteBindings(
   const bindings = convergenceBindings ?? {};
   const out: IncompleteBinding[] = [];
   for (const component of extractComponents(componentsJson)) {
+    // OB-223 §1.6: clawback (temporal_adjustment) components need no input bindings — skip the
+    // completeness check so an (expected) empty binding set does not abort the calc (HF-281).
+    if (hasTemporalAdjustmentModifier(component)) continue;
     const required = requiredTokensForComponent(component);
     if (required.length === 0) continue; // nothing to map (DD-7: unchanged)
     const componentKey = `component_${component.index}`;
