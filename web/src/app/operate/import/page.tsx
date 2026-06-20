@@ -601,6 +601,13 @@ export default function OperateImportPage() {
             </div>
           )}
 
+          {/* HF-318: Vialuce inverts the hierarchy — the platform's intelligence (.kpi cards) is the
+              HEADLINE, ABOVE the file list. The file list is reference detail (the admin knows what
+              they uploaded). Dark/Bliss keep the original order (telemetry footer below). */}
+          {isVialuce && state.phase === 'analyzing' && importSessionIdRef.current && (
+            <ImportTelemetryPanel tenantId={tenantId} sessionId={importSessionIdRef.current} phase="analyzing" />
+          )}
+
           {/* ─── UPLOAD STATE ─── */}
           {(state.phase === 'upload' || state.phase === 'analyzing') && (
             <SCIUpload
@@ -623,8 +630,9 @@ export default function OperateImportPage() {
             </div>
           )}
 
-          {/* OB-203 §2: live platform telemetry (durable-spine-derived) during analyze. */}
-          {state.phase === 'analyzing' && importSessionIdRef.current && (
+          {/* OB-203 §2: live platform telemetry (durable-spine-derived) during analyze.
+              HF-318: Dark/Bliss only — under Vialuce this renders ABOVE the file list (inverted hierarchy). */}
+          {!isVialuce && state.phase === 'analyzing' && importSessionIdRef.current && (
             <ImportTelemetryPanel tenantId={tenantId} sessionId={importSessionIdRef.current} phase="analyzing" />
           )}
 

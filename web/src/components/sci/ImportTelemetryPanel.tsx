@@ -7,8 +7,10 @@
 // "nanobatch" is reserved for the DS-020 learning innovation and never appears here.
 
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { allUnitsSettled } from '@/lib/sci/comprehension-state-service';
 import type { UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-318: import-analyze intelligence → .kpi cards on top
 
 interface ImportTelemetry {
   totalSignalsWritten: number;
@@ -53,6 +55,7 @@ export function ImportTelemetryPanel({
   sessionId: string;
   phase: 'analyzing' | 'executing';
 }) {
+  const isVialuce = useIsVialuce(); // HF-318: Vialuce renders the intelligence as design-spec .kpi cards (no gray footer)
   const [t, setT] = useState<ImportTelemetry | null>(null);
 
   useEffect(() => {
@@ -103,6 +106,45 @@ export function ImportTelemetryPanel({
   const totalCompd = t.llm.made + t.llm.bypassedByMemory;
   const pulseNow = Math.min(t.pulses.committed + (t.pulses.committed < t.pulses.total ? 1 : 0), t.pulses.total);
   const pulsePct = t.pulses.total > 0 ? Math.round((t.pulses.committed / t.pulses.total) * 100) : 0;
+
+  // HF-318: Vialuce — the platform's intelligence is the HEADLINE. Render it as design-spec .kpi
+  // cards (analyze) / a clean commit card (execute) in USER LANGUAGE — no "atoms"/"fingerprints"/
+  // "pulses"/gray footer. The page places this ABOVE the file list. Else-branch unchanged.
+  if (isVialuce) {
+    const sheetsPct = t.sheets.total > 0 ? Math.round((t.sheets.comprehended / t.sheets.total) * 100) : 0;
+    if (phase === 'analyzing') {
+      return (
+        <div style={{ marginBottom: 20 }}>
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 12px' }}>Understanding your data</p>
+          <div className="kpis">
+            <div className="kpi" style={{ '--accent': 'var(--vl-kpi-accent)' } as CSSProperties}>
+              <div className="kpi-label">Sheets Comprehended</div>
+              <div className="kpi-val">{t.sheets.comprehended}<span style={{ fontSize: 14, color: 'var(--vl-text-soft)' }}> / {t.sheets.total}</span></div>
+              <div style={{ marginTop: 8, height: 4, borderRadius: 999, background: 'var(--vl-line)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${sheetsPct}%`, background: 'var(--vl-kpi-accent)', transition: 'width .4s' }} />
+              </div>
+            </div>
+            <div className="kpi"><div className="kpi-label">Fields Recognized</div><div className="kpi-val">{t.atoms.claimedFromMemory.toLocaleString()}</div></div>
+            <div className="kpi"><div className="kpi-label">New Patterns Learned</div><div className="kpi-val">{t.atoms.novelComprehended.toLocaleString()}</div></div>
+            <div className="kpi"><div className="kpi-label">Data Signatures</div><div className="kpi-val">{t.fingerprints.storedNew.toLocaleString()}</div></div>
+          </div>
+        </div>
+      );
+    }
+    // executing — clean commit-progress card (records landing), user language
+    return (
+      <div className="card" style={{ marginTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: 0 }}>Committing records</p>
+          <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 13, color: 'var(--vl-text)' }}>{t.rows.committed.toLocaleString()} / {t.rows.total.toLocaleString()}</span>
+        </div>
+        <div style={{ height: 6, borderRadius: 999, background: 'var(--vl-line)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pulsePct}%`, background: 'var(--vl-success)', transition: 'width .5s' }} />
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--vl-text-soft)', margin: '8px 0 0' }}>{t.units.committed} of {t.units.total} content units committed</p>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-3 rounded-xl border border-zinc-800 bg-gradient-to-b from-zinc-900/70 to-zinc-900/30 px-4 py-3.5">
