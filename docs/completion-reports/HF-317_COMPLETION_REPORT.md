@@ -36,7 +36,7 @@ BCL: byte-identical (CSS-only, no engine/runtime change)
 ```
 
 ## SHA / PR
-Commit: HF-317 `<sha>`. PR #561. DO NOT MERGE — SR-44 (architect browser-verifies).
+Commit: HF-317 `822d2bda`. **PR #561 — https://github.com/CCAFRICA/spm-platform/pull/561**. DO NOT MERGE — SR-44 (architect browser-verifies).
 
 ## Out of scope / residuals
 Text inside these cards (`text-zinc-200/400`) is already remapped (HF-313). Recharts SVG internals +
