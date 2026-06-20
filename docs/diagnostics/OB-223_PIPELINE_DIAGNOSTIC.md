@@ -5,6 +5,39 @@
 
 ---
 
+## 0-CORRECTION (2026-06-19, post-redraft) — two errors in the original diagnostic
+
+While starting the redraft implementation I found **two material errors in this diagnostic that the
+redraft inherited.** Correcting for the record:
+
+1. **`convergence-service.ts` DOES contain the Stage-3 logic — the directive's ORIGINAL map was right.**
+   My original claim ("3402 lines, zero abstain/count/temporal/role/filter") was a **`grep` artifact**:
+   the file has a non-UTF8 byte, so plain `grep` silently treated it as binary and reported nothing.
+   With `grep -a`: abstain (9), temporal (17), count (38), role (74), `findIncompleteBindings` (1949),
+   `deriveNeededType`/`acceptableStructuralTypes` (1715-1760). **The Stage-3 fixes belong in
+   `convergence-service.ts`, not `anthropic-adapter.ts`.** (The other original findings stand:
+   `intent-transformer.ts` is legacy-only; composition is `.plus()` SUM; `scope` prime = entity-siblings;
+   `detectTemporalColumnMap` is unwired.)
+
+2. **Count-role acceptance (P3/§1.4) is ALREADY implemented.** `deriveNeededType` classifies a `count`
+   op as `'categorical'` (convergence-service.ts:1753, explicit comment: "count is type-agnostic"),
+   and `acceptableStructuralTypes('categorical')` accepts `attribute` (:1723). A genuine
+   `aggregate(count)` node over an attribute column already binds. **P4 fails for a different reason:**
+   its stored DAG is `arithmetic(reference × constant)` — a **bare `reference`**, which `deriveNeededType`
+   classifies `'numeric'` (:1738 "bare reference → numeric") → correctly rejects the `Verificado`
+   attribute. So P4 is an **interpreter-output-shape** problem (it should emit `aggregate(count)` with a
+   filter, not a bare reference) → fixed by the interpreter prompt + RE-IMPORT, not a convergence change.
+
+**Net re-frame:** most patterns fail because the **interpreter emits the wrong DAG shape** (scope vs
+filter, bare-reference vs count-aggregate, missing `temporal_adjustment` modifier, separate accelerator
+component). The engine + convergence are largely already capable (OB-218 clawback, OB-222 filter/count,
+convergence count-acceptance). So the **primary lever is the interpreter prompt + re-import**
+(architect-gated). The genuine *runtime wiring* gaps are narrower: temporal abstain→map (unwired),
+clawback empty-binding bypass, and multiplicative composition. See the implementation report for the
+corrected split.
+
+---
+
 ## 0. Headline: HALT-SCOPE invoked (per directive §1.7)
 
 The diagnostic found the fix surface **exceeds 12 distinct code-change sites across 5+ files**, that
