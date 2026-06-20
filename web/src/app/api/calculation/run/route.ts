@@ -2219,8 +2219,13 @@ export async function POST(request: NextRequest) {
         if (isPrime) {
           const refs = extractReferencesFromDAG(cIntent);
           const unresolved = refs.find(f => {
-            const fb = (compBindings as Record<string, { column?: string } | undefined>)[f];
-            return !fb?.column;
+            const fb = (compBindings as Record<string, ConvergenceBindingEntry | undefined>)[f];
+            // OB-225 (P2 fix): a wide-format TEMPORAL binding carries an empty `column` plus a
+            // populated `columnMap` (periodKey→column); effCol resolves the period's column at calc
+            // time. Such a binding is RESOLVED, not a structural gap — flagging it here as
+            // no_real_column_match was the MIR Plan-2 silent-$0 defect. Only a binding with NEITHER a
+            // static column NOR a temporal columnMap is a genuine gap.
+            return !fb?.column && !isTemporalBinding(fb);
           });
           if (unresolved !== undefined) {
             // candidatesConsidered: 0 — the DAG reference has no column binding at all (structural gap).

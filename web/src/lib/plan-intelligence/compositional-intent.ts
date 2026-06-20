@@ -45,7 +45,26 @@ export type ReferenceSource =
   | { type: 'attribute'; field: string }
   | { type: 'cross_data'; data_type: string; field?: string; aggregation: 'count' | 'sum' }
   | { type: 'scope_aggregate'; field: string; boundary: string; op: 'sum' | 'count' | 'avg' | 'min' | 'max' }
-  | { type: 'prior_component'; component_index: number };
+  | { type: 'prior_component'; component_index: number }
+  // OB-225: row-level filtered aggregate — aggregate a measure over the entity's OWN
+  // transaction rows that match a predicate (e.g. count rows WHERE Verificado='Si';
+  // sum Monto_Total WHERE Categoria='ALI'). The constructor emits filter(predicate){
+  // aggregate(op, field) }, evaluated against the entity's activeRows at calc time.
+  //
+  // This filters ROWS (transactions) WITHIN one entity's component. It is NOT entity/role
+  // differentiation (HF-252 routes per-ENTITY categories at the variant boundary via
+  // applies_to) — a single entity legitimately has rows of several categories here.
+  // `field` is omitted for op:'count' (count is row-cardinality).
+  | {
+      type: 'filtered_aggregate';
+      op: 'sum' | 'count' | 'avg' | 'min' | 'max';
+      field?: string;
+      predicate: {
+        field: string;
+        operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
+        value: string | number;
+      };
+    };
 
 // ─────────────────────────────────────────────
 // OperandDescription — used by arithmetic / conditional operands
@@ -124,6 +143,27 @@ export interface ComposedDescription {
 }
 
 // ─────────────────────────────────────────────
+// CategorizedDescription — per-row category-differentiated rates (OB-225)
+// ─────────────────────────────────────────────
+//
+// A single component whose payout is Σ over categories of:
+//   (aggregate `op` of `measure_field` over rows WHERE `category_field` == value) × rate
+//
+// e.g. "ALI 2.5%, BEB 2.0%, LIM 3.0%, CPE 3.5%" → one component, four categories.
+// The constructor expands this to composed(sum)[ multiply(filtered_aggregate, constant(rate)) … ].
+//
+// This is row-level (transaction) categorization — orthogonal to the variant/role boundary
+// (HF-252 applies_to), which differentiates ENTITIES. The same entity's rows span categories.
+
+export interface CategorizedDescription {
+  shape: 'categorized';
+  category_field: string;
+  measure_field: string;
+  op: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  categories: Array<{ value: string | number; rate: number }>;
+}
+
+// ─────────────────────────────────────────────
 // StructuralDescription — discriminated on `shape`
 // ─────────────────────────────────────────────
 
@@ -131,7 +171,8 @@ export type StructuralDescription =
   | BandedLookupDescription
   | ArithmeticDescription
   | ConditionalDescription
-  | ComposedDescription;
+  | ComposedDescription
+  | CategorizedDescription;
 
 // ─────────────────────────────────────────────
 // ScaleSpec — which side of the boundary applies scale
