@@ -51,8 +51,8 @@ export default function ApprovalsPage() {
       requestType: 'compensation_adjustment',
       tier: 2,
       changeData: {
-        entityId: 'user-1',
-        entityName: 'Sarah Chen',
+        entityId: 'entity-1',
+        entityName: 'Sample Entity',
         adjustmentAmount: 2500,
         reason: 'Q4 performance bonus',
       },

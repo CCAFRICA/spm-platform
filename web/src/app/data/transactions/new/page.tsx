@@ -8,16 +8,11 @@ import { toast } from 'sonner';
 import { pageVariants } from '@/lib/animations';
 import { ManualEntryForm } from '@/components/financial/manual-entry-form';
 
-const mockSalesReps = [
-  { id: 'user-001', name: 'Sarah Chen' },
-  { id: 'user-002', name: 'Marcus Johnson' },
-  { id: 'user-003', name: 'Emily Rodriguez' },
-  { id: 'user-004', name: 'David Kim' },
-  { id: 'user-005', name: 'Jennifer Lee' },
-  { id: 'user-006', name: 'Michael Brown' },
-  { id: 'user-007', name: 'Amanda White' },
-  { id: 'user-008', name: 'Robert Taylor' },
-];
+// Neutral placeholder picklist (genericized — no fabricated rep identities)
+const placeholderEntities = Array.from({ length: 8 }, (_, i) => ({
+  id: `entity-${String(i + 1).padStart(3, '0')}`,
+  name: `Entity ${i + 1}`,
+}));
 
 export default function NewTransactionPage() {
   const router = useRouter();
@@ -69,7 +64,7 @@ export default function NewTransactionPage() {
         <ManualEntryForm
           onSubmit={handleSubmit}
           onCancel={handleCancel}
-          salesReps={mockSalesReps}
+          salesReps={placeholderEntities}
         />
       </div>
     </motion.div>

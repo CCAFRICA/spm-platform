@@ -58,7 +58,7 @@ function searchTransactions(text: string): SearchResult[] {
   const transactions = [
     { id: 'txn-001', title: 'Order #12345 - Premium Package', amount: 1250, rep: 'Maria Rodriguez', date: '2024-01-15' },
     { id: 'txn-002', title: 'Order #12346 - Enterprise License', amount: 5000, rep: 'James Wilson', date: '2024-01-14' },
-    { id: 'txn-003', title: 'Order #12347 - Professional Service', amount: 2500, rep: 'Sarah Chen', date: '2024-01-13' },
+    { id: 'txn-003', title: 'Order #12347 - Professional Service', amount: 2500, rep: 'A. Garcia', date: '2024-01-13' },
     { id: 'txn-004', title: 'Order #12348 - Starter Kit', amount: 500, rep: 'Maria Rodriguez', date: '2024-01-12' },
     { id: 'txn-005', title: 'Order #12349 - Annual Subscription', amount: 3600, rep: 'James Wilson', date: '2024-01-11' },
   ];

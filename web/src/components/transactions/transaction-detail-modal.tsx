@@ -257,7 +257,7 @@ export function TransactionDetailModal({ transaction, open, onClose }: Props) {
                             <AnimatedValue value={transaction.commissionAmount} />
                           </p>
                         </div>
-                        <Badge variant="outline">Accelerator Plan</Badge>
+                        <Badge variant="outline">Commission Plan</Badge>
                       </div>
                     </motion.div>
                   </TabsContent>
@@ -327,7 +327,7 @@ export function TransactionDetailModal({ transaction, open, onClose }: Props) {
                         className="bg-blue-50 dark:bg-blue-950 rounded-lg p-3 text-sm"
                       >
                         <p className="text-blue-800 dark:text-blue-200">
-                          <strong>Plan:</strong> Accelerator Plan
+                          <strong>Plan:</strong> Commission Plan
                           {calc.hasAccelerator && ' • Tier 2 bonus applied (sales > $50K)'}
                         </p>
                       </motion.div>

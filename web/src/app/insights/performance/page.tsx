@@ -8,8 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   BarChart,
   Bar,
@@ -27,8 +26,6 @@ import {
   Target,
   TrendingUp,
   Users,
-  ArrowUpRight,
-  ArrowDownRight,
   Medal,
   Building2,
   MapPin,
@@ -39,40 +36,26 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context'; // OB-226C: Korean Test
+import { useAuth } from '@/contexts/auth-context'; // OB-226C: Korean Test
+import { isVLAdmin } from '@/types/auth'; // OB-226C: Korean Test
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getFranquicias, getFinancialSummary, getSalesByFranquicia } from '@/lib/restaurant-service';
+import { getEntityResults, getPeriodsWithResults, type EntityResult } from '@/lib/drill-through'; // OB-226C: real entity payouts
 import { Leaderboard } from '@/components/charts/leaderboard';
 import type { Cheque, Franquicia } from '@/types/cheques';
 
-// TechCorp mock data
-const techCorpSummaryStats = {
-  teamScore: 94.2,
-  goalAchievement: 108.5,
-  avgPerEntity: 215000,
-  growthRate: 12.3,
-};
+// OB-226C: TechCorp mock data removed — non-hospitality branch now derives leaderboard,
+// summary stats, and distribution from real calculation_results via getEntityResults().
 
-const techCorpTopPerformers = [
-  { rank: 1, name: 'Sarah Chen', role: 'Senior AE', sales: 700000, achievement: 140, trend: 'up', trendValue: 15 },
-  { rank: 2, name: 'Marcus Johnson', role: 'Enterprise AE', sales: 650000, achievement: 130, trend: 'up', trendValue: 8 },
-  { rank: 3, name: 'David Kim', role: 'Senior AE', sales: 620000, achievement: 124, trend: 'up', trendValue: 12 },
-  { rank: 4, name: 'Amanda Foster', role: 'Enterprise AE', sales: 580000, achievement: 116, trend: 'stable', trendValue: 2 },
-  { rank: 5, name: 'Lisa Thompson', role: 'Mid-Market AE', sales: 545000, achievement: 109, trend: 'up', trendValue: 5 },
-];
-
-const techCorpPerformanceDistribution = [
-  { tier: 'Exceeding', count: 12, color: '#10b981' },
-  { tier: 'Meeting', count: 15, color: '#3b82f6' },
-  { tier: 'Approaching', count: 8, color: '#f59e0b' },
-  { tier: 'Missing', count: 5, color: '#ef4444' },
-];
-
-const techCorpRegionalData = [
-  { region: 'West', sales: 2450000, color: '#6366f1' },
-  { region: 'East', sales: 2280000, color: '#8b5cf6' },
-  { region: 'South', sales: 2150000, color: '#a855f7' },
-  { region: 'North', sales: 1870000, color: '#d946ef' },
-];
+// OB-226C: a real payout-tier band derived from totalPayout (no per-entity attainment %
+// exists across tenants — attainment is a {bonus,total,commission} object — so the
+// distribution histogram buckets the actual payout amount).
+interface DistBand {
+  tier: string;
+  count: number;
+  color: string;
+}
 
 interface ExecutiveData {
   totalRevenue: number;
@@ -97,11 +80,20 @@ interface ExecutiveData {
 export default function InsightsPerformancePage() {
   const { currentTenant } = useTenant();
   const { format, symbol } = useCurrency();
+  const { locale } = useLocale(); // OB-226C
+  const { user } = useAuth(); // OB-226C
   const [data, setData] = useState<ExecutiveData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
+  const tenantId = currentTenant?.id ?? '';
+  // Korean Test (codebase standard): VL admins see English; tenant users follow locale.
+  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+
+  // OB-226C: real entity payouts for the non-hospitality branch (replaces techCorp* mock).
+  const [entityResults, setEntityResults] = useState<EntityResult[] | null>(null);
+  const [entityLoading, setEntityLoading] = useState(true);
 
   useEffect(() => {
     if (isHospitality) {
@@ -110,6 +102,37 @@ export default function InsightsPerformancePage() {
       setIsLoading(false);
     }
   }, [isHospitality]);
+
+  // OB-226C: load real calculation_results (latest period) for the non-hospitality branch.
+  useEffect(() => {
+    if (isHospitality || !tenantId) {
+      setEntityLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setEntityLoading(true);
+    (async () => {
+      try {
+        const periods = await getPeriodsWithResults(tenantId);
+        const latestPeriodId = periods[0]?.id;
+        const results = await getEntityResults(
+          tenantId,
+          { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' },
+          latestPeriodId ? { periodId: latestPeriodId } : undefined,
+        );
+        if (cancelled) return;
+        setEntityResults(results);
+      } catch (error) {
+        console.error('Error loading performance entity results:', error);
+        if (!cancelled) setEntityResults([]);
+      } finally {
+        if (!cancelled) setEntityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHospitality, tenantId]);
 
   const loadHospitalityData = async () => {
     setIsLoading(true);
@@ -205,8 +228,40 @@ export default function InsightsPerformancePage() {
     }
   };
 
-  // TechCorp view
+  // OB-226C: Non-hospitality view — real entity payouts (calculation_results) replace techCorp mock.
   if (!isHospitality) {
+    const results = entityResults ?? [];
+    const periodLabel = results[0]?.periodLabel ?? '';
+    const totalPayout = results.reduce((sum, r) => sum + r.totalPayout, 0);
+    const entityCount = results.length;
+    const avgPayout = entityCount > 0 ? totalPayout / entityCount : 0;
+    const topPayout = results.reduce((max, r) => Math.max(max, r.totalPayout), 0);
+    const leaderboard = results.slice(0, 5); // already sorted desc by getEntityResults
+
+    // Distribution histogram: bucket the real payout amount into quartiles of the observed
+    // range (no per-entity attainment % exists across tenants, so payout is the honest axis).
+    const distBands: DistBand[] = [];
+    if (entityCount > 0 && topPayout > 0) {
+      const bandDefs = [
+        { lo: 0.75, color: '#10b981' },
+        { lo: 0.5, color: '#3b82f6' },
+        { lo: 0.25, color: '#f59e0b' },
+        { lo: 0, color: '#ef4444' },
+      ];
+      for (const def of bandDefs) {
+        const hi = def.lo === 0.75 ? Infinity : def.lo + 0.25;
+        const loAmt = def.lo * topPayout;
+        const hiAmt = hi === Infinity ? Infinity : hi * topPayout;
+        const count = results.filter((r) => r.totalPayout >= loAmt && (hi === Infinity ? true : r.totalPayout < hiAmt)).length;
+        const tier = hi === Infinity
+          ? `${symbol}${Math.round(loAmt / 1000)}k+`
+          : `${symbol}${Math.round(loAmt / 1000)}k–${Math.round(hiAmt / 1000)}k`;
+        distBands.push({ tier, count, color: def.color });
+      }
+    }
+
+    const noResults = !entityLoading && entityCount === 0;
+
     return (
       // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
       <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
@@ -214,34 +269,71 @@ export default function InsightsPerformancePage() {
           {isVialuce ? (
             <div className="phead">
               <div>
-                <h1>Performance Overview</h1>
-                <div className="sub">Team performance metrics and leaderboard</div>
+                <h1>{isSpanish ? 'Resumen de Rendimiento' : 'Performance Overview'}</h1>
+                <div className="sub">
+                  {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
+                  {periodLabel ? ` · ${periodLabel}` : ''}
+                </div>
               </div>
             </div>
           ) : (
           <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              Performance Overview
+              {isSpanish ? 'Resumen de Rendimiento' : 'Performance Overview'}
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Team performance metrics and leaderboard
+              {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
+              {periodLabel ? ` · ${periodLabel}` : ''}
             </p>
           </div>
           )}
 
-          {/* Summary Stats */}
+          {entityLoading ? (
+            <div className="flex items-center justify-center min-h-[300px]">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : noResults ? (
+            // HALT-4 honest empty state: this tenant has no calculation results yet.
+            isVialuce ? (
+              <div className="empty">
+                <div className="ic"><Trophy className="h-7 w-7" /></div>
+                <b>{isSpanish ? 'Sin datos de rendimiento' : 'No performance data yet'}</b>
+                <p>
+                  {isSpanish
+                    ? 'Los pagos por entidad aparecerán aquí una vez que se ejecuten los cálculos.'
+                    : 'Per-entity payouts will appear here once calculations have been run.'}
+                </p>
+              </div>
+            ) : (
+              <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+                <CardContent className="py-12">
+                  <div className="text-center">
+                    <Trophy className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                      {isSpanish ? 'Sin datos de rendimiento' : 'No performance data yet'}
+                    </h3>
+                    <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
+                      {isSpanish
+                        ? 'Los pagos por entidad aparecerán aquí una vez que se ejecuten los cálculos.'
+                        : 'Per-entity payouts will appear here once calculations have been run.'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          ) : (
+          <>
+          {/* Summary Stats (derived from real calculation_results) */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
             <Card className="border-0 shadow-lg">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Team Performance Score</p>
+                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Total del Equipo' : 'Total Team Payout'}</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {techCorpSummaryStats.teamScore}
+                      {format(totalPayout)}
                     </p>
-                    <Badge className="mt-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                      Excellent
-                    </Badge>
+                    <p className="text-sm text-slate-400 mt-2">{periodLabel}</p>
                   </div>
                   <div className="p-3 bg-indigo-100 rounded-full">
                     <Trophy className="h-5 w-5 text-indigo-600" />
@@ -254,17 +346,14 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Goal Achievement Rate</p>
+                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Entidades con Resultados' : 'Entities with Results'}</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {techCorpSummaryStats.goalAchievement}%
+                      {entityCount}
                     </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm text-emerald-600">+8.5%</span>
-                    </div>
+                    <p className="text-sm text-slate-400 mt-2">{periodLabel}</p>
                   </div>
                   <div className="p-3 bg-emerald-100 rounded-full">
-                    <Target className="h-5 w-5 text-emerald-600" />
+                    <Users className="h-5 w-5 text-emerald-600" />
                   </div>
                 </div>
               </CardContent>
@@ -274,14 +363,14 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Average per Entity</p>
+                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Promedio' : 'Average Payout'}</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {format(techCorpSummaryStats.avgPerEntity)}
+                      {format(avgPayout)}
                     </p>
-                    <p className="text-sm text-slate-400 mt-2">This quarter</p>
+                    <p className="text-sm text-slate-400 mt-2">{isSpanish ? 'Por entidad' : 'Per entity'}</p>
                   </div>
                   <div className="p-3 bg-purple-100 rounded-full">
-                    <Users className="h-5 w-5 text-purple-600" />
+                    <Target className="h-5 w-5 text-purple-600" />
                   </div>
                 </div>
               </CardContent>
@@ -291,14 +380,11 @@ export default function InsightsPerformancePage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Growth Rate (MoM)</p>
+                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Más Alto' : 'Top Payout'}</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      +{techCorpSummaryStats.growthRate}%
+                      {format(topPayout)}
                     </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm text-emerald-600">Trending up</span>
-                    </div>
+                    <p className="text-sm text-slate-400 mt-2 truncate">{leaderboard[0]?.displayName ?? ''}</p>
                   </div>
                   <div className="p-3 bg-amber-100 rounded-full">
                     <TrendingUp className="h-5 w-5 text-amber-600" />
@@ -309,91 +395,82 @@ export default function InsightsPerformancePage() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2 mb-6">
-            {/* Top Performers Leaderboard */}
+            {/* Top Performers Leaderboard (real entities) */}
             <Card className="border-0 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Medal className="h-5 w-5 text-amber-500" />
-                  Top Performers
+                  {isSpanish ? 'Mejores Resultados' : 'Top Performers'}
                 </CardTitle>
-                <CardDescription>Q4 2024 Leaderboard</CardDescription>
+                <CardDescription>{periodLabel}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {techCorpTopPerformers.map((performer) => (
+                  {leaderboard.map((performer, idx) => {
+                    const rank = idx + 1;
+                    return (
                     <div
-                      key={performer.rank}
+                      key={performer.entityId}
                       className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                        performer.rank <= 3
+                        rank <= 3
                           ? 'bg-gradient-to-r from-amber-950/20 to-transparent'
                           : 'hover:bg-slate-800/50'
                       }`}
                     >
                       <div
                         className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                          performer.rank === 1 ? 'bg-amber-400 text-amber-950' :
-                          performer.rank === 2 ? 'bg-slate-300 text-slate-700' :
-                          performer.rank === 3 ? 'bg-amber-600 text-amber-50' :
+                          rank === 1 ? 'bg-amber-400 text-amber-950' :
+                          rank === 2 ? 'bg-slate-300 text-slate-700' :
+                          rank === 3 ? 'bg-amber-600 text-amber-50' :
                           'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                         }`}
                       >
-                        {performer.rank}
+                        {rank}
                       </div>
                       <Avatar className="h-10 w-10">
-                        <AvatarImage src={`/avatars/${performer.name.toLowerCase().replace(' ', '-')}.jpg`} />
                         <AvatarFallback className="text-xs bg-slate-200 dark:bg-slate-700">
-                          {performer.name.split(' ').map((n) => n[0]).join('')}
+                          {performer.displayName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
-                          {performer.name}
+                          {performer.displayName}
                         </p>
-                        <p className="text-xs text-slate-400">{performer.role}</p>
+                        <p className="text-xs text-slate-400">{performer.externalId}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                          {format(performer.sales)}
+                          {format(performer.totalPayout)}
                         </p>
-                        <div className="flex items-center justify-end gap-1">
-                          {performer.trend === 'up' ? (
-                            <ArrowUpRight className="h-3 w-3 text-emerald-500" />
-                          ) : performer.trend === 'down' ? (
-                            <ArrowDownRight className="h-3 w-3 text-red-500" />
-                          ) : null}
-                          <span className={`text-xs ${
-                            performer.trend === 'up' ? 'text-emerald-600' :
-                            performer.trend === 'down' ? 'text-red-600' : 'text-slate-400'
-                          }`}>
-                            {performer.achievement}%
-                          </span>
-                        </div>
+                        <p className="text-xs text-slate-400">
+                          {performer.componentCount} {isSpanish ? 'componentes' : 'components'}
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </CardContent>
             </Card>
 
             <div className="space-y-6">
-              {/* Performance Distribution */}
+              {/* Payout Distribution (real histogram over totalPayout) */}
               <Card className="border-0 shadow-lg">
                 <CardHeader>
-                  <CardTitle>Performance Distribution</CardTitle>
-                  <CardDescription>Number of entities in each tier</CardDescription>
+                  <CardTitle>{isSpanish ? 'Distribución de Pagos' : 'Payout Distribution'}</CardTitle>
+                  <CardDescription>{isSpanish ? 'Número de entidades por rango de pago' : 'Number of entities by payout range'}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={techCorpPerformanceDistribution} layout="vertical">
+                    <BarChart data={distBands} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} />
+                      <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
                       <YAxis type="category" dataKey="tier" tickLine={false} axisLine={false} width={90} />
                       <Tooltip
-                        formatter={(value: number) => [`${value} entities`, 'Count']}
+                        formatter={(value: number) => [`${value} ${isSpanish ? 'entidades' : 'entities'}`, isSpanish ? 'Conteo' : 'Count']}
                         contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
                       />
                       <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                        {techCorpPerformanceDistribution.map((entry, index) => (
+                        {distBands.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Bar>
@@ -402,33 +479,31 @@ export default function InsightsPerformancePage() {
                 </CardContent>
               </Card>
 
-              {/* Regional Comparison */}
+              {/* Regional Comparison — HALT-4 honest empty state: the platform has no region
+                  dimension on entities for these tenants, so nothing is fabricated. */}
               <Card className="border-0 shadow-lg">
                 <CardHeader>
-                  <CardTitle>Regional Performance</CardTitle>
-                  <CardDescription>Total volume by region</CardDescription>
+                  <CardTitle>{isSpanish ? 'Rendimiento Regional' : 'Regional Performance'}</CardTitle>
+                  <CardDescription>{isSpanish ? 'Volumen total por región' : 'Total volume by region'}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={techCorpRegionalData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(value) => `${symbol}${(value / 1000000).toFixed(1)}M`} />
-                      <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={60} />
-                      <Tooltip
-                        formatter={(value: number) => [format(value), 'Volume']}
-                        contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
-                      />
-                      <Bar dataKey="sales" radius={[0, 4, 4, 0]}>
-                        {techCorpRegionalData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <div className="flex flex-col items-center justify-center text-center py-10">
+                    <MapPin className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
+                    <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                      {isSpanish ? 'Sin datos regionales configurados' : 'No regional data configured'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                      {isSpanish
+                        ? 'Las entidades de este tenant no tienen una dimensión regional. Asigna regiones a las entidades para ver este desglose.'
+                        : 'Entities for this tenant have no region dimension. Assign regions to entities to see this breakdown.'}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             </div>
           </div>
+          </>
+          )}
         </div>
       </div>
     );

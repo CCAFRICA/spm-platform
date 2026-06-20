@@ -3,221 +3,245 @@
 /**
  * Advanced Analytics Dashboard Page
  *
- * Executive summary with KPIs, drill-down analytics, and export capabilities.
+ * Executive summary with KPIs and a real period-over-period payout trend.
+ *
+ * OB-226 Objective C: this page previously rendered 100% synthetic data from
+ * analytics-service (generateKPIs / generateTrends / generateBreakdowns — West/East/
+ * Enterprise/Team Alpha, Math.random series). It now derives every rendered number
+ * from real calculation_results via the OB-224 drill-through layer
+ * (getEntityResults / getPeriodsWithResults). Dimensions the platform does NOT collect
+ * (regional/segment/team budgets) are HONEST EMPTY STATES — never fabricated.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Download,
   RefreshCw,
-  Calendar,
   ChevronLeft,
   BarChart3,
   PieChart,
   TrendingUp,
   FileText,
+  Layers,
 } from 'lucide-react';
 import { KPICard } from '@/components/analytics/KPICard';
 import { MetricTrendChart } from '@/components/analytics/MetricTrendChart';
-import { BreakdownChart } from '@/components/analytics/BreakdownChart';
 import { ExportDialog } from '@/components/analytics/ExportDialog';
-import { SavedReportsList } from '@/components/analytics/SavedReportsList';
-import {
-  getExecutiveDashboard,
-  getMetricTimeSeries,
-  getSavedReports,
-  deleteReport,
-  exportAnalytics,
-} from '@/lib/analytics/analytics-service';
-import type {
-  AnalyticsDashboard,
-  MetricType,
-  TimeGranularity,
-  MetricTimeSeries,
-  DrillDownPath,
-  SavedReport,
-} from '@/types/analytics';
-import { TIME_GRANULARITIES } from '@/types/analytics';
+import { getEntityResults, getPeriodsWithResults } from '@/lib/drill-through';
+import type { EntityResult, EntityScope } from '@/lib/drill-through';
+import type { KPIMetric, MetricTimeSeries, MetricType, ExportConfig } from '@/types/analytics';
 import { useLocale } from '@/contexts/locale-context';
-import { useTenant } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 
-type TimeRange = '7d' | '30d' | '90d' | 'ytd' | '1y';
-
-const TIME_RANGES: Record<TimeRange, { en: string; es: string }> = {
-  '7d': { en: 'Last 7 Days', es: 'Últimos 7 Días' },
-  '30d': { en: 'Last 30 Days', es: 'Últimos 30 Días' },
-  '90d': { en: 'Last 90 Days', es: 'Últimos 90 Días' },
-  ytd: { en: 'Year to Date', es: 'Año a la Fecha' },
-  '1y': { en: 'Last Year', es: 'Último Año' },
+const ALL_SCOPE: EntityScope = {
+  visibleEntityIds: [],
+  visibleRuleSetIds: [],
+  visiblePeriodIds: [],
+  scopeType: 'all',
 };
 
-function getDateRange(range: TimeRange): { start: string; end: string } {
-  const end = new Date();
-  let start = new Date();
-
-  switch (range) {
-    case '7d':
-      start.setDate(end.getDate() - 7);
-      break;
-    case '30d':
-      start.setDate(end.getDate() - 30);
-      break;
-    case '90d':
-      start.setDate(end.getDate() - 90);
-      break;
-    case 'ytd':
-      start = new Date(end.getFullYear(), 0, 1);
-      break;
-    case '1y':
-      start.setFullYear(end.getFullYear() - 1);
-      break;
-  }
-
-  return {
-    start: start.toISOString().split('T')[0],
-    end: end.toISOString().split('T')[0],
-  };
+/** One period's real aggregate, derived from calculation_results (drill-through layer). */
+interface PeriodAggregate {
+  periodId: string;
+  periodLabel: string;
+  totalPayout: number;
+  entityCount: number;
+  avgPayout: number;
+  topPerformer: EntityResult | null;
 }
 
 export default function AnalyticsDashboardPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
+  const { format } = useCurrency();
   const isSpanish = locale === 'es-MX';
   const tenantId = currentTenant?.id;
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
-  const [granularity, setGranularity] = useState<TimeGranularity>('weekly');
-  const [dashboard, setDashboard] = useState<AnalyticsDashboard | null>(null);
+  // Real per-period aggregates (most-recent first). Empty until calculations exist.
+  const [aggregates, setAggregates] = useState<PeriodAggregate[]>([]);
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
-  const [metricDetail, setMetricDetail] = useState<MetricTimeSeries | null>(null);
-  const [drillPath, setDrillPath] = useState<DrillDownPath[]>([]);
-  const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
-  const [showExport, setShowExport] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [chartType, setChartType] = useState<'bar' | 'pie'>('bar');
+  const [showExport, setShowExport] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  const dateRange = getDateRange(timeRange);
-
-  useEffect(() => {
+  const loadDashboard = useCallback(async () => {
     if (!tenantId) return;
-    // Load dashboard data
     setIsLoading(true);
-    const timer = setTimeout(() => {
-      const data = getExecutiveDashboard(tenantId, dateRange.start, dateRange.end);
-      setDashboard(data);
-      setIsLoading(false);
-    }, 300);
+    try {
+      const periodList = await getPeriodsWithResults(tenantId);
 
-    // Load saved reports
-    const reports = getSavedReports(tenantId);
-    setSavedReports(reports);
-
-    return () => clearTimeout(timer);
-  }, [timeRange, tenantId, dateRange.start, dateRange.end]);
-
-  useEffect(() => {
-    if (!tenantId) return;
-    if (selectedMetric) {
-      const detail = getMetricTimeSeries(
-        tenantId,
-        selectedMetric,
-        granularity,
-        dateRange.start,
-        dateRange.end
+      // Build a real period-over-period series by aggregating calculation_results per period.
+      const perPeriod = await Promise.all(
+        periodList.map(async (p) => {
+          const rows = await getEntityResults(tenantId, ALL_SCOPE, { periodId: p.id });
+          const totalPayout = rows.reduce((sum, r) => sum + (r.totalPayout || 0), 0);
+          const entityCount = rows.length;
+          const topPerformer = rows.length
+            ? rows.reduce((best, r) => (r.totalPayout > (best?.totalPayout ?? -Infinity) ? r : best), rows[0])
+            : null;
+          return {
+            periodId: p.id,
+            periodLabel: p.label,
+            totalPayout,
+            entityCount,
+            avgPayout: entityCount ? totalPayout / entityCount : 0,
+            topPerformer,
+          } as PeriodAggregate;
+        })
       );
-      setMetricDetail(detail);
+      setAggregates(perPeriod);
+    } catch (err) {
+      console.warn('[Analytics] Failed to load:', err);
+      setAggregates([]);
     }
-  }, [selectedMetric, granularity, tenantId, dateRange.start, dateRange.end]);
+    setIsLoading(false);
+    setLoaded(true);
+  }, [tenantId]);
 
-  const loadDashboard = () => {
+  useEffect(() => {
     if (!tenantId) return;
-    setIsLoading(true);
-    setTimeout(() => {
-      const data = getExecutiveDashboard(tenantId, dateRange.start, dateRange.end);
-      setDashboard(data);
-      setIsLoading(false);
-    }, 300);
-  };
+    loadDashboard();
+  }, [tenantId, loadDashboard]);
 
-  const loadSavedReports = () => {
-    if (!tenantId) return;
-    const reports = getSavedReports(tenantId);
-    setSavedReports(reports);
-  };
+  // Latest period = first (getPeriodsWithResults returns most-recent first).
+  const latest = aggregates[0] ?? null;
+  // The immediately-prior period, for an honest period-over-period delta on total payout.
+  const prior = aggregates[1] ?? null;
+
+  const periodLabel = latest
+    ? latest.periodLabel
+    : isSpanish
+      ? 'Sin datos'
+      : 'No data';
+
+  // Real KPIs derived strictly from calculation_results. We only surface the dimensions
+  // the platform actually computes: total payout, entities paid, average payout. Change %
+  // is a real period-over-period delta when a prior period exists (0 otherwise — never faked).
+  const kpis: KPIMetric[] = useMemo(() => {
+    if (!latest) return [];
+    const payoutChange = prior ? latest.totalPayout - prior.totalPayout : 0;
+    const payoutChangePct =
+      prior && prior.totalPayout !== 0 ? (payoutChange / prior.totalPayout) * 100 : 0;
+    const countChange = prior ? latest.entityCount - prior.entityCount : 0;
+    const countChangePct =
+      prior && prior.entityCount !== 0 ? (countChange / prior.entityCount) * 100 : 0;
+    const avgChange = prior ? latest.avgPayout - prior.avgPayout : 0;
+    const avgChangePct =
+      prior && prior.avgPayout !== 0 ? (avgChange / prior.avgPayout) * 100 : 0;
+    const trendOf = (n: number): KPIMetric['trend'] => (n > 0 ? 'up' : n < 0 ? 'down' : 'stable');
+
+    return [
+      {
+        id: 'commission_paid',
+        name: 'Total Payout',
+        nameEs: 'Pago Total',
+        value: latest.totalPayout,
+        previousValue: prior?.totalPayout ?? 0,
+        change: payoutChange,
+        changePercent: payoutChangePct,
+        trend: trendOf(payoutChange),
+        format: 'currency',
+      },
+      {
+        id: 'headcount',
+        name: 'Entities Paid',
+        nameEs: 'Entidades Pagadas',
+        value: latest.entityCount,
+        previousValue: prior?.entityCount ?? 0,
+        change: countChange,
+        changePercent: countChangePct,
+        trend: trendOf(countChange),
+        format: 'number',
+      },
+      {
+        id: 'avg_deal_size',
+        name: 'Average Payout',
+        nameEs: 'Pago Promedio',
+        value: latest.avgPayout,
+        previousValue: prior?.avgPayout ?? 0,
+        change: avgChange,
+        changePercent: avgChangePct,
+        trend: trendOf(avgChange),
+        format: 'currency',
+      },
+    ];
+  }, [latest, prior]);
+
+  // Real period-over-period total-payout trend (chronological), built from aggregates.
+  const payoutTrend: MetricTimeSeries | null = useMemo(() => {
+    if (aggregates.length === 0) return null;
+    const chronological = [...aggregates].reverse(); // oldest → newest for the time axis
+    const values = chronological.map((a) => a.totalPayout);
+    const total = values.reduce((a, b) => a + b, 0);
+    return {
+      metricId: 'commission_paid',
+      metricName: isSpanish ? 'Pago Total por Período' : 'Total Payout by Period',
+      metricNameEs: 'Pago Total por Período',
+      granularity: 'monthly',
+      data: chronological.map((a) => ({ date: a.periodLabel, value: a.totalPayout })),
+      summary: {
+        total,
+        average: values.length ? total / values.length : 0,
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
+        trend:
+          values.length >= 2 && values[0] !== 0
+            ? ((values[values.length - 1] - values[0]) / values[0]) * 100
+            : 0,
+      },
+    };
+  }, [aggregates, isSpanish]);
+
+  // The MetricTrendChart formats the x-axis as a date; period labels are not dates, so we
+  // pass them as the data `date` field — the chart renders them verbatim as category ticks.
 
   const handleMetricClick = (metric: MetricType) => {
     setSelectedMetric(metric);
     setActiveTab('detail');
   };
 
-  const handleDrillDown = (segmentId: string, segmentName: string) => {
-    setDrillPath((prev) => [
-      ...prev,
-      {
-        level: prev.length + 1,
-        dimension: 'segment',
-        dimensionEs: 'segmento',
-        filterId: segmentId,
-        filterName: segmentName,
-      },
-    ]);
-  };
-
   const handleBackFromDetail = () => {
-    if (drillPath.length > 0) {
-      setDrillPath((prev) => prev.slice(0, -1));
-    } else {
-      setSelectedMetric(null);
-      setMetricDetail(null);
-      setActiveTab('overview');
-    }
+    setSelectedMetric(null);
+    setActiveTab('overview');
   };
 
-  const handleExport = (config: Parameters<typeof exportAnalytics>[1]) => {
-    if (!tenantId) return;
-    const result = exportAnalytics(tenantId, config);
+  // Export a CSV built ONLY from the real KPIs rendered on this page — no mock generators.
+  const handleExport = (config: ExportConfig) => {
+    const headers = isSpanish
+      ? ['Métrica', 'Valor', 'Anterior', 'Cambio', 'Cambio %']
+      : ['Metric', 'Value', 'Previous', 'Change', 'Change %'];
+    const rows = kpis
+      .filter((k) => config.metrics.length === 0 || config.metrics.includes(k.id))
+      .map((k) => [
+        isSpanish ? k.nameEs : k.name,
+        String(k.value),
+        String(k.previousValue),
+        String(k.change),
+        `${k.changePercent.toFixed(1)}%`,
+      ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const filename = `analytics-${periodLabel.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
 
-    // Trigger download
-    const blob = new Blob([result.data], { type: 'text/plain' });
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = result.filename;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const handleRunReport = (report: SavedReport) => {
-    // Apply report config
-    setSelectedMetric(report.config.metrics[0] || null);
-    setGranularity(report.config.granularity);
-    setActiveTab('detail');
-  };
+  const dateRange = { start: '', end: periodLabel };
 
-  const handleDeleteReport = (reportId: string) => {
-    deleteReport(reportId);
-    loadSavedReports();
-  };
-
-  const handleDuplicateReport = (report: SavedReport) => {
-    // Would open save dialog with pre-filled data
-    console.log('Duplicate report:', report.name);
-  };
-
-  if (!dashboard) {
+  // Loading skeleton (first load).
+  if (!loaded && isLoading) {
     return (
       <div className="p-6">
         <div className="animate-pulse space-y-6">
@@ -232,6 +256,48 @@ export default function AnalyticsDashboardPage() {
     );
   }
 
+  // Honest empty state: no calculations run yet for this tenant → nothing to analyze.
+  if (loaded && aggregates.length === 0) {
+    if (isVialuce) {
+      return (
+        <div className="page">
+          <div className="phead">
+            <div>
+              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <div className="sub">{isSpanish ? 'Sin datos' : 'No data'}</div>
+            </div>
+          </div>
+          <div className="empty">
+            <div className="ic"><BarChart3 className="h-7 w-7" /></div>
+            <b>{isSpanish ? 'No hay datos de cálculo' : 'No Calculation Data'}</b>
+            <p>
+              {isSpanish
+                ? 'Las métricas aparecerán aquí una vez que se ejecuten cálculos de comisiones.'
+                : 'Metrics will appear here once commission calculations have been run.'}
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="p-6">
+        <Card>
+          <CardContent className="py-16 text-center">
+            <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">
+              {isSpanish ? 'No hay datos de cálculo' : 'No Calculation Data'}
+            </h3>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              {isSpanish
+                ? 'Las métricas aparecerán aquí una vez que se ejecuten cálculos de comisiones.'
+                : 'Metrics will appear here once commission calculations have been run.'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
     <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
@@ -239,7 +305,7 @@ export default function AnalyticsDashboardPage() {
       {isVialuce ? (
         <div className="phead">
           <div className="flex items-center gap-4">
-            {(selectedMetric || drillPath.length > 0) && (
+            {selectedMetric && (
               <Button variant="ghost" size="sm" onClick={handleBackFromDetail}>
                 <ChevronLeft className="h-4 w-4 mr-1" />
                 {isSpanish ? 'Volver' : 'Back'}
@@ -247,24 +313,10 @@ export default function AnalyticsDashboardPage() {
             )}
             <div>
               <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
-              <div className="sub">{isSpanish ? dashboard.period.labelEs : dashboard.period.label}</div>
+              <div className="sub">{periodLabel}</div>
             </div>
           </div>
           <div className="pactions">
-            <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
-              <SelectTrigger className="w-[160px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(TIME_RANGES) as TimeRange[]).map((range) => (
-                  <SelectItem key={range} value={range}>
-                    {isSpanish ? TIME_RANGES[range].es : TIME_RANGES[range].en}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <Button variant="outline" size="icon" onClick={loadDashboard} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -278,7 +330,7 @@ export default function AnalyticsDashboardPage() {
       ) : (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          {(selectedMetric || drillPath.length > 0) && (
+          {selectedMetric && (
             <Button variant="ghost" size="sm" onClick={handleBackFromDetail}>
               <ChevronLeft className="h-4 w-4 mr-1" />
               {isSpanish ? 'Volver' : 'Back'}
@@ -288,27 +340,11 @@ export default function AnalyticsDashboardPage() {
             <h1 className="text-2xl font-bold">
               {isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}
             </h1>
-            <p className="text-muted-foreground">
-              {isSpanish ? dashboard.period.labelEs : dashboard.period.label}
-            </p>
+            <p className="text-muted-foreground">{periodLabel}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
-            <SelectTrigger className="w-[160px]">
-              <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(TIME_RANGES) as TimeRange[]).map((range) => (
-                <SelectItem key={range} value={range}>
-                  {isSpanish ? TIME_RANGES[range].es : TIME_RANGES[range].en}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           <Button variant="outline" size="icon" onClick={loadDashboard} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
@@ -319,25 +355,6 @@ export default function AnalyticsDashboardPage() {
           </Button>
         </div>
       </div>
-      )}
-
-      {/* Drill Path Breadcrumb */}
-      {drillPath.length > 0 && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">
-            {isSpanish ? 'Filtros' : 'Filters'}:
-          </span>
-          {drillPath.map((path, index) => (
-            <span key={index} className="flex items-center gap-2">
-              <span className="px-2 py-1 bg-primary/10 rounded text-primary">
-                {path.filterName}
-              </span>
-              {index < drillPath.length - 1 && (
-                <span className="text-muted-foreground">→</span>
-              )}
-            </span>
-          ))}
-        </div>
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -358,9 +375,9 @@ export default function AnalyticsDashboardPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          {/* KPI Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {dashboard.kpis.map((kpi) => (
+          {/* KPI Grid — real values from calculation_results */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {kpis.map((kpi) => (
               <KPICard
                 key={kpi.id}
                 metric={kpi}
@@ -371,17 +388,32 @@ export default function AnalyticsDashboardPage() {
 
           {/* Trends and Breakdowns */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Main Trend Chart */}
-            {dashboard.trends[0] && (
+            {/* Real period-over-period total-payout trend */}
+            {payoutTrend && payoutTrend.data.length > 1 ? (
               <MetricTrendChart
-                series={dashboard.trends[0]}
-                showComparison
+                series={payoutTrend}
+                showComparison={false}
                 chartType="area"
                 height={300}
               />
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <TrendingUp className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="font-medium mb-1">
+                    {isSpanish ? 'Tendencia no disponible' : 'Trend Unavailable'}
+                  </p>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                    {isSpanish
+                      ? 'Se necesitan al menos dos períodos calculados para mostrar una tendencia.'
+                      : 'At least two calculated periods are required to show a trend.'}
+                  </p>
+                </CardContent>
+              </Card>
             )}
 
-            {/* Region Breakdown */}
+            {/* Dimension Breakdown — HONEST EMPTY STATE: the platform does not collect
+                regional / segment / team dimensions for commission outcomes. */}
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">
@@ -392,6 +424,7 @@ export default function AnalyticsDashboardPage() {
                     variant={chartType === 'bar' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setChartType('bar')}
+                    disabled
                   >
                     <BarChart3 className="h-4 w-4" />
                   </Button>
@@ -399,83 +432,49 @@ export default function AnalyticsDashboardPage() {
                     variant={chartType === 'pie' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setChartType('pie')}
+                    disabled
                   >
                     <PieChart className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-              {dashboard.breakdowns[0] && (
-                <BreakdownChart
-                  breakdown={dashboard.breakdowns[0]}
-                  chartType={chartType}
-                  onDrillDown={handleDrillDown}
-                  height={300}
-                />
-              )}
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Layers className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="font-medium mb-1">
+                    {isSpanish ? 'Sin dimensión de segmento' : 'No Segment Dimension'}
+                  </p>
+                  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                    {isSpanish
+                      ? 'Los datos de cálculo no incluyen dimensiones de región, equipo o producto. Los desgloses por segmento no están disponibles para este inquilino.'
+                      : 'The calculation data does not carry region, team, or product dimensions. Segment breakdowns are not available for this tenant.'}
+                  </p>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-
-          {/* Additional Breakdowns */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {dashboard.breakdowns.slice(1).map((breakdown) => (
-              <BreakdownChart
-                key={breakdown.dimension}
-                breakdown={breakdown}
-                chartType="bar"
-                onDrillDown={handleDrillDown}
-                height={250}
-              />
-            ))}
           </div>
         </TabsContent>
 
         {/* Detail Tab */}
         <TabsContent value="detail" className="space-y-6">
-          {selectedMetric && metricDetail ? (
+          {selectedMetric && payoutTrend && payoutTrend.data.length > 1 ? (
             <>
-              {/* Granularity Selector */}
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-muted-foreground">
-                  {isSpanish ? 'Granularidad' : 'Granularity'}:
-                </span>
-                <Select
-                  value={granularity}
-                  onValueChange={(v) => setGranularity(v as TimeGranularity)}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(TIME_GRANULARITIES) as TimeGranularity[]).map((g) => (
-                      <SelectItem key={g} value={g}>
-                        {isSpanish
-                          ? TIME_GRANULARITIES[g].nameEs
-                          : TIME_GRANULARITIES[g].name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Detail Chart */}
+              {/* Detail Chart — real per-period series */}
               <MetricTrendChart
-                series={metricDetail}
-                showComparison
-                showTarget={selectedMetric === 'revenue'}
+                series={payoutTrend}
+                showComparison={false}
                 chartType="line"
                 height={400}
               />
 
-              {/* Summary Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {/* Summary Stats — derived from the real series */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card>
                   <CardContent className="p-4">
                     <p className="text-sm text-muted-foreground">
                       {isSpanish ? 'Total' : 'Total'}
                     </p>
-                    <p className="text-xl font-bold">
-                      {metricDetail.summary.total.toLocaleString(locale)}
-                    </p>
+                    <p className="text-xl font-bold">{format(payoutTrend.summary.total)}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -483,11 +482,7 @@ export default function AnalyticsDashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       {isSpanish ? 'Promedio' : 'Average'}
                     </p>
-                    <p className="text-xl font-bold">
-                      {metricDetail.summary.average.toLocaleString(locale, {
-                        maximumFractionDigits: 1,
-                      })}
-                    </p>
+                    <p className="text-xl font-bold">{format(payoutTrend.summary.average)}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -495,9 +490,7 @@ export default function AnalyticsDashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       {isSpanish ? 'Mínimo' : 'Min'}
                     </p>
-                    <p className="text-xl font-bold">
-                      {metricDetail.summary.min.toLocaleString(locale)}
-                    </p>
+                    <p className="text-xl font-bold">{format(payoutTrend.summary.min)}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -505,60 +498,49 @@ export default function AnalyticsDashboardPage() {
                     <p className="text-sm text-muted-foreground">
                       {isSpanish ? 'Máximo' : 'Max'}
                     </p>
-                    <p className="text-xl font-bold">
-                      {metricDetail.summary.max.toLocaleString(locale)}
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">
-                      {isSpanish ? 'Tendencia' : 'Trend'}
-                    </p>
-                    <p className={`text-xl font-bold ${metricDetail.summary.trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {metricDetail.summary.trend >= 0 ? '+' : ''}
-                      {metricDetail.summary.trend.toFixed(1)}%
-                    </p>
+                    <p className="text-xl font-bold">{format(payoutTrend.summary.max)}</p>
                   </CardContent>
                 </Card>
               </div>
-
-              {/* Breakdown for selected metric */}
-              {dashboard.breakdowns[0] && (
-                <BreakdownChart
-                  breakdown={dashboard.breakdowns[0]}
-                  chartType="bar"
-                  onDrillDown={handleDrillDown}
-                  height={300}
-                />
-              )}
             </>
           ) : (
             <Card>
               <CardContent className="py-12 text-center">
                 <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  {isSpanish
-                    ? 'Seleccione una métrica del resumen para ver detalles'
-                    : 'Select a metric from the overview to see details'}
+                  {selectedMetric
+                    ? isSpanish
+                      ? 'Se necesitan al menos dos períodos calculados para ver el detalle.'
+                      : 'At least two calculated periods are required to see detail.'
+                    : isSpanish
+                      ? 'Seleccione una métrica del resumen para ver detalles'
+                      : 'Select a metric from the overview to see details'}
                 </p>
               </CardContent>
             </Card>
           )}
         </TabsContent>
 
-        {/* Reports Tab */}
+        {/* Reports Tab — HONEST EMPTY STATE: saved-report scheduling is not persisted
+            for this tenant (no report store). */}
         <TabsContent value="reports" className="space-y-6">
-          <SavedReportsList
-            reports={savedReports}
-            onRun={handleRunReport}
-            onDelete={handleDeleteReport}
-            onDuplicate={handleDuplicateReport}
-          />
+          <Card>
+            <CardContent className="py-12 text-center">
+              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <p className="font-medium mb-1">
+                {isSpanish ? 'Sin reportes guardados' : 'No Saved Reports'}
+              </p>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                {isSpanish
+                  ? 'Aún no hay reportes guardados. Use Exportar para descargar las métricas del período actual.'
+                  : 'No saved reports yet. Use Export to download the current period’s metrics.'}
+              </p>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Export Dialog */}
+      {/* Export Dialog — exports real KPIs to CSV */}
       <ExportDialog
         open={showExport}
         onOpenChange={setShowExport}

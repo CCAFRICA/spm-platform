@@ -4,14 +4,6 @@ import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Target, Trophy, Utensils, Wine, Coins } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -21,56 +13,43 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useLocale } from '@/contexts/locale-context'; // OB-226 Korean Test
+import { useAuth } from '@/contexts/auth-context'; // OB-226 isSpanish ternary
+import { isVLAdmin } from '@/types/auth'; // OB-226 isSpanish ternary
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getMeseros, getFranquicias } from '@/lib/restaurant-service';
+import {
+  getEntityResults,
+  getPeriodsWithResults,
+  type EntityResult,
+  type EntityScope,
+} from '@/lib/drill-through'; // OB-226 real data
+import { createClient } from '@/lib/supabase/client'; // OB-226 plan-distribution aggregation
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
 import { Leaderboard } from '@/components/charts/leaderboard';
 import { CompensationPieChart } from '@/components/charts/CompensationPieChart';
-import { CompensationTrendChart } from '@/components/charts/CompensationTrendChart';
-import { Calendar, Download, Users, PieChart, ArrowUpRight } from 'lucide-react';
+import { Users, PieChart, ArrowUpRight } from 'lucide-react';
 import type { Cheque, Franquicia, Mesero } from '@/types/cheques';
 
-// Mock data for TechCorp (existing)
-const techCorpStatsData = {
-  currentPeriod: 525000,
-  yearToDate: 1850000,
-  avgPerRep: 46250,
-  budgetUtilization: 87.5,
-  periodChange: 12.3,
-  ytdChange: 8.7,
+// OB-226: TechCorp mock removed — non-hospitality branch now reads real calculation_results.
+
+// OB-226: scope for "all entities" (admin default; profile_scope is unpopulated — substrate §3.1).
+const ALL_SCOPE: EntityScope = {
+  visibleEntityIds: [],
+  visibleRuleSetIds: [],
+  visiblePeriodIds: [],
+  scopeType: 'all',
 };
 
-const techCorpPieChartData = [
-  { name: 'Accelerator Plan', value: 245000, color: '#6366f1' },
-  { name: 'Tiered Plan', value: 185000, color: '#8b5cf6' },
-  { name: 'Basic Plan', value: 52000, color: '#a855f7' },
-  { name: 'Team-Based Plan', value: 35000, color: '#d946ef' },
-  { name: 'Executive Plan', value: 8000, color: '#ec4899' },
-];
+// Single, deterministic palette for the plan-distribution pie (slices come from rule_sets, not mock).
+const PLAN_COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f59e0b', '#10b981'];
 
-const techCorpTrendData = [
-  { month: 'Jan', actual: 380000, budget: 400000 },
-  { month: 'Feb', actual: 420000, budget: 400000 },
-  { month: 'Mar', actual: 395000, budget: 420000 },
-  { month: 'Apr', actual: 450000, budget: 420000 },
-  { month: 'May', actual: 480000, budget: 450000 },
-  { month: 'Jun', actual: 465000, budget: 450000 },
-  { month: 'Jul', actual: 490000, budget: 480000 },
-  { month: 'Aug', actual: 510000, budget: 480000 },
-  { month: 'Sep', actual: 495000, budget: 500000 },
-  { month: 'Oct', actual: 520000, budget: 500000 },
-  { month: 'Nov', actual: 545000, budget: 520000 },
-  { month: 'Dec', actual: 525000, budget: 520000 },
-];
-
-const techCorpPaymentHistory = [
-  { id: 1, date: '2024-12-15', employee: 'Sarah Chen', amount: 7500, ruleSetType: 'Accelerator', status: 'completed' },
-  { id: 2, date: '2024-12-14', employee: 'Marcus Johnson', amount: 6200, ruleSetType: 'Accelerator', status: 'completed' },
-  { id: 3, date: '2024-12-14', employee: 'Emily Rodriguez', amount: 2100, ruleSetType: 'Tiered', status: 'completed' },
-  { id: 4, date: '2024-12-13', employee: 'David Kim', amount: 8900, ruleSetType: 'Accelerator', status: 'processing' },
-  { id: 5, date: '2024-12-12', employee: 'Lisa Thompson', amount: 4500, ruleSetType: 'Tiered', status: 'completed' },
-];
+interface PlanSlice {
+  name: string;
+  value: number;
+  color: string;
+}
 
 interface HospitalityData {
   myTotal: number;
@@ -91,16 +70,27 @@ interface HospitalityData {
 export default function CompensationPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const [dateRange, setDateRange] = useState('q4-2024');
+  const { locale } = useLocale(); // OB-226 Korean Test
+  const { user } = useAuth(); // OB-226 isSpanish ternary
   const [data, setData] = useState<HospitalityData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
+  // OB-226: VL admins always see English; tenant users localize (codebase isSpanish standard).
+  const isSpanish = user && isVLAdmin(user) ? false : locale === 'es-MX';
+
   const isHospitality = currentTenant?.industry === 'Hospitality';
+  const tenantId = currentTenant?.id ?? '';
 
   // For demo, assume current user is mesero_id 5001 at CDMX Polanco
   const currentMeseroId = 5001;
   const currentFranquiciaId = 'MX-CDMX-001';
+
+  // OB-226: real per-entity outcomes + plan distribution for the non-hospitality branch.
+  const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
+  const [latestPeriodLabel, setLatestPeriodLabel] = useState<string | null>(null);
+  const [planDistribution, setPlanDistribution] = useState<PlanSlice[]>([]);
+  const [compLoading, setCompLoading] = useState(true);
 
   useEffect(() => {
     if (isHospitality) {
@@ -109,6 +99,80 @@ export default function CompensationPage() {
       setIsLoading(false);
     }
   }, [isHospitality]);
+
+  // OB-226: load real calculation_results-derived comp data for the non-hospitality branch.
+  useEffect(() => {
+    if (isHospitality || !tenantId) {
+      setCompLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCompLoading(true);
+      try {
+        const periods = await getPeriodsWithResults(tenantId);
+        const latest = periods[0];
+        const [results, distribution] = await Promise.all([
+          getEntityResults(tenantId, ALL_SCOPE, latest ? { periodId: latest.id } : undefined),
+          loadPlanDistribution(tenantId, latest?.id),
+        ]);
+        if (cancelled) return;
+        setLatestPeriodLabel(latest?.label ?? null);
+        setEntityResults(results);
+        setPlanDistribution(distribution);
+      } catch (error) {
+        console.error('Error loading compensation data:', error);
+      } finally {
+        if (!cancelled) setCompLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHospitality, tenantId]);
+
+  // OB-226: plan distribution = sum(total_payout) grouped by rule_set_id, joined to rule_sets.name.
+  // For BCL this is a single plan ("Plan de Comisiones — Banca Minorista 2025-2026") → one honest slice.
+  const loadPlanDistribution = async (
+    tid: string,
+    periodId?: string,
+  ): Promise<PlanSlice[]> => {
+    const sb = createClient();
+    let q = sb
+      .from('calculation_results')
+      .select('rule_set_id, total_payout')
+      .eq('tenant_id', tid);
+    if (periodId) q = q.eq('period_id', periodId);
+    const { data: rows } = await q;
+    if (!rows || rows.length === 0) return [];
+
+    const sumByRuleSet = new Map<string, number>();
+    for (const r of rows) {
+      const ruleSetId = (r.rule_set_id as string | null) ?? 'unassigned';
+      const payout = typeof r.total_payout === 'number' ? r.total_payout : Number(r.total_payout) || 0;
+      sumByRuleSet.set(ruleSetId, (sumByRuleSet.get(ruleSetId) ?? 0) + payout);
+    }
+
+    const ruleSetIds = Array.from(sumByRuleSet.keys()).filter(id => id !== 'unassigned');
+    const nameById = new Map<string, string>();
+    if (ruleSetIds.length) {
+      const { data: ruleSets } = await sb.from('rule_sets').select('id, name').in('id', ruleSetIds);
+      for (const rs of ruleSets ?? []) nameById.set(rs.id as string, (rs.name as string) ?? (rs.id as string));
+    }
+
+    return Array.from(sumByRuleSet.entries())
+      .map(([ruleSetId, value], i) => ({
+        name:
+          ruleSetId === 'unassigned'
+            ? isSpanish
+              ? 'Sin plan asignado'
+              : 'Unassigned'
+            : nameById.get(ruleSetId) ?? ruleSetId.slice(0, 8),
+        value,
+        color: PLAN_COLORS[i % PLAN_COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value);
+  };
 
   const loadHospitalityData = async () => {
     setIsLoading(true);
@@ -189,8 +253,67 @@ export default function CompensationPage() {
     }
   };
 
-  // TechCorp view (existing)
+  // OB-226: Non-hospitality view — REAL calculation_results-derived compensation.
   if (!isHospitality) {
+    // Derived stats from real per-entity outcomes (the proof anchor: BCL March 2026 sum = $58,406).
+    const currentPeriodTotal = entityResults.reduce((sum, r) => sum + r.totalPayout, 0);
+    const activeEntities = entityResults.length;
+    const avgPerEntity = activeEntities > 0 ? currentPeriodTotal / activeEntities : 0;
+    const planCount = planDistribution.length;
+
+    // i18n strings (codebase isSpanish standard; VL admins always English).
+    const t = {
+      heading: isSpanish ? 'Resumen de Resultados' : 'Outcome Overview',
+      sub: isSpanish
+        ? 'Pagos por entidad y distribución por plan'
+        : 'Per-entity payouts and plan distribution',
+      currentPeriod: isSpanish ? 'Periodo actual' : 'Current Period',
+      avgPerEntity: isSpanish ? 'Promedio por entidad' : 'Average per Entity',
+      activePlans: isSpanish ? 'Planes activos' : 'Active Plans',
+      entitiesPaid: isSpanish ? 'entidades pagadas' : 'entities paid',
+      planLabel: isSpanish ? 'plan' : 'plan',
+      plansLabel: isSpanish ? 'planes' : 'plans',
+      distTitle: isSpanish ? 'Resultados por Plan' : 'Outcome by Plan',
+      distDesc: isSpanish
+        ? 'Distribución de pagos por plan de comisiones'
+        : 'Payout distribution across commission plans',
+      payTitle: isSpanish ? 'Pagos por Entidad' : 'Payments by Entity',
+      payDesc: isSpanish
+        ? 'Pagos de comisiones calculados por entidad'
+        : 'Calculated commission payouts per entity',
+      colPeriod: isSpanish ? 'Periodo' : 'Period',
+      colEntity: isSpanish ? 'Entidad' : 'Entity',
+      colComponents: isSpanish ? 'Componentes' : 'Components',
+      colAmount: isSpanish ? 'Monto' : 'Amount',
+      noResults: isSpanish ? 'Sin resultados de cálculo' : 'No calculation results yet',
+      noResultsBody: isSpanish
+        ? 'Los pagos de comisiones aparecerán aquí una vez que se ejecuten los cálculos para este inquilino.'
+        : 'Commission payouts will appear here once calculations have been run for this tenant.',
+      noDist: isSpanish ? 'Sin distribución por plan' : 'No plan distribution',
+    };
+
+    const periodLabelDisplay = latestPeriodLabel ?? '—';
+    const hasResults = entityResults.length > 0;
+
+    // Honest empty state when this tenant has no calculation results at all.
+    const emptyState = isVialuce ? (
+      <div className="empty">
+        <div className="ic"><DollarSign className="h-7 w-7" /></div>
+        <b>{t.noResults}</b>
+        <p>{t.noResultsBody}</p>
+      </div>
+    ) : (
+      <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+        <CardContent className="py-12">
+          <div className="text-center">
+            <DollarSign className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{t.noResults}</h3>
+            <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">{t.noResultsBody}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+
     return (
       // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
       <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
@@ -199,77 +322,51 @@ export default function CompensationPage() {
           {isVialuce ? (
             <div className="phead">
               <div>
-                <h1>Outcome Overview</h1>
-                <div className="sub">Track outcomes, trends, and budget utilization</div>
-              </div>
-              <div className="pactions">
-                <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger className="w-[180px]">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Select period" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="q4-2024">Q4 2024</SelectItem>
-                    <SelectItem value="q3-2024">Q3 2024</SelectItem>
-                    <SelectItem value="q2-2024">Q2 2024</SelectItem>
-                    <SelectItem value="q1-2024">Q1 2024</SelectItem>
-                    <SelectItem value="2024">Full Year 2024</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button className="gap-2">
-                  <Download className="h-4 w-4" />
-                  Export
-                </Button>
+                <h1>{t.heading}</h1>
+                <div className="sub">
+                  {t.sub}
+                  {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
+                </div>
               </div>
             </div>
           ) : (
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-50">
-                Outcome Overview
+                {t.heading}
               </h1>
               <p className="mt-2 text-slate-600 dark:text-slate-400">
-                Track outcomes, trends, and budget utilization
+                {t.sub}
+                {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
               </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="w-[180px]">
-                  <Calendar className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Select period" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="q4-2024">Q4 2024</SelectItem>
-                  <SelectItem value="q3-2024">Q3 2024</SelectItem>
-                  <SelectItem value="q2-2024">Q2 2024</SelectItem>
-                  <SelectItem value="q1-2024">Q1 2024</SelectItem>
-                  <SelectItem value="2024">Full Year 2024</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button className="gap-2">
-                <Download className="h-4 w-4" />
-                Export
-              </Button>
             </div>
           </div>
           )}
 
-          {/* Stats Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+          {compLoading ? (
+            <div className="flex items-center justify-center min-h-[300px]">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : !hasResults ? (
+            emptyState
+          ) : (
+          <>
+          {/* Stats Cards — derived from real per-entity outcomes. Budget/YTD omitted: no budget
+              or multi-period rollup exists for these tenants (HALT-4: no fabricated numbers). */}
+          <div className="grid gap-4 md:grid-cols-3 mb-8">
             <Card className="border-0 shadow-lg">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Current Period</p>
+                    <p className="text-sm font-medium text-slate-400">{t.currentPeriod}</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {format(techCorpStatsData.currentPeriod)}
+                      {format(currentPeriodTotal)}
                     </p>
                     <div className="flex items-center gap-1 mt-2">
                       <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm text-emerald-600 font-medium">
-                        +{techCorpStatsData.periodChange}%
+                      <span className="text-sm text-slate-400">
+                        {activeEntities} {t.entitiesPaid}
                       </span>
-                      <span className="text-sm text-slate-400">vs last period</span>
                     </div>
                   </div>
                   <div className="p-3 bg-indigo-100 rounded-full dark:bg-indigo-900/30">
@@ -283,34 +380,13 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Year-to-Date</p>
+                    <p className="text-sm font-medium text-slate-400">{t.avgPerEntity}</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {format(techCorpStatsData.yearToDate)}
+                      {format(avgPerEntity)}
                     </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm text-emerald-600 font-medium">
-                        +{techCorpStatsData.ytdChange}%
-                      </span>
-                      <span className="text-sm text-slate-400">vs last year</span>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-emerald-100 rounded-full dark:bg-emerald-900/30">
-                    <TrendingUp className="h-5 w-5 text-emerald-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">Average per Entity</p>
-                    <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {format(techCorpStatsData.avgPerRep)}
+                    <p className="text-sm text-slate-400 mt-2">
+                      {activeEntities} {t.entitiesPaid}
                     </p>
-                    <p className="text-sm text-slate-400 mt-2">40 active entities</p>
                   </div>
                   <div className="p-3 bg-purple-100 rounded-full dark:bg-purple-900/30">
                     <Users className="h-5 w-5 text-purple-600" />
@@ -323,16 +399,13 @@ export default function CompensationPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-400">Budget Utilization</p>
+                    <p className="text-sm font-medium text-slate-400">{t.activePlans}</p>
                     <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {techCorpStatsData.budgetUtilization}%
+                      {planCount}
                     </p>
-                    <div className="mt-2 h-2 w-24 bg-slate-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-amber-500 rounded-full"
-                        style={{ width: `${techCorpStatsData.budgetUtilization}%` }}
-                      />
-                    </div>
+                    <p className="text-sm text-slate-400 mt-2">
+                      {planCount === 1 ? t.planLabel : t.plansLabel}
+                    </p>
                   </div>
                   <div className="p-3 bg-amber-100 rounded-full dark:bg-amber-900/30">
                     <PieChart className="h-5 w-5 text-amber-600" />
@@ -342,80 +415,51 @@ export default function CompensationPage() {
             </Card>
           </div>
 
-          {/* Charts Row */}
-          <div className="grid gap-6 lg:grid-cols-2 mb-8">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Outcome by Rule Set</CardTitle>
-                <CardDescription>Distribution of outcomes across rule sets</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <CompensationPieChart data={techCorpPieChartData} />
-              </CardContent>
-            </Card>
+          {/* Plan Distribution — sum(total_payout) grouped by rule_set_id → rule_sets.name.
+              A single-plan tenant (BCL) renders one honest slice; no invented plans. */}
+          <Card className="border-0 shadow-lg mb-8">
+            <CardHeader>
+              <CardTitle>{t.distTitle}</CardTitle>
+              <CardDescription>{t.distDesc}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {planDistribution.length > 0 ? (
+                <CompensationPieChart data={planDistribution} />
+              ) : (
+                <p className="text-center py-12 text-slate-400">{t.noDist}</p>
+              )}
+            </CardContent>
+          </Card>
 
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Monthly Outcome Trend</CardTitle>
-                <CardDescription>Actual outcomes vs budget over the last 12 months</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <CompensationTrendChart data={techCorpTrendData} />
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Payment History Table */}
+          {/* Payments by Entity — real entity displayName + totalPayout (the per-entity comp). */}
           <Card className="border-0 shadow-lg">
             <CardHeader>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <CardTitle>Payment History</CardTitle>
-                  <CardDescription>Recent outcome payments and their status</CardDescription>
-                </div>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  Export CSV
-                </Button>
-              </div>
+              <CardTitle>{t.payTitle}</CardTitle>
+              <CardDescription>{t.payDesc}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="rounded-lg border border-slate-200 dark:border-slate-800">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-800/50">
-                      <TableHead className="font-semibold">Date</TableHead>
-                      <TableHead className="font-semibold">Entity</TableHead>
-                      <TableHead className="font-semibold">Plan Type</TableHead>
-                      <TableHead className="text-right font-semibold">Amount</TableHead>
-                      <TableHead className="font-semibold">Status</TableHead>
+                      <TableHead className="font-semibold">{t.colPeriod}</TableHead>
+                      <TableHead className="font-semibold">{t.colEntity}</TableHead>
+                      <TableHead className="text-right font-semibold">{t.colComponents}</TableHead>
+                      <TableHead className="text-right font-semibold">{t.colAmount}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {techCorpPaymentHistory.map((payment) => (
-                      <TableRow key={payment.id} className="hover:bg-slate-800/50">
+                    {entityResults.map((r) => (
+                      <TableRow key={r.entityId} className="hover:bg-slate-800/50">
                         <TableCell className="text-slate-600 dark:text-slate-400">
-                          {new Date(payment.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {r.periodLabel}
                         </TableCell>
-                        <TableCell className="font-medium text-slate-50">{payment.employee}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className={
-                            payment.ruleSetType === 'Accelerator' ? 'bg-indigo-100 text-indigo-700' :
-                            payment.ruleSetType === 'Tiered' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'
-                          }>
-                            {payment.ruleSetType}
-                          </Badge>
+                        <TableCell className="font-medium text-slate-50">{r.displayName}</TableCell>
+                        <TableCell className="text-right text-slate-600 dark:text-slate-400">
+                          {r.componentCount}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-slate-50">
-                          {format(payment.amount)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className={
-                            payment.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                            payment.status === 'processing' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
-                          }>
-                            {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                          </Badge>
+                          {format(r.totalPayout)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -424,6 +468,8 @@ export default function CompensationPage() {
               </div>
             </CardContent>
           </Card>
+          </>
+          )}
         </div>
       </div>
     );

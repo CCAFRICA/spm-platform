@@ -147,7 +147,7 @@ class ApprovalService {
   }
 
   private getCurrentUser(): { id: string; name: string; role: string } {
-    return { id: 'user-1', name: 'Sarah Chen', role: 'Sales Rep' };
+    return { id: 'current-user', name: 'Current User', role: 'Sales Rep' };
   }
 
   private getApproverForTier(tier: ApprovalTier): { id: string; name: string } {
