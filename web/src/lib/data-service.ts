@@ -333,7 +333,7 @@ export function getAlerts(): Alert[] {
       type: 'performance',
       severity: 'info',
       title: 'Top Performer Achievement',
-      message: 'Sarah Chen has achieved 150% quota attainment this quarter.',
+      message: 'A top performer has achieved 150% quota attainment this quarter.',
       timestamp: '2024-12-14T15:45:00Z',
       read: false,
       relatedUserId: 'U001',

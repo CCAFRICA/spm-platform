@@ -26,14 +26,14 @@
     }
   },
   "revenueBySalesRep": [
-    { "repId": "user-001", "name": "Sarah Chen", "region": "West", "revenue": 892000, "deals": 42, "quota": 800000, "attainment": 111.5 },
-    { "repId": "user-002", "name": "Marcus Johnson", "region": "East", "revenue": 756000, "deals": 38, "quota": 700000, "attainment": 108.0 },
-    { "repId": "user-003", "name": "Emily Rodriguez", "region": "South", "revenue": 634000, "deals": 31, "quota": 650000, "attainment": 97.5 },
-    { "repId": "user-004", "name": "David Kim", "region": "North", "revenue": 578000, "deals": 29, "quota": 600000, "attainment": 96.3 },
-    { "repId": "user-005", "name": "Jennifer Lee", "region": "West", "revenue": 523000, "deals": 26, "quota": 500000, "attainment": 104.6 },
-    { "repId": "user-006", "name": "Michael Brown", "region": "East", "revenue": 489000, "deals": 24, "quota": 450000, "attainment": 108.7 },
-    { "repId": "user-007", "name": "Amanda White", "region": "South", "revenue": 412000, "deals": 21, "quota": 400000, "attainment": 103.0 },
-    { "repId": "user-008", "name": "Robert Taylor", "region": "North", "revenue": 275000, "deals": 14, "quota": 300000, "attainment": 91.7 }
+    { "repId": "user-001", "name": "User One", "region": "West", "revenue": 892000, "deals": 42, "quota": 800000, "attainment": 111.5 },
+    { "repId": "user-002", "name": "User Two", "region": "East", "revenue": 756000, "deals": 38, "quota": 700000, "attainment": 108.0 },
+    { "repId": "user-003", "name": "User Three", "region": "South", "revenue": 634000, "deals": 31, "quota": 650000, "attainment": 97.5 },
+    { "repId": "user-004", "name": "User Four", "region": "North", "revenue": 578000, "deals": 29, "quota": 600000, "attainment": 96.3 },
+    { "repId": "user-005", "name": "User Five", "region": "West", "revenue": 523000, "deals": 26, "quota": 500000, "attainment": 104.6 },
+    { "repId": "user-006", "name": "User Six", "region": "East", "revenue": 489000, "deals": 24, "quota": 450000, "attainment": 108.7 },
+    { "repId": "user-007", "name": "User Seven", "region": "South", "revenue": 412000, "deals": 21, "quota": 400000, "attainment": 103.0 },
+    { "repId": "user-008", "name": "User Eight", "region": "North", "revenue": 275000, "deals": 14, "quota": 300000, "attainment": 91.7 }
   ],
   "revenueByProduct": [
     { "productId": "prod-001", "name": "Enterprise Suite", "revenue": 1450000, "deals": 29, "percentage": 31.8 },

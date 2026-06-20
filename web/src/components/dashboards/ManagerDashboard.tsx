@@ -19,7 +19,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { usePeriod } from '@/contexts/period-context';
 import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
@@ -38,6 +38,13 @@ import { computeManagerInsights } from '@/lib/intelligence/insight-engine';
 import { NextAction } from '@/components/intelligence/NextAction';
 import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
+import { useAuth } from '@/contexts/auth-context'; // OB-226 C: manager-scoped drill-through resolution
+import {
+  resolveEntityScope,
+  getPeriodsWithResults,
+  type EntityScope,
+} from '@/lib/drill-through'; // OB-226 C
+import { DrillThroughPanel } from '@/components/drill-through'; // OB-226 C
 
 const HERO_STYLE = {
   background: 'linear-gradient(to bottom right, rgba(217, 119, 6, 0.7), rgba(161, 98, 7, 0.6))',
@@ -110,10 +117,10 @@ export function ManagerDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format } = useCurrency();
   const { scope } = usePersona();
+  const { user } = useAuth(); // OB-226 C: drives resolveEntityScope for the team drill-through
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
-  const hasFinancial = useFeature('financial');
   const isSpanish = locale === 'es-MX';
   const isVialuce = useIsVialuce(); // HF-315: dark zinc DS-001 cards → design-spec .card surfaces + readable text
   // Theme-aware surface + section text. Non-Vialuce keeps the exact dark literals (byte-identical).
@@ -126,6 +133,33 @@ export function ManagerDashboard() {
 
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // OB-226 C: when the persona scope yields no team (manager with no profile_scope row —
+  // the BCL/MIR case, where persona-context fails CLOSED to entityIds:[]), resolve the
+  // OB-224 drill-through scope from the profile. For BCL/MIR this resolves to scopeType
+  // 'all' (profile_scope is empty), so the real entity leaderboard renders via
+  // DrillThroughPanel. Genuinely empty → honest "no team assignments" empty state below.
+  const [teamScope, setTeamScope] = useState<EntityScope | null>(null);
+  const [drillPeriodId, setDrillPeriodId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [resolved, periods] = await Promise.all([
+          resolveEntityScope(user?.id),
+          getPeriodsWithResults(tenantId),
+        ]);
+        if (cancelled) return;
+        setTeamScope(resolved);
+        setDrillPeriodId(periods[0]?.id);
+      } catch {
+        // resolveEntityScope already fails to ALL_SCOPE; swallow and let the empty state handle it
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tenantId, user?.id]);
 
   useEffect(() => {
     if (!tenantId || (scope.entityIds.length === 0 && !scope.canSeeAll)) {
@@ -253,20 +287,55 @@ export function ManagerDashboard() {
   }
 
   if (!data || data.teamMembers.length === 0) {
+    // OB-226 C: the persona scope yielded no team (manager with no profile_scope row —
+    // BCL/MIR fail-closed to entityIds:[]). The previous branch claimed "No team data for
+    // this period" and pushed a stale "View Financial Dashboard" CTA, which is dishonest:
+    // calculations HAVE run for these tenants. Resolve the OB-224 drill-through scope from the
+    // profile instead. For BCL/MIR this resolves to scopeType 'all' (profile_scope empty), so
+    // the real entity leaderboard renders via DrillThroughPanel (same code path as
+    // /insights/my-team). EntityResultsList shows the honest "no team assignments" empty
+    // message internally when the resolved scope genuinely has no results.
+    const emptyMessage = isSpanish
+      ? 'No hay asignaciones de equipo configuradas. Asigna entidades a los gerentes en Configurar → Personas.'
+      : 'No team assignments configured. Assign entities to managers in Configure → People.';
+
+    if (!teamScope || !tenantId) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+        </div>
+      );
+    }
+
     return (
-      <div className="text-center py-16 space-y-3">
-        <p style={{ color: mutedColor }}>
-          {isSpanish ? 'No hay datos de equipo para este periodo.' : 'No team data for this period.'}
-        </p>
-        <p className="text-sm" style={{ color: '#52525b' }}>
-          {isSpanish ? 'Los resultados apareceran cuando se ejecuten los calculos.' : 'Results will appear when calculations run.'}
-        </p>
-        {hasFinancial && (
-          <a href="/financial" className="inline-block mt-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-300 hover:text-amber-200 transition-colors"
-            style={{ background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
-            {isSpanish ? 'Ver Panel Financiero' : 'View Financial Dashboard'} →
-          </a>
-        )}
+      <div className="space-y-4">
+        <div style={cardStyle}>
+          <p style={{ color: labelColor, fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
+            {isSpanish ? 'Rendimiento del Equipo' : 'Team Performance'}
+          </p>
+          <DrillThroughPanel
+            tenantId={tenantId}
+            scope={teamScope}
+            periodId={drillPeriodId}
+            emptyMessage={emptyMessage}
+          />
+          <div className="mt-4 flex flex-wrap gap-4">
+            <a
+              href="/configure/people"
+              className="text-sm transition-colors"
+              style={{ color: isVialuce ? 'var(--vialuce-indigo)' : '#fbbf24' }}
+            >
+              {isSpanish ? 'Asignar equipo' : 'Assign team'} →
+            </a>
+            <a
+              href="/operate/results"
+              className="text-sm transition-colors"
+              style={{ color: isVialuce ? 'var(--vialuce-indigo)' : '#fbbf24' }}
+            >
+              {isSpanish ? 'Ver todos los resultados' : 'View all results'} →
+            </a>
+          </div>
+        </div>
       </div>
     );
   }

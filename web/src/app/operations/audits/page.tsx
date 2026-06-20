@@ -166,7 +166,7 @@ const techCorpChangeAudits: ChangeAudit[] = [
   {
     id: '1',
     date: '2024-12-15 14:30:22',
-    user: 'Sarah Chen',
+    user: 'Admin',
     action: 'update',
     entity: 'Sales Rep',
     entityId: 'SR001',

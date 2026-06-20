@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useSession } from '@/contexts/session-context';
 import { isVLAdmin } from '@/types/auth';
 import { createClient } from '@/lib/supabase/client';
+import { LifecycleCockpit } from '@/components/operate/LifecycleCockpit';
 import {
   CheckCircle2,
   Circle,
@@ -482,6 +483,11 @@ export default function OperateLandingPage() {
     load();
     return () => { cancelled = true; };
   }, [tenantId, hasFinancial]);
+
+  // OB-226: under Vialuce, /operate IS the unified Lifecycle Cockpit (consolidates the old
+  // /operate status page + /operate/lifecycle + /operate/calculate). Dark/Bliss keep the
+  // existing three-page pipeline-readiness landing below, byte-identical.
+  if (isVialuce) return <LifecycleCockpit />;
 
   // ─── No Tenant ───────────────────────────────────────────
 

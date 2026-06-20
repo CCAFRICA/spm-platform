@@ -13,7 +13,7 @@ export const TRANSACTION_FIELDS: ImportField[] = [
   { key: 'date', label: 'Date', required: true, type: 'date', example: '2024-01-15' },
   { key: 'customerName', label: 'Customer Name', required: true, type: 'string', example: 'Acme Corp' },
   { key: 'productName', label: 'Product Name', required: true, type: 'string', example: 'Enterprise Suite' },
-  { key: 'salesRepName', label: 'Sales Rep', required: true, type: 'string', example: 'Sarah Chen' },
+  { key: 'salesRepName', label: 'Sales Rep', required: true, type: 'string', example: 'J. Smith' },
   { key: 'amount', label: 'Amount', required: true, type: 'currency', example: '50000' },
   { key: 'region', label: 'Region', required: false, type: 'string', example: 'West' },
   { key: 'status', label: 'Status', required: false, type: 'string', example: 'completed' },

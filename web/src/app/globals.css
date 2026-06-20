@@ -957,3 +957,27 @@ html[data-theme="vialuce"] [class*="border-slate-700/"]:not([class*=":border-sla
 html[data-theme="vialuce"] [class*="border-slate-800/"]:not([class*=":border-slate-800/"]),
 html[data-theme="vialuce"] [class*="border-gray-700/"]:not([class*=":border-gray-700/"]),
 html[data-theme="vialuce"] [class*="border-gray-800/"]:not([class*=":border-gray-800/"]){border-color:var(--vl-line)}
+
+/* ────────────────────────────────────────────────────────────
+   OB-226 HF-318 — mid-shade (600) neutral backgrounds + bg-muted gap.
+   The HF-313/316/317 net floor was neutral-700; bare/opacity *-600 backgrounds
+   (PeriodRibbon idle pill, PopulationHealth bars, NarrativeSpine spine, PlanCard
+   hover) and the shadcn bg-muted token were never remapped → survived as gray on
+   the light Vialuce surface. Mirrors the existing bare + opacity-modifier idioms.
+   ──────────────────────────────────────────────────────────── */
+html[data-theme="vialuce"] .bg-zinc-600,html[data-theme="vialuce"] .bg-slate-600,
+html[data-theme="vialuce"] .bg-gray-600,html[data-theme="vialuce"] .bg-neutral-600,
+html[data-theme="vialuce"] .bg-neutral-700,html[data-theme="vialuce"] .bg-stone-600{background-color:var(--vl-bg)}
+/* mid-shade neutral with opacity modifier → subtle page bg */
+html[data-theme="vialuce"] [class*="bg-zinc-600/"]:not([class*=":bg-zinc-600/"]),
+html[data-theme="vialuce"] [class*="bg-slate-600/"]:not([class*=":bg-slate-600/"]),
+html[data-theme="vialuce"] [class*="bg-gray-600/"]:not([class*=":bg-gray-600/"]),
+html[data-theme="vialuce"] [class*="bg-neutral-600/"]:not([class*=":bg-neutral-600/"]),
+html[data-theme="vialuce"] [class*="bg-stone-600/"]:not([class*=":bg-stone-600/"]){background-color:var(--vl-bg)}
+/* hover variants of mid-shade neutrals → light indigo hover */
+html[data-theme="vialuce"] .hover\:bg-zinc-600:hover,
+html[data-theme="vialuce"] .hover\:bg-slate-600:hover,
+html[data-theme="vialuce"] .hover\:bg-gray-600:hover{background-color:var(--vl-indigo-50)}
+/* shadcn semantic muted surface + hover → light muted */
+html[data-theme="vialuce"] .bg-muted{background-color:oklch(var(--muted))}
+html[data-theme="vialuce"] .hover\:bg-muted:hover{background-color:oklch(var(--muted))}
