@@ -912,3 +912,48 @@ html[data-theme="vialuce"] .border-zinc-600,html[data-theme="vialuce"] .border-s
 /* colored dark gradient stops → light (HF-314 covered neutral) */
 html[data-theme="vialuce"] .from-blue-900,html[data-theme="vialuce"] .from-blue-950,html[data-theme="vialuce"] .from-purple-900,html[data-theme="vialuce"] .from-purple-950,html[data-theme="vialuce"] .from-indigo-900,html[data-theme="vialuce"] .from-sky-900{--tw-gradient-from:var(--vl-surface) var(--tw-gradient-from-position);--tw-gradient-to:rgb(255 255 255 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}
 html[data-theme="vialuce"] .to-blue-900,html[data-theme="vialuce"] .to-blue-950,html[data-theme="vialuce"] .to-purple-900,html[data-theme="vialuce"] .to-indigo-900,html[data-theme="vialuce"] .to-sky-900{--tw-gradient-to:var(--vl-bg) var(--tw-gradient-to-position)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-317 — OPACITY-MODIFIER dark surfaces (the gray-card gap). The HF-313/314/316 net targets BARE
+   classes (.bg-zinc-800); Tailwind's opacity modifier emits a SEPARATE class (bg-zinc-800/50 → escaped
+   .bg-zinc-800\/50) the net never matched. On the light Vialuce bg a dark color at 50% alpha renders as
+   a GRAY card (e.g. /operate Pipeline Readiness + Incentive Compensation use `bg-zinc-800/50`). 67×
+   bg-zinc-800/50, 41× bg-zinc-900/50, 55× border-zinc-800/60 across the codebase — the shared card idiom
+   → fix once globally. Attribute-substring matches EVERY opacity % (5..90) per shade in one rule; the
+   `:not([class*=":<util>/"])` guard excludes variant-prefixed forms (hover:/focus:/group-hover:) so only
+   BASE surfaces flip — hover relief keeps its existing HF-314 treatment. Specificity (0,3,1) + unlayered
+   → beats the @layer-utilities opacity utility. Scoped to vialuce → Dark/Bliss untouched; CSS-only → BCL
+   byte-identical. ══════════════════════════════════════════════════════════════════════════════════ */
+/* dark NEUTRAL surfaces with any opacity → white card surface */
+html[data-theme="vialuce"] [class*="bg-zinc-700/"]:not([class*=":bg-zinc-700/"]),
+html[data-theme="vialuce"] [class*="bg-zinc-800/"]:not([class*=":bg-zinc-800/"]),
+html[data-theme="vialuce"] [class*="bg-zinc-900/"]:not([class*=":bg-zinc-900/"]),
+html[data-theme="vialuce"] [class*="bg-zinc-950/"]:not([class*=":bg-zinc-950/"]),
+html[data-theme="vialuce"] [class*="bg-slate-700/"]:not([class*=":bg-slate-700/"]),
+html[data-theme="vialuce"] [class*="bg-slate-800/"]:not([class*=":bg-slate-800/"]),
+html[data-theme="vialuce"] [class*="bg-slate-900/"]:not([class*=":bg-slate-900/"]),
+html[data-theme="vialuce"] [class*="bg-slate-950/"]:not([class*=":bg-slate-950/"]),
+html[data-theme="vialuce"] [class*="bg-gray-700/"]:not([class*=":bg-gray-700/"]),
+html[data-theme="vialuce"] [class*="bg-gray-800/"]:not([class*=":bg-gray-800/"]),
+html[data-theme="vialuce"] [class*="bg-gray-900/"]:not([class*=":bg-gray-900/"]),
+html[data-theme="vialuce"] [class*="bg-neutral-800/"]:not([class*=":bg-neutral-800/"]),
+html[data-theme="vialuce"] [class*="bg-neutral-900/"]:not([class*=":bg-neutral-900/"]),
+html[data-theme="vialuce"] [class*="bg-stone-800/"]:not([class*=":bg-stone-800/"]),
+html[data-theme="vialuce"] [class*="bg-stone-900/"]:not([class*=":bg-stone-900/"]),
+/* dark COLORED surfaces with any opacity → white card surface */
+html[data-theme="vialuce"] [class*="bg-blue-800/"]:not([class*=":bg-blue-800/"]),
+html[data-theme="vialuce"] [class*="bg-blue-900/"]:not([class*=":bg-blue-900/"]),
+html[data-theme="vialuce"] [class*="bg-blue-950/"]:not([class*=":bg-blue-950/"]),
+html[data-theme="vialuce"] [class*="bg-sky-900/"]:not([class*=":bg-sky-900/"]),
+html[data-theme="vialuce"] [class*="bg-indigo-900/"]:not([class*=":bg-indigo-900/"]),
+html[data-theme="vialuce"] [class*="bg-purple-900/"]:not([class*=":bg-purple-900/"]),
+html[data-theme="vialuce"] [class*="bg-violet-900/"]:not([class*=":bg-violet-900/"]){background-color:var(--vl-surface)}
+/* dark borders with any opacity → light line */
+html[data-theme="vialuce"] [class*="border-zinc-600/"]:not([class*=":border-zinc-600/"]),
+html[data-theme="vialuce"] [class*="border-zinc-700/"]:not([class*=":border-zinc-700/"]),
+html[data-theme="vialuce"] [class*="border-zinc-800/"]:not([class*=":border-zinc-800/"]),
+html[data-theme="vialuce"] [class*="border-zinc-900/"]:not([class*=":border-zinc-900/"]),
+html[data-theme="vialuce"] [class*="border-slate-700/"]:not([class*=":border-slate-700/"]),
+html[data-theme="vialuce"] [class*="border-slate-800/"]:not([class*=":border-slate-800/"]),
+html[data-theme="vialuce"] [class*="border-gray-700/"]:not([class*=":border-gray-700/"]),
+html[data-theme="vialuce"] [class*="border-gray-800/"]:not([class*=":border-gray-800/"]){border-color:var(--vl-line)}
