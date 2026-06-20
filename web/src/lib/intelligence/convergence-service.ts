@@ -112,7 +112,11 @@ interface DataCapability {
 // (Decision 158), applied deterministically at resolution. 'snapshot' = a stock/balance value that is
 // the same on every row (take it once, do not sum); flow amounts sum; max/min/average/distinct_count
 // are plan-intent-driven.
-export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count';
+// OB-225: 'count' reconciles this recognition-side enum with ConvergenceBindingEntry.reduction
+// (convergence-bindings.ts) and the resolver, which already implement count. Purely additive — no
+// existing tenant relied on count being silently defaulted to 'sum' (that would be wrong today). The
+// full structural {aggregation:{op}} binding migration (directive §5.1) is deferred (§6A residual).
+export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count' | 'count';
 
 export interface ComponentBinding {
   column: string;
@@ -1930,7 +1934,7 @@ Infer it from the column's contextual identity (an "...balance"/"outstanding" re
               value: f.value as string | number | boolean,
             }))
         : [];
-      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count'];
+      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count', 'count']; // OB-225: align with ReductionKind + resolver
       const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
       proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction };
     }
