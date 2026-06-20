@@ -23,6 +23,9 @@ import { useAuth } from '@/contexts/auth-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
 import { loadReconciliationPageData, type ReconciliationPageData } from '@/lib/data/page-loaders';
+// OB-224: the entity drill gains the per-transaction trace forensic (the "why is there a delta" layer).
+import { ComponentCards } from '@/components/drill-through';
+import { listEntities } from '@/lib/supabase/entity-service';
 // OB-193: OperateSelector removed — Reconciliation page has its own selectors
 import * as XLSX from 'xlsx';
 import {
@@ -265,6 +268,9 @@ export default function ReconciliationPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [periodMatch, setPeriodMatch] = useState<PeriodMatchResult | null>(null);
+  // OB-224: comparison rows carry external_id (compare route line 112); ComponentCards needs the
+  // DB uuid. Resolve external_id → uuid once so the entity drill can load calculation_traces.
+  const [entityUuidByExternal, setEntityUuidByExternal] = useState<Map<string, string>>(new Map());
 
   // Mapping overrides
   const [entityIdCol, setEntityIdCol] = useState<string | null>(null);
@@ -413,6 +419,30 @@ export default function ReconciliationPage() {
   }, [pageData, formatCurrency, selectedPlanId]);
 
   const selectedBatch = batchOptions.find(b => b.id === selectedBatchId);
+
+  // OB-224: load the external_id → uuid map for this tenant (entities, not transactions — bounded).
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    listEntities(tenantId)
+      .then(ents => {
+        if (cancelled) return;
+        const m = new Map<string, string>();
+        for (const e of ents) {
+          if (e.external_id) m.set(e.external_id, e.id);
+          m.set(e.id, e.id); // also resolve when the row already carries a uuid
+        }
+        setEntityUuidByExternal(m);
+      })
+      .catch(() => { /* drill degrades to "no breakdown" gracefully */ });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  // OB-224: the VL period id behind the selected batch (mirrors the compare-call mapping, line ~549).
+  const reconPeriodId =
+    periodMatch?.matched.find(m => (selectedBatch?.label ?? '').startsWith(m.vlPeriod.label))?.vlPeriod.id ??
+    periodMatch?.matched?.[0]?.vlPeriod.id ??
+    null;
 
   // File parsing (client-side)
   const parseFile = useCallback((file: File) => {
@@ -1545,6 +1575,23 @@ export default function ReconciliationPage() {
                             {isSpanish ? 'Diagnóstico del agente' : 'Agent diagnosis'}{diagnosis.cached ? ' · cache' : ''}
                           </div>
                           <div className="text-xs whitespace-pre-wrap text-zinc-300">{diagnosis.text}</div>
+                        </td>
+                      </tr>
+                    )}
+                    {/* OB-224: expanded entity → component breakdown + per-transaction traces, with the
+                        reconciliation expected/delta overlaid per component (the forensic "why" layer). */}
+                    {expandedEntity === row.entityId && reconPeriodId && entityUuidByExternal.get(row.entityId) && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-3 bg-slate-900/50">
+                          <ComponentCards
+                            tenantId={tenantId}
+                            entityId={entityUuidByExternal.get(row.entityId) as string}
+                            periodId={reconPeriodId}
+                            entityName={row.entityName}
+                            comparisonData={Object.fromEntries(
+                              row.components.map(c => [c.componentName, { expected: c.fileValue, delta: c.delta }]),
+                            )}
+                          />
                         </td>
                       </tr>
                     )}

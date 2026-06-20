@@ -1,110 +1,59 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Download, Upload } from 'lucide-react';
-import { toast } from 'sonner';
+import { Plus, Upload } from 'lucide-react';
 import { pageVariants } from '@/lib/animations';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
-import { SummaryCards } from '@/components/financial/summary-cards';
-import { TransactionTable, TransactionRow } from '@/components/financial/transaction-table';
-import { TransactionFilters } from '@/components/financial/transaction-filters';
-import { TableSkeleton, CardGridSkeleton } from '@/components/ui/skeleton-loaders';
+import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-224
+import { DrillThroughPanel } from '@/components/drill-through'; // OB-224
 import {
-  calculateTotalRevenue,
-  calculateTotalDeals,
-  calculateAverageCommissionRate,
-} from '@/lib/financial-service';
-import { DateRange } from 'react-day-picker';
-
-// Mock transaction data
-const mockTransactions: TransactionRow[] = Array.from({ length: 50 }, (_, i) => ({
-  id: `txn-${String(i + 1).padStart(3, '0')}`,
-  orderId: `ORD-2024-${String(i + 1).padStart(5, '0')}`,
-  date: new Date(2024, Math.floor(i / 5), (i % 28) + 1).toISOString(),
-  customerName: ['Acme Corp', 'TechGiant Inc', 'Global Solutions', 'Innovative Systems', 'Premier Enterprises'][i % 5],
-  productName: ['Enterprise Suite', 'Analytics Module', 'Cloud Infrastructure', 'Professional Bundle', 'Starter Bundle'][i % 5],
-  salesRepName: ['Sarah Chen', 'Marcus Johnson', 'Emily Rodriguez', 'David Kim'][i % 4],
-  amount: [50000, 15000, 25000, 25000, 8000][i % 5] + Math.floor(Math.random() * 10000),
-  commission: [4000, 1500, 1750, 2250, 800][i % 5] + Math.floor(Math.random() * 500),
-  status: (['completed', 'completed', 'completed', 'pending', 'cancelled'] as const)[i % 5],
-  region: ['West', 'East', 'North', 'South'][i % 4],
-}));
+  resolveEntityScope,
+  getPeriodsWithResults,
+  type EntityScope,
+  type PeriodOption,
+} from '@/lib/drill-through'; // OB-224
 
 export default function TransactionsPage() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [regionFilter, setRegionFilter] = useState('all');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const { currentTenant } = useTenant();
+  const { user } = useAuth();
+
+  const tenantId = currentTenant?.id ?? '';
+
+  // OB-224 (AP-11): replace mock transactions with REAL data through the drill-through layer.
+  // Scope handles rep-vs-admin reads (empty profile_scope => all-scope today); the panel renders
+  // entity → component → trace → SOURCE TRANSACTIONS for the selected period.
+  const [scope, setScope] = useState<EntityScope | null>(null);
+  const [periods, setPeriods] = useState<PeriodOption[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const filteredTransactions = useMemo(() => {
-    return mockTransactions.filter((t) => {
-      const matchesSearch =
-        t.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.orderId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.salesRepName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
-      const matchesRegion = regionFilter === 'all' || t.region === regionFilter;
-
-      let matchesDate = true;
-      if (dateRange?.from) {
-        const txnDate = new Date(t.date);
-        matchesDate = txnDate >= dateRange.from;
-        if (dateRange.to) {
-          matchesDate = matchesDate && txnDate <= dateRange.to;
-        }
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [resolvedScope, periodOptions] = await Promise.all([
+          resolveEntityScope(user?.id),
+          getPeriodsWithResults(tenantId),
+        ]);
+        if (cancelled) return;
+        setScope(resolvedScope);
+        setPeriods(periodOptions);
+        setSelectedPeriodId(periodOptions[0]?.id); // most-recent first
+      } catch (error) {
+        console.error('Error resolving transactions drill-through scope:', error);
       }
-
-      return matchesSearch && matchesStatus && matchesRegion && matchesDate;
-    });
-  }, [searchTerm, statusFilter, regionFilter, dateRange]);
-
-  const handleClearFilters = () => {
-    setSearchTerm('');
-    setStatusFilter('all');
-    setRegionFilter('all');
-    setDateRange(undefined);
-  };
-
-  const handleExport = (ids: string[]) => {
-    toast.success('Export Started', {
-      description: `Exporting ${ids.length} transactions to CSV`,
-    });
-  };
-
-  const handleView = (id: string) => {
-    toast.info(`Viewing transaction ${id}`);
-  };
-
-  const handleEdit = (id: string) => {
-    toast.info(`Editing transaction ${id}`);
-  };
-
-  const handleDelete = (id: string) => {
-    toast.error(`Delete transaction ${id}?`, {
-      action: {
-        label: 'Confirm',
-        onClick: () => toast.success('Transaction deleted'),
-      },
-    });
-  };
-
-  const totalRevenue = calculateTotalRevenue();
-  const totalDeals = calculateTotalDeals();
-  const avgDealSize = totalRevenue / totalDeals;
-  const avgCommissionRate = calculateAverageCommissionRate();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, user?.id]);
 
   return (
     <motion.div
@@ -156,60 +105,40 @@ export default function TransactionsPage() {
         </div>
         )}
 
-        {/* Summary Cards */}
-        {isLoading ? (
-          <CardGridSkeleton count={4} />
-        ) : (
-          <SummaryCards
-            totalRevenue={totalRevenue}
-            totalDeals={totalDeals}
-            avgDealSize={avgDealSize}
-            avgCommissionRate={avgCommissionRate}
-          />
-        )}
-
-        {/* Transactions Table */}
+        {/* OB-224 — real entity → component → trace → source-transaction drill, scoped per persona. */}
         <Card className="mt-6 border-0 shadow-lg">
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <CardTitle>All Transactions</CardTitle>
                 <p className="text-sm text-slate-500 mt-1">
-                  {filteredTransactions.length} of {mockTransactions.length} transactions
+                  Drill into a result to see its source transactions
                 </p>
               </div>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Export All
-              </Button>
+              {periods.length > 0 && (
+                <select
+                  value={selectedPeriodId ?? ''}
+                  onChange={(e) => setSelectedPeriodId(e.target.value || undefined)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Select period"
+                >
+                  {periods.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </CardHeader>
           <CardContent>
-            {/* Filters */}
-            <div className="mb-6">
-              <TransactionFilters
-                searchTerm={searchTerm}
-                onSearchChange={setSearchTerm}
-                statusFilter={statusFilter}
-                onStatusChange={setStatusFilter}
-                regionFilter={regionFilter}
-                onRegionChange={setRegionFilter}
-                dateRange={dateRange}
-                onDateRangeChange={setDateRange}
-                onClearFilters={handleClearFilters}
-              />
-            </div>
-
-            {/* Table */}
-            {isLoading ? (
-              <TableSkeleton rows={10} cols={9} />
-            ) : (
-              <TransactionTable
-                transactions={filteredTransactions}
-                onView={handleView}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onExport={handleExport}
+            {scope && (
+              <DrillThroughPanel
+                tenantId={tenantId}
+                scope={scope}
+                periodId={selectedPeriodId}
+                showExport
+                emptyMessage="No transactions for this period."
               />
             )}
           </CardContent>

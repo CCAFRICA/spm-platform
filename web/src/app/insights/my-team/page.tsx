@@ -5,7 +5,10 @@ import { Users, TrendingUp, Target, Trophy, AlertTriangle, Building2 } from 'luc
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-224
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
+import { DrillThroughPanel } from '@/components/drill-through'; // OB-224
+import { resolveEntityScope, getPeriodsWithResults, type EntityScope } from '@/lib/drill-through'; // OB-224
 import { getCheques, getMeseros, getFranquicias, getSalesByMesero, getSalesByFranquicia } from '@/lib/restaurant-service';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
@@ -42,12 +45,18 @@ interface TeamData {
 
 export default function MyTeamPage() {
   const { currentTenant } = useTenant();
+  const { user } = useAuth(); // OB-224
   const { format } = useCurrency();
   const [data, setData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
+  const tenantId = currentTenant?.id ?? '';
+
+  // OB-224: manager-scoped drill-through for the non-hospitality (empty-state) branch (AP-11).
+  const [teamScope, setTeamScope] = useState<EntityScope | null>(null);
+  const [latestPeriodId, setLatestPeriodId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (isHospitality) {
@@ -56,6 +65,28 @@ export default function MyTeamPage() {
       setIsLoading(false);
     }
   }, [isHospitality]);
+
+  // OB-224: resolve scope + latest period for the non-hospitality team results panel.
+  useEffect(() => {
+    if (isHospitality || !tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [scope, periods] = await Promise.all([
+          resolveEntityScope(user?.id),
+          getPeriodsWithResults(tenantId),
+        ]);
+        if (cancelled) return;
+        setTeamScope(scope);
+        setLatestPeriodId(periods[0]?.id);
+      } catch (error) {
+        console.error('Error resolving team drill-through scope:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHospitality, tenantId, user?.id]);
 
   const loadHospitalityData = async () => {
     setIsLoading(true);
@@ -152,7 +183,19 @@ export default function MyTeamPage() {
 
   // OB-29 Phase 9: Non-hospitality view - show empty state (no mock data)
   if (!isHospitality) {
-    // HF-313: Vialuce renders .page + .phead + .empty design-spec state; else byte-identical.
+    // OB-224 (AP-11): manager-scoped team results via DrillThroughPanel replaces the dead
+    // empty-state. The panel themes itself (isVialuce internally) and shows emptyMessage when
+    // there are genuinely no results. HF-313: Vialuce renders .page + .phead frame.
+    const teamPanel =
+      teamScope && tenantId ? (
+        <DrillThroughPanel
+          tenantId={tenantId}
+          scope={teamScope}
+          periodId={latestPeriodId}
+          emptyMessage="No team results yet — your team's calculations will appear here."
+        />
+      ) : null;
+
     if (isVialuce) {
       return (
         <div className="page space-y-6">
@@ -162,14 +205,16 @@ export default function MyTeamPage() {
               <div className="sub">Team performance overview</div>
             </div>
           </div>
-          <div className="empty">
-            <div className="ic"><Users className="h-7 w-7" /></div>
-            <b>No Team Data Available</b>
-            <p>
-              Team performance data will appear here once calculations have been run
-              and you have team members assigned.
-            </p>
-          </div>
+          {teamPanel ?? (
+            <div className="empty">
+              <div className="ic"><Users className="h-7 w-7" /></div>
+              <b>No Team Data Available</b>
+              <p>
+                Team performance data will appear here once calculations have been run
+                and you have team members assigned.
+              </p>
+            </div>
+          )}
         </div>
       );
     }
@@ -183,21 +228,23 @@ export default function MyTeamPage() {
           <p className="text-muted-foreground">Team performance overview</p>
         </div>
 
-        {/* Empty State */}
-        <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
-          <CardContent className="py-12">
-            <div className="text-center">
-              <Users className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                No Team Data Available
-              </h3>
-              <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
-                Team performance data will appear here once calculations have been run
-                and you have team members assigned.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {teamPanel ?? (
+          /* Empty State (fallback only when scope/results are genuinely unavailable) */
+          <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+            <CardContent className="py-12">
+              <div className="text-center">
+                <Users className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  No Team Data Available
+                </h3>
+                <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
+                  Team performance data will appear here once calculations have been run
+                  and you have team members assigned.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }
