@@ -967,6 +967,14 @@ function ResultsSkeleton() {
 }
 
 export default function CalculatePage() {
+  // OB-226: under Vialuce, Run Calculations is consolidated into the /operate Lifecycle Cockpit —
+  // redirect. Dark/Bliss keep this page unchanged (no redirect, capability gate intact).
+  const isVialuce = useIsVialuce();
+  const router = useRouter();
+  useEffect(() => {
+    if (isVialuce) router.replace('/operate');
+  }, [isVialuce, router]);
+  if (isVialuce) return null;
   return (
     <RequireCapability capability="data.calculate">
       <CalculatePageInner />

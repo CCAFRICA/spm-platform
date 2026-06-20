@@ -165,6 +165,12 @@ export default function OperateCockpitPage() {
     return () => { cancelled = true; };
   }, [tenantId, applyData]);
 
+  // OB-226: under Vialuce this page is consolidated into the /operate Lifecycle Cockpit — redirect.
+  // Dark/Bliss keep this Operations Center page unchanged (no redirect).
+  useEffect(() => {
+    if (isVialuce) router.replace('/operate');
+  }, [isVialuce, router]);
+
   // Reload page data after calculation, transition, or period switch
   const reloadData = useCallback(async (periodKeyOverride?: string) => {
     if (!tenantId) return;
@@ -253,6 +259,8 @@ export default function OperateCockpitPage() {
     : lifecycleState ? toDashboardState(lifecycleState) : 'DRAFT';
 
   const stateDisplay = LIFECYCLE_DISPLAY[dashState as keyof typeof LIFECYCLE_DISPLAY];
+
+  if (isVialuce) return null; // OB-226: redirecting to /operate cockpit under Vialuce
 
   if (!tenantId) {
     return (
