@@ -490,20 +490,21 @@ CRITICAL: Extract EVERY structural value the component's source describes — ev
 
 EMISSION DISCIPLINE (HF-252 — read this before drafting the intent):
 
-A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`scope_aggregate\`, \`prior_component\`.
+A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`filtered_aggregate\`, \`scope_aggregate\`, \`prior_component\`.
 
-PER-ENTITY vs PER-ROW differentiation — DISTINGUISH THESE (OB-223):
+PER-ENTITY vs PER-ROW differentiation — DISTINGUISH THESE:
   • PER-ENTITY category = a property of the PAYEE (role, level, tier, seniority, classification of the
     person/account). One entity has ONE value. This is VARIANT differentiation — emit the component once
     per category and route via \`applies_to\` (below). Do NOT encode it as a conditional/attribute ref.
   • PER-ROW / PER-TRANSACTION attribute = a property that VARIES across a single entity's own
     transaction rows (product category, channel, region, status on each sale). One entity's rows span
-    MANY values. This is NOT variant differentiation (a variant is per-entity; one entity can't be in
-    four product categories at once). Express it with filter→aggregate INSIDE the component's
-    calculationIntent prime DAG (see PRIME GRAMMAR "ENGINE AGGREGATION MODEL" + SC-07): one
-    \`filter{field,operator:"eq",value}\`→\`aggregate{op,field}\` per category value, combined with
-    arithmetic. Do NOT use \`scope_aggregate\` (that scopes to peer ENTITIES, not transaction rows) and
-    do NOT emit a per-category variant.
+    MANY values; a single entity cannot be in four product categories at once, so this is NOT variant
+    differentiation. Express it with a compositional_intent SHAPE, never as prose:
+      – different RATE per row-category → the \`categorized\` shape (shape #5 below).
+      – a measure/count over only the rows that match a row predicate → a \`filtered_aggregate\`
+        reference (e.g. count rows WHERE Verificado="Si"; sum Amount WHERE Region="North").
+    Do NOT use \`scope_aggregate\` (that scopes to peer ENTITIES, not transaction rows), do NOT emit a
+    per-category variant, and do NOT leave the rule in a note — emit the structure that carries it.
 
 When a component's rates or outputs differ by an ENTITY category (per-entity, not per-row):
   • Emit the component ONCE per category — each emission is its own per-component call.
@@ -573,6 +574,13 @@ CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
 
    { "shape": "composed", "composition": "sum|max|min|first_match", "children": [<structure>, ...] }
 
+5. categorized — per-ROW category-differentiated rates (ONE component; one entity's rows span categories)
+
+   { "shape": "categorized", "category_field": "<row field holding the category>", "measure_field": "<row field to aggregate>", "op": "sum|count|avg|min|max", "categories": [ { "value": "<category as the PLAN states it>", "rate": <number> }, ... ] }
+
+   Payout = Σ over categories of (op of measure_field over rows WHERE category_field == value) × rate.
+   Use the category VALUES exactly as the PLAN states them (codes like "ALI" or names like "Alimentos"); data-vocabulary grounding happens downstream. For "count of rows matching a condition × a flat bonus", do NOT use categorized — use an arithmetic multiply whose first operand is a \`filtered_aggregate\` (op:"count") reference and whose second is the bonus constant.
+
 Operand kinds:
   { "kind": "reference", "source": <ReferenceSource> }
   { "kind": "constant", "value": <number> }
@@ -582,6 +590,7 @@ ReferenceSource types:
   { "type": "metric", "field": "<name>" }
   { "type": "ratio", "numerator_field": "<n>", "denominator_field": "<d>" }
   { "type": "aggregate", "field": "<name>", "op": "sum|count|avg|min|max" }
+  { "type": "filtered_aggregate", "op": "sum|count|avg|min|max", "field"?: "<measure; omit for count>", "predicate": { "field": "<row field>", "operator": "eq|neq|gt|gte|lt|lte|contains", "value": <string|number> } }
   { "type": "attribute", "field": "<name>" }
   { "type": "scope_aggregate", "field": "<name>", "boundary": "<attr>", "op": "sum|count|avg|min|max" }
   { "type": "cross_data", "data_type": "<type>", "field"?: "<f>", "aggregation": "count|sum" }

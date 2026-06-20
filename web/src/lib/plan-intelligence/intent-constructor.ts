@@ -51,6 +51,7 @@ import type {
   ArithmeticDescription,
   ConditionalDescription,
   ComposedDescription,
+  CategorizedDescription,
   OperandDescription,
   ReferenceSource,
   ScaleSpec,
@@ -133,6 +134,8 @@ function normalizeNode(node: unknown): void {
       n.shape = 'banded_lookup';         // BandedLookupDescription { dimensions, outputs }
     } else if (Array.isArray(n.children)) {
       n.shape = 'composed';              // ComposedDescription { composition, children }
+    } else if (Array.isArray(n.categories) && typeof n.category_field === 'string') {
+      n.shape = 'categorized';           // OB-225 CategorizedDescription { category_field, categories }
     }
     // else: unknown pattern → leave untouched; the constructor throws (rule 7).
   }
@@ -178,6 +181,8 @@ function constructStructure(
       return constructConditional(desc, scale, path);
     case 'composed':
       return constructComposed(desc, scale, path);
+    case 'categorized':
+      return constructCategorized(desc, scale, path);
     default: {
       // Exhaustiveness — TypeScript narrows desc to `never` here. Defensive
       // throw for runtime malformations (e.g., LLM emitting an unknown shape).
@@ -185,7 +190,7 @@ function constructStructure(
       throw new ConstructionError(
         path,
         desc as StructuralDescription,
-        `unknown shape "${String(unknownShape)}" (expected banded_lookup | arithmetic | conditional | composed)`,
+        `unknown shape "${String(unknownShape)}" (expected banded_lookup | arithmetic | conditional | composed | categorized)`,
       );
     }
   }
@@ -351,6 +356,51 @@ function constructArithmetic(
       constructOperand(desc.operands[1], scale, `${path}.operands[1]`),
     ],
   };
+}
+
+// ─────────────────────────────────────────────
+// Categorized constructor (OB-225) — per-row category-differentiated rates
+// ─────────────────────────────────────────────
+//
+// Expands to composed(sum) of per-category terms, each:
+//   multiply( filtered_aggregate(op, measure_field WHERE category_field == value), rate )
+// and DELEGATES to constructComposed so the sum-fold + child dispatch are the
+// proven, single code path (no bespoke fold). Each term's filtered aggregate is
+// expressed as a `filtered_aggregate` reference source, so the leaf construction
+// is buildReferenceNode's single filter→aggregate emission.
+
+function constructCategorized(
+  desc: CategorizedDescription,
+  scale: ScaleSpec | null,
+  path: string,
+): PrimeNode {
+  if (!Array.isArray(desc.categories) || desc.categories.length === 0) {
+    throw new ConstructionError(path, desc as never, 'categorized requires a non-empty categories array');
+  }
+  if (!desc.category_field || !desc.measure_field || !desc.op) {
+    throw new ConstructionError(path, desc as never, 'categorized requires category_field, measure_field, and op');
+  }
+  const composed: ComposedDescription = {
+    shape: 'composed',
+    composition: 'sum',
+    children: desc.categories.map((c): ArithmeticDescription => ({
+      shape: 'arithmetic',
+      operation: 'multiply',
+      operands: [
+        {
+          kind: 'reference',
+          source: {
+            type: 'filtered_aggregate',
+            op: desc.op,
+            field: desc.measure_field,
+            predicate: { field: desc.category_field, operator: 'eq', value: c.value },
+          },
+        },
+        { kind: 'constant', value: c.rate },
+      ],
+    })),
+  };
+  return constructComposed(composed, scale, path);
 }
 
 // ─────────────────────────────────────────────
@@ -548,6 +598,22 @@ function buildReferenceNode(
       };
     case 'aggregate':
       return { prime: 'aggregate', op: source.op, field: source.field };
+    case 'filtered_aggregate':
+      // OB-225: filter(predicate){ aggregate(op, field) } over the entity's activeRows.
+      // count is row-cardinality (aggregate ignores field); sum/avg/min/max use the field.
+      return {
+        prime: 'filter',
+        predicate: {
+          field: source.predicate.field,
+          operator: source.predicate.operator,
+          value: source.predicate.value,
+        },
+        downstream: {
+          prime: 'aggregate',
+          op: source.op,
+          field: source.field ?? source.predicate.field,
+        },
+      };
     case 'scope_aggregate':
       // scope(boundary, aggregate(op, field))
       return {
@@ -638,6 +704,8 @@ function refSourceField(source: ReferenceSource): string {
     case 'aggregate':
     case 'scope_aggregate':
       return source.field;
+    case 'filtered_aggregate':
+      return source.field ?? source.predicate.field;
     case 'ratio':
       return source.numerator_field;
     case 'cross_data':
