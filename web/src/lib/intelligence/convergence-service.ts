@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MetricDerivationRule } from '@/lib/calculation/run-calculation';
+import { detectTemporalColumnMap } from '@/lib/calculation/temporal-binding'; // OB-223 §1.3
 import type { FieldIdentity } from '@/lib/sci/sci-types';
 import { getAIService } from '@/lib/ai';
 // OB-199 Phase 4: canonical writer migration — bypass writer at line 363 removed.
@@ -124,6 +125,10 @@ export interface ComponentBinding {
   // LLM-recognized from the column's nature (contextualIdentity / value-shape) + the field's intent
   // role, deterministically applied by resolveColumnFromBatch. Absent ⇒ 'sum' (legacy flow behavior).
   reduction?: ReductionKind;
+  // OB-223 §1.3: wide-format temporal binding (periodKey "YYYY-MM" → source column). When present the
+  // binding resolves the period's column at calc time (resolveTemporalColumn, route.ts) instead of a
+  // single `column`. Produced when the LLM abstains and detectTemporalColumnMap finds a month-column set.
+  columnMap?: Record<string, string>;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
   // HF-272: per-component resolution-failure MARKER. Set when a required reference token
@@ -1802,7 +1807,7 @@ type LabeledCandidate = {
 // OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
 // confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
 type BindingProposal =
-  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind }
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind; columnMap?: Record<string, string> }
   | { abstain: true; reason: string };
 
 // OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
@@ -1894,7 +1899,23 @@ Infer it from the column's contextual identity (an "...balance"/"outstanding" re
     for (const [field, val] of Object.entries(result)) {
       if (!val || typeof val !== 'object') continue;
       const obj = val as Record<string, unknown>;
-      if (obj.abstain === true) { proposals[field] = { abstain: true, reason: String(obj.reason ?? 'unspecified') }; continue; }
+      if (obj.abstain === true) {
+        // OB-223 §1.3: a wide-format temporal field (one month per column) makes the LLM abstain
+        // (no single column fits). Before recording the gap, scan each sheet's candidate columns for a
+        // month-column set; if found, bind it as a temporal_map (resolveTemporalColumn selects the
+        // period's column at calc time, route.ts) instead of a gap. Structural detection (year+month
+        // tokens) — Korean Test. Non-temporal fields find no map → the abstain stands (BCL unaffected).
+        let temporalProposal: BindingProposal | undefined;
+        for (const [lbl, cands] of Array.from(bySheet.entries())) {
+          const tmap = detectTemporalColumnMap(cands.map((c: LabeledCandidate) => c.column));
+          if (tmap) {
+            temporalProposal = { column: '', partitionKey: keyByLabel.get(lbl)!, confidence: 0.6, filters: [], reduction: tmap.reduction as ReductionKind, columnMap: tmap.columnMap };
+            break;
+          }
+        }
+        proposals[field] = temporalProposal ?? { abstain: true, reason: String(obj.reason ?? 'unspecified') };
+        continue;
+      }
       const col = typeof obj.column === 'string' ? obj.column : undefined;
       const lbl = typeof obj.sheet === 'string' ? obj.sheet : undefined;
       const pk = lbl ? keyByLabel.get(lbl) : undefined;
@@ -1931,7 +1952,11 @@ export function mappedTokensForBinding(binding: Record<string, ComponentBinding>
   const out = new Set<string>();
   if (!binding) return out;
   for (const [role, entry] of Object.entries(binding)) {
-    if (entry && typeof entry.column === 'string' && entry.column.length > 0 && entry.match_pass !== 'failed') {
+    // OB-223 §1.3: a temporal_map binding has no single `column` (it resolves per period at calc time);
+    // a non-failed entry with a non-empty columnMap is a MAPPED token, same as a resolved column.
+    const hasColumn = typeof entry?.column === 'string' && entry.column.length > 0;
+    const hasColumnMap = !!entry?.columnMap && Object.keys(entry.columnMap).length > 0;
+    if (entry && entry.match_pass !== 'failed' && (hasColumn || hasColumnMap)) {
       out.add(role);
     }
   }
@@ -1946,6 +1971,30 @@ export function mappedTokensForBinding(binding: Record<string, ComponentBinding>
  * variant-grouped engine format); `convergenceBindings` is
  * input_bindings.convergence_bindings (keyed component_<index>).
  */
+// OB-223 §1.6: a component that reverses/adjusts a prior period's RESULT (OB-218 clawback,
+// Pattern D) does NOT bind input columns — the engine bypasses metric resolution and uses
+// retrieveOriginalTrace. Detect the temporal_adjustment modifier wherever it may sit (component
+// .modifiers, .calculationIntent.modifiers, or .metadata.modifiers). Korean Test: structural —
+// keys on the modifier discriminator, no column/value literal. Returns false for every BCL/Meridian
+// component (none carry this modifier) → binding-completeness behavior byte-identical for them.
+function hasTemporalAdjustmentModifier(component: unknown): boolean {
+  const c = component as Record<string, unknown> | null;
+  if (!c || typeof c !== 'object') return false;
+  const ci = c.calculationIntent as Record<string, unknown> | undefined;
+  const md = c.metadata as Record<string, unknown> | undefined;
+  const pools: unknown[] = [c.modifiers, ci?.modifiers, md?.modifiers, c.modifier, md?.modifier];
+  for (const pool of pools) {
+    if (Array.isArray(pool)) {
+      if (pool.some(m => (m as Record<string, unknown>)?.modifier === 'temporal_adjustment')) return true;
+    } else if (pool && typeof pool === 'object') {
+      if ((pool as Record<string, unknown>).modifier === 'temporal_adjustment') return true;
+    } else if (pool === 'temporal_adjustment') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function findIncompleteBindings(
   componentsJson: unknown,
   convergenceBindings: Record<string, Record<string, ComponentBinding>> | undefined | null,
@@ -1953,6 +2002,9 @@ export function findIncompleteBindings(
   const bindings = convergenceBindings ?? {};
   const out: IncompleteBinding[] = [];
   for (const component of extractComponents(componentsJson)) {
+    // OB-223 §1.6: clawback (temporal_adjustment) components need no input bindings — skip the
+    // completeness check so an (expected) empty binding set does not abort the calc (HF-281).
+    if (hasTemporalAdjustmentModifier(component)) continue;
     const required = requiredTokensForComponent(component);
     if (required.length === 0) continue; // nothing to map (DD-7: unchanged)
     const componentKey = `component_${component.index}`;
@@ -2821,6 +2873,25 @@ async function generateAllComponentBindings(
           },
         };
         console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role}: ${proposal ? `LLM abstained (${why})` : 'no proposal'} → convergence gap`);
+        continue;
+      }
+
+      // OB-223 §1.3: a temporal_map proposal binds a periodKey→column map — there is no single column
+      // to structurally validate (the column is selected per calc-period at resolution time). Store it
+      // directly and skip the single-column checks below.
+      if ('columnMap' in proposal && proposal.columnMap) {
+        const tcap = capabilities.find(c => c.partitionKey === proposal.partitionKey);
+        bindings[compKey][req.role] = {
+          column: '',
+          columnMap: proposal.columnMap,
+          field_identity: { structuralType: 'temporal', contextualIdentity: 'wide_format_temporal', confidence: proposal.confidence },
+          match_pass: 1,
+          confidence: proposal.confidence,
+          reduction: proposal.reduction !== 'sum' ? proposal.reduction : undefined,
+          filters: proposal.filters,
+          learning_provenance: { batch_id: tcap?.batchIds[0] || '', learned_at: new Date().toISOString() },
+        };
+        console.log(`[Convergence] OB-223 §1.3 ${comp.name}:${req.role} → temporal_map (${Object.keys(proposal.columnMap).length} periods, sheet=${proposal.partitionKey.split('␟')[0]})`);
         continue;
       }
 

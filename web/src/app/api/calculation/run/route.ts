@@ -29,6 +29,7 @@ import {
 } from '@/lib/calculation/run-calculation';
 import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
+import { groundComponentDags } from '@/lib/intelligence/category-grounding'; // OB-223 §1.7
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
@@ -413,6 +414,43 @@ export async function POST(request: NextRequest) {
     addLog('HF-108 Using metric_derivations (legacy) for data resolution — no convergence_bindings found');
   } else {
     addLog('HF-108 WARNING: No input_bindings found — calculation may produce incomplete results');
+  }
+
+  // ── OB-223 §1.7: calc-time category value grounding (P1) ──
+  // A category-differentiated component's DAG misuses `scope` (per-row partition) with PLAN-vocabulary
+  // filter values (e.g. "ALI"); the data stores full values ("Alimentos"). Ground the plan labels to
+  // the tenant's actual distinct values and rewrite scope→filter, IN MEMORY for this calc (deterministic
+  // prefix/initials matcher — no LLM, cheap to redo each run). Conditional on scope-node presence →
+  // BCL/Meridian (no scope) untouched. Architect verifies the produced numbers on MIR (SR-44).
+  try {
+    const groundResults = await groundComponentDags(
+      defaultComponents as unknown as Array<Record<string, unknown>>,
+      async (field: string): Promise<string[]> => {
+        const vals = new Set<string>();
+        for (let page = 0; page < 5 && vals.size < 50; page++) {
+          let q = supabase.from('committed_data').select('row_data').eq('tenant_id', tenantId).range(page * 1000, page * 1000 + 999);
+          q = applyCommittedDataVisibility(q, hiddenBatchIds);
+          const { data } = await q;
+          if (!data || data.length === 0) break;
+          for (const r of data) {
+            const v = (r.row_data as Record<string, unknown> | null)?.[field];
+            if (typeof v === 'string' && v.trim()) vals.add(v.trim());
+          }
+          if (data.length < 1000) break;
+        }
+        return Array.from(vals);
+      },
+    );
+    const grounded = groundResults.filter(r => r.grounded > 0);
+    if (grounded.length > 0) {
+      addLog(`OB-223 §1.7: grounded ${grounded.length} category-differentiated component(s): ${grounded.map(g => `${g.name}→${g.grounded} filter(s)`).join('; ')}`);
+    }
+    const stillUngrounded = groundResults.filter(r => r.ungrounded > 0);
+    if (stillUngrounded.length > 0) {
+      addLog(`OB-223 §1.7: ${stillUngrounded.length} component(s) have ungrounded scope branches (plan label unmatched in data) — left unfiltered, no wrong filter.`);
+    }
+  } catch (err) {
+    addLog(`OB-223 §1.7: category grounding skipped (${err instanceof Error ? err.message : 'error'})`);
   }
 
   // ── OB-76: Transform components to intents (once, before entity loop) ──
