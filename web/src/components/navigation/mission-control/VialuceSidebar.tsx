@@ -156,7 +156,11 @@ export function VialuceSidebar() {
 
         {/* Active workspace sections → expandable groups + sub-items */}
         {sections.map(sec => {
-          const items = sec.routes.filter(itemVisible);
+          // HF-319 Surface D: OB-226 absorbed /operate/lifecycle (Operations Center) into the
+          // /operate Lifecycle Cockpit (it now redirects back to /operate under Vialuce). Drop the
+          // redundant nav item HERE — VialuceSidebar renders ONLY under data-theme="vialuce", so this
+          // is inherently Vialuce-scoped; Dark/Bliss (ChromeSidebar) keep the three-page structure.
+          const items = sec.routes.filter(itemVisible).filter(it => it.path !== '/operate/lifecycle');
           if (items.length === 0) return null;
           const open = sectionOpen(sec);
           return (
