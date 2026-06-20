@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
@@ -57,7 +58,14 @@ import {
   CarrierPipelineReadiness,
 } from '@/components/stream';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
+// OB-224: inline drill-through — dead-end numbers gain click-through to entity→component→trace→source.
+import { useDrillThrough } from '@/hooks/useDrillThrough';
+import { DrillThroughPanel } from '@/components/drill-through';
+import type { EntityScope } from '@/lib/drill-through';
 import { Loader2, Zap } from 'lucide-react';
+
+// Admin sees the whole tenant; manager/individual panels are scoped to the entities already on-screen.
+const ALL_SCOPE: EntityScope = { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' };
 
 // ──────────────────────────────────────────────
 // Persona accent border classes
@@ -548,10 +556,10 @@ export default function StreamPage() {
 
         {/* Intelligence Stream — persona-specific rendering */}
         {persona === 'admin' && (
-          <AdminStream data={data} tenantCtx={tenantCtx} trajectoryData={trajectoryData} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
+          <AdminStream data={data} tenantCtx={tenantCtx} trajectoryData={trajectoryData} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} tenantId={currentTenant?.id ?? ''} periodId={data.currentPeriod?.id} />
         )}
         {persona === 'manager' && (
-          <ManagerStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
+          <ManagerStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} tenantId={currentTenant?.id ?? ''} periodId={data.currentPeriod?.id} />
         )}
         {persona === 'rep' && (
           <IndividualStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
@@ -577,6 +585,8 @@ function AdminStream({
   accentColor,
   formatCurrency,
   onInteract,
+  tenantId,
+  periodId,
 }: {
   data: IntelligenceStreamData;
   tenantCtx: TenantContext | null;
@@ -584,8 +594,13 @@ function AdminStream({
   accentColor: string;
   formatCurrency: (n: number) => string;
   onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
+  tenantId: string;
+  periodId?: string;
 }) {
   const router = useRouter();
+  const isVialuce = useIsVialuce();
+  // OB-224: Distribution "view entities" now opens the five-layer drill inline (was a dead route push).
+  const drill = useDrillThrough<{ entityId?: string }>(periodId);
 
   // OB-170: Derive reconciliation status from tenant context
   const latestCalc = tenantCtx?.calculatedPeriods?.[tenantCtx.calculatedPeriods.length - 1];
@@ -724,12 +739,34 @@ function AdminStream({
             isFirstPeriod={(tenantCtx?.calculatedPeriods.length ?? 0) <= 1}
             entityCount={data.systemHealth?.entityCount}
             onViewEntities={() => {
-              onInteract('distribution', 'act');
-              router.push('/operate/lifecycle');
+              onInteract('distribution', 'expand');
+              if (!tenantId || !periodId) router.push('/operate/lifecycle');
+              else if (drill.isOpen) drill.close();
+              else drill.open({});
             }}
           />
         )}
       </div>
+
+      {/* OB-224: inline five-layer drill (entity → component → trace → source) for this period. */}
+      {drill.isOpen && tenantId && periodId && (
+        <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
+          <DrillThroughPanel tenantId={tenantId} scope={ALL_SCOPE} periodId={periodId} initialEntityId={drill.target?.entityId} showExport />
+        </StreamDrillRegion>
+      )}
+    </div>
+  );
+}
+
+// OB-224: a small theme-aware wrapper that frames an inline drill panel with a "Hide" control.
+function StreamDrillRegion({ isVialuce, onClose, children }: { isVialuce: boolean; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', fontSize: 10, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: 0 } : undefined} className={isVialuce ? undefined : 'text-[10px] uppercase tracking-wider text-zinc-500'}>Entity detail</p>
+        <button onClick={onClose} className={isVialuce ? 'gbtn' : 'text-xs text-zinc-500 hover:text-zinc-300'}>Hide</button>
+      </div>
+      {children}
     </div>
   );
 }
@@ -744,12 +781,24 @@ function ManagerStream({
   accentColor,
   formatCurrency,
   onInteract,
+  tenantId,
+  periodId,
 }: {
   data: IntelligenceStreamData;
   accentColor: string;
   formatCurrency: (n: number) => string;
   onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
+  tenantId: string;
+  periodId?: string;
 }) {
+  const isVialuce = useIsVialuce();
+  // OB-224: clicking a team member opens their five-layer drill inline. The panel grid is scoped to
+  // exactly the team entities already on this page — no over-disclosure of the rest of the tenant.
+  const drill = useDrillThrough<{ entityId?: string }>(periodId);
+  const teamScope: EntityScope = {
+    visibleEntityIds: (data.teamHeatmap ?? []).map(e => e.entityId),
+    visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'graph_derived',
+  };
   return (
     <div className="space-y-4">
       {/* 1. Team Health — hero */}
@@ -789,7 +838,7 @@ function ManagerStream({
           entities={data.teamHeatmap}
           triage={data.teamHealth ? { exceeding: data.teamHealth.exceeding, onTrack: data.teamHealth.onTrack, needsAttention: data.teamHealth.needsAttention } : undefined}
           formatCurrency={formatCurrency}
-          onEntityClick={() => onInteract('acceleration', 'act')}
+          onEntityClick={(entityId) => { onInteract('acceleration', 'expand'); if (tenantId && periodId) drill.open({ entityId }); }}
         />
       )}
 
@@ -800,8 +849,15 @@ function ManagerStream({
           accentColor={accentColor}
           entities={data.teamHeatmap}
           formatCurrency={formatCurrency}
-          onEntityClick={() => onInteract('team_heatmap', 'act')}
+          onEntityClick={(entityId) => { onInteract('team_heatmap', 'expand'); if (tenantId && periodId) drill.open({ entityId }); }}
         />
+      )}
+
+      {/* OB-224: inline five-layer drill for the clicked team member (scoped to the team set). */}
+      {drill.isOpen && tenantId && periodId && (
+        <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
+          <DrillThroughPanel tenantId={tenantId} scope={teamScope} periodId={periodId} initialEntityId={drill.target?.entityId} compact />
+        </StreamDrillRegion>
       )}
 
       {/* OB-211 WS-2 inc-2: access-scoped Simulate — opportunities over the manager's TEAM only.

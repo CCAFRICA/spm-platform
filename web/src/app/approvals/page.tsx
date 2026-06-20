@@ -11,6 +11,11 @@ import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-t
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+// OB-224: real source of approvable work = calculation_batches in a pre-approval lifecycle state.
+import { listCalculationBatches } from '@/lib/supabase/calculation-service';
+import { getPeriodsWithResults } from '@/lib/drill-through';
+import { DrillThroughPanel } from '@/components/drill-through';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -73,6 +78,83 @@ export default function ApprovalCenterPage() {
   const tenantId = currentTenant?.id || 'default';
   const userId = user?.id || 'admin';
   const userRole = user?.role || 'admin';
+
+  // OB-224: real "Pending Calculations" — calculation_batches awaiting approval.
+  // Real lifecycle_state values observed in data: PREVIEW (pre-approval) and APPROVED.
+  // We treat the pre-APPROVED states as "pending"; PREVIEW is the live one, the rest are
+  // defensive against batches that have advanced toward approval.
+  const PENDING_BATCH_STATES = ['PREVIEW', 'OFFICIAL', 'PENDING_APPROVAL'] as const;
+  type PendingBatch = {
+    id: string;
+    periodId: string | null;
+    periodLabel: string;
+    entityCount: number;
+    totalPayout: number;
+    ruleSetName: string | null;
+    lifecycleState: string;
+  };
+  const [pendingBatches, setPendingBatches] = useState<PendingBatch[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const realTenantId = currentTenant?.id;
+    if (!realTenantId) {
+      setPendingBatches([]);
+      return;
+    }
+    (async () => {
+      setPendingLoading(true);
+      try {
+        const [periodOptions, ...stateBatches] = await Promise.all([
+          getPeriodsWithResults(realTenantId),
+          ...PENDING_BATCH_STATES.map((state) =>
+            listCalculationBatches(realTenantId, { lifecycleState: state as never }).catch(() => []),
+          ),
+        ]);
+        if (cancelled) return;
+        const periodLabelById = new Map(periodOptions.map((p) => [p.id, p.label]));
+        const rows: PendingBatch[] = stateBatches.flat().map((b) => {
+          const summary = (b.summary ?? {}) as Record<string, unknown>;
+          const periodId = (b.period_id as string | null) ?? null;
+          return {
+            id: b.id as string,
+            periodId,
+            periodLabel: (periodId && periodLabelById.get(periodId)) || (periodId ?? '—'),
+            entityCount:
+              (typeof summary.entity_count === 'number' ? summary.entity_count : undefined) ??
+              (typeof b.entity_count === 'number' ? b.entity_count : 0),
+            totalPayout: typeof summary.total_payout === 'number' ? summary.total_payout : 0,
+            ruleSetName:
+              typeof summary.rule_set_name === 'string' ? summary.rule_set_name : null,
+            lifecycleState: (b.lifecycle_state as string) ?? '',
+          };
+        });
+        // newest first (listCalculationBatches already orders by created_at desc per state)
+        setPendingBatches(rows);
+      } finally {
+        if (!cancelled) setPendingLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTenant?.id]);
+
+  const allScope = {
+    visibleEntityIds: [] as string[],
+    visibleRuleSetIds: [] as string[],
+    visiblePeriodIds: [] as string[],
+    scopeType: 'all' as const,
+  };
+
+  const currencyFmt = new Intl.NumberFormat(isSpanish ? 'es-MX' : 'en-US', {
+    style: 'currency',
+    currency: currentTenant?.currency || 'USD',
+    maximumFractionDigits: 0,
+  });
 
   const loadData = () => {
     // Load stats
@@ -184,6 +266,108 @@ export default function ApprovalCenterPage() {
           </div>
         </div>
       )}
+
+      {/* OB-224: Pending Calculations — REAL approvable work from calculation_batches.
+          Additive section; the legacy (in-memory) approval UI below is left intact. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            {isSpanish ? 'Cálculos Pendientes' : 'Pending Calculations'}
+            {pendingBatches.length > 0 && (
+              <Badge variant="secondary">{pendingBatches.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pendingLoading ? (
+            <p className="text-sm text-muted-foreground py-4">
+              {isSpanish ? 'Cargando…' : 'Loading…'}
+            </p>
+          ) : pendingBatches.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              {isSpanish
+                ? 'No hay cálculos pendientes de aprobación.'
+                : 'No calculations are pending approval.'}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {pendingBatches.map((batch) => {
+                const expanded = expandedBatchId === batch.id;
+                return (
+                  <div key={batch.id} className="border rounded-lg overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedBatchId(expanded ? null : batch.id)
+                      }
+                      className="w-full flex items-center gap-3 p-3 text-left hover:bg-muted/50 transition-colors"
+                    >
+                      {expanded ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate">
+                            {batch.ruleSetName ||
+                              (isSpanish ? 'Plan de Compensación' : 'Rule Set')}
+                          </span>
+                          <Badge variant="outline" className="shrink-0">
+                            {batch.lifecycleState}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {isSpanish ? 'Período' : 'Period'}: {batch.periodLabel}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-semibold">
+                          {currencyFmt.format(batch.totalPayout)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {batch.entityCount} {isSpanish ? 'entidades' : 'entities'}
+                        </p>
+                      </div>
+                    </button>
+                    {expanded && (
+                      <div className="border-t p-3 space-y-3">
+                        <DrillThroughPanel
+                          tenantId={tenantId}
+                          scope={allScope}
+                          batchId={batch.id}
+                          showExport
+                          emptyMessage={
+                            isSpanish
+                              ? 'No hay resultados para revisar en este lote.'
+                              : 'No results to review in this batch.'
+                          }
+                        />
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button size="sm" disabled>
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            {isSpanish ? 'Aprobar' : 'Approve'}
+                          </Button>
+                          <Button size="sm" variant="outline" disabled>
+                            <XCircle className="h-4 w-4 mr-1" />
+                            {isSpanish ? 'Rechazar' : 'Reject'}
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            {isSpanish
+                              ? 'Las transiciones de estado del lote llegarán en un seguimiento (revisión y reconciliación primero).'
+                              : 'Batch state transitions land in a follow-up (review & reconcile first).'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       {stats && (

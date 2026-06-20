@@ -24,7 +24,17 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Users, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Search, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { DrillThroughPanel } from '@/components/drill-through';
+import { getPeriodsWithResults } from '@/lib/drill-through';
+import type { EntityScope } from '@/lib/drill-through';
+
+const ALL_SCOPE: EntityScope = {
+  visibleEntityIds: [],
+  visibleRuleSetIds: [],
+  visiblePeriodIds: [],
+  scopeType: 'all',
+};
 
 const PAGE_SIZE = 25;
 
@@ -66,6 +76,10 @@ function PeopleConfigurePageInner() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
 
+  // Drill-through: selected entity + latest period with results
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [latestPeriodId, setLatestPeriodId] = useState<string | undefined>(undefined);
+
   const fetchEntities = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
@@ -106,6 +120,18 @@ function PeopleConfigurePageInner() {
   useEffect(() => {
     fetchEntities();
   }, [fetchEntities]);
+
+  // Resolve the most-recent period with results for drill-through
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    getPeriodsWithResults(tenantId)
+      .then(periods => {
+        if (!cancelled) setLatestPeriodId(periods[0]?.id);
+      })
+      .catch(err => console.error('[Personnel] Period fetch error:', err));
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   // Debounced search — apply on Enter or after typing stops
   useEffect(() => {
@@ -237,10 +263,19 @@ function PeopleConfigurePageInner() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entities.map(e => (
-                    <TableRow key={e.id} className="border-slate-800 hover:bg-slate-800/30">
+                  {entities.map(e => {
+                    const isSelected = selectedEntityId === e.id;
+                    return (
+                    <TableRow
+                      key={e.id}
+                      onClick={() => setSelectedEntityId(prev => (prev === e.id ? null : e.id))}
+                      className={`border-slate-800 cursor-pointer ${isSelected ? 'bg-slate-800/50' : 'hover:bg-slate-800/30'}`}
+                    >
                       <TableCell className="text-slate-300 font-mono text-sm">
-                        {e.external_id || '—'}
+                        <span className="inline-flex items-center gap-1.5">
+                          <ChevronDown className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isSelected ? '' : '-rotate-90'}`} />
+                          {e.external_id || '—'}
+                        </span>
                       </TableCell>
                       <TableCell className="text-slate-200 font-medium">
                         {e.display_name}
@@ -259,7 +294,8 @@ function PeopleConfigurePageInner() {
                         {new Date(e.created_at).toLocaleDateString()}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -299,6 +335,43 @@ function PeopleConfigurePageInner() {
           )}
         </CardContent>
       </Card>
+
+      {/* Drill-through: entity → components → traces → source */}
+      {selectedEntityId && (
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base text-slate-200">
+                {isSpanish ? 'Detalle de Cálculo' : 'Calculation Detail'}
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                {isSpanish
+                  ? 'Componentes, trazas por transacción y datos de origen'
+                  : 'Components, per-transaction traces, and source data'}
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedEntityId(null)}
+              className="border-slate-700 text-slate-300"
+            >
+              {isSpanish ? 'Cerrar' : 'Close'}
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <DrillThroughPanel
+              tenantId={tenantId}
+              scope={ALL_SCOPE}
+              periodId={latestPeriodId}
+              initialEntityId={selectedEntityId}
+              emptyMessage={isSpanish
+                ? 'No hay resultados de cálculo para esta entidad en el período más reciente.'
+                : 'No calculation results for this entity in the most recent period.'}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

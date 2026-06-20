@@ -28,6 +28,8 @@ import { usePersona } from '@/contexts/persona-context';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, FileText, ChevronDown, User, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { computeVelocity, classifyTrend, type TrajectoryTrend } from '@/lib/intelligence/trajectory-service';
+// OB-224 (AP-17): forensic per-transaction trace + source-data + dispute via the one drill-through unit
+import { ComponentCards } from '@/components/drill-through';
 
 // ──────────────────────────────────────────────
 // Types
@@ -72,12 +74,6 @@ interface PeriodOption {
   hasBatch: boolean;
 }
 
-interface TransactionRow {
-  dataType: string;
-  sourceDate: string | null;
-  rowData: Record<string, unknown>;
-}
-
 // ──────────────────────────────────────────────
 // Page
 // ──────────────────────────────────────────────
@@ -117,10 +113,8 @@ export default function StatementsPage() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(searchParams.get('entityId'));
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(searchParams.get('periodId'));
   const [statement, setStatement] = useState<StatementData | null>(null);
-  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [showEntityPicker, setShowEntityPicker] = useState(false);
   const [entitySearch, setEntitySearch] = useState('');
-  const [showTransactions, setShowTransactions] = useState(false);
   const [entityTrajectory, setEntityTrajectory] = useState<Array<{ periodLabel: string; totalPayout: number; components: Record<string, number> }> | null>(null);
 
   // Load entities and periods
@@ -199,7 +193,6 @@ export default function StatementsPage() {
     // HERE, at the data layer — not merely hidden in the UI.
     if (allowedEntityIds && !allowedEntityIds.includes(selectedEntityId)) {
       setStatement(null);
-      setTransactions([]);
       return;
     }
 
@@ -269,22 +262,9 @@ export default function StatementsPage() {
       batchId: batch.id,
     });
 
-    // Load source transactions
-    const { data: txns } = await supabase
-      .from('committed_data')
-      .select('data_type, source_date, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('entity_id', selectedEntityId)
-      .order('source_date', { ascending: false })
-      .limit(50);
-
-    setTransactions(
-      (txns || []).map(t => ({
-        dataType: t.data_type,
-        sourceDate: t.source_date,
-        rowData: (t.row_data as Record<string, unknown>) || {},
-      }))
-    );
+    // OB-224 (AP-17): source transactions are now fetched by <ComponentCards/> from the shared
+    // drill-through data layer (per-component, with forensic trace) — no bespoke committed_data
+    // query here anymore. Statement load only needs result + entity + trajectory below.
 
     // OB-172: Load entity trajectory (all periods for this entity)
     const { data: allBatches } = await supabase
@@ -521,55 +501,18 @@ export default function StatementsPage() {
               </div>
             </div>
 
-            {/* Component Breakdown */}
-            <div className="rounded-lg bg-zinc-900/50 border border-zinc-800/60 p-5">
-              <p className="text-[11px] uppercase tracking-wider font-medium text-slate-400 mb-4">
-                Component Breakdown
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-800">
-                      <th className="text-left py-2 text-xs text-zinc-500 font-medium">Component</th>
-                      <th className="text-right py-2 text-xs text-zinc-500 font-medium">Payout</th>
-                      <th className="text-right py-2 text-xs text-zinc-500 font-medium">% of Total</th>
-                      <th className="text-left py-2 pl-4 text-xs text-zinc-500 font-medium">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {statement.components.map((comp, i) => {
-                      const pct = statement.totalPayout > 0
-                        ? (comp.payout / statement.totalPayout * 100).toFixed(1)
-                        : '0.0';
-                      const detail = formatComponentDetail(comp);
-                      return (
-                        <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/20">
-                          <td className="py-3 text-zinc-200">{comp.componentName}</td>
-                          <td className="py-3 text-right font-mono text-zinc-200 tabular-nums">
-                            {formatCurrency(comp.payout)}
-                          </td>
-                          <td className="py-3 text-right font-mono text-zinc-400 tabular-nums">
-                            {pct}%
-                          </td>
-                          <td className="py-3 pl-4 text-xs text-zinc-500">{detail}</td>
-                        </tr>
-                      );
-                    })}
-                    {/* Total row */}
-                    <tr className="font-semibold">
-                      <td className="py-3 text-zinc-100">Total</td>
-                      <td className="py-3 text-right font-mono text-zinc-100 tabular-nums">
-                        {formatCurrency(statement.totalPayout)}
-                      </td>
-                      <td className="py-3 text-right font-mono text-zinc-300 tabular-nums">100%</td>
-                      <td className="py-3 pl-4 text-xs text-zinc-500">
-                        {statement.components.length} components
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {/* OB-224 (AP-17): one drill-through unit replaces the bespoke Component Breakdown table
+                AND the bespoke Source Data drill below. ComponentCards self-renders the component
+                breakdown + per-transaction forensic trace table + source-data + a Dispute action,
+                all from getEntityStatement (no second query). Converges on the shared code path. */}
+            <ComponentCards
+              tenantId={tenantId}
+              entityId={statement.entity.id}
+              periodId={statement.period.id}
+              batchId={statement.batchId}
+              entityName={statement.entity.displayName}
+              periodLabel={statement.period.label}
+            />
 
             {/* OB-172: Entity Trajectory */}
             {entityTrajectory && entityTrajectory.length >= 2 && (() => {
@@ -608,83 +551,9 @@ export default function StatementsPage() {
               );
             })()}
 
-            {/* Source Transactions */}
-            {transactions.length > 0 && (
-              <div className="rounded-lg bg-zinc-900/50 border border-zinc-800/60 p-5">
-                <button
-                  onClick={() => setShowTransactions(!showTransactions)}
-                  className="flex items-center justify-between w-full"
-                >
-                  <p className="text-[11px] uppercase tracking-wider font-medium text-slate-400">
-                    Source Data ({transactions.length} records)
-                  </p>
-                  <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform ${showTransactions ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showTransactions && (
-                  <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-800 max-h-[400px] overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0">
-                        <tr className="bg-zinc-900">
-                          <th className="px-3 py-2 text-left text-zinc-400">Type</th>
-                          <th className="px-3 py-2 text-left text-zinc-400">Date</th>
-                          <th className="px-3 py-2 text-left text-zinc-400">Data</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {transactions.map((txn, i) => (
-                          <tr key={i} className="border-t border-zinc-800">
-                            <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{txn.dataType}</td>
-                            <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{txn.sourceDate || '—'}</td>
-                            <td className="px-3 py-2 text-zinc-500">
-                              {formatRowData(txn.rowData)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
       </div>
     </div>
   );
-}
-
-// ──────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────
-
-function formatComponentDetail(comp: ComponentResult): string {
-  const d = comp.details;
-  if (!d) return '';
-
-  switch (comp.componentType) {
-    case 'bounded_lookup_2d':
-      return `Row: ${d.rowBand || '—'} (${Number(d.rowValue || 0).toFixed(1)}%), Col: ${d.colBand || '—'}`;
-    case 'bounded_lookup_1d':
-      return `${d.matchedTier || '—'} (${Number(d.metricValue || 0).toFixed(1)})`;
-    case 'scalar_multiply':
-      return `${d.baseAmount || 0} × ${d.rate || 0}`;
-    case 'conditional_gate':
-      return d.gateSemantics ? `${d.matchedCondition || 'Qualified'}` : `${d.matchedCondition || '—'}`;
-    default:
-      if (d.source === 'calculationIntent' && d.operation === 'conditional_gate') {
-        return d.payout ? 'Qualified' : 'Not qualified';
-      }
-      // OB-196 Phase 3 (E4 / Q-A.5.4): graceful-with-explicit-label, never silent.
-      return `Component type ${comp.componentType ?? 'unknown'} not supported in statement display`;
-  }
-}
-
-function formatRowData(data: Record<string, unknown>): string {
-  // Filter out internal fields and show key-value pairs
-  const filtered = Object.entries(data)
-    .filter(([k]) => !k.startsWith('_'))
-    .slice(0, 6);
-
-  return filtered.map(([k, v]) => `${k}: ${v}`).join(' · ');
 }

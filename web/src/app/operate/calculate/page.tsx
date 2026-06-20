@@ -42,6 +42,9 @@ import { StoreHeatmap } from '@/components/results/StoreHeatmap';
 import { PopulationHealth } from '@/components/results/PopulationHealth';
 import { EntityTable } from '@/components/results/EntityTable';
 
+// OB-224: drill-through (total → entities → components → traces → source)
+import { DrillThroughPanel } from '@/components/drill-through';
+
 function CalculatePageInner() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
@@ -848,6 +851,18 @@ function CalculatePageInner() {
                   planName={resultsData.planName}
                   formatCurrency={formatCurrency}
                 />
+
+                {/* OB-224 — Platform Experience Finding #8: drill total → entities → components → traces → source.
+                    Admin all-scope; keyed to the just-run batch (falls back to period). Only renders when a batch exists. */}
+                {resultsData.batchId && (
+                  <DrillThroughPanel
+                    tenantId={tenantId}
+                    scope={{ visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' }}
+                    batchId={resultsData.batchId}
+                    periodId={selectedPeriodId ?? undefined}
+                    showExport
+                  />
+                )}
 
                 {/* L4: Heatmap */}
                 <StoreHeatmap
