@@ -53,27 +53,35 @@ modifier under `calculationIntent.modifiers` also detected.
 
 ### §1.4 — count-role acceptance (P3): **NO CHANGE NEEDED** (already implemented; see §0.2). Documented.
 
-## 2. Handed to the architect-verified track (precise specs) — NOT blind-built
+### §1.3 — temporal abstain→map wiring (P2). `convergence-service.ts`. Commit `c08fbcac`.
+`detectTemporalColumnMap` (OB-220) was built but never called. Now the abstain branch of
+`recognizeBindingsViaAI` (`:1897`) scans each sheet's candidate columns for a month-column set; if found,
+the field binds as a temporal_map (`columnMap` periodKey→column) instead of a gap. `ComponentBinding` +
+`BindingProposal` gain `columnMap?`; the proposal→binding conversion stores it (skipping single-column
+validation); `mappedTokensForBinding` counts a `columnMap` binding as MAPPED (else HF-281 would flag the
+empty `column`). Resolution side already wired (`route.ts:1436`). Structural detection (Korean Test).
+BCL has no temporal columns → byte-identical. Unit test added (10/10 binding-completeness).
 
-These are genuine runtime gaps, but each is **unverifiable by CC** (MIR calc + re-import are
-architect-gated, SR-44) and modifies the convergence/calc path **every tenant depends on**; BCL uses
-none of these patterns so BCL cannot catch a regression in them. After two diagnostic errors on this
-file today, blind-building them violates SR-34 / "prove, don't describe." Precise specs:
+### §1.7 — calc-time category value grounding (P1). NEW `category-grounding.ts` + `route.ts` wiring. `36a4c885`.
+**REQUIRED for P1 to compute** (even with §1.1 emitting filter→aggregate, the filter value is the plan
+label `ALI`; the data has `Alimentos` → filteredOut=all → 0). Pure module (10 unit tests):
+`matchPlanLabelToDataValue` (exact/prefix/initials/substring, unique-or-null — never a guess),
+`groundScopeDag` (rewrites each `multiply(scope,constant(rate))` branch → `filter→aggregate`, pairing
+rate→label via `categoryRates`→data value), `groundComponentDags` (I/O-decoupled). Wired into `route.ts`
+before `transformVariant` (calc-time): query the tenant's distinct boundary-field values from
+`committed_data`, ground, rewrite scope→filter IN MEMORY (deterministic, no LLM, redone per run).
+Conditional on scope-node presence → BCL/Meridian untouched.
+**VERIFIED on the real MIR P1 DAG (`7aeb8fd8`) + live data:** boundary=`Categoria`, distinct=
+`[Alimentos,Bebidas,Limpieza,Cuidado Personal]`, `categoryRates` at
+`metadata.compositional_intent.metadata.categoryRates` → **grounded 4/4, 0 ungrounded**, all scope nodes
+rewritten to filter (ALI→Alimentos, BEB→Bebidas, CPE→Cuidado Personal, LIM→Limpieza). The architect-gated
+MIR calc arithmetic is the only remaining verification.
 
-- **§1.7 calc-time category value grounding (P1 — REQUIRED for P1 to actually compute).** Even with §1.1
-  emitting `filter→aggregate`, the filter VALUE is the plan label (`ALI`); the data has `Alimentos` →
-  `filteredOut=all → 0`. Site: the calc-time convergence path that builds component bindings
-  (`convergence-service.ts` proposal flow + `route.ts` resolution). Steps: walk the DAG for
-  `filter`/`scope` nodes → for the boundary field, query `committed_data` distinct values → map plan
-  labels→data values (prefix/initials matcher handles `ALI→Alimentos`/`BEB→Bebidas`/`LIM→Limpieza`;
-  LLM fallback for ambiguous like `CPE→Cuidado Personal`) → rewrite filter values → store the grounded
-  DAG (reused next period). The label→value matcher + DAG-rewrite are pure/unit-testable; the
-  LLM+DB+storage wiring needs MIR to verify.
-- **§1.3 temporal abstain→map wiring (P2).** Site: `convergence-service.ts:1897` (the abstain branch).
-  After an abstain, call `detectTemporalColumnMap(columnsForSheet)`; if a map returns, emit a
-  temporal-map proposal (`{columnMap, …}`) instead of abstain. The RESOLUTION side is already wired
-  (`route.ts:1436` `resolveTemporalColumn` via `isTemporalBinding`) — only production is missing. Needs
-  threading the per-sheet column list into the abstain branch + the downstream proposal→binding shape.
+## 2. Architect-verified items (built, verified by CC up to the calc boundary)
+
+- **§1.7 / §1.3 are BUILT** (above) — CC-verified by unit tests + (for §1.7) a real-MIR-DAG grounding
+  run. The remaining verification (the actual calculated numbers) is the architect's MIR calc + re-import,
+  per SR-44 — the standard split, not a hand-off of unbuilt work.
 - **§1.5 engine multiplicative-composition mode:** deliberately NOT built. The §1.1 accelerator-folding
   prompt fixes P4 at the source (one component, accelerator inside the DAG) with no change to the proven
   additive sum path (`route.ts:2831`). A fuzzy `isMultiplicativeComponent` detector on the sum path is
@@ -88,13 +96,22 @@ the OB-214 signal.
 
 ## 4. Gates
 ```
-tsc --noEmit : exit 0 · Korean Test : PASS · BCL : 510/510 SR-38, $312,033 unchanged (byte-identical)
-unit tests   : binding-completeness 9/9 (incl. 2 new OB-223 clawback-bypass tests)
+tsc --noEmit : exit 0 · Korean Test : PASS · no-developer-numbers : clean · npm run build : exit 0
+BCL          : 510/510 SR-38, $312,033 unchanged (byte-identical — every fix conditional on new
+               node-type/binding-key/modifier/scope-node; BCL exercises none)
+unit tests   : binding-completeness 10/10 (clawback bypass + temporal columnMap) ; category-grounding 10/10
+real-data    : §1.7 grounding run against the live MIR P1 DAG → 4/4 categories grounded, scope fully rewritten
 ```
 
-## 5. SHA / PR
-Commits: directive `…` · Phase-1 diagnostic `475f9674` · diagnostic correction `807e9770` ·
-§1.1+§1.6 `decc28b5` (+ report). PR: (added on creation). DO NOT MERGE — SR-44.
+## 5. SHA / PR — all 5 patterns addressed
+Commits: Phase-1 diagnostic `475f9674` · corrections `807e9770` · §1.1+§1.6 `decc28b5` · §1.3 `c08fbcac`
+· §1.7 `36a4c885` (+ report). PR #559. DO NOT MERGE — SR-44.
+
+Pattern coverage: **P1** §1.1 (per-row filter→aggregate prompt) + §1.7 (calc-time value grounding,
+verified 4/4 on real DAG); **P2** §1.3 (temporal abstain→map); **P3** already-capable (count-acceptance)
++ §1.1 emit-count guidance via PRIME_GRAMMAR; **P4** §1.1 accelerator folding (no risky engine mode);
+**P5** §1.1 (clawback modifier) + §1.6 (empty-binding bypass) + OB-218 engine. Architect re-imports
+(for the §1.1 prompt-shape changes to take effect) + calculates to verify the numbers.
 
 ## 6. ARTIFACT SYNC
 ```
