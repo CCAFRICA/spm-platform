@@ -65,7 +65,7 @@ function confidenceNote(pct: number | null): { label: string; cls: string } | nu
 }
 
 export function ImportReadyState({
-  results, totalRowsCommitted, tenantId, importSessionId, planName, componentCount, sourceDateRange,
+  results, totalRowsCommitted, tenantId, importSessionId, entityCount, planName, componentCount, sourceDateRange,
   onNavigateToCalculate, onImportMore, onRetryFailed,
 }: ImportReadyStateProps) {
   const isVialuce = useIsVialuce(); // HF-315: import-complete summary → design-spec KPIs / session .tbl / .insight banners under Vialuce
@@ -165,23 +165,22 @@ export function ImportReadyState({
             <h2 style={{ fontSize: '16px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', margin: 0 }}>{title}</h2>
           </div>
 
-          <div style={{ display: 'grid', gap: 16, gridTemplateColumns: `repeat(${(hasPlan ? 1 : 0) + (sourceDateRange ? 1 : 0) + 1}, minmax(0, 1fr))`, marginBottom: 20 }}>
+          {/* HF-318 hero — Records Imported / Entities Found / Content Units (the headline). */}
+          <div className="kpis" style={{ marginBottom: 20 }}>
             <div className="kpi">
-              <div className="kpi-label">Records imported</div>
+              <div className="kpi-label">Records Imported</div>
               <div className="kpi-val">{committedRows.toLocaleString()}</div>
             </div>
-            {sourceDateRange && (
+            {entityCount != null && (
               <div className="kpi">
-                <div className="kpi-label">Source date range</div>
-                <div className="kpi-val sm">{sourceDateRange.min} — {sourceDateRange.max}</div>
+                <div className="kpi-label">Entities Found</div>
+                <div className="kpi-val">{entityCount.toLocaleString()}</div>
               </div>
             )}
-            {hasPlan && (
-              <div className="kpi">
-                <div className="kpi-label">Components</div>
-                <div className="kpi-val">{componentCount != null ? componentCount.toString() : '—'}</div>
-              </div>
-            )}
+            <div className="kpi">
+              <div className="kpi-label">Content Units</div>
+              <div className="kpi-val">{importedCount}</div>
+            </div>
           </div>
 
           {(hasPlan || sourceDateRange) && (
@@ -191,7 +190,7 @@ export function ImportReadyState({
                 {hasPlan && (
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '12px', color: 'var(--vl-text-soft)' }}>Plan</span>
-                    <span style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{planName}</span>
+                    <span style={{ fontSize: '13px', color: 'var(--vl-text)' }}>{planName}{componentCount != null ? ` · ${componentCount} components` : ''}</span>
                   </div>
                 )}
                 {sourceDateRange && (
@@ -266,25 +265,23 @@ export function ImportReadyState({
             <>
               <div style={{ height: 1, background: 'var(--vl-line)', margin: '24px 0' }} />
               <div className="card" style={{ marginTop: 0, background: 'var(--vl-bg)' }}>
-                <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 12px' }}>What just happened</p>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 12px' }}>Intelligence Summary</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
                   <div>
-                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-success)', margin: '0 0 6px' }}>Memory saved</p>
-                    <Conclusion isVialuce label="LLM calls bypassed" value={`${telemetry.llm.bypassedByMemory}`} accent={telemetry.llm.bypassedByMemory > 0} />
-                    <Conclusion isVialuce label="Atoms recalled" value={telemetry.atoms.claimedFromMemory.toLocaleString()} />
-                    <Conclusion isVialuce label="Bindings injected" value={`${telemetry.fieldBindingsInjected}`} />
+                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-success)', margin: '0 0 6px' }}>Recognized</p>
+                    <Conclusion isVialuce label="Recognized Patterns" value={telemetry.atoms.claimedFromMemory.toLocaleString()} accent={telemetry.atoms.claimedFromMemory > 0} />
+                    <Conclusion isVialuce label="Field Mappings Applied" value={`${telemetry.fieldBindingsInjected}`} />
                   </div>
                   <div>
                     <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vialuce-indigo)', margin: '0 0 6px' }}>Learned</p>
-                    <Conclusion isVialuce label="Atoms (novel)" value={telemetry.atoms.novelComprehended.toLocaleString()} />
-                    <Conclusion isVialuce label="Fingerprints stored" value={`${telemetry.fingerprints.storedNew}`} />
-                    <Conclusion isVialuce label="Signals captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+                    <Conclusion isVialuce label="New Patterns Learned" value={telemetry.atoms.novelComprehended.toLocaleString()} />
+                    <Conclusion isVialuce label="Data Signatures Stored" value={`${telemetry.fingerprints.storedNew}`} />
                   </div>
                   <div>
-                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 6px' }}>Cost</p>
-                    <Conclusion isVialuce label="LLM calls made" value={`${telemetry.llm.made}`} />
-                    <Conclusion isVialuce label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
-                    <Conclusion isVialuce label="Pulses" value={`${telemetry.pulses.committed}`} />
+                    <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 6px' }}>Processed</p>
+                    <Conclusion isVialuce label="AI Analysis Steps" value={`${telemetry.llm.made}`} />
+                    <Conclusion isVialuce label="Quality Signals Captured" value={telemetry.totalSignalsWritten.toLocaleString()} />
+                    <Conclusion isVialuce label="Records Committed" value={telemetry.rows.committed.toLocaleString()} />
                   </div>
                 </div>
               </div>
@@ -312,36 +309,31 @@ export function ImportReadyState({
                 </p>
                 {(() => {
                   const note = confidenceNote(carrier.classification.avgConfidence);
-                  return note ? <p style={{ fontSize: '12px', color: 'var(--vl-text-muted)', margin: '4px 0 0' }}>{carrier.classification.avgConfidence}% — {note.label}</p> : null;
+                  return note ? (
+                    <p style={{ fontSize: '13px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: note.label.startsWith('High') ? 'var(--vl-success)' : note.label.startsWith('Low') ? 'var(--vl-danger)' : 'var(--vialuce-gold)', margin: '6px 0 0' }}>{carrier.classification.avgConfidence}% — {note.label}</p>
+                  ) : null;
                 })()}
-                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-                  {(() => {
-                    const r = carrier.pipelineReadiness;
-                    if (r.hasPlan && r.hasBindings) {
-                      return <button onClick={onNavigateToCalculate} className="btn-pri">Calculate <ArrowRight size={16} /></button>;
-                    }
-                    if (!r.hasPlan) {
-                      return <button onClick={() => router.push('/operate/import')} className="btn-pri">Upload Plan <ArrowRight size={16} /></button>;
-                    }
-                    return <button onClick={() => router.push('/operate/calculate')} className="btn-pri">Review Bindings <ArrowRight size={16} /></button>;
-                  })()}
-                  <button onClick={() => router.push('/stream')} style={{ fontSize: '13px', color: 'var(--vialuce-indigo)', background: 'none', border: 'none', cursor: 'pointer' }}>View in Stream &rarr;</button>
-                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Actions — plan-aware */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={onImportMore} className="btn-sec">
-            <Upload size={16} /> Import more data
+        {/* HF-318 — prioritized CTAs. PRIMARY gold "Go to Calculate" → /operate (the Lifecycle Cockpit,
+            the natural next step — the cockpit guides Configure/Import/Calculate from there). SECONDARY
+            "Review Data Quality" (was "Review Bindings"). TERTIARY ghosts. User language throughout. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button onClick={() => router.push('/operate')} className="btn-gold">
+            Go to Calculate <ArrowRight size={16} />
           </button>
-          {hasPlan && (
-            <button onClick={onNavigateToCalculate} disabled={!calculateReady} className="btn-pri" style={!calculateReady ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}>
-              Go to Calculate <ArrowRight size={16} />
-            </button>
-          )}
+          <button onClick={() => router.push('/operate/import/quarantine')} className="btn-pri">
+            Review Data Quality <ArrowRight size={16} />
+          </button>
+          <button onClick={onImportMore} className="btn-sec">
+            <Upload size={16} /> Import More Data
+          </button>
+          <button onClick={() => router.push('/stream')} style={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--vialuce-indigo)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            View in Intelligence &rarr;
+          </button>
         </div>
 
         {/* Guidance — plan-aware next action */}
@@ -349,7 +341,7 @@ export function ImportReadyState({
           {!hasData
             ? 'No data imported. Import data to enable calculation.'
             : !hasPlan
-              ? 'Imported data is saved. A plan is needed before calculation — configure one to continue.'
+              ? 'Imported data is saved. The cockpit will guide you to configure a plan before calculating.'
               : 'Import complete. Go to Calculate to run calculations, or import additional data.'}
         </div>
       </div>
