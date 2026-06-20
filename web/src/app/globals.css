@@ -861,8 +861,11 @@ html[data-theme="vialuce"] .bg-black\/80.fixed.inset-0{background-color:oklch(0.
    light — those bgs are intentionally colored and are NOT in the remap above, so flipping their text to
    dark navy makes colored CTAs/badges illegible (bg-blue-600 text-white etc.). Restore white on colored
    bg, same-element OR descendant. Two classes → specificity (0,3,1) beats the (0,2,1) text flip. */
-html[data-theme="vialuce"] :is([class*="bg-red-"],[class*="bg-orange-"],[class*="bg-amber-"],[class*="bg-yellow-"],[class*="bg-lime-"],[class*="bg-green-"],[class*="bg-emerald-"],[class*="bg-teal-"],[class*="bg-cyan-"],[class*="bg-sky-"],[class*="bg-blue-"],[class*="bg-indigo-"],[class*="bg-violet-"],[class*="bg-purple-"],[class*="bg-fuchsia-"],[class*="bg-pink-"],[class*="bg-rose-"],[class*="bg-primary"],[class*="bg-gradient"]):is(.text-white,.text-slate-50,.text-slate-100,.text-slate-200,.text-zinc-50,.text-zinc-100,.text-zinc-200,.text-gray-50,.text-gray-100,.text-gray-200),
-html[data-theme="vialuce"] :is([class*="bg-red-"],[class*="bg-orange-"],[class*="bg-amber-"],[class*="bg-yellow-"],[class*="bg-lime-"],[class*="bg-green-"],[class*="bg-emerald-"],[class*="bg-teal-"],[class*="bg-cyan-"],[class*="bg-sky-"],[class*="bg-blue-"],[class*="bg-indigo-"],[class*="bg-violet-"],[class*="bg-purple-"],[class*="bg-fuchsia-"],[class*="bg-pink-"],[class*="bg-rose-"],[class*="bg-primary"],[class*="bg-gradient"]) :is(.text-white,.text-slate-50,.text-slate-100,.text-slate-200,.text-zinc-50,.text-zinc-100,.text-zinc-200,.text-gray-50,.text-gray-100,.text-gray-200){color:#fff}
+/* HF-316: restore narrowed to MID shades only via :not(dark-shade) — a SATURATED colored CTA
+   (bg-blue-600 text-white) keeps white text, but a DARK colored SURFACE (bg-blue-900, now remapped to
+   white by HF-316 below) lets its text flip to dark (not stuck white-on-white). */
+html[data-theme="vialuce"] :is([class*="bg-red-"],[class*="bg-orange-"],[class*="bg-amber-"],[class*="bg-yellow-"],[class*="bg-lime-"],[class*="bg-green-"],[class*="bg-emerald-"],[class*="bg-teal-"],[class*="bg-cyan-"],[class*="bg-sky-"],[class*="bg-blue-"],[class*="bg-indigo-"],[class*="bg-violet-"],[class*="bg-purple-"],[class*="bg-fuchsia-"],[class*="bg-pink-"],[class*="bg-rose-"],[class*="bg-primary"],[class*="bg-gradient"]):not([class*="-800"]):not([class*="-900"]):not([class*="-950"]):is(.text-white,.text-slate-50,.text-slate-100,.text-slate-200,.text-zinc-50,.text-zinc-100,.text-zinc-200,.text-gray-50,.text-gray-100,.text-gray-200),
+html[data-theme="vialuce"] :is([class*="bg-red-"],[class*="bg-orange-"],[class*="bg-amber-"],[class*="bg-yellow-"],[class*="bg-lime-"],[class*="bg-green-"],[class*="bg-emerald-"],[class*="bg-teal-"],[class*="bg-cyan-"],[class*="bg-sky-"],[class*="bg-blue-"],[class*="bg-indigo-"],[class*="bg-violet-"],[class*="bg-purple-"],[class*="bg-fuchsia-"],[class*="bg-pink-"],[class*="bg-rose-"],[class*="bg-primary"],[class*="bg-gradient"]):not([class*="-800"]):not([class*="-900"]):not([class*="-950"]) :is(.text-white,.text-slate-50,.text-slate-100,.text-slate-200,.text-zinc-50,.text-zinc-100,.text-zinc-200,.text-gray-50,.text-gray-100,.text-gray-200){color:#fff}
 
 /* ════════════════════════════════════════════════════════════════════════════
    HF-314 §3.0 — remap-coverage COMPLETENESS. Post-HF-313 Vialuce already exceeds Bliss's utility-remap
@@ -887,3 +890,25 @@ html[data-theme="vialuce"] .hover\:bg-gray-700:hover,html[data-theme="vialuce"] 
 html[data-theme="vialuce"] .from-slate-800,html[data-theme="vialuce"] .from-slate-900,html[data-theme="vialuce"] .from-zinc-800,html[data-theme="vialuce"] .from-zinc-900,html[data-theme="vialuce"] .from-gray-900{--tw-gradient-from:var(--vl-surface) var(--tw-gradient-from-position);--tw-gradient-to:rgb(255 255 255 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}
 html[data-theme="vialuce"] .to-slate-800,html[data-theme="vialuce"] .to-slate-900,html[data-theme="vialuce"] .to-zinc-800,html[data-theme="vialuce"] .to-zinc-900,html[data-theme="vialuce"] .to-gray-900{--tw-gradient-to:var(--vl-bg) var(--tw-gradient-to-position)}
 html[data-theme="vialuce"] .via-slate-800,html[data-theme="vialuce"] .via-slate-900,html[data-theme="vialuce"] .via-zinc-900{--tw-gradient-to:rgb(255 255 255 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--vl-bg) var(--tw-gradient-via-position),var(--tw-gradient-to)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HF-316 Prong 1 — EXHAUSTIVE dark-surface safety net. Extends HF-313/314 (neutral families) to EVERY
+   dark family found in the codebase inventory: dark COLORED surfaces (blue/sky/purple/indigo/violet
+   800-950), stone, the bg-[#0A0E1A] literal, border-600, and colored gradient stops. The floor: under
+   Vialuce no dark surface survives, even on components Prong 2 misses. Scoped to [data-theme="vialuce"];
+   only DARK shades (800/950 + neutral 700) — saturated mid-shade colored CTAs (500/600/700) untouched
+   (their text stays white via the narrowed restore above). ══════════════════════════════════════════ */
+/* dark COLORED surfaces → white card surface (the text on them flips dark via the general text remap,
+   since the restore above now excludes -800/-900/-950) */
+html[data-theme="vialuce"] [class*="bg-blue-800"],html[data-theme="vialuce"] [class*="bg-blue-900"],html[data-theme="vialuce"] [class*="bg-blue-950"],
+html[data-theme="vialuce"] [class*="bg-sky-800"],html[data-theme="vialuce"] [class*="bg-sky-900"],html[data-theme="vialuce"] [class*="bg-sky-950"],
+html[data-theme="vialuce"] [class*="bg-indigo-800"],html[data-theme="vialuce"] [class*="bg-indigo-900"],html[data-theme="vialuce"] [class*="bg-indigo-950"],
+html[data-theme="vialuce"] [class*="bg-violet-800"],html[data-theme="vialuce"] [class*="bg-violet-900"],html[data-theme="vialuce"] [class*="bg-violet-950"],
+html[data-theme="vialuce"] [class*="bg-purple-800"],html[data-theme="vialuce"] [class*="bg-purple-900"],html[data-theme="vialuce"] [class*="bg-purple-950"],
+html[data-theme="vialuce"] .bg-stone-700,html[data-theme="vialuce"] .bg-stone-800,html[data-theme="vialuce"] .bg-stone-900,html[data-theme="vialuce"] .bg-stone-950,
+html[data-theme="vialuce"] .bg-\[\#0A0E1A\]{background-color:var(--vl-surface)}
+/* dark borders 600 (HF-313/314 covered 700-900) → light line */
+html[data-theme="vialuce"] .border-zinc-600,html[data-theme="vialuce"] .border-slate-600,html[data-theme="vialuce"] .border-gray-600,html[data-theme="vialuce"] .border-neutral-600{border-color:var(--vl-line)}
+/* colored dark gradient stops → light (HF-314 covered neutral) */
+html[data-theme="vialuce"] .from-blue-900,html[data-theme="vialuce"] .from-blue-950,html[data-theme="vialuce"] .from-purple-900,html[data-theme="vialuce"] .from-purple-950,html[data-theme="vialuce"] .from-indigo-900,html[data-theme="vialuce"] .from-sky-900{--tw-gradient-from:var(--vl-surface) var(--tw-gradient-from-position);--tw-gradient-to:rgb(255 255 255 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}
+html[data-theme="vialuce"] .to-blue-900,html[data-theme="vialuce"] .to-blue-950,html[data-theme="vialuce"] .to-purple-900,html[data-theme="vialuce"] .to-indigo-900,html[data-theme="vialuce"] .to-sky-900{--tw-gradient-to:var(--vl-bg) var(--tw-gradient-to-position)}
