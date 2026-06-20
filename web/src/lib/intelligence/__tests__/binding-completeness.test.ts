@@ -137,3 +137,17 @@ test('OB-223: temporal_adjustment modifier under calculationIntent.modifiers is 
   ] }] };
   assert.deepEqual(findIncompleteBindings(c, {}), [], 'no bindings required for a clawback component');
 });
+
+// ── OB-223 §1.3: a temporal_map binding (columnMap, empty column) is a MAPPED token ──
+test('OB-223: temporal_map binding (columnMap, empty column) counts as mapped → not incomplete', () => {
+  const c = { variants: [{ variantId: '0', components: [{ name: 'Bono Cuota', calculationIntent: singleMetricIntent }] }] };
+  // field on_time_delivery_percentage bound as a wide-format temporal map (no single column)
+  const temporalBinding: Record<string, ComponentBinding> = {
+    on_time_delivery_percentage: {
+      column: '', columnMap: { '2025-01': 'Enero_2025', '2025-02': 'Febrero_2025' },
+      field_identity: { structuralType: 'temporal', contextualIdentity: 'wide_format_temporal', confidence: 0.6 } as never,
+      match_pass: 1, confidence: 0.6,
+    },
+  };
+  assert.deepEqual(findIncompleteBindings(c, { component_0: temporalBinding }), [], 'temporal columnMap binding is complete');
+});
