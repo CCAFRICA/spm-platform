@@ -835,7 +835,7 @@ export default function ReconciliationPage() {
     <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6 max-w-6xl mx-auto'}>
       {/* OB-102 Phase 7: Reference frame */}
       {selectedBatch && (
-        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
+        <div className="rounded-xl px-5 py-3 flex items-center gap-4 text-xs text-zinc-400" style={isVialuce ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)' } : { background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)' }}>
           <span className="text-zinc-200">{selectedBatch.ruleSetName ?? (isSpanish ? 'Lote' : 'Batch') + ': ' + selectedBatch.id.slice(0, 8)}</span>
           <span className="text-zinc-600">|</span>
           <span>{selectedBatch.entityCount} {isSpanish ? 'entidades' : 'entities'}</span>
