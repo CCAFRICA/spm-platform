@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { IndividualBriefingData } from '@/lib/data/briefing-loader';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ──────────────────────────────────────────────
 // Animated Number
@@ -266,7 +267,158 @@ interface IndividualBriefingProps {
 }
 
 export function IndividualBriefing({ data, formatCurrency }: IndividualBriefingProps) {
+  const isVialuce = useIsVialuce(); // HF-315: rep briefing → .insight narrative + .kpi earnings hero + .card sections + .tbl leaderboard
   const narrative = generateNarrative(data);
+
+  // Vialuce: the AI narrative becomes the design-spec gold .insight banner; the emerald earnings hero
+  // becomes a white .kpi with a DM Mono .kpi-val total (animated) and a 3-up stat grid; the attainment
+  // ring, goal bar, pace sparkline and component stack reuse the existing functions (readable under the
+  // dark CSS safety net); the leaderboard becomes a .tbl with the current row highlighted gold.
+  // The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    const sortedComponents = [...data.components].sort((a, b) => b.payout - a.payout);
+    return (
+      <div className="space-y-6">
+        {/* 1. AI Narrative */}
+        <div className="insight" style={{ marginBottom: 0 }}>
+          <span className="spark">&ldquo;&rdquo;</span>
+          <div>
+            <div className="lbl">INTELLIGENCE</div>
+            <p style={{ fontSize: '13.5px', color: 'var(--vl-text-muted)', lineHeight: 1.6, fontStyle: 'italic', margin: 0 }}>
+              &ldquo;{narrative}&rdquo;
+            </p>
+          </div>
+        </div>
+
+        {/* 2. Hero Earnings + 3. Attainment Ring */}
+        <div className="card" style={{ marginTop: 0, padding: 0, overflow: 'hidden' }}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
+            <div className="col-span-2" style={{ padding: '24px 28px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)' }}>My Earnings</span>
+                <span className="pill neutral">{data.periodLabel}</span>
+              </div>
+              <p className="kpi-val" style={{ fontSize: '40px' }}>
+                <AnimatedNumber value={data.totalPayout} format={formatCurrency} />
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)', marginTop: 4 }}>{data.displayName} — {data.role}</p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginTop: 22 }}>
+                <div className="card" style={{ marginTop: 0, padding: 14 }}>
+                  <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Rank</p>
+                  <p className="kpi-val sm">#{data.rank}<span style={{ color: 'var(--vl-text-soft)', fontSize: '14px' }}>/{data.totalEntities}</span></p>
+                </div>
+                <div className="card" style={{ marginTop: 0, padding: 14 }}>
+                  <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Team Avg</p>
+                  <p className="kpi-val sm">{formatCurrency(data.avgPayout)}</p>
+                </div>
+                <div className="card" style={{ marginTop: 0, padding: 14 }}>
+                  <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Branch</p>
+                  <p style={{ fontSize: '14px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={data.branch}>{data.branch || '—'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center" style={{ padding: 24, borderTop: '1px solid var(--vl-line-soft)' }}>
+              <AttainmentRing percentile={data.percentile} />
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Goal-Gradient Bar */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)' }}>vs. Team Average</span>
+            <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '12px', color: data.totalPayout >= data.avgPayout ? 'var(--vl-success)' : 'var(--vialuce-gold)' }}>
+              {data.totalPayout >= data.avgPayout ? '+' : ''}{formatCurrency(data.totalPayout - data.avgPayout)}
+            </span>
+          </div>
+          <div style={{ position: 'relative', height: 8, borderRadius: 'var(--vl-r-pill)', background: 'var(--vl-line-soft)', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', height: '100%', borderRadius: 'var(--vl-r-pill)', width: `${Math.min((data.totalPayout / (data.avgPayout * 2)) * 100, 100)}%`, background: 'var(--vl-kpi-accent)' }} />
+            <div style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: 'var(--vl-text-soft)', left: '50%' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, fontFamily: 'var(--vl-font-mono)', fontSize: '10px', color: 'var(--vl-text-soft)' }}>
+            <span>$0</span>
+            <span>Avg: {formatCurrency(data.avgPayout)}</span>
+            <span>{formatCurrency(data.avgPayout * 2)}</span>
+          </div>
+        </div>
+
+        {/* 5. Pace Indicator + 6. Component Stack */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card" style={{ marginTop: 0 }}>
+            <PaceSparkline trend={data.trend} />
+          </div>
+          <div className="card" style={{ marginTop: 0 }}>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 14px' }}>Component Breakdown</p>
+            <div style={{ display: 'flex', height: 12, borderRadius: 'var(--vl-r-pill)', overflow: 'hidden', background: 'var(--vl-line-soft)', marginBottom: 16 }}>
+              {sortedComponents.map(comp => {
+                const pct = data.totalPayout > 0 ? (comp.payout / data.totalPayout) * 100 : 0;
+                return <div key={comp.id} style={{ width: `${pct}%`, backgroundColor: comp.color }} />;
+              })}
+            </div>
+            <div className="legend">
+              {sortedComponents.map(comp => {
+                const pct = data.totalPayout > 0 ? (comp.payout / data.totalPayout) * 100 : 0;
+                return (
+                  <div key={comp.id} className="row">
+                    <span className="dot" style={{ backgroundColor: comp.color }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comp.name}</span>
+                    <span style={{ fontFamily: 'var(--vl-font-mono)', color: 'var(--vl-text-muted)' }}>{formatCurrency(comp.payout)}</span>
+                    <span className="pct" style={{ color: 'var(--vl-text-soft)' }}>{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* 7. Relative Leaderboard */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 14px' }}>Leaderboard</p>
+          <div className="card flush" style={{ marginTop: 0 }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th style={{ width: 48 }}>#</th>
+                    <th>Name</th>
+                    <th>Branch</th>
+                    <th className="r">Payout</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.leaderboard.map((entry, idx) => {
+                    const isMe = entry.entityId === data.entityId;
+                    const prevRank = idx > 0 ? data.leaderboard[idx - 1].rank : 0;
+                    const showGap = prevRank > 0 && entry.rank - prevRank > 1;
+                    return (
+                      <React.Fragment key={entry.entityId}>
+                        {showGap && (
+                          <tr>
+                            <td colSpan={4} className="mut" style={{ textAlign: 'center', color: 'var(--vl-text-soft)' }}>...</td>
+                          </tr>
+                        )}
+                        <tr style={isMe ? { background: 'var(--vl-gold-50)' } : undefined}>
+                          <td className="num" style={isMe ? { color: 'var(--vialuce-gold)', fontWeight: 'var(--vl-fw-med)' as unknown as number } : { color: 'var(--vl-text-soft)' }}>#{entry.rank}</td>
+                          <td className="name" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMe ? { color: 'var(--vialuce-gold)' } : {}) }}>
+                            {entry.displayName}
+                            {isMe && <span style={{ color: 'var(--vialuce-gold)', fontSize: '10px', marginLeft: 6, fontFamily: 'var(--vl-font-mono)' }}>YOU</span>}
+                          </td>
+                          <td className="mut">{entry.branch}</td>
+                          <td className="num" style={isMe ? { color: 'var(--vialuce-gold)' } : undefined}>{formatCurrency(entry.totalPayout)}</td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

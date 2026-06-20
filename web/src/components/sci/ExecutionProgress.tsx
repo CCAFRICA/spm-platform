@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
 import type { ImportFileFailure } from '@/lib/sci/import-failure';
 import { useLocale } from '@/contexts/locale-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   plan: 'Plan Rules',
@@ -75,6 +76,7 @@ export function ExecutionProgress({
   elapsedSeconds = 0,
   isRetrying = false,
 }: ExecutionProgressProps) {
+  const isVialuce = useIsVialuce(); // HF-315: SCI import progress → design-spec .card + per-item .tbl + .pill status
   const { t } = useLocale();
   const doneCount = items.filter(i => i.status === 'done').length;
   const failedCount = items.filter(i => i.status === 'failed').length;
@@ -89,6 +91,251 @@ export function ExecutionProgress({
     : 0;
 
   const allDone = isComplete && !hasErrors;
+
+  // HF-315: under Vialuce the import flow renders the design-spec vocabulary — a white .card for the
+  // header + progress bar, a .card.flush list for per-item rows (DM Mono counts, .pill status), an
+  // .insight-style amber error card for retry/continue. Behavior, handlers, key props and every i18n
+  // string (t(...)) are reused unchanged. The else-branch below is byte-identical (Dark/Bliss intact).
+  if (isVialuce) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Header + progress bar */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <h2 style={{ fontSize: '15px', fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)', margin: '0 0 4px' }}>
+            {allDone ? 'Import complete' : 'Importing'}
+          </h2>
+          <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)', margin: '0 0 16px' }}>
+            {allDone
+              ? `${doneCount} content unit${doneCount !== 1 ? 's' : ''} processed successfully.`
+              : `Processing ${totalCount} content unit${totalCount !== 1 ? 's' : ''}...`}
+          </p>
+
+          {/* Progress bar */}
+          <div style={{ height: '6px', background: 'var(--vl-line-soft)', borderRadius: 'var(--vl-r-pill)', overflow: 'hidden', marginBottom: '8px' }}>
+            <div
+              style={{
+                height: '100%',
+                borderRadius: 'var(--vl-r-pill)',
+                transition: 'all .5s ease-out',
+                background: hasErrors && isComplete ? 'var(--vialuce-gold)' : 'var(--vialuce-indigo)',
+                width: `${Math.max(progressPct, 2)}%`,
+              }}
+            />
+          </div>
+
+          {/* Progress label */}
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
+            {doneCount} of {totalCount}
+            {totalRows > 0 && (
+              <span> &middot; {totalRows.toLocaleString()} rows committed</span>
+            )}
+          </p>
+
+          {/* HF-087: Elapsed time + reassurance for long operations */}
+          {!allDone && hasActive && elapsedSeconds > 5 && (
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vialuce-indigo)', margin: 0 }}>
+                Processing... {elapsedSeconds}s elapsed
+              </p>
+              {elapsedSeconds > 15 && (
+                <p style={{ fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
+                  Plan interpretation may take up to 2 minutes. Please do not close this page.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Per-item list */}
+        <div className="card flush" style={{ marginTop: 0 }}>
+          {items.map((item, idx) => (
+            <div
+              key={item.contentUnitId}
+              style={{
+                borderTop: idx > 0 ? '1px solid var(--vl-line-soft)' : undefined,
+                background: item.status === 'done' ? 'var(--vl-success-50)' :
+                            item.status === 'failed' ? 'var(--vl-danger-50)' :
+                            undefined,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 20px' }}>
+                {/* Status icon */}
+                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {item.status === 'pending' && (
+                    <div style={{ width: '14px', height: '14px', borderRadius: '50%', border: '2px solid var(--vl-line)' }} />
+                  )}
+                  {item.status === 'active' && (
+                    <Loader2 className="animate-spin" style={{ width: '18px', height: '18px', color: 'var(--vialuce-indigo)' }} />
+                  )}
+                  {item.status === 'done' && (
+                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--vl-success-50)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Check style={{ width: '12px', height: '12px', color: 'var(--vl-success)' }} />
+                    </div>
+                  )}
+                  {item.status === 'failed' && (
+                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--vl-danger-50)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <XCircle style={{ width: '12px', height: '12px', color: 'var(--vl-danger)' }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Content — OB-175: show source file alongside tab name */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{
+                    fontSize: '13px',
+                    color: item.status === 'pending' ? 'var(--vl-text-soft)' :
+                           item.status === 'active' ? 'var(--vl-text)' :
+                           item.status === 'done' ? 'var(--vl-text-muted)' :
+                           'var(--vl-danger)',
+                  }}>
+                    {item.tabName}
+                    {(() => {
+                      const parts = item.contentUnitId.split('::');
+                      const sf = parts.length >= 2 ? parts[0].replace(/^\d+_\d+_[a-f0-9]{8}_/, '') : null;
+                      return sf && sf !== item.tabName ? (
+                        <span style={{ color: 'var(--vl-text-soft)', fontSize: '11px', marginLeft: '6px' }}>{sf}</span>
+                      ) : null;
+                    })()}
+                  </span>
+                </div>
+
+                {/* Classification */}
+                <span style={{ fontSize: '11px', color: 'var(--vl-text-soft)', flexShrink: 0 }}>
+                  {CLASSIFICATION_LABELS[item.classification]}
+                  {item.partialSuccess && (
+                    <span style={{ marginLeft: '6px', color: 'var(--vialuce-gold)' }}>partial</span>
+                  )}
+                </span>
+
+                {/* Row count / status */}
+                <span style={{
+                  fontFamily: 'var(--vl-font-mono)',
+                  fontSize: '11px',
+                  width: '112px',
+                  textAlign: 'right',
+                  flexShrink: 0,
+                  color: item.status === 'done' ? 'var(--vl-text-soft)' :
+                         item.status === 'active' ? 'var(--vialuce-indigo)' :
+                         item.status === 'failed' ? 'var(--vl-danger)' :
+                         'var(--vl-text-soft)',
+                }}>
+                  {item.status === 'done' && item.rowsProcessed
+                    ? `${item.rowsProcessed.toLocaleString()} rows`
+                    : item.status === 'active'
+                      ? 'processing...'
+                      : item.status === 'failed'
+                        ? (item.failure ? t(`sci.import.stage.${item.failure.stageKey}`) : (item.error || 'Failed'))
+                        : ''}
+                </span>
+              </div>
+
+              {/* HF-295 Part 2: explained per-file failure. */}
+              {item.status === 'failed' && item.failure && (
+                <div style={{ padding: '0 20px 14px 48px', display: 'flex', flexDirection: 'column', gap: '6px', borderLeft: '2px solid var(--vl-danger-50)', marginLeft: '20px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--vl-text)', margin: 0 }}>{t(item.failure.reasonKey)}</p>
+                  <p style={{ fontSize: '11px', color: 'var(--vl-text-muted)', margin: 0 }}>{t(item.failure.expectedKey)}</p>
+                  <p style={{ fontSize: '11px', color: 'var(--vialuce-gold)', margin: 0 }}>
+                    <span style={{ fontWeight: 'var(--vl-fw-med)' as unknown as number }}>{t('sci.import.failure.recommendationLabel')}:</span>{' '}
+                    {t(item.failure.recommendationKey)}
+                  </p>
+                  <p style={{ fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
+                    {t(item.failure.blocksKey, { successCount: doneCount, totalCount })}
+                  </p>
+                  {item.failure.technicalDetail && (
+                    <details style={{ fontSize: '11px', color: 'var(--vl-text-soft)' }}>
+                      <summary style={{ cursor: 'pointer' }}>
+                        {t('sci.import.failure.technicalLabel')}
+                      </summary>
+                      <code style={{ display: 'block', marginTop: '4px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--vl-text-soft)', fontSize: '11px', fontFamily: 'var(--vl-font-mono)' }}>
+                        {item.failure.technicalDetail}
+                      </code>
+                    </details>
+                  )}
+                </div>
+              )}
+
+              {/* HF-248 Phase 3: per-component outcome rows for plan imports. */}
+              {item.componentOutcomes && item.componentOutcomes.length > 0 && (
+                <div style={{ padding: '0 20px 12px 48px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {item.componentOutcomes.map(co => (
+                    <div key={co.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
+                      <span style={{ width: '12px', display: 'inline-flex', justifyContent: 'center' }}>
+                        {co.status === 'success' ? (
+                          <Check style={{ width: '12px', height: '12px', color: 'var(--vl-success)' }} />
+                        ) : (
+                          <XCircle style={{ width: '12px', height: '12px', color: 'var(--vl-danger)' }} />
+                        )}
+                      </span>
+                      <span style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: co.status === 'success' ? 'var(--vl-text-muted)' : 'var(--vl-danger)',
+                      }}>
+                        {co.name}
+                        {co.skippedFromPrior && (
+                          <span style={{ marginLeft: '6px', color: 'var(--vl-text-soft)' }}>(reused from prior import)</span>
+                        )}
+                      </span>
+                      {co.status === 'failed' && co.errClass && (
+                        <span style={{ color: 'var(--vl-text-soft)', flexShrink: 0 }}>{co.errClass}</span>
+                      )}
+                      {co.status === 'failed' && co.violations && (
+                        <span style={{ color: 'var(--vl-text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '280px', flexShrink: 0 }} title={co.violations}>
+                          {co.violations.slice(0, 60)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Error actions */}
+        {isComplete && hasErrors && (
+          <div className="card" style={{ marginTop: 0, borderColor: 'var(--vialuce-gold)' }}>
+            <p style={{ fontSize: '13px', color: 'var(--vl-text)', margin: '0 0 4px' }}>
+              {doneCount} of {totalCount} processed successfully.
+            </p>
+            {items.filter(i => i.status === 'failed').map(item => (
+              <p key={item.contentUnitId} style={{ fontSize: '11px', color: 'var(--vl-danger)', marginTop: '4px', marginBottom: 0 }}>
+                {item.tabName} &mdash; {item.failure ? t(item.failure.reasonKey) : (item.error || 'Processing failed')}
+              </p>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+              {onRetryFailed && (
+                <Button
+                  onClick={onRetryFailed}
+                  size="sm"
+                  disabled={isRetrying}
+                  style={{ background: 'var(--vialuce-gold)', color: '#3a2606' }}
+                  className="disabled:opacity-50"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', isRetrying && 'animate-spin')} />
+                  {isRetrying ? 'Retrying...' : 'Retry failed'}
+                </Button>
+              )}
+              {onContinue && doneCount > 0 && (
+                <Button
+                  onClick={onContinue}
+                  variant="ghost"
+                  size="sm"
+                  style={{ color: 'var(--vl-text-muted)' }}
+                >
+                  Continue
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

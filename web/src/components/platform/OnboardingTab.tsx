@@ -41,6 +41,7 @@ import {
   Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 /* ──── STYLES ──── */
 const CARD_STYLE = {
@@ -101,6 +102,7 @@ interface WizardState {
 
 /* ──── MAIN COMPONENT ──── */
 export function OnboardingTab() {
+  const isVialuce = useIsVialuce(); // OB-221: summary → .kpi, pipeline → .card + .tbl, loading/empty → .empty
   const [tenants, setTenants] = useState<OnboardingTenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
@@ -173,6 +175,13 @@ export function OnboardingTab() {
   };
 
   if (isLoading) {
+    if (isVialuce) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--vialuce-indigo)' }} />
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
@@ -197,6 +206,214 @@ export function OnboardingTab() {
   const fullyOnboarded = tenants.filter(t => t.stage >= 6).length;
   const inProgress = tenants.filter(t => t.stage >= 2 && t.stage < 6).length;
   const notStarted = tenants.filter(t => t.stage <= 1).length;
+
+  // OB-221: under Vialuce render summary as .kpi, the pipeline as a .card.flush + .tbl, lifecycle/stage status
+  // as .pill / design-spec icon colors, empty as .empty. The inline invite form + wizard reuse the existing
+  // controls. The else-branch below is byte-identical. Strings are reused unchanged.
+  if (isVialuce) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        {/* Tab heading */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 'var(--vl-fw-bold)' as unknown as number, letterSpacing: '-.3px', margin: 0 }}>Tenant Onboarding Pipeline</h2>
+            <p style={{ fontSize: 13.5, color: 'var(--vl-text-muted)', marginTop: 4 }}>Create and monitor tenant activation progress</p>
+          </div>
+          <button onClick={() => setShowWizard(true)} className="btn-pri">
+            <Plus className="h-4 w-4" />
+            Create Tenant
+          </button>
+        </div>
+
+        {/* Pipeline Summary */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+          <div className="kpi"><div className="kpi-label">Total Tenants</div><div className="kpi-val">{totalTenants}</div></div>
+          <div className="kpi" style={{ ['--accent' as string]: 'var(--vl-success)' }}><div className="kpi-label">Fully Onboarded</div><div className="kpi-val" style={{ color: 'var(--vl-success)' }}>{fullyOnboarded}</div></div>
+          <div className="kpi" style={{ ['--accent' as string]: 'var(--vialuce-gold)' }}><div className="kpi-label">In Progress</div><div className="kpi-val" style={{ color: 'var(--vialuce-gold)' }}>{inProgress}</div></div>
+          <div className="kpi"><div className="kpi-label">Not Started</div><div className="kpi-val" style={{ color: 'var(--vl-text-soft)' }}>{notStarted}</div></div>
+        </div>
+
+        {/* Per-Tenant Pipeline */}
+        <div className="card">
+          <div className="card-h"><h3>Onboarding Pipeline</h3></div>
+
+          {tenants.length === 0 ? (
+            <div className="empty">
+              <div className="ic"><Building2 size={30} /></div>
+              <b>No tenants found. Create your first tenant above.</b>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Header row */}
+              <div className="grid grid-cols-[200px_1fr_80px_120px] gap-4 px-3" style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)' }}>
+                <span>Tenant</span>
+                <div className="grid grid-cols-6 gap-1">
+                  {STAGES.map(s => (
+                    <span key={s.key} style={{ textAlign: 'center' }}>{s.label}</span>
+                  ))}
+                </div>
+                <span style={{ textAlign: 'center' }}>Actions</span>
+                <span style={{ textAlign: 'right' }}>Created</span>
+              </div>
+
+              {/* Tenant rows */}
+              {tenants.map(tenant => (
+                <div key={tenant.id}>
+                  <div className="grid grid-cols-[200px_1fr_80px_120px] gap-4 items-center px-3 py-3" style={{ borderRadius: 'var(--vl-r-md)', border: '1px solid var(--vl-line)', background: 'var(--vl-surface)' }}>
+                    <div>
+                      <p className="truncate" style={{ fontSize: 14, fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vl-text)' }}>{tenant.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span style={{ fontSize: 12, color: 'var(--vl-text-muted)' }}>{tenant.userCount} users</span>
+                        <span style={{ fontSize: 12, color: 'var(--vl-text-soft)' }}>{tenant.dataCount} rows</span>
+                        {tenant.latestLifecycleState && (
+                          <span className={cn('pill', tenant.latestLifecycleState === 'POSTED' || tenant.latestLifecycleState === 'PAID' ? 'success' : 'neutral')}>
+                            {tenant.latestLifecycleState}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Stage pipeline */}
+                    <div className="grid grid-cols-6 gap-1">
+                      {STAGES.map((s, idx) => {
+                        const completed = tenant.stages[s.key];
+                        const isCurrent = tenant.stage === idx + 1;
+                        return (
+                          <div key={s.key} className="flex flex-col items-center gap-1">
+                            {completed ? (
+                              <CheckCircle className="h-5 w-5" style={{ color: 'var(--vl-success)' }} />
+                            ) : isCurrent ? (
+                              <div className="relative">
+                                <Circle className="h-5 w-5" style={{ color: 'var(--vialuce-gold)' }} />
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="h-2 w-2 rounded-full animate-pulse" style={{ background: 'var(--vialuce-gold)' }} />
+                                </div>
+                              </div>
+                            ) : (
+                              <Circle className="h-5 w-5" style={{ color: 'var(--vl-line)' }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex justify-center">
+                      <button
+                        onClick={() => {
+                          setInvitingTenantId(invitingTenantId === tenant.id ? null : tenant.id);
+                          setInviteStatus(null);
+                          setInviteForm({ email: '', displayName: '', role: 'tenant_admin' });
+                        }}
+                        className="p-1.5 rounded-md transition-colors"
+                        style={invitingTenantId === tenant.id
+                          ? { background: 'var(--vl-indigo-50)', color: 'var(--vialuce-indigo)' }
+                          : { color: 'var(--vl-text-soft)' }}
+                        title="Invite user"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Created date */}
+                    <span className="tabular-nums" style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 12, color: 'var(--vl-text-muted)', textAlign: 'right' }}>
+                      {new Date(tenant.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  {/* Inline Invite Form */}
+                  {invitingTenantId === tenant.id && (
+                    <div className="mt-2 ml-4 mr-4 p-4" style={{ borderRadius: 'var(--vl-r-md)', border: '1px solid var(--vl-indigo-100)', background: 'var(--vl-indigo-50)' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 style={{ fontSize: 14, fontWeight: 'var(--vl-fw-med)' as unknown as number, color: 'var(--vialuce-indigo)' }}>
+                          Invite User to {tenant.name}
+                        </h4>
+                        <button
+                          onClick={() => { setInvitingTenantId(null); setInviteStatus(null); }}
+                          className="p-1"
+                          style={{ color: 'var(--vl-text-soft)' }}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-[1fr_1fr_140px_auto] gap-2 items-end">
+                        <div>
+                          <label style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', display: 'block', marginBottom: 4 }}>Email</label>
+                          <input
+                            type="email"
+                            value={inviteForm.email}
+                            onChange={(e) => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                            placeholder="user@company.com"
+                            className="w-full h-8 px-2"
+                            style={{ fontSize: 14, background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', display: 'block', marginBottom: 4 }}>Name</label>
+                          <input
+                            type="text"
+                            value={inviteForm.displayName}
+                            onChange={(e) => setInviteForm(f => ({ ...f, displayName: e.target.value }))}
+                            placeholder="John Smith"
+                            className="w-full h-8 px-2"
+                            style={{ fontSize: 14, background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', display: 'block', marginBottom: 4 }}>Role</label>
+                          <select
+                            value={inviteForm.role}
+                            onChange={(e) => setInviteForm(f => ({ ...f, role: e.target.value }))}
+                            className="w-full h-8 px-2"
+                            style={{ fontSize: 14, background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', borderRadius: 'var(--vl-r-sm)', color: 'var(--vl-text)', outline: 'none' }}
+                          >
+                            {ROLE_OPTIONS.map(r => (
+                              <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => handleInvite(tenant.id)}
+                          disabled={isInviting || !inviteForm.email || !inviteForm.displayName}
+                          className={cn('h-8 px-3 flex items-center gap-1.5', (isInviting || !inviteForm.email || !inviteForm.displayName) ? '' : 'btn-pri')}
+                          style={(isInviting || !inviteForm.email || !inviteForm.displayName)
+                            ? { fontSize: 14, borderRadius: 'var(--vl-r-sm)', background: 'var(--vl-line)', color: 'var(--vl-text-soft)', cursor: 'not-allowed', border: 0 }
+                            : { fontSize: 14 }}
+                        >
+                          {isInviting ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                          Invite
+                        </button>
+                      </div>
+
+                      {inviteStatus && (
+                        <div
+                          className="mt-2 px-3 py-1.5"
+                          style={{
+                            fontSize: 13,
+                            borderRadius: 'var(--vl-r-sm)',
+                            ...(inviteStatus.type === 'success'
+                              ? { background: 'var(--vl-success-50)', color: 'var(--vl-success)', border: '1px solid var(--vl-success)' }
+                              : { background: 'var(--vl-danger-50)', color: 'var(--vl-danger)', border: '1px solid var(--vl-danger)' }),
+                          }}
+                        >
+                          {inviteStatus.message}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

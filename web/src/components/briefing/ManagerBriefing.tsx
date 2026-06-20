@@ -13,6 +13,7 @@
 
 import React from 'react';
 import type { ManagerBriefingData } from '@/lib/data/briefing-loader';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ──────────────────────────────────────────────
 // Coaching Priority
@@ -188,6 +189,168 @@ interface ManagerBriefingProps {
 }
 
 export function ManagerBriefing({ data, formatCurrency }: ManagerBriefingProps) {
+  const isVialuce = useIsVialuce(); // HF-315: manager briefing → .kpi team hero + .card sections + .tbl heatmap/roster + .pill coaching cues
+
+  // Vialuce: the amber team-total hero becomes a white .kpi with a DM Mono .kpi-val + 3-up stat grid
+  // (the inline TeamTrend sparkline reuses its existing function). Coaching priority lists use .pill
+  // status chips (danger for the deficit, success for top); the heatmap and roster become .tbl tables.
+  // The else-branch is the existing dark rendering, byte-identical (Dark/Bliss cannot regress).
+  if (isVialuce) {
+    const sortedTeam = [...data.teamEntities].sort((a, b) => a.totalPayout - b.totalPayout);
+    const bottomQuartile = sortedTeam.slice(0, Math.ceil(sortedTeam.length * 0.25));
+    const topQuartile = sortedTeam.slice(-Math.ceil(sortedTeam.length * 0.25));
+    const componentNames = data.componentHeatmap[0]?.components.map(c => c.name) || [];
+    const maxHeatPayout = data.componentHeatmap.length > 0
+      ? Math.max(...data.componentHeatmap.flatMap(r => r.components.map(c => c.payout)))
+      : 0;
+
+    return (
+      <div className="space-y-6">
+        {/* 1. Team Total Hero */}
+        <div className="kpi" style={{ marginTop: 0, padding: '24px 28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)' }}>Team Total</span>
+            <span className="pill neutral">{data.periodLabel}</span>
+          </div>
+          <p className="kpi-val" style={{ fontSize: '40px' }}>{formatCurrency(data.teamTotal)}</p>
+          <p style={{ fontSize: '13px', color: 'var(--vl-text-muted)', marginTop: 4 }}>{data.managerName} — {data.planName}</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginTop: 22 }}>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Team Size</p>
+              <p className="kpi-val sm">{data.teamCount}</p>
+            </div>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Average</p>
+              <p className="kpi-val sm">{formatCurrency(data.teamAvg)}</p>
+            </div>
+            <div className="card" style={{ marginTop: 0, padding: 14 }}>
+              <p className="kpi-label" style={{ textTransform: 'uppercase', letterSpacing: '.5px', fontSize: '10px' }}>Trend</p>
+              <TeamTrend trend={data.trend} />
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Coaching Priority */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <div className="space-y-4">
+            <div>
+              <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 10px' }}>Needs Coaching</p>
+              <div className="space-y-1">
+                {bottomQuartile.slice(0, 5).map(e => (
+                  <div key={e.displayName} className="rank" style={{ marginBottom: 6 }}>
+                    <span className="nm" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b>{e.displayName}</b></span>
+                    <span className="mut" style={{ fontSize: '11px', color: 'var(--vl-text-soft)' }}>{e.branch}</span>
+                    <span style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '12px', color: 'var(--vl-text-muted)' }}>{formatCurrency(e.totalPayout)}</span>
+                    <span className="pill danger">{formatCurrency(e.totalPayout - data.teamAvg)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 10px' }}>Top Performers</p>
+              <div className="space-y-1">
+                {topQuartile.slice(-3).reverse().map(e => (
+                  <div key={e.displayName} className="rank" style={{ marginBottom: 6 }}>
+                    <span className="nm" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><b>{e.displayName}</b></span>
+                    <span className="mut" style={{ fontSize: '11px', color: 'var(--vl-text-soft)' }}>{e.branch}</span>
+                    <span className="pill success">{formatCurrency(e.totalPayout)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Entity x Component Heatmap */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 14px' }}>Entity x Component Heatmap</p>
+          {data.componentHeatmap.length === 0 ? (
+            <div className="empty">
+              <div className="ic">▦</div>
+              <b>Entity x Component Heatmap</b>
+              <p>Not enough periods for trend</p>
+            </div>
+          ) : (
+            <div className="card flush" style={{ marginTop: 0 }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      {componentNames.map(name => (
+                        <th key={name} className="r" style={{ whiteSpace: 'nowrap' }}>
+                          {name.length > 15 ? name.slice(0, 12) + '...' : name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.componentHeatmap.slice(0, 20).map(row => (
+                      <tr key={row.entityId}>
+                        <td className="name" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.entityName}</td>
+                        {row.components.map(comp => {
+                          const intensity = maxHeatPayout > 0 ? comp.payout / maxHeatPayout : 0;
+                          return (
+                            <td key={comp.name} className="num">
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  borderRadius: 'var(--vl-r-sm)',
+                                  padding: '2px 8px',
+                                  fontFamily: 'var(--vl-font-mono)',
+                                  backgroundColor: `${comp.color}${Math.round(intensity * 40 + 5).toString(16).padStart(2, '0')}`,
+                                  color: intensity > 0.5 ? comp.color : 'var(--vl-text-muted)',
+                                }}
+                              >
+                                {formatCurrency(comp.payout)}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 5. Full Roster */}
+        <div className="card" style={{ marginTop: 0 }}>
+          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10.5px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', fontWeight: 400, margin: '0 0 14px' }}>Team Roster</p>
+          <div className="card flush" style={{ marginTop: 0 }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th style={{ width: 48 }}>#</th>
+                    <th>Name</th>
+                    <th>Level</th>
+                    <th>Branch</th>
+                    <th className="r">Payout</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.teamEntities.map(e => (
+                    <tr key={e.entityId}>
+                      <td className="num mut">#{e.rank}</td>
+                      <td className="name" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.displayName}</td>
+                      <td className="mut">{e.level}</td>
+                      <td className="mut">{e.branch}</td>
+                      <td className="num">{formatCurrency(e.totalPayout)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 1. Team Total Hero */}
