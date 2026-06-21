@@ -29,7 +29,6 @@
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
 import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
-import { applyCountMetricDiscriminator } from '@/lib/plan-intelligence/count-metric-discriminator';
 import {
   ConstructionError,
   MissingCompositionalIntentError,
@@ -527,23 +526,10 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           // Validate structurally inside constructTree; throw ConstructionError
           // on malformed input (caught below and mapped to error class).
           const ci = compositionalIntentRaw as unknown as CompositionalIntent;
-          // HF-322: construction-layer count-vs-metric discriminator (Decision 158). The LLM
-          // recognizes a per-unit rate over a field but may construct it as aggregate/count
-          // (counts rows) instead of metric (reads the value). When the tenant's committed_data
-          // makes `count` structurally degenerate (a one-row-per-entity-period grid → count is
-          // always 1) and a varying-numeric measure exists, deterministic code overrides
-          // count→metric on `ci` IN PLACE before construction. Additive-only + never throws:
-          // any error / missing data context leaves `ci` byte-identical, so plan-before-data
-          // imports and every already-correct component are unaffected. Engine/resolver/prompt
-          // untouched (C3/C4/C5). See count-metric-discriminator.ts for the structural rationale.
-          const discriminator = await applyCountMetricDiscriminator(ci, args.signalContext.tenantId);
-          if (discriminator.applied) {
-            console.log(
-              `[plan-component] HF-322 count→metric override component=${spec.id} ` +
-                `fields=${JSON.stringify(discriminator.overriddenFields)} ` +
-                `grid=${discriminator.shape?.entityCount}×${discriminator.shape?.periodCount}=${discriminator.shape?.rowCount}`,
-            );
-          }
+          // HF-323: import is pure plan comprehension — the LLM emits the compositional intent and
+          // the constructor builds the DAG, with NO data inspection or interception. (HF-322's
+          // import-time count→metric discriminator was removed here: it required period/convergence
+          // context that does not exist at import time, since periods are created after plan import.)
           const constructedTree = constructTree(ci);
           intent = constructedTree as unknown as Record<string, unknown>;
           // HF-272: the HF-270 interpretation-time field-resolution gate was REMOVED here
