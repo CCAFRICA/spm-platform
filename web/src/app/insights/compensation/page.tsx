@@ -4,14 +4,6 @@ import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Target, Trophy, Utensils, Wine, Coins } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context'; // OB-226 Korean Test
 import { useAuth } from '@/contexts/auth-context'; // OB-226 isSpanish ternary
@@ -20,7 +12,6 @@ import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getMeseros, getFranquicias } from '@/lib/restaurant-service';
 import {
   getEntityResults,
-  getPeriodsWithResults,
   type EntityResult,
   type EntityScope,
 } from '@/lib/drill-through'; // OB-226 real data
@@ -29,6 +20,8 @@ import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
 import { Leaderboard } from '@/components/charts/leaderboard';
 import { CompensationPieChart } from '@/components/charts/CompensationPieChart';
+import { PeriodSelector, EntityTable } from '@/components/insights'; // OB-227
+import { getCalculatedPeriods, type PeriodSummary } from '@/lib/insights'; // OB-227
 import { Users, PieChart, ArrowUpRight } from 'lucide-react';
 import type { Cheque, Franquicia, Mesero } from '@/types/cheques';
 
@@ -89,6 +82,8 @@ export default function CompensationPage() {
   // OB-226: real per-entity outcomes + plan distribution for the non-hospitality branch.
   const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
   const [latestPeriodLabel, setLatestPeriodLabel] = useState<string | null>(null);
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]); // OB-227 period selector
+  const [selectedPeriodId, setSelectedPeriodId] = useState('');
   const [planDistribution, setPlanDistribution] = useState<PlanSlice[]>([]);
   const [compLoading, setCompLoading] = useState(true);
 
@@ -100,7 +95,17 @@ export default function CompensationPage() {
     }
   }, [isHospitality]);
 
-  // OB-226: load real calculation_results-derived comp data for the non-hospitality branch.
+  // OB-227: load the calculated periods once (canonical getCalculatedPeriods, start_date DESC).
+  useEffect(() => {
+    if (isHospitality || !tenantId) return;
+    let cancelled = false;
+    getCalculatedPeriods(tenantId)
+      .then(ps => { if (cancelled) return; setPeriods(ps); setSelectedPeriodId(prev => prev || ps[0]?.period_id || ''); })
+      .catch(() => { /* honest empty state below */ });
+    return () => { cancelled = true; };
+  }, [isHospitality, tenantId]);
+
+  // OB-226/OB-227: load real calculation_results-derived comp data for the SELECTED period.
   useEffect(() => {
     if (isHospitality || !tenantId) {
       setCompLoading(false);
@@ -110,14 +115,13 @@ export default function CompensationPage() {
     (async () => {
       setCompLoading(true);
       try {
-        const periods = await getPeriodsWithResults(tenantId);
-        const latest = periods[0];
+        const periodId = selectedPeriodId || undefined;
         const [results, distribution] = await Promise.all([
-          getEntityResults(tenantId, ALL_SCOPE, latest ? { periodId: latest.id } : undefined),
-          loadPlanDistribution(tenantId, latest?.id),
+          getEntityResults(tenantId, ALL_SCOPE, periodId ? { periodId } : undefined),
+          loadPlanDistribution(tenantId, periodId),
         ]);
         if (cancelled) return;
-        setLatestPeriodLabel(latest?.label ?? null);
+        setLatestPeriodLabel(periods.find(p => p.period_id === selectedPeriodId)?.label ?? null);
         setEntityResults(results);
         setPlanDistribution(distribution);
       } catch (error) {
@@ -129,7 +133,7 @@ export default function CompensationPage() {
     return () => {
       cancelled = true;
     };
-  }, [isHospitality, tenantId]);
+  }, [isHospitality, tenantId, selectedPeriodId, periods]);
 
   // OB-226: plan distribution = sum(total_payout) grouped by rule_set_id, joined to rule_sets.name.
   // For BCL this is a single plan ("Plan de Comisiones — Banca Minorista 2025-2026") → one honest slice.
@@ -328,6 +332,12 @@ export default function CompensationPage() {
                   {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
                 </div>
               </div>
+              {/* OB-227: period selector (canonical getCalculatedPeriods source) */}
+              {periods.length > 0 && (
+                <div className="pactions">
+                  <PeriodSelector periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
+                </div>
+              )}
             </div>
           ) : (
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -340,6 +350,9 @@ export default function CompensationPage() {
                 {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
               </p>
             </div>
+            {periods.length > 0 && (
+              <PeriodSelector periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
+            )}
           </div>
           )}
 
@@ -438,34 +451,10 @@ export default function CompensationPage() {
               <CardDescription>{t.payDesc}</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="rounded-lg border border-slate-200 dark:border-slate-800">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-800/50">
-                      <TableHead className="font-semibold">{t.colPeriod}</TableHead>
-                      <TableHead className="font-semibold">{t.colEntity}</TableHead>
-                      <TableHead className="text-right font-semibold">{t.colComponents}</TableHead>
-                      <TableHead className="text-right font-semibold">{t.colAmount}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {entityResults.map((r) => (
-                      <TableRow key={r.entityId} className="hover:bg-slate-800/50">
-                        <TableCell className="text-slate-600 dark:text-slate-400">
-                          {r.periodLabel}
-                        </TableCell>
-                        <TableCell className="font-medium text-slate-50">{r.displayName}</TableCell>
-                        <TableCell className="text-right text-slate-600 dark:text-slate-400">
-                          {r.componentCount}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-slate-50">
-                          {format(r.totalPayout)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {/* OB-227: replaces the flat unsearchable table (with the useless "Components: N"
+                  column) with search / sort / Δ-prior / top-component / pagination + inline
+                  OB-224 drill-through. */}
+              <EntityTable tenantId={tenantId} periodId={selectedPeriodId} periodLabel={latestPeriodLabel ?? undefined} />
             </CardContent>
           </Card>
           </>
