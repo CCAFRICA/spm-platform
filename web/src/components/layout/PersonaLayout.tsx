@@ -14,6 +14,7 @@
 
 import type { ReactNode } from 'react';
 import type { PersonaKey } from '@/lib/design/tokens';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-327 theme token compliance
 
 const PERSONA_GRADIENTS: Record<string, string> = {
   admin: 'linear-gradient(to bottom, #020617, rgba(30, 27, 75, 0.4), #020617)',
@@ -28,10 +29,13 @@ interface PersonaLayoutProps {
 }
 
 export function PersonaLayout({ children, persona = 'rep' }: PersonaLayoutProps) {
+  // HF-327: the near-black persona gradients are an inline style that bypasses the HF-316 class net.
+  // Under Vialuce the page wrapper must be the light recessed bg; Dark/Bliss keep the gradient.
+  const isVialuce = useIsVialuce();
   return (
     <div
       style={{
-        background: PERSONA_GRADIENTS[persona] || PERSONA_GRADIENTS.admin,
+        background: isVialuce ? 'var(--vl-bg)' : (PERSONA_GRADIENTS[persona] || PERSONA_GRADIENTS.admin),
         minHeight: '100vh',
       }}
     >

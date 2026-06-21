@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-327 PG-2: task-row inline style bypasses the class net
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 interface ModelConfigData {
@@ -35,6 +36,7 @@ export function ModelConfigTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const isVialuce = useIsVialuce(); // HF-327 PG-2 (top-level, before early returns — rules of hooks)
 
   useEffect(() => {
     fetch('/api/platform/model-config')
@@ -93,7 +95,7 @@ export function ModelConfigTab() {
       <div key={task} style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '12px 16px', borderRadius: '8px',
-        background: 'rgba(30, 41, 59, 0.5)', border: '1px solid var(--strag-s7)', gap: '16px',
+        background: isVialuce ? 'var(--vl-surface)' : 'rgba(30, 41, 59, 0.5)', border: isVialuce ? '1px solid var(--vl-line)' : '1px solid var(--strag-s7)', gap: '16px',
       }}>
         <div style={{ flex: 1 }}>
           <code style={{ color: 'var(--strag-s1)', fontSize: '13px', fontWeight: 600 }}>{task}</code>

@@ -9,6 +9,7 @@
 
 import { useState } from 'react';
 import { useAgentInbox, type InboxItem } from '@/hooks/useAgentInbox';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-327 theme token compliance
 
 interface AgentInboxProps {
   tenantId: string | undefined;
@@ -42,12 +43,13 @@ function timeAgo(dateStr: string): string {
 export function AgentInbox({ tenantId, persona }: AgentInboxProps) {
   const { items, loading, dismiss, markRead, unreadCount } = useAgentInbox(tenantId, persona);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const isVialuce = useIsVialuce(); // HF-327 (top-level, before early returns)
 
   if (loading) {
     return (
       <div style={{
         background: 'var(--strag-panel)',
-        border: '1px solid #1E293B',
+        border: isVialuce ? '1px solid var(--vl-line)' : '1px solid #1E293B',
         borderRadius: '12px',
         padding: '16px',
       }}>
@@ -64,7 +66,7 @@ export function AgentInbox({ tenantId, persona }: AgentInboxProps) {
   return (
     <div style={{
       background: 'var(--strag-panel)',
-      border: '1px solid #1E293B',
+      border: isVialuce ? '1px solid var(--vl-line)' : '1px solid #1E293B',
       borderRadius: '12px',
       padding: '16px',
     }}>
@@ -115,8 +117,8 @@ export function AgentInbox({ tenantId, persona }: AgentInboxProps) {
                 if (!item.read_at) markRead(item.id);
               }}
               style={{
-                background: item.read_at ? '#0B1120' : 'rgba(45, 47, 143, 0.08)',
-                border: `1px solid ${item.read_at ? '#1E293B' : 'rgba(45, 47, 143, 0.2)'}`,
+                background: item.read_at ? (isVialuce ? 'var(--vl-bg)' : '#0B1120') : 'rgba(45, 47, 143, 0.08)',
+                border: `1px solid ${item.read_at ? (isVialuce ? 'var(--vl-line)' : '#1E293B') : 'rgba(45, 47, 143, 0.2)'}`,
                 borderRadius: '8px',
                 padding: '12px',
                 cursor: 'pointer',
