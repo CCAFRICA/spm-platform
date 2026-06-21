@@ -107,28 +107,33 @@ export interface CommitContentUnitResult {
 // hc-pattern-classifier.ts). Below this, fall back to the structural binding.
 const HC_IDENTIFIER_THRESHOLD = 0.80;
 
-// HF-233: Classification-aware entity_id_field resolution.
+// HF-328: Comprehension-authoritative entity_id_field resolution.
 //
-// The semantic relationship between HC column roles and entity association
-// depends on the file's classification:
+//   classification  entity_id_field is
+//   --------------  ----------------------------------------------------------
+//   entity          the `identifier` columnRole (the row IS the entity)
+//   target          the `identifier` columnRole (the row is ABOUT the entity)
+//   transaction     the `identifier` columnRole (same one path — HF-328)
+//   reference       null (dimensional lookup; no entity association)
 //
-//   classification  identifier role means      reference_key role means       entity_id_field is
-//   --------------  ------------------------   ----------------------------   ------------------
-//   entity          this row IS the entity     n/a (or org hierarchy ref)     identifier
-//   target          this row is ABOUT entity   n/a                            identifier
-//   transaction     this row's own event ID    this row BELONGS TO entity     reference_key
-//   reference       dimensional lookup key     n/a                            null
+// Lineage. HF-231 routed all 8 import write paths through commitContentUnit.
+// HF-233/HF-268 then SPLIT the resolution by classification: transactions read
+// the `reference_key` columnRole instead of the `identifier`, on the theory that
+// a transaction's own identifier is always an event id and its entity is always a
+// foreign key. That theory holds for sales-event files (transaction_id:identifier
+// + sales_rep_id:reference_key) but INVERTS on per-entity performance/target data,
+// where the `identifier` IS the entity and the `reference_key` is a dimensional
+// grouping: Meridian Datos_Rendimiento (No_Empleado:identifier@0.99 +
+// Hub:reference_key@0.95) wrongly resolved to "Hub"; BCL Datos (ID_Empleado +
+// Sucursal) wrongly resolved to "Sucursal". columnRole alone cannot tell the two
+// cases apart, so the split was a re-derivation that guessed wrong half the time.
 //
-// HF-231 collapsed all 8 import write paths through commitContentUnit but
-// hardcoded `columnRole === 'identifier'` in resolveEntityIdField. Sales
-// files (`transaction_id:identifier@0.95` + `sales_rep_id:reference_key@0.95`)
-// resolved entity_id_field to `transaction_id`, causing post-import Entity
-// Resolution to create 389 ghost entities (one per transaction_id) and the
-// engine to fall back to sheet-matching against 421 "entities".
-//
-// The fix is domain-agnostic: ANY transaction file's entity association is
-// its reference_key, by the HC LLM's definition of those roles. Quota /
-// roster / capacity tables are unaffected.
+// HF-328 SUBTRACTS the split: comprehension's `identifier` columnRole is the entity
+// key for every non-reference classification (Decision 158 — recognition is the
+// LLM's; the commit path must not re-derive it). The phantom-entity hazard HF-268
+// guarded against is now handled structurally and unconditionally at the consumption
+// layer (entity-resolution.ts OB-203 D3: a transaction-only id that defines no entity
+// is suppressed, never fabricated), so honoring the identifier here is safe.
 
 // HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC
 // surface this resolver already trusts (Decision 64 v3 — one surface, not a
@@ -171,23 +176,35 @@ function resolveEntityIdField(
     return null;
   }
 
-  // Transaction files: the entity association is the reference_key (foreign
-  // key to the entity the event belongs to), NOT the row's own identifier.
-  // Structural fallback still consults confirmedBindings.entity_identifier in
-  // case HC didn't assign a reference_key role above threshold.
-  if (classification === 'transaction') {
-    // HF-268 A2: a transaction's entity association is its reference_key (the foreign key to the
-    // entity the event BELONGS TO). The transaction's OWN identifier is the EVENT ID, not an entity.
-    // The prior fallback to the entity_identifier binding selected that event ID when the
-    // reference_key was absent (e.g. dropped by a flywheel Tier-1 replay), and entity resolution
-    // then created phantom entities from transaction IDs (170 from one CRP sales file). When no
-    // reference_key is present, leave entity_id_field null — the engine resolves at calc time
-    // (Decision 92 / OB-183). NEVER key a transaction's entity on its own identifier (HF-263 lineage).
-    return findHcRole(classificationTrace, 'reference_key');
-  }
-
-  // Entity and target files: the identifier IS the entity (entity files) or
-  // IS ABOUT the entity (target files). Existing HF-231 behavior preserved.
+  // HF-328 (SUBTRACTION — comprehension-authoritative): the column comprehension
+  // classified as the `identifier` IS the entity key, for EVERY non-reference
+  // classification — entity, target, AND transaction. One path. No re-derivation.
+  //
+  // The prior `transaction → reference_key` special case (HF-268) was a vestigial
+  // independent re-derivation: it ignored the classified identifier and instead
+  // picked the reference_key. On per-entity performance data that mis-selected a
+  // dimensional grouping column over the real entity identifier — Meridian's
+  // Datos_Rendimiento resolved entity_id_field="Hub" (reference_key, a logistics-hub
+  // name) instead of "No_Empleado" (identifier@0.99, the employee), and BCL's Datos
+  // resolved "Sucursal" (reference_key, a branch) instead of "ID_Empleado"
+  // (identifier@0.99). Comprehension had already recognized the identifier
+  // correctly (Decision 158); the commit path re-derived the answer and chose wrong.
+  //
+  // The phantom-entity hazard HF-268 guarded against (keying a sales transaction on
+  // its own event id → fabricating one entity per transaction_id) is now prevented
+  // STRUCTURALLY at the consumption layer: entity-resolution.ts gates entity
+  // *creation* on `definedByEntityDefiningBatch` + `isEventUnit` (OB-203 D3) — an id
+  // that originates only from a transaction/target unit and defines no entity is
+  // suppressed there, never fabricated, regardless of which column we name here.
+  // So honoring the classified identifier cannot reintroduce phantom entities; a
+  // real foreign key whose entities the roster already created still links unchanged.
+  //
+  // When comprehension classified NO identifier on a non-reference sheet, fall back
+  // to the entity_identifier binding (this preserves the foreign-key-only transaction
+  // case, whose reference_key column derives semanticRole=entity_identifier), then
+  // null — the engine resolves at calc time (Decision 92 / OB-183). reference_key is
+  // never itself a candidate for entity_id_field (§6A: do not force an identifier
+  // where comprehension didn't classify one).
   const hcIdentifier = findHcRole(classificationTrace, 'identifier');
   if (hcIdentifier) return hcIdentifier;
   const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
