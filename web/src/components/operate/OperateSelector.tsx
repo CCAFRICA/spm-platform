@@ -10,6 +10,7 @@
 
 import { useOperate } from '@/contexts/operate-context';
 import { useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-327 theme token compliance
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -48,10 +49,11 @@ export function OperateSelector() {
     isLoading,
   } = useOperate();
   const { format: formatCurrency } = useCurrency();
+  const isVialuce = useIsVialuce(); // HF-327: inline-style bar bypasses the HF-316 class net
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-3" style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.6)' }}>
+      <div className="flex items-center gap-2 px-6 py-3" style={{ borderBottom: isVialuce ? '1px solid var(--vl-line)' : '1px solid rgba(39, 39, 42, 0.6)' }}>
         <div className="h-4 w-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
         <span className="text-xs text-zinc-400">Loading selections...</span>
       </div>
@@ -61,7 +63,7 @@ export function OperateSelector() {
   return (
     <div
       className="flex flex-wrap items-center gap-4 px-6 py-3"
-      style={{ borderBottom: '1px solid rgba(39, 39, 42, 0.6)', background: 'rgba(9, 9, 11, 0.5)' }}
+      style={{ borderBottom: isVialuce ? '1px solid var(--vl-line)' : '1px solid rgba(39, 39, 42, 0.6)', background: isVialuce ? 'var(--vl-surface)' : 'rgba(9, 9, 11, 0.5)' }}
     >
       {/* Plan */}
       <div className="flex items-center gap-2">
