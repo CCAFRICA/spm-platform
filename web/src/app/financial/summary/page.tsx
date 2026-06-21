@@ -54,16 +54,17 @@ export default function OperatingSummaryPage() {
   const [data, setData] = useState<SummaryPageData | null>(null);
   const [sortField, setSortField] = useState<SortField>('revenue');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [month, setMonth] = useState<string>(''); // HF-324 O2/PG-5: '' = all months
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
     let cancelled = false;
-    loadSummaryData(tenantId, financialScope)
+    loadSummaryData(tenantId, financialScope, month || undefined)
       .then(result => { if (!cancelled) setData(result); })
       .catch(err => console.error('Failed to load summary data:', err))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, financialScope]);
+  }, [tenantId, financialScope, month]);
 
   // Auto-generate insights from data
   const insights = useMemo(() => {
@@ -234,14 +235,33 @@ export default function OperatingSummaryPage() {
             <h1>Operating Summary</h1>
             <div className="sub">{data.periodLabel}</div>
           </div>
+          {/* HF-324 O2/PG-5: month period selector */}
+          {(data.availableMonths?.length ?? 0) > 1 && (
+            <div className="pactions">
+              <select value={month} onChange={e => setMonth(e.target.value)}
+                className="rounded-md border px-3 py-1.5 text-sm bg-transparent">
+                <option value="">All months</option>
+                {data.availableMonths!.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       ) : (
-      <div>
-        <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-          <FileText className="h-6 w-6 text-primary" />
-          Operating Summary
-        </h1>
-        <p className="text-zinc-400">{data.periodLabel}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
+            <FileText className="h-6 w-6 text-primary" />
+            Operating Summary
+          </h1>
+          <p className="text-zinc-400">{data.periodLabel}</p>
+        </div>
+        {(data.availableMonths?.length ?? 0) > 1 && (
+          <select value={month} onChange={e => setMonth(e.target.value)}
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm bg-transparent text-zinc-200">
+            <option value="">All months</option>
+            {data.availableMonths!.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
       </div>
       )}
 

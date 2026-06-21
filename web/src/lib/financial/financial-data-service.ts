@@ -183,6 +183,8 @@ export interface SummaryPageData {
     comps: number;
     netRevenue: number;
   }>;
+  availableMonths?: string[];      // HF-324 O2: 'YYYY-MM' options for the period selector
+  selectedMonth?: string | null;
 }
 
 export interface ProductMixData {
@@ -370,8 +372,8 @@ export async function loadPatternsData(tenantId: string, locationFilter?: string
   return fetchFinancialData<PatternsPageData>(tenantId, 'patterns', { ...(locationFilter ? { locationFilter } : {}), ...scope });
 }
 
-export async function loadSummaryData(tenantId: string, scope?: FinancialScope): Promise<SummaryPageData | null> {
-  return fetchFinancialData<SummaryPageData>(tenantId, 'summary', scope);
+export async function loadSummaryData(tenantId: string, scope?: FinancialScope, monthFilter?: string): Promise<SummaryPageData | null> {
+  return fetchFinancialData<SummaryPageData>(tenantId, 'summary', { ...(monthFilter ? { monthFilter } : {}), ...scope });
 }
 
 export async function loadProductMixData(tenantId: string, scope?: FinancialScope): Promise<ProductMixData | null> {

@@ -849,7 +849,7 @@ function aggregatePatterns(raw: { cheques: ChequeRecord[]; entities: EntityRecor
 // Aggregation: Summary
 // ═══════════════════════════════════════════════════════════════════
 
-async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, tenantId: string) {
+async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, tenantId: string, monthFilter?: string) {
   const locations = raw.entities.filter(e => e.entity_type === 'location');
   const brandLookup = buildBrandLookup(raw.entities);
   const locMap = new Map<string, { name: string; brand: string; brandColor: string; revenue: number; food: number; bev: number; tips: number; discounts: number; comps: number; tax: number; cash: number; card: number; guests: number; cheques: number; cancelled: number }>();
@@ -868,8 +868,11 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
   let totalDiscounts = 0, totalComps = 0, totalTax = 0, totalCash = 0, totalCard = 0;
   let totalGuests = 0, totalCheques = 0, totalCancelled = 0;
   const dates = new Set<string>();
+  // HF-324 O2/PG-5: distinct fecha months for the period selector + optional per-month filter (additive).
+  const availableMonths = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 7)).filter(Boolean))).sort();
+  const summaryCheques = monthFilter ? raw.cheques.filter(c => String(c.row_data.fecha || '').substring(0, 7) === monthFilter) : raw.cheques;
 
-  for (const c of raw.cheques) {
+  for (const c of summaryCheques) {
     const rd = c.row_data;
     const rev = n(rd.total);
     const food = n(rd.total_alimentos);
@@ -910,6 +913,7 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
     const sortedDates = Array.from(dates).sort();
     periodLabel = `${sortedDates[0] || ''} — ${sortedDates[sortedDates.length - 1] || ''}`;
   }
+  if (monthFilter) periodLabel = monthFilter; // HF-324: reflect the selected month
 
   const netRevenue = totalRevenue - totalDiscounts - totalComps;
 
@@ -941,7 +945,7 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
       netRevenue: round2(l.revenue - l.discounts - l.comps),
     }));
 
-  return { periodLabel, lines, locationBreakdown };
+  return { periodLabel, lines, locationBreakdown, availableMonths, selectedMonth: monthFilter ?? null };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1316,7 +1320,7 @@ function aggregateCheques(
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory } = body as {
+  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory, monthFilter } = body as {
     tenantId: string;
     mode: string;
     granularity?: 'day' | 'week' | 'month';
@@ -1326,6 +1330,7 @@ export async function POST(request: NextRequest) {
     scopeEntityIds?: string[];
     meseroId?: string;        // HF-324 O3: cheques mode — filter by server
     leakageCategory?: string; // HF-324 O3: cheques mode — 'cancelaciones'|'descuentos'|'cortesias'
+    monthFilter?: string;     // HF-324 O2: summary mode — 'YYYY-MM' period filter
   };
 
   if (!tenantId || !mode) {
@@ -1379,7 +1384,7 @@ export async function POST(request: NextRequest) {
         data = aggregatePatterns(scopedRaw, locationFilter);
         break;
       case 'summary':
-        data = await aggregateSummary(scopedRaw, tenantId);
+        data = await aggregateSummary(scopedRaw, tenantId, monthFilter);
         break;
       case 'products':
         data = aggregateProducts(scopedRaw);
