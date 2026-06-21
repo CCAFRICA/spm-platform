@@ -18,6 +18,8 @@ import { useState, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { OnboardingChecklist } from '@/components/insights'; // OB-227 Cluster D
+import { getTenantOnboardingState, type TenantOnboardingState } from '@/lib/insights'; // OB-227 Cluster D
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
@@ -77,6 +79,7 @@ export function LifecycleCockpit() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
+  const [onboarding, setOnboarding] = useState<TenantOnboardingState | null>(null); // OB-227 Cluster D
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -135,6 +138,10 @@ export function LifecycleCockpit() {
       .then(d => { if (!cancelled) applyData(d); })
       .catch(err => console.warn('[Cockpit] load failed:', err))
       .finally(() => { if (!cancelled) setIsLoading(false); });
+    // OB-227 Cluster D: onboarding state drives the new-tenant checklist (below the empty branch).
+    getTenantOnboardingState(tenantId)
+      .then(s => { if (!cancelled) setOnboarding(s); })
+      .catch(() => { /* additive — fall back to the simple empty state */ });
     return () => { cancelled = true; };
   }, [tenantId, applyData]);
 
@@ -205,6 +212,15 @@ export function LifecycleCockpit() {
     return <div className="page"><p className="mut" style={{ padding: 40, textAlign: 'center', color: 'var(--vl-text-soft)' }}>{isSpanish ? 'Cargando...' : 'Loading...'}</p></div>;
   }
   if (periods.length === 0) {
+    // OB-227 Cluster D: replace the blank "No periods configured" landing with the onboarding
+    // checklist (empty tenant → first payout). Falls back to the simple state until onboarding loads.
+    if (onboarding) {
+      return (
+        <div className="page">
+          <OnboardingChecklist state={onboarding} tenantId={tenantId} />
+        </div>
+      );
+    }
     return (
       <div className="page">
         <div className="empty">
