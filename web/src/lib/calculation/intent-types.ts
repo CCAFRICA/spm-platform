@@ -415,6 +415,21 @@ export interface EvalContext {
    * empty row set and resolve to zero.
    */
   priorPeriodRows?: Record<string, unknown>[];
+  /**
+   * HF-325 (Decision 111): true when this entity's metrics were resolved by convergence bindings
+   * (the convergence_bindings resolution path). A convergence-bound field's value — with its
+   * convergence reduction (sum/count/snapshot/…) already applied — lives in `metrics[field]`. The
+   * `aggregate` prime then reads that authoritative scalar instead of re-deriving from rows. Unset on
+   * the sheet-matching fallback path, where the row-iterating aggregate behavior is retained.
+   */
+  convergenceAuthoritative?: boolean;
+  /**
+   * HF-325: set true on the downstream context whenever `filter` / `scope` / `prior_period` narrows
+   * `activeRows`. A bound aggregate evaluated beneath such a narrowing must re-derive from the
+   * narrowed subset (the convergence scalar reflects the un-narrowed set), so the
+   * convergence-authoritative bypass does NOT apply there.
+   */
+  activeRowsScoped?: boolean;
 }
 
 /** The ten recognized prime discriminators. */
