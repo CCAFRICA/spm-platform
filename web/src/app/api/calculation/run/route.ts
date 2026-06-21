@@ -15,6 +15,7 @@ export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveReferenceJoinRows } from '@/lib/calculation/reference-join'; // HF-329: classified reference-sheet join
 import {
   aggregateMetrics,
   getExpectedMetricNames,
@@ -872,6 +873,14 @@ export async function POST(request: NextRequest) {
   // a structurally-extracted transaction_ref. Memory is bounded by the same row set already
   // held for the whole calc (row_data is referenced, not copied).
   const attribRowsByBatch = new Map<string, Map<string, Array<{ id: string; row_data: Record<string, unknown>; metadata: Record<string, unknown> }>>>();
+  // HF-329: rows from dimensional REFERENCE sheets that carry NO entity-overlapping key column —
+  // they never key into dataByBatch (their entityKey resolves empty), so resolveColumnFromBatch would
+  // hard-stop (column_in_no_batch) on a convergence-bound column that lives only here (e.g. Meridian
+  // Datos_Flota_Hub.Cargas_Totales). Retained flat for the reference-join fallback below: entity →
+  // value-overlap dimensional key (a classified reference_key the entity's own rows carry) → reference
+  // row → column value. Period scoping is already applied — committedData is fetched source_date-scoped
+  // to the calc period, so these reference rows are the current period's rows by construction.
+  const referenceRows: Array<Record<string, unknown>> = [];
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
     // Derive known entity columns directly from convergenceBindings.
     const knownEntityCols = Array.from(new Set(
@@ -963,9 +972,16 @@ export async function POST(request: NextRequest) {
             metadata: (row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata))
               ? row.metadata as Record<string, unknown> : {},
           });
+        } else {
+          // HF-329: no entity-key value on this row — a dimensional reference-sheet row. Retain it for
+          // the reference-join fallback in resolveColumnFromBatch. (Entity/transaction-batch rows always
+          // carry the key, so this captures reference sheets; a stray sparse entity row is harmless —
+          // the join only reads reference rows that actually carry the convergence-bound column.)
+          referenceRows.push(rd);
         }
       }
       addLog(`HF-109 Batch cache: ${dataByBatch.size} batches indexed by external_id (DS-009 5.1)`);
+      addLog(`HF-329 Reference rows retained for cross-sheet join: ${referenceRows.length}`);
       addLog(`OB-216 Phase 4: per-sheet entity key — ${batchEntityCol.size}/${dataByBatch.size} batch(es) keyed by their own value-overlap column; the rest fall back to the binding entity_identifier (${entityCol})`);
     }
   }
@@ -1704,8 +1720,26 @@ export async function POST(request: NextRequest) {
       entityRows = firstNonEmptyRows;
     }
     if (!entityRows) {
-      // Structured failure (never a silent 0): distinguish "entity has rows but none carry this column"
-      // (a mis-binding or cross-file gap) from "entity has no rows at all".
+      // HF-329 (SUBTRACTION of the hard-stop): a convergence-bound column that lives in NO entity-keyed
+      // batch is not necessarily unresolvable. When the entity HAS rows (anyRowsForEntity) but none carry
+      // the column, the column lives in a dimensional REFERENCE sheet reachable by a classified join — the
+      // entity's own rows carry the dimensional key (a reference_key value) the reference sheet is keyed
+      // by. Follow it via value-overlap (Korean Test, HALT-1). The matched reference row(s) become the
+      // entity's rows for the existing reduction below — period scoping is already applied at fetch time.
+      if (anyRowsForEntity && firstNonEmptyRows) {
+        const joined = resolveReferenceJoinRows(column, firstNonEmptyRows, referenceRows);
+        if (joined && joined.length > 0) {
+          entityRows = joined;
+          if (shouldEmitTrace(entityExternalId)) {
+            bufferTrace(`[CalcTrace] HF-329 reference-join entity=${entityExternalId} | column=${column} | refRowsMatched=${joined.length} | path=entity→value-overlap-key→reference-row`);
+          }
+        }
+      }
+    }
+    if (!entityRows) {
+      // Graceful fallback (C6): no entity-keyed batch carries the column AND no classified reference-join
+      // path resolves → the same structured null as before. Distinguish "entity has rows but none carry
+      // this column" (mis-binding / cross-file gap with no join) from "entity has no rows at all".
       if (shouldEmitTrace(entityExternalId)) {
         bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reason=${anyRowsForEntity ? 'column_in_no_batch' : 'no_rows'} | returned=null`);
       }
