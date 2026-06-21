@@ -39,7 +39,7 @@ import {
   type DashboardLifecycleState,
 } from '@/lib/lifecycle/lifecycle-service';
 import { extractAttainment } from '@/lib/data/persona-queries';
-import { loadOperatePageData } from '@/lib/data/page-loaders';
+import { loadOperatePageData, getActivePlans } from '@/lib/data/page-loaders';
 import type { Json } from '@/lib/supabase/database.types';
 
 interface CalcSummary {
@@ -80,6 +80,8 @@ export function LifecycleCockpit() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<TenantOnboardingState | null>(null); // OB-227 Cluster D
+  const [plans, setPlans] = useState<Array<{ id: string; name: string }>>([]); // HF-326 Defect A
+  const [selectedRuleSetId, setSelectedRuleSetId] = useState<string | null>(null);
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -131,26 +133,37 @@ export function LifecycleCockpit() {
     } else setCalcSummary(null);
   }, [isSpanish]);
 
+  // HF-326 Defect A: load all active plans for the selector + default the selection.
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
-    loadOperatePageData(tenantId)
-      .then(d => { if (!cancelled) applyData(d); })
-      .catch(err => console.warn('[Cockpit] load failed:', err))
-      .finally(() => { if (!cancelled) setIsLoading(false); });
+    getActivePlans(tenantId)
+      .then(ps => { if (cancelled) return; setPlans(ps); setSelectedRuleSetId(prev => prev ?? ps[0]?.id ?? null); })
+      .catch(() => { /* selector hidden when empty */ });
     // OB-227 Cluster D: onboarding state drives the new-tenant checklist (below the empty branch).
     getTenantOnboardingState(tenantId)
       .then(s => { if (!cancelled) setOnboarding(s); })
       .catch(() => { /* additive — fall back to the simple empty state */ });
     return () => { cancelled = true; };
-  }, [tenantId, applyData]);
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    setIsLoading(true);
+    loadOperatePageData(tenantId, undefined, selectedRuleSetId ?? undefined)
+      .then(d => { if (!cancelled) applyData(d); })
+      .catch(err => console.warn('[Cockpit] load failed:', err))
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, selectedRuleSetId, applyData]);
 
   const reloadData = useCallback(async (periodKeyOverride?: string) => {
     if (!tenantId) return;
-    const data = await loadOperatePageData(tenantId, periodKeyOverride);
+    const data = await loadOperatePageData(tenantId, periodKeyOverride, selectedRuleSetId ?? undefined);
     applyData(data);
     if (periodKeyOverride) setActiveKey(periodKeyOverride);
-  }, [tenantId, applyData]);
+  }, [tenantId, applyData, selectedRuleSetId]);
 
   const handlePeriodSelect = useCallback((newKey: string) => {
     if (newKey === activeKey) return;
@@ -246,7 +259,19 @@ export function LifecycleCockpit() {
             <h1>{isSpanish ? 'Centro de Ciclo de Vida' : 'Lifecycle Cockpit'}</h1>
             <div className="sub">{ruleSetName ?? (isSpanish ? 'No hay plan activo' : 'No active plan')} · {activePeriodLabel}</div>
           </div>
-          <div className="pactions">
+          <div className="pactions" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* HF-326 Defect A: plan selector — visible only for multi-plan tenants. Single-plan
+                tenants keep the auto-selected plan shown in the sub-header (no selector). */}
+            {plans.length > 1 && (
+              <select
+                value={selectedRuleSetId ?? ''}
+                onChange={e => setSelectedRuleSetId(e.target.value)}
+                aria-label={isSpanish ? 'Seleccionar plan' : 'Select plan'}
+                style={{ background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', color: 'var(--vl-text)', borderRadius: 8, padding: '6px 10px', fontSize: 13, maxWidth: 280 }}
+              >
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
             {stateDisplay && (
               <StatusPill color={dashState === 'APPROVED' || dashState === 'POSTED' ? 'emerald' : dashState === 'PUBLISHED' ? 'indigo' : 'zinc'}>
                 {isSpanish ? stateDisplay.labelEs : stateDisplay.label}

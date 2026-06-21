@@ -11,7 +11,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { getTenantOnboardingState, type TenantOnboardingState } from '@/lib/insights'; // HF-326 Defect C
 import { useLocale } from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -145,6 +147,8 @@ export default function PeriodsPage() {
   const tenantId = currentTenant?.id;
   const isSpanish = locale === 'es-MX';
 
+  const router = useRouter(); // HF-326 Defect C
+  const [tenantState, setTenantState] = useState<TenantOnboardingState | null>(null); // HF-326 Defect C
   const [periods, setPeriods] = useState<SupabasePeriod[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -198,10 +202,15 @@ export default function PeriodsPage() {
       });
       const data = await res.json();
       if (!res.ok) { setDetectMsg(data.error || 'Auto-detect failed.'); return; }
-      const suggested = (data.suggestedPeriods ?? []) as DetectedPeriod[];
+      // HF-326 Defect B: the detect endpoint returns snake_case keys (suggested_periods, data_range)
+      // — OB-227 read the camelCase `suggestedPeriods`, which was always undefined, so the empty
+      // array always tripped the "No data uploaded yet" branch even for tenants with data. Read the
+      // real keys, and key the no-data message on data_range.has_data (not on the suggestion count).
+      const suggested = (data.suggested_periods ?? []) as DetectedPeriod[];
+      const hasData = !!data.data_range?.has_data;
       const fresh = suggested.filter(p => !p.exists);
       if (fresh.length === 0) {
-        setDetectMsg(suggested.length === 0
+        setDetectMsg(!hasData
           ? (isSpanish ? 'No hay datos cargados aún. Carga datos para detectar períodos.' : 'No data uploaded yet. Upload data to auto-detect periods.')
           : (isSpanish ? 'Todos los períodos detectados ya existen.' : 'All detected periods already exist.'));
         return;
@@ -235,6 +244,17 @@ export default function PeriodsPage() {
   useEffect(() => {
     loadPeriods();
   }, [loadPeriods]);
+
+  // HF-326 Defect C: tenant-state awareness — refreshes when the period set changes (e.g. after
+  // auto-detect/create) so the guidance reflects current preconditions.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    getTenantOnboardingState(tenantId)
+      .then(s => { if (!cancelled) setTenantState(s); })
+      .catch(() => { /* guidance section simply hides */ });
+    return () => { cancelled = true; };
+  }, [tenantId, periods.length]);
 
   // ==========================================================================
   // QUICK FILL — Populate date fields from Year/Month/Type
@@ -479,6 +499,49 @@ export default function PeriodsPage() {
           </div>
         </div>
       )}
+
+      {/* HF-326 Defect C: tenant-state awareness — turns the dead-end into the next step (IAP).
+          Vialuce-only (C5). */}
+      {isVialuce && tenantState && (() => {
+        const ts = tenantState;
+        const allMet = ts.has_data && ts.has_plan && ts.has_periods;
+        const chip = (ok: boolean, label: string, detail?: string) => (
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${ok ? 'bg-[color:var(--vl-success,#15936A)]/15 text-[color:var(--vl-success,#15936A)]' : 'bg-muted text-muted-foreground'}`}>
+            <span>{ok ? '✓' : '○'}</span>{label}{detail ? <span className="opacity-70">· {detail}</span> : null}
+          </span>
+        );
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{isSpanish ? 'Estado del flujo de cálculo' : 'Calculate flow status'}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {chip(ts.has_data, isSpanish ? 'Datos cargados' : 'Data loaded', ts.has_data ? `${ts.import_count} ${isSpanish ? 'importaciones' : 'imports'}` : undefined)}
+                {chip(ts.has_plan, isSpanish ? 'Plan importado' : 'Plan imported', ts.plan_name ?? undefined)}
+                {chip(ts.has_periods, isSpanish ? 'Períodos creados' : 'Periods created', ts.has_periods ? `${ts.period_count}` : undefined)}
+              </div>
+              {allMet ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm">{ts.has_calculations ? (isSpanish ? 'Calculado — revisa o recalcula.' : 'Calculated — review or recalculate.') : (isSpanish ? 'Todo listo para calcular.' : 'All preconditions met — ready to calculate.')}</span>
+                  <Button onClick={() => router.push('/operate')}>{isSpanish ? 'Ir a Calcular →' : 'Go to Calculate →'}</Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {!ts.has_data ? (isSpanish ? 'Carga datos para continuar.' : 'Upload data to continue.')
+                      : !ts.has_plan ? (isSpanish ? 'Importa un plan para continuar.' : 'Import a plan to continue.')
+                      : (isSpanish ? 'Crea períodos arriba (manual o detectar).' : 'Create periods above (manually or auto-detect).')}
+                  </span>
+                  {(!ts.has_data || !ts.has_plan) && (
+                    <Button variant="outline" onClick={() => router.push('/data/import')}>{isSpanish ? 'Ir a Importar →' : 'Go to Import →'}</Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* OB-227 Cluster C: auto-detect confirmation panel */}
       {(detected || detectMsg) && (
