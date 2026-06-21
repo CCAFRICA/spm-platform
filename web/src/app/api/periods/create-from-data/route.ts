@@ -28,15 +28,12 @@ export async function POST(req: NextRequest) {
     const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
     const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
 
-    // Check for existing periods
-    const { count: existingCount } = await supabase
-      .from('periods')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId);
-
-    if (existingCount && existingCount > 0) {
-      return NextResponse.json({ message: 'Periods already exist', count: existingCount });
-    }
+    // HF-330 Defect B: do NOT short-circuit when SOME periods already exist. A blanket
+    // "periods already exist → return" blocked partial-coverage tenants (MIR had Jan/Apr/May
+    // but not Feb/Mar/Jun) from ever getting their missing months. The per-canonical_key dedup
+    // below (existingKeys filter) already guarantees idempotency — only genuinely-missing months
+    // are inserted, and a fully-covered tenant falls through to the "All periods already exist"
+    // response. So we always scan + dedup, creating exactly the months that don't yet exist.
 
     // Strategy 1: Use source_date column (OB-152 temporal binding)
     // HF-185: Period creation from transactional data only (OB-107 principle).
@@ -52,7 +49,15 @@ export async function POST(req: NextRequest) {
       .limit(1);
 
     if (sourceDateSample && sourceDateSample.length > 0) {
-      // Source dates exist — scan them for unique year-months
+      // Source dates exist — scan them for unique year-months.
+      // HF-330 Defect B (the root cause of MIR detecting 3 of 6 months): the prior scan used
+      // `.range(offset, offset + 4999)` with `if (rows.length < 5000) break` and NO `.order()`.
+      // PostgREST caps a single response at 1000 rows, so the first page returned 1000 (< 5000) and
+      // the loop broke after ONE page — scanning only the first ~1000 physical rows. With no ORDER BY
+      // those rows were an arbitrary slice (MIR's first-page sheets were Jan/Apr/May), so Feb/Mar/Jun
+      // (12k+ rows each, all present) were never seen. Fix: page at the actual 1000-row cap, ORDER BY
+      // source_date for stable pagination, and break only when a short/empty page proves the end.
+      const PAGE = 1000;
       let offset = 0;
       while (true) {
         const { data: rows } = await applyCommittedDataVisibility(supabase
@@ -61,17 +66,22 @@ export async function POST(req: NextRequest) {
           .eq('tenant_id', tenantId)
           .not('source_date', 'is', null)
           .or('metadata->>informational_label.is.null,metadata->>informational_label.eq.transaction,metadata->>informational_label.eq.target'), hiddenBatchIds)
-          .range(offset, offset + 4999);
+          .order('source_date', { ascending: true })
+          .range(offset, offset + PAGE - 1);
 
         if (!rows || rows.length === 0) break;
 
         for (const row of rows) {
-          const d = new Date(row.source_date);
-          if (!isNaN(d.getTime())) {
-            const y = d.getFullYear();
-            const m = d.getMonth() + 1;
-            if (y >= 2000 && y <= 2100) {
-              const key = `${y}-${String(m).padStart(2, '0')}`;
+          // HF-330 Defect B: parse YYYY-MM directly from the date string. `new Date(s).getMonth()`
+          // reads LOCAL components off a UTC-parsed midnight, so a month-boundary date (2025-01-01)
+          // shifts to the prior month (December 2024) in a negative-offset timezone and fabricates a
+          // spurious period. source_date is a DATE column (YYYY-MM-DD) — slice the parts, no Date.
+          const ym = /^(\d{4})-(\d{2})-\d{2}/.exec(String(row.source_date));
+          if (ym) {
+            const y = Number(ym[1]);
+            const m = Number(ym[2]);
+            if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+              const key = `${ym[1]}-${ym[2]}`;
               const existing = periodMap.get(key);
               if (existing) existing.count++;
               else periodMap.set(key, { year: y, month: m, count: 1 });
@@ -79,8 +89,8 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        offset += rows.length;
-        if (rows.length < 5000) break;
+        if (rows.length < PAGE) break;
+        offset += PAGE;
       }
     }
 
@@ -112,14 +122,18 @@ export async function POST(req: NextRequest) {
       }
 
       if (dateFieldNames.size > 0) {
-        // Scan the identified date fields in row_data
+        // Scan the identified date fields in row_data.
+        // HF-330 Defect B: same 1000-row-cap pagination fix as Strategy 1 — page at the cap with a
+        // stable ORDER BY id, so this fallback scans the full row set instead of one capped page.
+        const PAGE = 1000;
         let offset = 0;
-        while (offset < 50000) {
+        while (offset < 200000) {
           const { data: rows } = await applyCommittedDataVisibility(supabase
             .from('committed_data')
             .select('row_data')
             .eq('tenant_id', tenantId), hiddenBatchIds)
-            .range(offset, offset + 4999);
+            .order('id', { ascending: true })
+            .range(offset, offset + PAGE - 1);
 
           if (!rows || rows.length === 0) break;
 
@@ -159,8 +173,8 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          offset += rows.length;
-          if (rows.length < 5000) break;
+          if (rows.length < PAGE) break;
+          offset += PAGE;
         }
       }
     }

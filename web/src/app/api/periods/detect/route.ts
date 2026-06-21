@@ -25,27 +25,42 @@ interface PeriodCandidate {
   canonical_key: string;
 }
 
-function generateMonthlyPeriods(minDate: Date, maxDate: Date): PeriodCandidate[] {
+// HF-330 Defect B: derive the {year, month} bounds from the YYYY-MM-DD date STRING, not a Date.
+// `new Date("2025-01-01").getMonth()` reads LOCAL components off a UTC-parsed midnight, so the
+// first month shifts to the prior month (December 2024) in a negative-offset timezone and the
+// detector suggests a spurious leading period. Integer year-month iteration is timezone-immune.
+function ymBounds(minDate: string, maxDate: string): { minY: number; minM: number; maxY: number; maxM: number } {
+  const lo = /^(\d{4})-(\d{2})/.exec(minDate)!;
+  const hi = /^(\d{4})-(\d{2})/.exec(maxDate)!;
+  return { minY: Number(lo[1]), minM: Number(lo[2]), maxY: Number(hi[1]), maxM: Number(hi[2]) };
+}
+// inclusive list of 1-based (year, month) pairs over [minDate, maxDate].
+// (Array, not a generator — avoids the downlevelIteration constraint on for-of.)
+function eachMonth(minDate: string, maxDate: string): Array<{ y: number; m: number }> {
+  const out: Array<{ y: number; m: number }> = [];
+  const { minY, minM, maxY, maxM } = ymBounds(minDate, maxDate);
+  let y = minY, m = minM;
+  while (y < maxY || (y === maxY && m <= maxM)) {
+    out.push({ y, m });
+    m += 1; if (m > 12) { m = 1; y += 1; }
+  }
+  return out;
+}
+
+function generateMonthlyPeriods(minDate: string, maxDate: string): PeriodCandidate[] {
   const periods: PeriodCandidate[] = [];
-  const current = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-  while (current <= maxDate) {
-    const y = current.getFullYear();
-    const m = current.getMonth() + 1;
+  for (const { y, m } of eachMonth(minDate, maxDate)) {
     const ld = lastDayOfMonth(y, m);
     const sd = `${y}-${String(m).padStart(2, '0')}-01`;
     const ed = `${y}-${String(m).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
     periods.push({ label: `${MONTH_NAMES[m - 1]} ${y}`, period_type: 'monthly', start_date: sd, end_date: ed, canonical_key: `monthly_${sd}_${ed}` });
-    current.setMonth(current.getMonth() + 1);
   }
   return periods;
 }
 
-function generateBiweeklyPeriods(minDate: Date, maxDate: Date): PeriodCandidate[] {
+function generateBiweeklyPeriods(minDate: string, maxDate: string): PeriodCandidate[] {
   const periods: PeriodCandidate[] = [];
-  const current = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-  while (current <= maxDate) {
-    const y = current.getFullYear();
-    const m = current.getMonth() + 1;
+  for (const { y, m } of eachMonth(minDate, maxDate)) {
     const ld = lastDayOfMonth(y, m);
     const s1 = `${y}-${String(m).padStart(2, '0')}-01`;
     const e1 = `${y}-${String(m).padStart(2, '0')}-15`;
@@ -53,7 +68,6 @@ function generateBiweeklyPeriods(minDate: Date, maxDate: Date): PeriodCandidate[
     const s2 = `${y}-${String(m).padStart(2, '0')}-16`;
     const e2 = `${y}-${String(m).padStart(2, '0')}-${String(ld).padStart(2, '0')}`;
     periods.push({ label: `${MONTH_NAMES[m - 1]} 16-${ld}, ${y}`, period_type: 'biweekly', start_date: s2, end_date: e2, canonical_key: `biweekly_${s2}_${e2}` });
-    current.setMonth(current.getMonth() + 1);
   }
   return periods;
 }
@@ -101,8 +115,10 @@ export async function POST(req: NextRequest) {
     const suggestedPeriods: Array<PeriodCandidate & { exists: boolean; transaction_count: number; matching_plans: string[] }> = [];
 
     if (hasData) {
-      const minDate = new Date(dataRange.min_date!);
-      const maxDate = new Date(dataRange.max_date!);
+      // HF-330 Defect B: pass the YYYY-MM-DD date STRINGS (timezone-immune integer-month iteration),
+      // not Date objects whose local getters shift a UTC-midnight boundary into the prior month.
+      const minDate = dataRange.min_date!;
+      const maxDate = dataRange.max_date!;
       const cadences = Array.from(cadenceToPlanNames.keys());
 
       for (const cadence of cadences) {
