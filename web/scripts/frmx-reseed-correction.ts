@@ -47,35 +47,53 @@ function meseroInt(v: unknown): number {
 
 interface Row { id: string; row_data: Record<string, unknown>; }
 
-/** Build the ChequeRowData-schema row_data from the existing (mis-named) row_data. */
+// first-defined wins: lets the transform read EITHER the original seed name OR the
+// already-corrected name -> idempotent (safe to re-run; already-written rows map to
+// the identical value, partially-failed rows get corrected).
+const pick = (rd: Record<string, unknown>, ...keys: string[]): unknown => {
+  for (const k of keys) if (rd[k] !== undefined && rd[k] !== null) return rd[k];
+  return undefined;
+};
+
+/** Build the ChequeRowData-schema row_data from the existing row_data. IDEMPOTENT. */
 function transform(rd: Record<string, unknown>, idx: number): Record<string, unknown> {
-  const dateOnly = String(rd.fecha ?? '').substring(0, 10); // existing fecha is date-only
+  const dateOnly = String(rd.fecha ?? '').substring(0, 10); // YYYY-MM-DD from date-only OR datetime
   const turno = String(rd.turno ?? '').toLowerCase();
   const aperturaT = pad2(rd.hora_apertura, TURNO_DEFAULT_TIME[turno] || '13:00');
   const cierreT = pad2(rd.hora_cierre, aperturaT);
-  // fecha must be a DATETIME so the route's new Date(fecha).getHours()/getDay() works (heatmap)
-  const fecha = `${dateOnly}T${aperturaT}:00`;
-  // cierre datetime; if close wraps past midnight, it belongs to the next calendar day
-  const cierreDate = hourOf(cierreT) < hourOf(aperturaT) ? addOneDay(dateOnly) : dateOnly;
-  const cierre = `${cierreDate}T${cierreT}:00`;
+  // fecha must be a DATETIME so the route's new Date(fecha).getHours()/getDay() works (heatmap).
+  // If already a datetime (re-run), keep it verbatim; else build it from date + hora_apertura.
+  const fechaRaw = String(rd.fecha ?? '');
+  const fecha = fechaRaw.includes('T') ? fechaRaw : `${dateOnly}T${aperturaT}:00`;
+  const cierreRaw = String(rd.cierre ?? '');
+  let cierre: string;
+  if (cierreRaw.includes('T')) {
+    cierre = cierreRaw;
+  } else {
+    const cierreDate = hourOf(cierreT) < hourOf(aperturaT) ? addOneDay(dateOnly) : dateOnly;
+    cierre = `${cierreDate}T${cierreT}:00`;
+  }
 
   const total = round2(num(rd.total));
   const subtotal = round2(num(rd.subtotal));
-  const descuento = round2(num(rd.descuento));
-  const guests = Math.max(1, Math.round(num(rd.num_comensales)) || 1);
-  // cancelado in the seed is a corrupted float (random amounts, never the flag value 1) -> the
-  // route's `n(cancelado) === 1` never fired. Normalize to a clean 0/1 flag at ~0.5% (deterministic).
+  const descuento = round2(num(pick(rd, 'total_descuentos', 'descuento')));
+  const guests = Math.max(1, Math.round(num(pick(rd, 'numero_de_personas', 'num_comensales'))) || 1);
+  // cancelado in the original seed is a corrupted float (random amounts, never the flag value 1) ->
+  // the route's `n(cancelado) === 1` never fired. Normalize to a clean 0/1 flag at ~0.5%, keyed off
+  // the stable id-ordered index (re-runs reproduce the identical 220-row set).
   const cancelado = idx % 200 === 0 ? 1 : 0;
+  // mesero_id: already-numeric stays numeric; "MES-0XX" -> integer.
+  const meseroId = typeof rd.mesero_id === 'number' ? rd.mesero_id : meseroInt(rd.mesero_id);
 
   return {
-    numero_franquicia: String(rd.sucursal_id ?? ''),
-    turno_id: TURNO_ID[turno] ?? 0,
+    numero_franquicia: String(pick(rd, 'numero_franquicia', 'sucursal_id') ?? ''),
+    turno_id: num(pick(rd, 'turno_id')) || (TURNO_ID[turno] ?? 0),
     folio: idx + 1,
     numero_cheque: idx + 1,
     fecha,
     cierre,
     numero_de_personas: guests,
-    mesero_id: meseroInt(rd.mesero_id),
+    mesero_id: meseroId,
     pagado: cancelado === 1 ? 0 : total,
     cancelado,
     total_articulos: Math.max(1, Math.round(guests * 2.5)),
@@ -86,11 +104,11 @@ function transform(rd: Record<string, unknown>, idx: number): Record<string, unk
     descuento,
     subtotal,
     subtotal_con_descuento: round2(subtotal - descuento),
-    total_impuesto: round2(num(rd.iva)),
+    total_impuesto: round2(num(pick(rd, 'total_impuesto', 'iva'))),
     total_descuentos: descuento,
-    total_cortesias: round2(num(rd.cortesia)),
-    total_alimentos: round2(num(rd.subtotal_alimentos)),
-    total_bebidas: round2(num(rd.subtotal_bebidas)),
+    total_cortesias: round2(num(pick(rd, 'total_cortesias', 'cortesia'))),
+    total_alimentos: round2(num(pick(rd, 'total_alimentos', 'subtotal_alimentos'))),
+    total_bebidas: round2(num(pick(rd, 'total_bebidas', 'subtotal_bebidas'))),
     // carry-through context fields (unused by route but harmless for drill-down)
     forma_pago: String(rd.forma_pago ?? ''),
     tipo_servicio: String(rd.tipo_servicio ?? ''),
@@ -146,18 +164,37 @@ function transform(rd: Record<string, unknown>, idx: number): Record<string, unk
 
   if (DRY) { console.log('\nDRY RUN complete — no writes performed.'); return; }
 
-  // 3) write row_data in batches (UPDATE per id; preserves entity_id/period_id/source_date/FKs)
+  // 3) write row_data in batches (UPDATE per id; preserves entity_id/period_id/source_date/FKs).
+  //    Supabase returns row errors IN-RESULT (does not throw) — we check every result and RETRY
+  //    failures, because a silent partial failure leaves rows on the old schema.
   console.log('\n── writing row_data updates ──');
-  const BATCH = 200;
-  let written = 0;
-  for (let i = 0; i < updates.length; i += BATCH) {
-    const slice = updates.slice(i, i + BATCH);
-    await Promise.all(slice.map(u =>
-      c.from('committed_data').update({ row_data: u.row_data }).eq('id', u.id)
-    ));
-    written += slice.length;
-    if (written % 2000 === 0 || written === updates.length) console.log(`  ${written}/${updates.length}`);
+  const BATCH = 50; // lower concurrency to avoid the partial-failure seen at 200
+  async function writeAll(items: { id: string; row_data: Record<string, unknown> }[]): Promise<string[]> {
+    const failedIds: string[] = [];
+    let written = 0;
+    for (let i = 0; i < items.length; i += BATCH) {
+      const slice = items.slice(i, i + BATCH);
+      const results = await Promise.all(slice.map(u =>
+        c.from('committed_data').update({ row_data: u.row_data }).eq('id', u.id)
+          .then(r => ({ id: u.id, error: r.error }))
+      ));
+      for (const r of results) if (r.error) failedIds.push(r.id);
+      written += slice.length;
+      if (written % 5000 === 0 || written === items.length) console.log(`  ${written}/${items.length} (failed so far: ${failedIds.length})`);
+    }
+    return failedIds;
   }
+  const byId = new Map(updates.map(u => [u.id, u]));
+  let failed = await writeAll(updates);
+  for (let attempt = 1; attempt <= 5 && failed.length > 0; attempt++) {
+    console.log(`  retry ${attempt}: ${failed.length} rows`);
+    failed = await writeAll(failed.map(id => byId.get(id)!));
+  }
+  if (failed.length > 0) {
+    console.log(`!! ${failed.length} rows STILL failed after retries — HALT (investigate, do not proceed)`);
+    process.exit(1);
+  }
+  console.log('  all row_data updates succeeded (0 failures)');
 
   // 4) normalize the 40 server entities' metadata.mesero_id "MES-0XX" -> integer (staff join key)
   console.log('\n── normalizing server metadata.mesero_id ──');
