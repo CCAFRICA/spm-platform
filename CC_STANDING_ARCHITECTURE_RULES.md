@@ -265,6 +265,9 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 
 28. **Any dispatch consuming LLM-emitted vocabulary MUST honor three-tier resolution (LLM-Primary, Deterministic Fallback, Human Authority).** Exhaustive-switch patterns with `_exhaustive: never` compile-time guards are permitted ONLY when paired with EITHER (a) upstream constraint — the prompt that produces the input emits only registry-valid strings (Rule 27 holds), OR (b) downstream fallback — unrecognized strings map to a default primitive with a classification signal written. Naked `_exhaustive: never` patterns without one of these two conditions are prohibited. Instantiates IGF-T1-E903 (No Hardcoded Assumptions / Three-Tier Resolution Chain) at the prompt-layer surface. Recommended action `extend` per IRA-HF-195 Inv-1 supersession_candidate 2.
 
+### Theme token compliance (HF-327)
+30. **Theme Token Compliance.** All component styling MUST consume CSS custom properties (`var(--vl-*)`) or `useIsVialuce()` conditional tokens. Zero hardcoded color values (hex, rgba, Tailwind color classes) in component files for Vialuce-rendered surfaces. Every theme change MUST render correctly under all active themes (Dark, Bliss, Vialuce) — verification: switch between all themes on localhost and confirm no visual regression. **Anti-pattern:** replacing one hardcoded color with another hardcoded color (a Vialuce hex like `#2D2F8F` breaks Dark and Bliss — use a token that resolves per theme). Inline `style={{}}` objects and named `*_STYLE` constants bypass the HF-316 utility-class CSS net, so they must be made `useIsVialuce`-aware (HF-319/HF-324 pattern: `isVialuce ? { background: 'var(--vl-surface)' } : ORIGINAL`, keeping the Dark/Bliss else-branch byte-identical). Governance baseline: `docs/diagnostics/HF-327_THEME_HEALTH_INVENTORY.md` — re-run its grep patterns to audit new UI for token compliance.
+
 ---
 
 ## SECTION E: SCALE REFERENCE
