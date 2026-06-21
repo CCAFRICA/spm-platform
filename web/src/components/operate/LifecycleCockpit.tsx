@@ -39,7 +39,7 @@ import {
   type DashboardLifecycleState,
 } from '@/lib/lifecycle/lifecycle-service';
 import { extractAttainment } from '@/lib/data/persona-queries';
-import { loadOperatePageData, getActivePlans } from '@/lib/data/page-loaders';
+import { loadOperatePageData, getPlanIntelligence, type PlanIntelligence } from '@/lib/data/page-loaders';
 import type { Json } from '@/lib/supabase/database.types';
 
 interface CalcSummary {
@@ -80,8 +80,9 @@ export function LifecycleCockpit() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<TenantOnboardingState | null>(null); // OB-227 Cluster D
-  const [plans, setPlans] = useState<Array<{ id: string; name: string }>>([]); // HF-326 Defect A
+  const [plans, setPlans] = useState<PlanIntelligence[]>([]); // HF-326 Defect A / HF-330 Defect C (enriched)
   const [selectedRuleSetId, setSelectedRuleSetId] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; name: string } | null>(null); // HF-330 C2
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -133,11 +134,21 @@ export function LifecycleCockpit() {
     } else setCalcSummary(null);
   }, [isSpanish]);
 
-  // HF-326 Defect A: load all active plans for the selector + default the selection.
+  // HF-330 Defect C: refresh per-plan intelligence (component count + per-period calc status).
+  const refreshPlans = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const ps = await getPlanIntelligence(tenantId);
+      setPlans(ps);
+      setSelectedRuleSetId(prev => prev ?? ps[0]?.id ?? null);
+    } catch { /* selector hidden when empty */ }
+  }, [tenantId]);
+
+  // HF-326 Defect A / HF-330 Defect C: load enriched plans for the selector + default the selection.
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
-    getActivePlans(tenantId)
+    getPlanIntelligence(tenantId)
       .then(ps => { if (cancelled) return; setPlans(ps); setSelectedRuleSetId(prev => prev ?? ps[0]?.id ?? null); })
       .catch(() => { /* selector hidden when empty */ });
     // OB-227 Cluster D: onboarding state drives the new-tenant checklist (below the empty branch).
@@ -187,6 +198,31 @@ export function LifecycleCockpit() {
       setCalcError(isSpanish ? 'Error de red al ejecutar calculo' : 'Network error running calculation');
     } finally { setIsCalculating(false); }
   }, [tenantId, activePeriodId, ruleSetId, activeKey, isSpanish, reloadData]);
+
+  // HF-330 Defect C2 (Acceleration): calculate EVERY active plan for the selected period in one action.
+  // Sequentially calls the SAME existing /api/calculation/run endpoint per plan (HALT-4: no new path,
+  // no endpoint change). Progress is visible (which plan, n/total); per-plan failures are collected but
+  // do not abort the run. Re-loads plan intelligence + the cockpit when done so calc status updates.
+  const runAllPlans = useCallback(async () => {
+    if (!tenantId || !activePeriodId || plans.length === 0) return;
+    setCalcError(null);
+    const failures: string[] = [];
+    for (let i = 0; i < plans.length; i++) {
+      const plan = plans[i];
+      setBatchProgress({ current: i + 1, total: plans.length, name: plan.name });
+      try {
+        const res = await fetch('/api/calculation/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, periodId: activePeriodId, ruleSetId: plan.id }),
+        });
+        if (!res.ok) { const r = await res.json().catch(() => ({})); failures.push(`${plan.name}: ${(r as { error?: string }).error ?? `HTTP ${res.status}`}`); }
+      } catch { failures.push(`${plan.name}: ${isSpanish ? 'error de red' : 'network error'}`); }
+    }
+    setBatchProgress(null);
+    if (failures.length > 0) setCalcError((isSpanish ? 'Algunos planes fallaron — ' : 'Some plans failed — ') + failures.join('; '));
+    await refreshPlans();
+    await reloadData(activeKey);
+  }, [tenantId, activePeriodId, plans, activeKey, isSpanish, refreshPlans, reloadData]);
 
   const advance = useCallback(async (nextState: string) => {
     if (!tenantId || !activePeriodId) return;
@@ -247,6 +283,8 @@ export function LifecycleCockpit() {
   }
 
   const activePeriodLabel = periods.find(p => p.periodKey === activeKey)?.label ?? activeKey;
+  // HF-330 Defect C3: how many active plans are calculated for the selected period.
+  const plansCalcedThisPeriod = activePeriodId ? plans.filter(p => p.calculatedPeriodIds.includes(activePeriodId)).length : 0;
 
   return (
     <div className="space-y-0">
@@ -267,9 +305,15 @@ export function LifecycleCockpit() {
                 value={selectedRuleSetId ?? ''}
                 onChange={e => setSelectedRuleSetId(e.target.value)}
                 aria-label={isSpanish ? 'Seleccionar plan' : 'Select plan'}
-                style={{ background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', color: 'var(--vl-text)', borderRadius: 8, padding: '6px 10px', fontSize: 13, maxWidth: 280 }}
+                style={{ background: 'var(--vl-surface)', border: '1px solid var(--vl-line)', color: 'var(--vl-text)', borderRadius: 8, padding: '6px 10px', fontSize: 13, maxWidth: 320 }}
               >
-                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {/* HF-330 Defect C1: each option carries plan intelligence — component count + whether
+                    it is calculated for the active period (✓ calculated / ○ pending) — so the user
+                    chooses with context, not a bare name. */}
+                {plans.map(p => {
+                  const done = activePeriodId ? p.calculatedPeriodIds.includes(activePeriodId) : false;
+                  return <option key={p.id} value={p.id}>{`${p.name} · ${p.componentCount} ${isSpanish ? 'comp' : 'comp'} · ${done ? '✓' : '○'}`}</option>;
+                })}
               </select>
             )}
             {stateDisplay && (
@@ -293,6 +337,59 @@ export function LifecycleCockpit() {
           </div>
         )}
         {calcError && <div className="card" style={{ borderLeft: '3px solid var(--vl-danger)', color: 'var(--vl-danger)', fontSize: 13 }}>{calcError}</div>}
+
+        {/* HF-330 Defect C: multi-plan intelligence + acceleration. Only for multi-plan tenants
+            (single-plan tenants keep the streamlined single-CTA flow — non-regression). Combines
+            C1 (per-plan component/entity/status), C2 (Calculate All Plans for the period), and C3
+            (X of Y plans calculated this period + per-plan ✓/○). */}
+        {plans.length > 1 && (
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: 10.5, letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: 0 }}>{isSpanish ? 'Cobertura de Planes' : 'Plan Coverage'}</p>
+                <p style={{ fontSize: 14, color: 'var(--vl-text)', margin: '4px 0 0' }}>
+                  <b>{plansCalcedThisPeriod}</b> {isSpanish ? 'de' : 'of'} <b>{plans.length}</b> {isSpanish ? 'planes calculados para' : 'plans calculated for'} {activePeriodLabel}
+                </p>
+              </div>
+              <button
+                className="btn-pri"
+                onClick={runAllPlans}
+                disabled={!!batchProgress || isCalculating || !activePeriodId}
+                style={{ minWidth: 200 }}
+              >
+                {batchProgress
+                  ? `${isSpanish ? 'Calculando' : 'Calculating'} ${batchProgress.current}/${batchProgress.total}…`
+                  : (isSpanish ? 'Calcular Todos los Planes' : 'Calculate All Plans')}
+              </button>
+            </div>
+            {batchProgress && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ height: 4, width: '100%', overflow: 'hidden', borderRadius: 999, background: 'var(--vl-line)' }}>
+                  <div style={{ height: '100%', borderRadius: 999, background: 'var(--vl-cta-signal)', width: `${Math.round((batchProgress.current / batchProgress.total) * 100)}%`, transition: 'width .3s' }} />
+                </div>
+                <p style={{ fontSize: 11.5, color: 'var(--vl-text-soft)', margin: '6px 0 0' }}>{isSpanish ? 'Calculando' : 'Calculating'}: {batchProgress.name}</p>
+              </div>
+            )}
+            {/* Per-plan status for the active period (C1 + C3) */}
+            <div style={{ marginTop: 14, display: 'grid', gap: 6 }}>
+              {plans.map(p => {
+                const done = activePeriodId ? p.calculatedPeriodIds.includes(activePeriodId) : false;
+                const isSel = p.id === selectedRuleSetId;
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 12.5, padding: '6px 10px', borderRadius: 8, background: isSel ? 'var(--vl-bg)' : 'transparent', border: isSel ? '1px solid var(--vl-line)' : '1px solid transparent' }}>
+                    <span style={{ color: 'var(--vl-text)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ color: done ? 'var(--vl-success)' : 'var(--vl-text-soft)', fontWeight: 700 }}>{done ? '✓' : '○'}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    </span>
+                    <span style={{ color: 'var(--vl-text-soft)', fontFamily: 'var(--vl-font-mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                      {p.componentCount} {isSpanish ? 'comp' : 'comp'}{done && p.entityCount > 0 ? ` · ${p.entityCount} ${isSpanish ? 'ent' : 'ent'}` : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* KPI row (calculated) */}
         {calcSummary && (

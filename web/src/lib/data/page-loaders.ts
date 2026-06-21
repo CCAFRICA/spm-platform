@@ -199,6 +199,59 @@ export async function getActivePlans(tenantId: string): Promise<Array<{ id: stri
   return (data ?? []).map(p => ({ id: p.id as string, name: (p.name as string) ?? 'Untitled Plan' }));
 }
 
+// HF-330 Defect C: component count from a plan's `components` JSON, matching the engine's
+// `defaultComponents` derivation (run/route.ts: array → components[]; {components:[...]} →
+// that array; {variants:[...]} → variants[0].components). Korean Test: structural, no field names.
+function countPlanComponents(components: unknown): number {
+  if (Array.isArray(components)) return components.length;
+  const obj = (components && typeof components === 'object') ? components as Record<string, unknown> : null;
+  if (obj && Array.isArray(obj.components)) return (obj.components as unknown[]).length;
+  const variants = obj?.variants;
+  if (Array.isArray(variants)) {
+    const first = variants[0] as { components?: unknown[] } | undefined;
+    return Array.isArray(first?.components) ? first!.components!.length : 0;
+  }
+  return 0;
+}
+
+export interface PlanIntelligence {
+  id: string;
+  name: string;
+  componentCount: number;
+  calculatedPeriodIds: string[]; // period ids that have a calculation batch for this plan
+  entityCount: number;           // entity_count of this plan's most recent batch (0 if never calculated)
+}
+
+// HF-330 Defect C: per-plan intelligence for the Lifecycle Cockpit selector — component count,
+// which periods each plan has been calculated for, and the latest entity count. Two queries
+// (active rule_sets + this tenant's calculation_batches); no engine/SCI involvement.
+export async function getPlanIntelligence(tenantId: string): Promise<PlanIntelligence[]> {
+  if (!tenantId) return [];
+  const supabase = createClient();
+  const [plansRes, batchesRes] = await Promise.all([
+    supabase.from('rule_sets').select('id, name, components').eq('tenant_id', tenantId).eq('status', 'active').order('created_at', { ascending: false }),
+    supabase.from('calculation_batches').select('rule_set_id, period_id, entity_count, created_at').eq('tenant_id', tenantId),
+  ]);
+  const byPlan = new Map<string, { periods: Set<string>; latestEntity: number; latestAt: string }>();
+  for (const b of (batchesRes.data ?? []) as Array<{ rule_set_id: string | null; period_id: string | null; entity_count: number | null; created_at: string | null }>) {
+    if (!b.rule_set_id) continue;
+    let agg = byPlan.get(b.rule_set_id);
+    if (!agg) { agg = { periods: new Set(), latestEntity: 0, latestAt: '' }; byPlan.set(b.rule_set_id, agg); }
+    if (b.period_id) agg.periods.add(b.period_id);
+    if ((b.created_at ?? '') >= agg.latestAt) { agg.latestAt = b.created_at ?? ''; agg.latestEntity = b.entity_count ?? 0; }
+  }
+  return (plansRes.data ?? []).map(p => {
+    const agg = byPlan.get(p.id as string);
+    return {
+      id: p.id as string,
+      name: (p.name as string) ?? 'Untitled Plan',
+      componentCount: countPlanComponents((p as { components?: unknown }).components),
+      calculatedPeriodIds: agg ? Array.from(agg.periods) : [],
+      entityCount: agg?.latestEntity ?? 0,
+    };
+  });
+}
+
 export async function loadOperatePageData(tenantId: string, periodKey?: string, ruleSetId?: string): Promise<OperatePageData> {
   const supabase = createClient();
 
