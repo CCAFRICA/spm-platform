@@ -45,6 +45,12 @@ export interface EntityData {
   activeRows?: Record<string, unknown>[];
   /** HF-211: optional trace collector for [CalcTrace] emissions. */
   traceCollector?: (line: string) => void;
+  /**
+   * HF-325 (Decision 111): the caller resolved `metrics` via convergence bindings. When true, the
+   * `aggregate` prime reads a bound field's convergence-resolved scalar from `metrics[field]` instead
+   * of re-deriving it from rows. Unset on the sheet-matching fallback path.
+   */
+  convergenceAuthoritative?: boolean;
 }
 
 export interface ExecutionResult {
@@ -269,7 +275,9 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
 
     case 'filter': {
       const filtered = context.activeRows.filter(r => rowMatchesPredicate(r, node.predicate));
-      return evaluate(node.downstream, { ...context, activeRows: filtered });
+      // HF-325: rows narrowed → a downstream bound aggregate must re-derive from `filtered`, not the
+      // convergence scalar (which is over the un-narrowed set).
+      return evaluate(node.downstream, { ...context, activeRows: filtered, activeRowsScoped: true });
     }
 
     case 'scope': {
@@ -286,7 +294,8 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
           && r.entityMetadata.entityId !== selfEntityId
         )
         .map(r => r.row);
-      return evaluate(node.downstream, { ...context, activeRows: siblings });
+      // HF-325: rows narrowed to peers → downstream bound aggregate re-derives from `siblings`.
+      return evaluate(node.downstream, { ...context, activeRows: siblings, activeRowsScoped: true });
     }
 
     case 'prior_period': {
@@ -296,10 +305,32 @@ export function evaluate(node: PrimeNode, context: EvalContext): Decimal {
       return evaluate(node.downstream, {
         ...context,
         activeRows: context.priorPeriodRows ?? [],
+        activeRowsScoped: true, // HF-325: prior-period rows ≠ the convergence (current-period) scalar
       });
     }
 
     case 'aggregate': {
+      // HF-325 (Decision 111): convergence is authoritative. When convergence bindings resolved this
+      // entity's metrics and this aggregate's field is among them, `metrics[field]` already holds the
+      // value with the convergence reduction (sum/count/snapshot/…) applied. Read that scalar
+      // regardless of node.op — the count/sum re-derivation below is the vestigial path that the
+      // LLM's node-type choice used to select between (the BCL Productos Cruzados defect: one variant
+      // emitted `metric`→correct, the other `aggregate/count`→re-counted rows→wrong). The bypass is
+      // gated on convergence-binding PRESENCE (`field in metrics`), NOT node type, and is suppressed
+      // when an upstream filter/scope/prior_period has narrowed activeRows (`activeRowsScoped`), since
+      // a filtered/scoped aggregate must re-derive from the narrowed rows, not the un-narrowed scalar.
+      // Non-convergence (sheet-matching) paths leave convergenceAuthoritative unset → unchanged.
+      if (
+        context.convergenceAuthoritative &&
+        !context.activeRowsScoped &&
+        typeof node.field === 'string' &&
+        node.field in context.metrics
+      ) {
+        const raw = context.metrics[node.field];
+        if (raw === undefined || raw === null) return ZERO;
+        const cn = typeof raw === 'number' ? raw : parseFloat(String(raw));
+        return Number.isFinite(cn) ? toDecimal(cn) : ZERO;
+      }
       const rows = context.activeRows;
       if (rows.length === 0) {
         // count of empty rows is 0; sum/avg/min/max of empty rows is 0.
@@ -402,6 +433,7 @@ export function buildEvalContext(data: EntityData): EvalContext {
     activeRows: data.activeRows ?? [],
     allEntityRows: data.allEntityRows ?? [],
     metrics,
+    convergenceAuthoritative: data.convergenceAuthoritative, // HF-325
   };
 }
 

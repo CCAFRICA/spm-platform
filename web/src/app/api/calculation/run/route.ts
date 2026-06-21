@@ -2141,6 +2141,9 @@ export async function POST(request: NextRequest) {
 
     const componentResults: ComponentResult[] = [];
     const perComponentMetrics: Record<string, number>[] = [];
+    // HF-325: parallel to perComponentMetrics — whether each component's metrics came from the
+    // convergence_bindings path (vs sheet-matching fallback). Read at intent-executor handoff.
+    const perComponentUsedConvergence: boolean[] = [];
     const entityRoundingTraces: RoundingTrace[] = [];
 
     // HF-228 Phase 4: execute convergence-produced metric_derivations to make
@@ -2758,6 +2761,7 @@ export async function POST(request: NextRequest) {
           : {}),
       });
       perComponentMetrics.push(metrics);
+      perComponentUsedConvergence.push(usedConvergenceBindings); // HF-325
     }
 
     // ── INTENT ENGINE PATH (authoritative — Decision 151 sole authority) ──
@@ -2844,6 +2848,10 @@ export async function POST(request: NextRequest) {
         // rather than an empty set → 0. The `scope` prime still OVERRIDES activeRows to peer rows
         // for hierarchical/override semantics. Korean Test: structural (the entity's rows), no literal.
         activeRows: entityRowsFlat.map(r => (r.row_data ?? {}) as Record<string, unknown>),
+        // HF-325 (Decision 111): when convergence bindings resolved this component's metrics, the
+        // aggregate prime reads the convergence-resolved scalar for a bound field instead of
+        // re-deriving it from rows. False on the sheet-matching fallback → unchanged behavior.
+        convergenceAuthoritative: perComponentUsedConvergence[ci.componentIndex] ?? false,
         // HF-211: Route intent-executor [CalcTrace] emissions through buffer (only for traced
         // entities) so they flush after the [CalcRecon] block at handler exit.
         traceCollector: shouldEmitTrace(entityInfo?.external_id ?? entityId) ? bufferTrace : undefined,
