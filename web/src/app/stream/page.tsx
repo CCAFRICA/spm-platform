@@ -23,6 +23,8 @@ import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
+import { loadNetworkPulseData, type NetworkPulseData } from '@/lib/financial/financial-data-service'; // HF-327 O5
+import { FinancialStream } from './FinancialStream'; // HF-327 O5
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
 import {
@@ -138,6 +140,12 @@ export default function StreamPage() {
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { persona, scope, entityId: personaEntityId } = usePersona();
   const { currentTenant } = useTenant();
+  // HF-327 O5: a Financial Agent tenant is detected by the presence of pos_cheque data — the only
+  // reliable signal (features.financial is true for ICM tenants too; useFinancialOnly requires
+  // ruleSetCount===0 which is false when financial plans are active). loadNetworkPulseData returns
+  // null for an ICM tenant (no cheques), so financialPulse?.checksServed>0 ⇒ financial context.
+  const [financialPulse, setFinancialPulse] = useState<NetworkPulseData | null>(null);
+  const [financialChecked, setFinancialChecked] = useState(false);
   const { format: formatCurrency } = useCurrency();
 
   const [data, setData] = useState<IntelligenceStreamData | null>(null);
@@ -204,6 +212,18 @@ export default function StreamPage() {
     loadData();
   }, [loadData]);
 
+  // HF-327 O5: detect financial context (pos_cheque data) in parallel with the ICM load.
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    setFinancialChecked(false);
+    loadNetworkPulseData(tenantId)
+      .then(d => { if (!cancelled) setFinancialPulse(d); })
+      .catch(() => { /* ICM tenant — null pulse */ })
+      .finally(() => { if (!cancelled) setFinancialChecked(true); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
   // Signal capture — view event on data load
   const hasEmittedView = useRef(false);
   useEffect(() => {
@@ -250,7 +270,7 @@ export default function StreamPage() {
 
   // ── Empty / Loading / Error states ──
 
-  if (loading) {
+  if (loading || !financialChecked) {
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="flex items-center justify-center py-32">
@@ -259,6 +279,14 @@ export default function StreamPage() {
         </div>
       </div>
     );
+  }
+
+  // HF-327 O5: financial-tenant module context. When pos_cheque data exists (Sabor: 263K cheques),
+  // render financial intelligence instead of the ICM pipeline view (Calculate Now / "periods need
+  // data" / archived-rule-set "Total payout"), which is irrelevant and misleading. ICM tenants (BCL:
+  // 0 cheques → null pulse) never enter this branch — their ICM stream is byte-identical (PG-15).
+  if (financialPulse?.networkMetrics && financialPulse.networkMetrics.checksServed > 0) {
+    return <FinancialStream pulse={financialPulse} bgClass={personaToken.bg} />;
   }
 
   // HF-125: Detect empty data — data object exists but has no meaningful content
