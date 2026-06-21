@@ -68,7 +68,7 @@ export interface NetworkPulseData {
 }
 
 export interface LeakagePageData {
-  categories: Array<{ category: string; amount: number; count: number; trend: number }>;
+  categories: Array<{ category: string; key: string; amount: number; count: number; trend: number }>;
   locations: Array<{
     id: string; name: string; brand: string;
     leakageAmount: number; leakageRate: number; threshold: number;
@@ -323,6 +323,31 @@ export async function loadNetworkPulseData(tenantId: string, scope?: FinancialSc
 
 export async function loadLeakageData(tenantId: string, scope?: FinancialScope): Promise<LeakagePageData | null> {
   return fetchFinancialData<LeakagePageData>(tenantId, 'leakage', scope);
+}
+
+// HF-324 O3: cheque-level drill-through (per location / per server / per leakage category).
+export interface ChequeDrillRow {
+  numero_cheque: number;
+  fecha: string;
+  total: number;
+  mesero_id: number;
+  location: string;
+  total_descuentos: number;
+  total_cortesias: number;
+  cancelado: number;
+}
+export interface ChequeDrillData {
+  cheques: ChequeDrillRow[];
+  total_count: number;
+  capped: boolean;
+}
+export async function loadChequesData(
+  tenantId: string,
+  params: { entityId?: string; meseroId?: string; leakageCategory?: string },
+): Promise<ChequeDrillData | null> {
+  // route reads `locationId` for the entity filter
+  const { entityId, ...rest } = params;
+  return fetchFinancialData<ChequeDrillData>(tenantId, 'cheques', { locationId: entityId, ...rest });
 }
 
 export async function loadPerformanceData(tenantId: string, scope?: FinancialScope): Promise<LocationBenchmarkData[] | null> {

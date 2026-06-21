@@ -372,9 +372,10 @@ function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord
   const cancelTrend = firstHalfCancel > 0 ? ((secondHalfCancel - firstHalfCancel) / firstHalfCancel) * 100 : 0;
 
   const categories = [
-    { category: 'Cancelaciones', amount: round2(totalCancelRevenue), count: cancelCount, trend: round2(cancelTrend) },
-    { category: 'Descuentos', amount: round2(totalDiscounts), count: discountCount, trend: round2(discTrend) },
-    { category: 'Cortesías', amount: round2(totalComps), count: compCount, trend: round2(compTrend) },
+    // HF-324 O3: `key` is a stable, language-independent identifier for the cheques drill filter.
+    { category: 'Cancelaciones', key: 'cancelaciones', amount: round2(totalCancelRevenue), count: cancelCount, trend: round2(cancelTrend) },
+    { category: 'Descuentos', key: 'descuentos', amount: round2(totalDiscounts), count: discountCount, trend: round2(discTrend) },
+    { category: 'Cortesías', key: 'cortesias', amount: round2(totalComps), count: compCount, trend: round2(compTrend) },
   ].sort((a, b) => b.amount - a.amount);
 
   const locData = Array.from(locTotals.entries())
@@ -1277,9 +1278,45 @@ function aggregateServerDetail(raw: { cheques: ChequeRecord[]; entities: EntityR
 // Route Handler
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// Aggregation: Cheques (HF-324 O3 drill-through)
+// Filters the already-fetched raw cheques by location (entity_id), server (mesero_id), and/or
+// leakage category. Additive: reuses the same service-role plumbing, returns a capped list.
+// ═══════════════════════════════════════════════════════════════════
+function aggregateCheques(
+  raw: { cheques: ChequeRecord[]; entities: EntityRecord[] },
+  filters: { entityId?: string; meseroId?: string; leakageCategory?: string },
+) {
+  const CAP = 200;
+  const locName = new Map(raw.entities.filter(e => e.entity_type === 'location').map(e => [e.id, e.display_name]));
+  let rows = raw.cheques;
+  if (filters.entityId) rows = rows.filter(c => c.entity_id === filters.entityId);
+  if (filters.meseroId) rows = rows.filter(c => String(n(c.row_data.mesero_id)) === filters.meseroId);
+  const cat = filters.leakageCategory;
+  if (cat === 'cancelaciones') rows = rows.filter(c => n(c.row_data.cancelado) === 1);
+  else if (cat === 'descuentos') rows = rows.filter(c => n(c.row_data.total_descuentos) > 0);
+  else if (cat === 'cortesias') rows = rows.filter(c => n(c.row_data.total_cortesias) > 0);
+
+  const sorted = [...rows].sort((a, b) => String(b.row_data.fecha || '').localeCompare(String(a.row_data.fecha || '')));
+  const cheques = sorted.slice(0, CAP).map(c => {
+    const rd = c.row_data;
+    return {
+      numero_cheque: n(rd.numero_cheque),
+      fecha: String(rd.fecha ?? ''),
+      total: round2(n(rd.total)),
+      mesero_id: n(rd.mesero_id),
+      location: locName.get(c.entity_id) ?? c.entity_id,
+      total_descuentos: round2(n(rd.total_descuentos)),
+      total_cortesias: round2(n(rd.total_cortesias)),
+      cancelado: n(rd.cancelado),
+    };
+  });
+  return { cheques, total_count: rows.length, capped: rows.length > CAP };
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds } = body as {
+  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory } = body as {
     tenantId: string;
     mode: string;
     granularity?: 'day' | 'week' | 'month';
@@ -1287,6 +1324,8 @@ export async function POST(request: NextRequest) {
     locationId?: string;
     serverId?: string;
     scopeEntityIds?: string[];
+    meseroId?: string;        // HF-324 O3: cheques mode — filter by server
+    leakageCategory?: string; // HF-324 O3: cheques mode — 'cancelaciones'|'descuentos'|'cortesias'
   };
 
   if (!tenantId || !mode) {
@@ -1352,6 +1391,9 @@ export async function POST(request: NextRequest) {
       case 'server_detail':
         if (!serverId) return NextResponse.json({ error: 'serverId required' }, { status: 400 });
         data = aggregateServerDetail(raw, serverId);
+        break;
+      case 'cheques': // HF-324 O3: per-location / per-server / per-leakage-category cheque drill-through
+        data = aggregateCheques(scopedRaw, { entityId: locationId, meseroId, leakageCategory });
         break;
       default:
         return NextResponse.json({ error: `Unknown mode: ${mode}` }, { status: 400 });

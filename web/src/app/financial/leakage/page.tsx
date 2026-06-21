@@ -51,6 +51,7 @@ import {
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
 import { loadLeakageData, type LeakagePageData, type FinancialScope } from '@/lib/financial/financial-data-service';
+import { ChequeList } from '@/components/financial/ChequeList'; // HF-324 O3 drill-through
 
 const STATUS_CONFIG = {
   ok: { color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -76,6 +77,7 @@ export default function LeakageMonitorPage() {
   const [periodFilter, setPeriodFilter] = useState<string>('full');
   const [loading, setLoading] = useState(true);
   const [pageData, setPageData] = useState<LeakagePageData | null>(null);
+  const [drill, setDrill] = useState<string | null>(null); // HF-324 O3: 'cat:<key>' | 'loc:<id>'
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
@@ -338,20 +340,29 @@ export default function LeakageMonitorPage() {
               </div>
               <div className="space-y-2">
                 {categories.map((cat, i) => (
-                  <div key={cat.category} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: PIE_COLORS[i] }}
-                      />
-                      <span className="text-sm">{cat.category}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{format(cat.amount)}</span>
-                      <span className={`text-xs ${cat.trend <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {cat.trend <= 0 ? '' : '+'}{cat.trend.toFixed(1)}%
-                      </span>
-                    </div>
+                  <div key={cat.category}>
+                    {/* HF-324 O3: click a category → drill into its cheques */}
+                    <button
+                      type="button"
+                      onClick={() => setDrill(drill === `cat:${cat.key}` ? null : `cat:${cat.key}`)}
+                      className="flex w-full items-center justify-between rounded px-1 py-0.5 text-left hover:bg-muted/50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
+                        <span className="text-sm">{cat.category}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{format(cat.amount)}</span>
+                        <span className={`text-xs ${cat.trend <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {cat.trend <= 0 ? '' : '+'}{cat.trend.toFixed(1)}%
+                        </span>
+                      </div>
+                    </button>
+                    {drill === `cat:${cat.key}` && tenantId && (
+                      <div className="mt-2">
+                        <ChequeList tenantId={tenantId} leakageCategory={cat.key} emphasis={cat.key} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -402,9 +413,11 @@ export default function LeakageMonitorPage() {
                 const improving = loc.weeklyTrend[3] < loc.weeklyTrend[0];
 
                 return (
+                  <div key={loc.id}>
+                  {/* HF-324 O3: click a location → drill into its cheques */}
                   <div
-                    key={loc.id}
-                    className="flex items-center justify-between p-4 bg-zinc-900/50 rounded-lg"
+                    onClick={() => setDrill(drill === `loc:${loc.id}` ? null : `loc:${loc.id}`)}
+                    className="flex items-center justify-between p-4 bg-zinc-900/50 rounded-lg cursor-pointer hover:bg-zinc-900/70"
                   >
                     <div className="flex items-center gap-4">
                       <div className={`p-2 rounded-lg ${STATUS_CONFIG[loc.status].color}`}>
@@ -458,6 +471,10 @@ export default function LeakageMonitorPage() {
                          loc.status === 'warning' ? 'Warning' : 'Critical'}
                       </Badge>
                     </div>
+                  </div>
+                  {drill === `loc:${loc.id}` && tenantId && (
+                    <div className="mt-2"><ChequeList tenantId={tenantId} entityId={loc.id} /></div>
+                  )}
                   </div>
                 );
               })}
