@@ -182,7 +182,24 @@ export async function loadICMHealthData(tenantId: string): Promise<ICMHealthData
 // Operate Page Loader
 // ──────────────────────────────────────────────
 
-export async function loadOperatePageData(tenantId: string, periodKey?: string): Promise<OperatePageData> {
+/**
+ * HF-326 Defect A: all active plans for a tenant (id + name), most-recent first. Powers the
+ * Lifecycle Cockpit plan selector — reuses the same rule_sets query loadOperatePageData uses,
+ * without the limit(1). No new API route.
+ */
+export async function getActivePlans(tenantId: string): Promise<Array<{ id: string; name: string }>> {
+  if (!tenantId) return [];
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('rule_sets')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false });
+  return (data ?? []).map(p => ({ id: p.id as string, name: (p.name as string) ?? 'Untitled Plan' }));
+}
+
+export async function loadOperatePageData(tenantId: string, periodKey?: string, ruleSetId?: string): Promise<OperatePageData> {
   const supabase = createClient();
 
   // Round 1: periods + plan + import (parallel)
@@ -192,13 +209,10 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string):
       .select('id, canonical_key, label, start_date, end_date, status')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false }),
-    supabase
-      .from('rule_sets')
-      .select('id, name')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle(),
+    // HF-326 Defect A: when a specific plan is selected, load it; otherwise the most-recent active.
+    ruleSetId
+      ? supabase.from('rule_sets').select('id, name').eq('tenant_id', tenantId).eq('id', ruleSetId).maybeSingle()
+      : supabase.from('rule_sets').select('id, name').eq('tenant_id', tenantId).eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase
       .from('import_batches')
       .select('id, status')
@@ -213,7 +227,11 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string):
   // Round 2: batch lifecycle states (parallel with period query)
   const periodIds = rawPeriods.map(p => p.id);
 
-  const batchQuery = periodIds.length > 0
+  // HF-326 Defect A: scope batches to the resolved plan so the cockpit's calc summary + per-period
+  // lifecycle reflect the SELECTED plan (multi-plan tenants). Single-plan tenants are unaffected (all
+  // their batches belong to the one plan). Skip the filter if the plan is unresolved (rule_set_id null).
+  const resolvedRuleSetId = planRes.data?.id ?? null;
+  let batchQuery = periodIds.length > 0
     ? supabase
         .from('calculation_batches')
         .select('id, period_id, lifecycle_state, created_at, entity_count, summary')
@@ -222,6 +240,7 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string):
         .in('period_id', periodIds)
         .order('created_at', { ascending: false })
     : null;
+  if (batchQuery && resolvedRuleSetId) batchQuery = batchQuery.eq('rule_set_id', resolvedRuleSetId);
 
   const batchesRes = await batchQuery;
   const allBatches = batchesRes?.data ?? [];
