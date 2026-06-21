@@ -162,8 +162,16 @@ export async function getPeriodsWithResults(
   const { data } = await sb.from('calculation_results').select('period_id').eq('tenant_id', tenantId);
   const ids = Array.from(new Set((data ?? []).map(r => r.period_id as string).filter(Boolean)));
   if (!ids.length) return [];
-  const { data: periods } = await sb.from('periods').select('id, label').in('id', ids);
+  const { data: periods } = await sb.from('periods').select('id, label, start_date').in('id', ids);
+  // OB-227 Fix B: sort by periods.start_date DESC (chronological, Decision 92/93), NOT by label
+  // string. A localeCompare on human labels put "November 2025" ahead of "March 2026", freezing
+  // every most-recent-first caller (compensation/my-team/analytics/performance/approvals/…) on the
+  // wrong period. ISO date strings sort chronologically.
   return (periods ?? [])
-    .map(p => ({ id: p.id as string, label: (p.label as string) ?? (p.id as string) }))
-    .sort((a, b) => b.label.localeCompare(a.label));
+    .map(p => ({
+      id: p.id as string,
+      label: (p.label as string) ?? (p.id as string),
+      start_date: (p.start_date as string) ?? undefined,
+    }))
+    .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''));
 }

@@ -1,619 +1,165 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * Insights → Trends. OB-227 Phase 5: rebuilt from 100% mock constants to REAL cross-period
+ * trajectory (DS-015 §6) over calculation_results. Population trend, per-entity direction/velocity,
+ * and per-component trend lines — all from lib/insights (deterministic, Korean Test). Shows ALL
+ * calculated periods (no single-period selector).
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ArrowUp, ArrowDown, Minus, TrendingUp } from 'lucide-react';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useIsVialuce } from '@/hooks/use-is-vialuce';
+import { InsightsLayout, SummaryHero, TrendLine, type HeroCard } from '@/components/insights';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  Legend,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-} from 'recharts';
-import {
-  TrendingUp,
-  TrendingDown,
-  Calendar,
-  BarChart3,
-  ArrowUpRight,
-  ArrowDownRight,
-  Download,
-} from 'lucide-react';
-import { useLocale } from '@/contexts/locale-context';
-import { useCurrency } from '@/contexts/tenant-context';
-import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
+  getCalculatedPeriods, getPopulationTrend, getEntityTrajectory, getComponentTotals,
+  type PeriodSummary, type PopulationTrendPoint, type EntityTrajectory,
+} from '@/lib/insights';
 
-// Enhanced mock data with more detail
-const yoyData = [
-  { month: 'Jan', monthEs: 'Ene', current: 380000, previous: 320000, target: 350000 },
-  { month: 'Feb', monthEs: 'Feb', current: 420000, previous: 350000, target: 380000 },
-  { month: 'Mar', monthEs: 'Mar', current: 395000, previous: 380000, target: 400000 },
-  { month: 'Apr', monthEs: 'Abr', current: 450000, previous: 410000, target: 420000 },
-  { month: 'May', monthEs: 'May', current: 480000, previous: 420000, target: 440000 },
-  { month: 'Jun', monthEs: 'Jun', current: 465000, previous: 455000, target: 460000 },
-  { month: 'Jul', monthEs: 'Jul', current: 490000, previous: 470000, target: 480000 },
-  { month: 'Aug', monthEs: 'Ago', current: 510000, previous: 485000, target: 490000 },
-  { month: 'Sep', monthEs: 'Sep', current: 495000, previous: 490000, target: 500000 },
-  { month: 'Oct', monthEs: 'Oct', current: 520000, previous: 505000, target: 510000 },
-  { month: 'Nov', monthEs: 'Nov', current: 545000, previous: 510000, target: 520000 },
-  { month: 'Dec', monthEs: 'Dic', current: 525000, previous: 520000, target: 530000 },
-];
-
-const componentBreakdown = [
-  { name: 'Base', nameEs: 'Ventas Base', value: 2400000, change: 12 },
-  { name: 'Optical', nameEs: '\u00d3ptica', value: 1800000, change: 8 },
-  { name: 'Services', nameEs: 'Servicios', value: 950000, change: 15 },
-  { name: 'Insurance', nameEs: 'Seguros', value: 520000, change: -3 },
-];
-
-const regionData = [
-  { region: 'North', regionEs: 'Norte', current: 1450000, previous: 1320000 },
-  { region: 'Central', regionEs: 'Centro', current: 1680000, previous: 1520000 },
-  { region: 'South', regionEs: 'Sur', current: 1245000, previous: 1180000 },
-  { region: 'West', regionEs: 'Oeste', current: 1300000, previous: 1250000 },
-];
-
-const quarterlyData = [
-  { quarter: 'Q1', value: 1195000, target: 1130000 },
-  { quarter: 'Q2', value: 1395000, target: 1320000 },
-  { quarter: 'Q3', value: 1495000, target: 1470000 },
-  { quarter: 'Q4', value: 1590000, target: 1560000 },
-];
-
-const projectionData = [
-  { month: 'Oct', monthEs: 'Oct', actual: 520000, projected: null },
-  { month: 'Nov', monthEs: 'Nov', actual: 545000, projected: null },
-  { month: 'Dec', monthEs: 'Dic', actual: 525000, projected: null },
-  { month: 'Jan', monthEs: 'Ene', actual: null, projected: 540000 },
-  { month: 'Feb', monthEs: 'Feb', actual: null, projected: 560000 },
-  { month: 'Mar', monthEs: 'Mar', actual: null, projected: 575000 },
-];
+const DIR_ICON = { up: ArrowUp, down: ArrowDown, stable: Minus } as const;
 
 export default function TrendsPage() {
-  const { locale } = useLocale();
-  const { symbol } = useCurrency();
-  const isSpanish = locale === 'es-MX';
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  const { currentTenant } = useTenant();
+  const { format } = useCurrency();
+  const isVialuce = useIsVialuce();
+  const tenantId = currentTenant?.id ?? '';
 
-  // Compact formatter for chart axes (e.g. $1.2M, $450K)
-  const formatCompact = (amount: number): string => {
-    if (amount >= 1000000) {
-      return `${symbol}${(amount / 1000000).toFixed(1)}M`;
-    }
-    return `${symbol}${(amount / 1000).toFixed(0)}K`;
-  };
+  const [loading, setLoading] = useState(true);
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]);
+  const [trend, setTrend] = useState<PopulationTrendPoint[]>([]);
+  const [trajectory, setTrajectory] = useState<EntityTrajectory[]>([]);
+  const [componentTrends, setComponentTrends] = useState<Array<{ name: string; series: { label: string; value: number }[] }>>([]);
 
-  const [timeRange, setTimeRange] = useState('ytd');
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const [cp, pt, tj] = await Promise.all([
+        getCalculatedPeriods(tenantId),
+        getPopulationTrend(tenantId),
+        getEntityTrajectory(tenantId),
+      ]);
+      // per-component totals per period → trend series (chronological)
+      const periodsAsc = [...cp].sort((a, b) => a.start_date.localeCompare(b.start_date));
+      const byComponent = new Map<string, { label: string; value: number }[]>();
+      for (const p of periodsAsc) {
+        const comps = await getComponentTotals(tenantId, p.period_id);
+        for (const c of comps) {
+          const arr = byComponent.get(c.component_name) ?? [];
+          arr.push({ label: p.label, value: c.total_amount });
+          byComponent.set(c.component_name, arr);
+        }
+      }
+      if (cancelled) return;
+      setPeriods(cp);
+      setTrend(pt);
+      setTrajectory(tj);
+      setComponentTrends(Array.from(byComponent.entries()).map(([name, series]) => ({ name, series })));
+      setLoading(false);
+    })().catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
-  const growthMetrics = [
-    {
-      label: isSpanish ? 'Crecimiento QoQ' : 'QoQ Growth',
-      value: 12.3,
-      trend: 'up',
-      description: isSpanish ? 'vs trimestre anterior' : 'vs previous quarter',
-    },
-    {
-      label: isSpanish ? 'Crecimiento YoY' : 'YoY Growth',
-      value: 8.7,
-      trend: 'up',
-      description: isSpanish ? 'vs a\u00f1o anterior' : 'vs previous year',
-    },
-    {
-      label: isSpanish ? 'CAGR (3 a\u00f1os)' : 'CAGR (3yr)',
-      value: 15.2,
-      trend: 'up',
-      description: isSpanish ? 'tasa compuesta anual' : 'compound annual rate',
-    },
-  ];
+  const hero = useMemo<HeroCard[]>(() => {
+    if (trend.length === 0) return [];
+    const first = trend[0].total, last = trend[trend.length - 1].total;
+    const popDir = last > first * 1.005 ? 'up' : last < first * 0.995 ? 'down' : 'stable';
+    const velocities = trajectory.map(t => t.velocity).filter((v): v is number => v !== null);
+    const avgVel = velocities.length ? velocities.reduce((s, v) => s + v, 0) / velocities.length : 0;
+    const sortedByVel = [...trajectory].filter(t => t.velocity !== null).sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0));
+    const fastestUp = sortedByVel[0];
+    const fastestDown = sortedByVel[sortedByVel.length - 1];
+    return [
+      { label: 'Periods calculated', value: periods.length, format: 'number' },
+      { label: 'Population direction', value: popDir === 'up' ? '↑ Rising' : popDir === 'down' ? '↓ Falling' : '→ Stable', format: 'text', tone: popDir === 'up' ? 'up' : popDir === 'down' ? 'down' : 'neutral', emphasis: true },
+      { label: 'Avg velocity', value: avgVel, format: 'currency', detail: 'per period' },
+      { label: 'Fastest growing', value: fastestUp?.display_name ?? '—', format: 'text', detail: fastestUp?.velocity != null ? format(fastestUp.velocity) + '/period' : undefined, tone: 'up' },
+      { label: 'Fastest declining', value: fastestDown && fastestDown !== fastestUp ? fastestDown.display_name : '—', format: 'text', detail: fastestDown?.velocity != null ? format(fastestDown.velocity) + '/period' : undefined, tone: 'down' },
+    ];
+  }, [trend, trajectory, periods, format]);
 
-  const handleExport = () => {
-    // In real implementation, would generate CSV/Excel
-    alert(isSpanish ? 'Exportando datos...' : 'Exporting data...');
-  };
+  const trendData = useMemo(() => trend.map(t => ({ label: t.label, value: t.total, secondary: t.avg })), [trend]);
+  const trajectorySorted = useMemo(() => [...trajectory].sort((a, b) => (b.velocity ?? -Infinity) - (a.velocity ?? -Infinity)), [trajectory]);
 
   return (
-    // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
-    <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
-      <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
-        {/* Header */}
-        {isVialuce ? (
-          <div className="phead">
-            <div>
-              <h1>{isSpanish ? 'An\u00e1lisis de Tendencias' : 'Trends Analysis'}</h1>
-              <div className="sub">
-                {isSpanish
-                  ? 'Tendencias hist\u00f3ricas, m\u00e9tricas de crecimiento y proyecciones'
-                  : 'Historical trends, growth metrics, and projections'}
-              </div>
-            </div>
-            <div className="pactions">
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ytd">{isSpanish ? 'A\u00f1o actual' : 'YTD'}</SelectItem>
-                  <SelectItem value="12m">{isSpanish ? '\u00daltimos 12m' : 'Last 12m'}</SelectItem>
-                  <SelectItem value="24m">{isSpanish ? '\u00daltimos 24m' : 'Last 24m'}</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-2" />
-                {isSpanish ? 'Exportar' : 'Export'}
-              </Button>
-            </div>
-          </div>
+    <div className={isVialuce ? 'page space-y-6' : 'min-h-screen bg-background p-6 space-y-6'}>
+      <InsightsLayout
+        title="Trends"
+        description="Cross-period trajectory across all calculated periods."
+        periods={periods}
+        selectedPeriodId=""
+        onPeriodChange={() => {}}
+        hidePeriodSelector
+      >
+        {loading ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : periods.length === 0 ? (
+          <Card><CardContent className="py-16 text-center text-sm text-muted-foreground">
+            No calculated periods yet. Run a calculation to see cross-period trends.
+          </CardContent></Card>
         ) : (
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-50">
-              {isSpanish ? 'An\u00e1lisis de Tendencias' : 'Trends Analysis'}
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              {isSpanish
-                ? 'Tendencias hist\u00f3ricas, m\u00e9tricas de crecimiento y proyecciones'
-                : 'Historical trends, growth metrics, and projections'}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={timeRange} onValueChange={setTimeRange}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ytd">{isSpanish ? 'A\u00f1o actual' : 'YTD'}</SelectItem>
-                <SelectItem value="12m">{isSpanish ? '\u00daltimos 12m' : 'Last 12m'}</SelectItem>
-                <SelectItem value="24m">{isSpanish ? '\u00daltimos 24m' : 'Last 24m'}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              {isSpanish ? 'Exportar' : 'Export'}
-            </Button>
-          </div>
-        </div>
-        )}
+          <div className="space-y-6">
+            <SummaryHero cards={hero} />
 
-        {/* Growth Metrics Cards */}
-        <div className="grid gap-4 md:grid-cols-3 mb-8">
-          {growthMetrics.map((metric) => (
-            <Card key={metric.label} className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{metric.label}</p>
-                    <p className="text-3xl font-bold text-slate-50 mt-1">
-                      {metric.trend === 'up' ? '+' : '-'}{metric.value}%
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      {metric.trend === 'up' ? (
-                        <>
-                          <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                          <span className="text-sm text-emerald-600">{metric.description}</span>
-                        </>
-                      ) : (
-                        <>
-                          <ArrowDownRight className="h-4 w-4 text-red-500" />
-                          <span className="text-sm text-red-600">{metric.description}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className={`p-3 rounded-full ${
-                    metric.trend === 'up'
-                      ? 'bg-emerald-100 dark:bg-emerald-900/30'
-                      : 'bg-red-100 dark:bg-red-900/30'
-                  }`}>
-                    {metric.trend === 'up' ? (
-                      <TrendingUp className="h-5 w-5 text-emerald-600" />
-                    ) : (
-                      <TrendingDown className="h-5 w-5 text-red-600" />
-                    )}
-                  </div>
-                </div>
-              </CardContent>
+            <Card>
+              <CardHeader><CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" />Population trend</CardTitle>
+                <CardDescription>Total payout and average per entity, by period.</CardDescription></CardHeader>
+              <CardContent><TrendLine data={trendData} primaryName="Total payout" secondaryName="Avg per entity" height={300} /></CardContent>
             </Card>
-          ))}
-        </div>
 
-        {/* Main Analysis Tabs */}
-        <Tabs defaultValue="comparison" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="comparison">
-              {isSpanish ? 'Comparaci\u00f3n' : 'Comparison'}
-            </TabsTrigger>
-            <TabsTrigger value="breakdown">
-              {isSpanish ? 'Desglose' : 'Breakdown'}
-            </TabsTrigger>
-            <TabsTrigger value="regions">
-              {isSpanish ? 'Regiones' : 'Regions'}
-            </TabsTrigger>
-            <TabsTrigger value="forecast">
-              {isSpanish ? 'Proyecci\u00f3n' : 'Forecast'}
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Year-over-Year Comparison Tab */}
-          <TabsContent value="comparison">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>
-                      {isSpanish ? 'Comparaci\u00f3n A\u00f1o contra A\u00f1o' : 'Year-over-Year Comparison'}
-                    </CardTitle>
-                    <CardDescription>
-                      {isSpanish
-                        ? 'Compensaci\u00f3n mensual 2024 vs 2023'
-                        : '2024 vs 2023 monthly outcomes'}
-                    </CardDescription>
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                      <span className="text-sm text-slate-400">2024</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-slate-300" />
-                      <span className="text-sm text-slate-400">2023</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-amber-400" />
-                      <span className="text-sm text-slate-400">{isSpanish ? 'Meta' : 'Target'}</span>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
+            <Card>
+              <CardHeader><CardTitle className="text-base">Entity trajectory</CardTitle>
+                <CardDescription>Direction, latest delta and velocity ($/period) per entity (DS-015: delta needs 2 periods, velocity 3).</CardDescription></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={yoyData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                    <XAxis
-                      dataKey={isSpanish ? 'monthEs' : 'month'}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fill: '#64748b' }}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v) => formatCompact(v)}
-                      tick={{ fill: '#64748b' }}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => [formatCompact(value), '']}
-                      contentStyle={{
-                        backgroundColor: 'white',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="current"
-                      name="2024"
-                      stroke="#6366f1"
-                      strokeWidth={3}
-                      dot={{ fill: '#6366f1', strokeWidth: 2, r: 4 }}
-                      activeDot={{ r: 6 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="previous"
-                      name="2023"
-                      stroke="#cbd5e1"
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
-                      dot={{ fill: '#cbd5e1', strokeWidth: 2, r: 3 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="target"
-                      name={isSpanish ? 'Meta' : 'Target'}
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                      strokeDasharray="3 3"
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <div className="rounded-md border overflow-x-auto max-h-[420px]">
+                  <Table>
+                    <TableHeader><TableRow>
+                      <TableHead>Entity</TableHead><TableHead>Direction</TableHead>
+                      <TableHead className="text-right">Δ Latest</TableHead><TableHead className="text-right">Velocity</TableHead><TableHead className="text-right">Latest</TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {trajectorySorted.map(t => {
+                        const Icon = t.direction ? DIR_ICON[t.direction] : Minus;
+                        const tone = t.direction === 'up' ? 'text-[color:var(--vl-success,#15936A)]' : t.direction === 'down' ? 'text-[color:var(--vl-danger,#DC5454)]' : 'text-muted-foreground';
+                        const latest = t.periods[t.periods.length - 1]?.total_payout ?? 0;
+                        return (
+                          <TableRow key={t.entity_id}>
+                            <TableCell className="font-medium">{t.display_name}</TableCell>
+                            <TableCell><span className={`inline-flex items-center gap-1 text-sm ${tone}`}><Icon className="h-3.5 w-3.5" />{t.direction ?? '—'}</span></TableCell>
+                            <TableCell className={`text-right tabular-nums text-sm ${tone}`}>{t.delta == null ? '—' : `${t.delta > 0 ? '+' : ''}${format(t.delta)}`}</TableCell>
+                            <TableCell className={`text-right tabular-nums text-sm ${tone}`}>{t.velocity == null ? '—' : `${t.velocity > 0 ? '+' : ''}${format(t.velocity)}`}</TableCell>
+                            <TableCell className="text-right tabular-nums font-semibold">{format(latest)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
-          </TabsContent>
 
-          {/* Component Breakdown Tab */}
-          <TabsContent value="breakdown">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle>
-                    {isSpanish ? 'Desglose por Componente' : 'Component Breakdown'}
-                  </CardTitle>
-                  <CardDescription>
-                    {isSpanish ? 'Contribuci\u00f3n por tipo de compensaci\u00f3n' : 'Contribution by outcome type'}
-                  </CardDescription>
-                </CardHeader>
+            {componentTrends.length > 0 && (
+              <Card>
+                <CardHeader><CardTitle className="text-base">Component trends</CardTitle>
+                  <CardDescription>Total per component across periods.</CardDescription></CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={componentBreakdown} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                      <XAxis
-                        type="number"
-                        tickFormatter={(v) => formatCompact(v)}
-                        tick={{ fill: '#64748b' }}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey={isSpanish ? 'nameEs' : 'name'}
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fill: '#64748b' }}
-                        width={100}
-                      />
-                      <Tooltip
-                        formatter={(value: number) => [formatCompact(value), '']}
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '8px',
-                        }}
-                      />
-                      <Bar
-                        dataKey="value"
-                        fill="#6366f1"
-                        radius={[0, 4, 4, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle>
-                    {isSpanish ? 'Cambio por Componente' : 'Component Change'}
-                  </CardTitle>
-                  <CardDescription>
-                    {isSpanish ? 'Crecimiento vs per\u00edodo anterior' : 'Growth vs previous period'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {componentBreakdown.map((comp) => (
-                      <div key={comp.name} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                        <div>
-                          <p className="font-medium">{isSpanish ? comp.nameEs : comp.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {formatCompact(comp.value)}
-                          </p>
-                        </div>
-                        <div className={`flex items-center gap-1 ${
-                          comp.change >= 0 ? 'text-emerald-600' : 'text-red-600'
-                        }`}>
-                          {comp.change >= 0 ? (
-                            <ArrowUpRight className="h-4 w-4" />
-                          ) : (
-                            <ArrowDownRight className="h-4 w-4" />
-                          )}
-                          <span className="font-semibold">
-                            {comp.change >= 0 ? '+' : ''}{comp.change}%
-                          </span>
-                        </div>
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    {componentTrends.map(c => (
+                      <div key={c.name}>
+                        <div className="text-sm font-medium mb-1">{c.name}</div>
+                        <TrendLine data={c.series} primaryName={c.name} height={180} />
                       </div>
                     ))}
                   </div>
                 </CardContent>
               </Card>
-            </div>
-          </TabsContent>
-
-          {/* Regions Tab */}
-          <TabsContent value="regions">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>
-                  {isSpanish ? 'Rendimiento Regional' : 'Regional Performance'}
-                </CardTitle>
-                <CardDescription>
-                  {isSpanish ? 'Comparaci\u00f3n de compensaci\u00f3n por regi\u00f3n' : 'Outcome comparison by region'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={regionData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey={isSpanish ? 'regionEs' : 'region'}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tickFormatter={(v) => formatCompact(v)}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => [formatCompact(value), '']}
-                      contentStyle={{
-                        backgroundColor: 'white',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend />
-                    <Bar
-                      dataKey="current"
-                      name={isSpanish ? 'A\u00f1o Actual' : 'Current Year'}
-                      fill="#6366f1"
-                      radius={[4, 4, 0, 0]}
-                    />
-                    <Bar
-                      dataKey="previous"
-                      name={isSpanish ? 'A\u00f1o Anterior' : 'Previous Year'}
-                      fill="#cbd5e1"
-                      radius={[4, 4, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Forecast Tab */}
-          <TabsContent value="forecast">
-            <div className="grid gap-6 lg:grid-cols-2">
-              {/* Quarterly Performance */}
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-slate-400" />
-                    {isSpanish ? 'Rendimiento Trimestral' : 'Quarterly Performance'}
-                  </CardTitle>
-                  <CardDescription>
-                    {isSpanish ? 'Totales trimestrales 2024' : '2024 quarterly totals'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <AreaChart data={quarterlyData}>
-                      <defs>
-                        <linearGradient id="quarterGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200" />
-                      <XAxis dataKey="quarter" tickLine={false} axisLine={false} />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(v) => formatCompact(v)}
-                      />
-                      <Tooltip
-                        formatter={(value: number) => [formatCompact(value), '']}
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '8px',
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        name={isSpanish ? 'Real' : 'Actual'}
-                        stroke="#8b5cf6"
-                        strokeWidth={2}
-                        fill="url(#quarterGradient)"
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="target"
-                        name={isSpanish ? 'Meta' : 'Target'}
-                        stroke="#f59e0b"
-                        strokeDasharray="5 5"
-                        dot={false}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Trend Projection */}
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5 text-slate-400" />
-                    {isSpanish ? 'Proyecci\u00f3n de Tendencia' : 'Trend Projection'}
-                  </CardTitle>
-                  <CardDescription>
-                    <Badge variant="secondary" className="bg-amber-100 text-amber-700">
-                      {isSpanish ? 'Proyectado' : 'Projected'}
-                    </Badge>
-                    <span className="ml-2">
-                      {isSpanish ? 'Pron\u00f3stico Q1 2025' : 'Q1 2025 forecast'}
-                    </span>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={projectionData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200" />
-                      <XAxis
-                        dataKey={isSpanish ? 'monthEs' : 'month'}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(v) => formatCompact(v)}
-                      />
-                      <Tooltip
-                        formatter={(value: number) => [formatCompact(value), '']}
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '8px',
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="actual"
-                        name={isSpanish ? 'Real' : 'Actual'}
-                        stroke="#10b981"
-                        strokeWidth={3}
-                        dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
-                        connectNulls={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="projected"
-                        name={isSpanish ? 'Proyectado' : 'Projected'}
-                        stroke="#f59e0b"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        dot={{ fill: '#f59e0b', strokeWidth: 2, r: 4 }}
-                        connectNulls={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
-                    <p className="text-sm text-amber-800">
-                      <strong>{isSpanish ? 'Proyecci\u00f3n:' : 'Projection:'}</strong>{' '}
-                      {isSpanish
-                        ? 'Basado en tendencias actuales, Q1 2025 se estima en $1.67M en compensaci\u00f3n total, representando 11% de crecimiento.'
-                        : 'Based on current trends, Q1 2025 is estimated to reach $1.67M in total outcomes, representing 11% growth.'}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+            )}
+          </div>
+        )}
+      </InsightsLayout>
     </div>
   );
 }

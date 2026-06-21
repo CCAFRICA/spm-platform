@@ -211,11 +211,19 @@ export function OperateProvider({ children }: { children: ReactNode }) {
     }));
     setPeriods(loaded);
 
-    // Auto-select first if none selected OR current selection is not in loaded periods
+    // OB-227 Fix C: default to the LATEST period that HAS calculation results, not loaded[0]
+    // (start_date ASC = earliest). For BCL the earliest period (October) is uncalculated, so every
+    // /operate surface — including the Results table — defaulted to an empty period and rendered
+    // "No calculation results available." Falls back to the latest period overall, then none.
     const currentValid = selectedPeriodId && loaded.some(p => p.id === selectedPeriodId);
     if (loaded.length > 0 && !currentValid) {
-      setSelectedPeriodId(loaded[0].id);
-      ssSet(SK_PERIOD, loaded[0].id);
+      const { data: resultPeriods } = await supabase
+        .from('calculation_results').select('period_id').eq('tenant_id', tenantId);
+      const withResults = new Set((resultPeriods ?? []).map(r => r.period_id as string).filter(Boolean));
+      const latestWithResults = [...loaded].reverse().find(p => withResults.has(p.id));
+      const target = latestWithResults ?? loaded[loaded.length - 1];
+      setSelectedPeriodId(target.id);
+      ssSet(SK_PERIOD, target.id);
     }
   }, [tenantId, selectedPeriodId]);
 

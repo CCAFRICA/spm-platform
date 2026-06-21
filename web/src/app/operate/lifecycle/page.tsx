@@ -84,7 +84,8 @@ export default function OperateCockpitPage() {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
-      label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
+      // OB-227 Fix A: prefer canonical DB label; TZ-safe fallback (see LifecycleCockpit).
+      label: p.label || formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
       status: p.status,
       lifecycleState: p.lifecycleState,
       startDate: p.start_date,
@@ -672,7 +673,8 @@ function defaultReadiness(): DataReadiness {
 
 function formatLabel(startDate: string, locale: string = 'es-MX'): string {
   try {
-    const d = new Date(startDate);
+    // OB-227 Fix A: TZ-safe local parse of a date-only string (see LifecycleCockpit).
+    const d = new Date(`${startDate}T00:00:00`);
     const month = d.toLocaleString(locale, { month: 'short' });
     return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
   } catch {

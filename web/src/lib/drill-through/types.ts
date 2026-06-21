@@ -66,4 +66,6 @@ export interface DisputeInput {
 export interface PeriodOption {
   id: string;
   label: string;
+  /** OB-227 Fix B: ISO start_date from the periods table, so callers sort chronologically (Decision 92/93) rather than by label string. */
+  start_date?: string;
 }

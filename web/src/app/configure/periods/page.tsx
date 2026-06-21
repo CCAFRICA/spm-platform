@@ -45,6 +45,7 @@ import {
 import {
   Calendar,
   Plus,
+  Sparkles,
   Play,
   CheckCircle,
   Clock,
@@ -152,6 +153,13 @@ export default function PeriodsPage() {
   const [newStatus, setNewStatus] = useState<PeriodStatus | ''>('');
   const [creating, setCreating] = useState(false);
 
+  // OB-227 Cluster C: auto-detect periods from committed_data (/api/periods/detect + create-from-data)
+  interface DetectedPeriod { label: string; period_type: string; start_date: string; end_date: string; transaction_count: number; exists: boolean }
+  const [autoDetecting, setAutoDetecting] = useState(false);
+  const [detected, setDetected] = useState<DetectedPeriod[] | null>(null);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [creatingDetected, setCreatingDetected] = useState(false);
+
   // --- Create Period form state (Decision 48: date pickers are primary) ---
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -178,6 +186,51 @@ export default function PeriodsPage() {
     }
     setLoading(false);
   }, [tenantId]);
+
+  // OB-227 Cluster C handlers (declared after loadPeriods so the closure is available)
+  const handleAutoDetect = useCallback(async () => {
+    if (!tenantId) return;
+    setAutoDetecting(true); setDetectMsg(null); setDetected(null);
+    try {
+      const res = await fetch('/api/periods/detect', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setDetectMsg(data.error || 'Auto-detect failed.'); return; }
+      const suggested = (data.suggestedPeriods ?? []) as DetectedPeriod[];
+      const fresh = suggested.filter(p => !p.exists);
+      if (fresh.length === 0) {
+        setDetectMsg(suggested.length === 0
+          ? (isSpanish ? 'No hay datos cargados aún. Carga datos para detectar períodos.' : 'No data uploaded yet. Upload data to auto-detect periods.')
+          : (isSpanish ? 'Todos los períodos detectados ya existen.' : 'All detected periods already exist.'));
+        return;
+      }
+      setDetected(fresh);
+    } catch {
+      setDetectMsg(isSpanish ? 'Error de red al detectar períodos.' : 'Network error detecting periods.');
+    } finally { setAutoDetecting(false); }
+  }, [tenantId, isSpanish]);
+
+  const handleCreateDetected = useCallback(async () => {
+    if (!tenantId) return;
+    setCreatingDetected(true);
+    try {
+      const res = await fetch('/api/periods/create-from-data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setDetectMsg(data.error || 'Period creation failed.'); return; }
+      setDetected(null);
+      setDetectMsg(typeof data.created === 'number'
+        ? `${isSpanish ? 'Creados' : 'Created'} ${data.created} ${isSpanish ? 'períodos' : 'periods'}.`
+        : (data.message ?? null));
+      await loadPeriods();
+    } catch {
+      setDetectMsg(isSpanish ? 'Error de red al crear períodos.' : 'Network error creating periods.');
+    } finally { setCreatingDetected(false); }
+  }, [tenantId, isSpanish, loadPeriods]);
 
   useEffect(() => {
     loadPeriods();
@@ -391,7 +444,11 @@ export default function PeriodsPage() {
                 : 'Create and manage periods for outcome calculations'}
             </div>
           </div>
-          <div className="pactions">
+          <div className="pactions flex items-center gap-2">
+            <Button variant="outline" onClick={handleAutoDetect} disabled={autoDetecting}>
+              <Sparkles className="h-4 w-4 mr-2" />
+              {autoDetecting ? (isSpanish ? 'Detectando…' : 'Detecting…') : (isSpanish ? 'Detectar de datos' : 'Auto-detect from data')}
+            </Button>
             <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               {isSpanish ? 'Crear Período' : 'Create Period'}
@@ -410,11 +467,52 @@ export default function PeriodsPage() {
                 : 'Create and manage periods for outcome calculations'}
             </p>
           </div>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {isSpanish ? 'Crear Período' : 'Create Period'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleAutoDetect} disabled={autoDetecting}>
+              <Sparkles className="h-4 w-4 mr-2" />
+              {autoDetecting ? (isSpanish ? 'Detectando…' : 'Detecting…') : (isSpanish ? 'Detectar de datos' : 'Auto-detect from data')}
+            </Button>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              {isSpanish ? 'Crear Período' : 'Create Period'}
+            </Button>
+          </div>
         </div>
+      )}
+
+      {/* OB-227 Cluster C: auto-detect confirmation panel */}
+      {(detected || detectMsg) && (
+        <Card className="border-[color:var(--vl-kpi-accent,#4446B8)]/40">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-[color:var(--vl-kpi-accent,#4446B8)]" />
+              {isSpanish ? 'Períodos detectados' : 'Detected periods'}
+            </CardTitle>
+            {detectMsg && <CardDescription>{detectMsg}</CardDescription>}
+          </CardHeader>
+          {detected && detected.length > 0 && (
+            <CardContent className="space-y-3">
+              <div className="rounded-md border divide-y">
+                {detected.map((p, i) => (
+                  <div key={i} className="flex items-center justify-between p-2.5 text-sm">
+                    <span className="font-medium">{p.label}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {p.start_date} → {p.end_date} · {p.period_type} · {p.transaction_count.toLocaleString()} {isSpanish ? 'registros' : 'records'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleCreateDetected} disabled={creatingDetected}>
+                  {creatingDetected ? (isSpanish ? 'Creando…' : 'Creating…') : (isSpanish ? `Crear ${detected.length} períodos` : `Create ${detected.length} detected periods`)}
+                </Button>
+                <Button variant="ghost" onClick={() => { setDetected(null); setDetectMsg(null); }}>
+                  {isSpanish ? 'Cancelar' : 'Cancel'}
+                </Button>
+              </div>
+            </CardContent>
+          )}
+        </Card>
       )}
 
       {/* Periods Table */}

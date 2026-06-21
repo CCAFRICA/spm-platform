@@ -18,6 +18,8 @@ import { useState, useEffect, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { OnboardingChecklist } from '@/components/insights'; // OB-227 Cluster D
+import { getTenantOnboardingState, type TenantOnboardingState } from '@/lib/insights'; // OB-227 Cluster D
 import { useLocale } from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
@@ -77,6 +79,7 @@ export function LifecycleCockpit() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [calcError, setCalcError] = useState<string | null>(null);
+  const [onboarding, setOnboarding] = useState<TenantOnboardingState | null>(null); // OB-227 Cluster D
 
   const activePeriodId = periods.find(p => p.periodKey === activeKey)?.periodId ?? '';
 
@@ -84,7 +87,10 @@ export function LifecycleCockpit() {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
-      label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
+      // OB-227 Fix A: prefer the canonical DB label (matches /configure/periods). The formatLabel
+      // fallback parses a date-only string TZ-safely; without 'T00:00:00' it was read as UTC midnight
+      // and rendered one month early in negative-offset zones (e.g. "Oct 2025" → "Sep 2025" in CDMX).
+      label: p.label || formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
       status: p.status,
       lifecycleState: p.lifecycleState,
       startDate: p.start_date,
@@ -132,6 +138,10 @@ export function LifecycleCockpit() {
       .then(d => { if (!cancelled) applyData(d); })
       .catch(err => console.warn('[Cockpit] load failed:', err))
       .finally(() => { if (!cancelled) setIsLoading(false); });
+    // OB-227 Cluster D: onboarding state drives the new-tenant checklist (below the empty branch).
+    getTenantOnboardingState(tenantId)
+      .then(s => { if (!cancelled) setOnboarding(s); })
+      .catch(() => { /* additive — fall back to the simple empty state */ });
     return () => { cancelled = true; };
   }, [tenantId, applyData]);
 
@@ -202,6 +212,15 @@ export function LifecycleCockpit() {
     return <div className="page"><p className="mut" style={{ padding: 40, textAlign: 'center', color: 'var(--vl-text-soft)' }}>{isSpanish ? 'Cargando...' : 'Loading...'}</p></div>;
   }
   if (periods.length === 0) {
+    // OB-227 Cluster D: replace the blank "No periods configured" landing with the onboarding
+    // checklist (empty tenant → first payout). Falls back to the simple state until onboarding loads.
+    if (onboarding) {
+      return (
+        <div className="page">
+          <OnboardingChecklist state={onboarding} tenantId={tenantId} />
+        </div>
+      );
+    }
     return (
       <div className="page">
         <div className="empty">
@@ -331,7 +350,9 @@ function defaultReadiness(): DataReadiness {
 }
 function formatLabel(startDate: string, locale: string = 'es-MX'): string {
   try {
-    const d = new Date(startDate);
+    // OB-227 Fix A: 'T00:00:00' forces local-time parse of a date-only string. Without it,
+    // new Date("2025-10-01") is UTC midnight → renders the prior month in negative-offset zones.
+    const d = new Date(`${startDate}T00:00:00`);
     const month = d.toLocaleString(locale, { month: 'short' });
     return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
   } catch { return startDate; }
