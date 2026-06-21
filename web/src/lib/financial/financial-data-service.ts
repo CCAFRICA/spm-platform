@@ -68,7 +68,7 @@ export interface NetworkPulseData {
 }
 
 export interface LeakagePageData {
-  categories: Array<{ category: string; amount: number; count: number; trend: number }>;
+  categories: Array<{ category: string; key: string; amount: number; count: number; trend: number }>;
   locations: Array<{
     id: string; name: string; brand: string;
     leakageAmount: number; leakageRate: number; threshold: number;
@@ -183,6 +183,8 @@ export interface SummaryPageData {
     comps: number;
     netRevenue: number;
   }>;
+  availableMonths?: string[];      // HF-324 O2: 'YYYY-MM' options for the period selector
+  selectedMonth?: string | null;
 }
 
 export interface ProductMixData {
@@ -325,6 +327,31 @@ export async function loadLeakageData(tenantId: string, scope?: FinancialScope):
   return fetchFinancialData<LeakagePageData>(tenantId, 'leakage', scope);
 }
 
+// HF-324 O3: cheque-level drill-through (per location / per server / per leakage category).
+export interface ChequeDrillRow {
+  numero_cheque: number;
+  fecha: string;
+  total: number;
+  mesero_id: number;
+  location: string;
+  total_descuentos: number;
+  total_cortesias: number;
+  cancelado: number;
+}
+export interface ChequeDrillData {
+  cheques: ChequeDrillRow[];
+  total_count: number;
+  capped: boolean;
+}
+export async function loadChequesData(
+  tenantId: string,
+  params: { entityId?: string; meseroId?: string; leakageCategory?: string },
+): Promise<ChequeDrillData | null> {
+  // route reads `locationId` for the entity filter
+  const { entityId, ...rest } = params;
+  return fetchFinancialData<ChequeDrillData>(tenantId, 'cheques', { locationId: entityId, ...rest });
+}
+
 export async function loadPerformanceData(tenantId: string, scope?: FinancialScope): Promise<LocationBenchmarkData[] | null> {
   return fetchFinancialData<LocationBenchmarkData[]>(tenantId, 'performance', scope);
 }
@@ -345,8 +372,8 @@ export async function loadPatternsData(tenantId: string, locationFilter?: string
   return fetchFinancialData<PatternsPageData>(tenantId, 'patterns', { ...(locationFilter ? { locationFilter } : {}), ...scope });
 }
 
-export async function loadSummaryData(tenantId: string, scope?: FinancialScope): Promise<SummaryPageData | null> {
-  return fetchFinancialData<SummaryPageData>(tenantId, 'summary', scope);
+export async function loadSummaryData(tenantId: string, scope?: FinancialScope, monthFilter?: string): Promise<SummaryPageData | null> {
+  return fetchFinancialData<SummaryPageData>(tenantId, 'summary', { ...(monthFilter ? { monthFilter } : {}), ...scope });
 }
 
 export async function loadProductMixData(tenantId: string, scope?: FinancialScope): Promise<ProductMixData | null> {

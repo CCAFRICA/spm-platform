@@ -165,6 +165,9 @@ export default function LocationBenchmarksPage() {
   const brands = useMemo(() => {
     const uniqueBrands = new Map<string, { id: string; name: string }>();
     locations.forEach(loc => {
+      // HF-324 D1: never emit a brand option with an empty id — Radix <SelectItem> throws on
+      // value="". Locations with unresolved brands (no brand_id) are simply not listed.
+      if (!loc.brandId) return;
       uniqueBrands.set(loc.brandId, { id: loc.brandId, name: loc.brandName });
     });
     return Array.from(uniqueBrands.values());

@@ -87,7 +87,9 @@ export default function StaffPerformancePage() {
 
   // Get unique locations and roles for filters
   const locations = useMemo(() => {
-    const unique = Array.from(new Set(staffData.map(s => s.locationName)));
+    // HF-324 D2: drop empty location names — Radix <SelectItem> throws on value="". (An empty
+    // name appears only when a server's location_id can't be resolved; O5 fixes that data.)
+    const unique = Array.from(new Set(staffData.map(s => s.locationName).filter(Boolean)));
     return unique.sort();
   }, [staffData]);
 

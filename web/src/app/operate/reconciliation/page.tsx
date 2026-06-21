@@ -253,6 +253,13 @@ export default function ReconciliationPage() {
   const { selectedBatchId: contextBatchId } = useOperate();
   const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  // HF-324 D6/O6: the inline-style CARD_STYLE const (dark rgba) bypasses the HF-316 utility-class
+  // CSS net, so the reconciliation cards stayed grey under Vialuce. Make it theme-aware (matches the
+  // proven var(--vl-surface)/var(--vl-line) tokens already used by the header at line ~838). The
+  // non-Vialuce else-branch stays byte-identical (CARD_STYLE). Styling only (C7).
+  const cardStyle = isVialuce
+    ? { background: 'var(--vl-surface)', border: '1px solid var(--vl-line)' }
+    : CARD_STYLE;
   const tenantId = currentTenant?.id || '';
   const userId = user?.id || '';
 
@@ -861,7 +868,7 @@ export default function ReconciliationPage() {
           </div>
           <div className="pactions">
             {step !== 'select_batch' && (
-              <button onClick={handleReset} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+              <button onClick={handleReset} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...cardStyle }}>
                 {isSpanish ? 'Reiniciar' : 'Reset'}
               </button>
             )}
@@ -878,12 +885,12 @@ export default function ReconciliationPage() {
                       });
                     }}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300"
-                    style={{ ...CARD_STYLE }}
+                    style={{ ...cardStyle }}
                   >
                     {isSpanish ? 'Exportar XLSX' : 'Export XLSX Report'}
                   </button>
                 )}
-                <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+                <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...cardStyle }}>
                   {isSpanish ? 'Exportar CSV' : 'Export CSV'}
                 </button>
               </>
@@ -902,7 +909,7 @@ export default function ReconciliationPage() {
         </div>
         <div className="flex items-center gap-2">
           {step !== 'select_batch' && (
-            <button onClick={handleReset} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+            <button onClick={handleReset} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...cardStyle }}>
               {isSpanish ? 'Reiniciar' : 'Reset'}
             </button>
           )}
@@ -919,12 +926,12 @@ export default function ReconciliationPage() {
                     });
                   }}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300"
-                  style={{ ...CARD_STYLE }}
+                  style={{ ...cardStyle }}
                 >
                   {isSpanish ? 'Exportar XLSX' : 'Export XLSX Report'}
                 </button>
               )}
-              <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...CARD_STYLE }}>
+              <button onClick={handleExportCSV} className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300" style={{ ...cardStyle }}>
                 {isSpanish ? 'Exportar CSV' : 'Export CSV'}
               </button>
             </>
@@ -934,7 +941,7 @@ export default function ReconciliationPage() {
       )}
 
       {/* Step 1: Plan + Batch Selector */}
-      <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+      <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
         <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
           {isSpanish ? 'Seleccionar Plan y Calculo' : 'Select Plan & Calculation'}
         </h4>
@@ -989,7 +996,7 @@ export default function ReconciliationPage() {
 
       {/* Step 2: Benchmark Upload */}
       {step !== 'results' && (
-        <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+        <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
             {isSpanish ? 'Subir Archivo Benchmark' : 'Upload Benchmark File'}
           </h4>
@@ -1068,7 +1075,7 @@ export default function ReconciliationPage() {
       {analysis && step === 'analysis' && (
         <>
           {/* Depth Assessment */}
-          <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+          <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
             <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
               {isSpanish ? 'Evaluacion de Profundidad' : 'Comparison Depth Assessment'}
             </h4>
@@ -1096,7 +1103,7 @@ export default function ReconciliationPage() {
 
           {/* Period Matching */}
           {periodMatch && analysis.periodDiscovery.hasPeriodData && (
-            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+            <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
                 {isSpanish ? 'Coincidencia de Periodos' : 'Period Matching'}
               </h4>
@@ -1134,7 +1141,7 @@ export default function ReconciliationPage() {
           )}
 
           {/* Mapping confirmation + overrides */}
-          <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+          <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
             <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
               {isSpanish ? 'Confirmar Mapeos' : 'Confirm Mappings'}
             </h4>
@@ -1234,7 +1241,7 @@ export default function ReconciliationPage() {
 
           {/* 5A: Executive Summary Panel */}
           {report && (
-            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '24px' }}>
+            <div className="rounded-2xl" style={{ ...cardStyle, padding: '24px' }}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-zinc-100">
                   {isSpanish ? 'Resumen Ejecutivo' : 'Executive Summary'}
@@ -1346,7 +1353,7 @@ export default function ReconciliationPage() {
 
           {/* 5C: Findings Panel */}
           {report && report.findings.length > 0 && (
-            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+            <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
                 {isSpanish ? 'Hallazgos Priorizados' : 'Prioritized Findings'}
               </h4>
@@ -1384,7 +1391,7 @@ export default function ReconciliationPage() {
 
           {/* 5B: Component Deep Dive */}
           {report && report.components.length > 0 && (
-            <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+            <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">
                 {isSpanish ? 'Detalle por Componente' : 'Component Deep Dive'}
               </h4>
@@ -1488,7 +1495,7 @@ export default function ReconciliationPage() {
           )}
 
           {/* Per-Entity detail table (existing, kept for total-level view) */}
-          <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '20px' }}>
+          <div className="rounded-2xl" style={{ ...cardStyle, padding: '20px' }}>
             <div className="flex items-center justify-between mb-4">
               <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
                 {isSpanish ? 'Detalle por Entidad (Total)' : 'Per-Entity Detail (Total)'}
@@ -1611,7 +1618,7 @@ export default function ReconciliationPage() {
           {(compResult.summary.vlOnly > 0 || compResult.summary.fileOnly > 0) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {compResult.summary.vlOnly > 0 && (
-                <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '16px' }}>
+                <div className="rounded-2xl" style={{ ...cardStyle, padding: '16px' }}>
                   <h5 className="text-[10px] text-zinc-400 uppercase tracking-wider mb-2">
                     {isSpanish ? 'Solo en VL' : 'VL-Only'} ({compResult.summary.vlOnly})
                   </h5>
@@ -1624,7 +1631,7 @@ export default function ReconciliationPage() {
                 </div>
               )}
               {compResult.summary.fileOnly > 0 && (
-                <div className="rounded-2xl" style={{ ...CARD_STYLE, padding: '16px' }}>
+                <div className="rounded-2xl" style={{ ...cardStyle, padding: '16px' }}>
                   <h5 className="text-[10px] text-zinc-400 uppercase tracking-wider mb-2">
                     {isSpanish ? 'Solo en Benchmark' : 'File-Only'} ({compResult.summary.fileOnly})
                   </h5>

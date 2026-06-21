@@ -372,9 +372,10 @@ function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord
   const cancelTrend = firstHalfCancel > 0 ? ((secondHalfCancel - firstHalfCancel) / firstHalfCancel) * 100 : 0;
 
   const categories = [
-    { category: 'Cancelaciones', amount: round2(totalCancelRevenue), count: cancelCount, trend: round2(cancelTrend) },
-    { category: 'Descuentos', amount: round2(totalDiscounts), count: discountCount, trend: round2(discTrend) },
-    { category: 'Cortesías', amount: round2(totalComps), count: compCount, trend: round2(compTrend) },
+    // HF-324 O3: `key` is a stable, language-independent identifier for the cheques drill filter.
+    { category: 'Cancelaciones', key: 'cancelaciones', amount: round2(totalCancelRevenue), count: cancelCount, trend: round2(cancelTrend) },
+    { category: 'Descuentos', key: 'descuentos', amount: round2(totalDiscounts), count: discountCount, trend: round2(discTrend) },
+    { category: 'Cortesías', key: 'cortesias', amount: round2(totalComps), count: compCount, trend: round2(compTrend) },
   ].sort((a, b) => b.amount - a.amount);
 
   const locData = Array.from(locTotals.entries())
@@ -848,7 +849,7 @@ function aggregatePatterns(raw: { cheques: ChequeRecord[]; entities: EntityRecor
 // Aggregation: Summary
 // ═══════════════════════════════════════════════════════════════════
 
-async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, tenantId: string) {
+async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, tenantId: string, monthFilter?: string) {
   const locations = raw.entities.filter(e => e.entity_type === 'location');
   const brandLookup = buildBrandLookup(raw.entities);
   const locMap = new Map<string, { name: string; brand: string; brandColor: string; revenue: number; food: number; bev: number; tips: number; discounts: number; comps: number; tax: number; cash: number; card: number; guests: number; cheques: number; cancelled: number }>();
@@ -867,8 +868,11 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
   let totalDiscounts = 0, totalComps = 0, totalTax = 0, totalCash = 0, totalCard = 0;
   let totalGuests = 0, totalCheques = 0, totalCancelled = 0;
   const dates = new Set<string>();
+  // HF-324 O2/PG-5: distinct fecha months for the period selector + optional per-month filter (additive).
+  const availableMonths = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 7)).filter(Boolean))).sort();
+  const summaryCheques = monthFilter ? raw.cheques.filter(c => String(c.row_data.fecha || '').substring(0, 7) === monthFilter) : raw.cheques;
 
-  for (const c of raw.cheques) {
+  for (const c of summaryCheques) {
     const rd = c.row_data;
     const rev = n(rd.total);
     const food = n(rd.total_alimentos);
@@ -909,6 +913,7 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
     const sortedDates = Array.from(dates).sort();
     periodLabel = `${sortedDates[0] || ''} — ${sortedDates[sortedDates.length - 1] || ''}`;
   }
+  if (monthFilter) periodLabel = monthFilter; // HF-324: reflect the selected month
 
   const netRevenue = totalRevenue - totalDiscounts - totalComps;
 
@@ -940,7 +945,7 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
       netRevenue: round2(l.revenue - l.discounts - l.comps),
     }));
 
-  return { periodLabel, lines, locationBreakdown };
+  return { periodLabel, lines, locationBreakdown, availableMonths, selectedMonth: monthFilter ?? null };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1277,9 +1282,45 @@ function aggregateServerDetail(raw: { cheques: ChequeRecord[]; entities: EntityR
 // Route Handler
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// Aggregation: Cheques (HF-324 O3 drill-through)
+// Filters the already-fetched raw cheques by location (entity_id), server (mesero_id), and/or
+// leakage category. Additive: reuses the same service-role plumbing, returns a capped list.
+// ═══════════════════════════════════════════════════════════════════
+function aggregateCheques(
+  raw: { cheques: ChequeRecord[]; entities: EntityRecord[] },
+  filters: { entityId?: string; meseroId?: string; leakageCategory?: string },
+) {
+  const CAP = 200;
+  const locName = new Map(raw.entities.filter(e => e.entity_type === 'location').map(e => [e.id, e.display_name]));
+  let rows = raw.cheques;
+  if (filters.entityId) rows = rows.filter(c => c.entity_id === filters.entityId);
+  if (filters.meseroId) rows = rows.filter(c => String(n(c.row_data.mesero_id)) === filters.meseroId);
+  const cat = filters.leakageCategory;
+  if (cat === 'cancelaciones') rows = rows.filter(c => n(c.row_data.cancelado) === 1);
+  else if (cat === 'descuentos') rows = rows.filter(c => n(c.row_data.total_descuentos) > 0);
+  else if (cat === 'cortesias') rows = rows.filter(c => n(c.row_data.total_cortesias) > 0);
+
+  const sorted = [...rows].sort((a, b) => String(b.row_data.fecha || '').localeCompare(String(a.row_data.fecha || '')));
+  const cheques = sorted.slice(0, CAP).map(c => {
+    const rd = c.row_data;
+    return {
+      numero_cheque: n(rd.numero_cheque),
+      fecha: String(rd.fecha ?? ''),
+      total: round2(n(rd.total)),
+      mesero_id: n(rd.mesero_id),
+      location: locName.get(c.entity_id) ?? c.entity_id,
+      total_descuentos: round2(n(rd.total_descuentos)),
+      total_cortesias: round2(n(rd.total_cortesias)),
+      cancelado: n(rd.cancelado),
+    };
+  });
+  return { cheques, total_count: rows.length, capped: rows.length > CAP };
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds } = body as {
+  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory, monthFilter } = body as {
     tenantId: string;
     mode: string;
     granularity?: 'day' | 'week' | 'month';
@@ -1287,6 +1328,9 @@ export async function POST(request: NextRequest) {
     locationId?: string;
     serverId?: string;
     scopeEntityIds?: string[];
+    meseroId?: string;        // HF-324 O3: cheques mode — filter by server
+    leakageCategory?: string; // HF-324 O3: cheques mode — 'cancelaciones'|'descuentos'|'cortesias'
+    monthFilter?: string;     // HF-324 O2: summary mode — 'YYYY-MM' period filter
   };
 
   if (!tenantId || !mode) {
@@ -1340,7 +1384,7 @@ export async function POST(request: NextRequest) {
         data = aggregatePatterns(scopedRaw, locationFilter);
         break;
       case 'summary':
-        data = await aggregateSummary(scopedRaw, tenantId);
+        data = await aggregateSummary(scopedRaw, tenantId, monthFilter);
         break;
       case 'products':
         data = aggregateProducts(scopedRaw);
@@ -1352,6 +1396,9 @@ export async function POST(request: NextRequest) {
       case 'server_detail':
         if (!serverId) return NextResponse.json({ error: 'serverId required' }, { status: 400 });
         data = aggregateServerDetail(raw, serverId);
+        break;
+      case 'cheques': // HF-324 O3: per-location / per-server / per-leakage-category cheque drill-through
+        data = aggregateCheques(scopedRaw, { entityId: locationId, meseroId, leakageCategory });
         break;
       default:
         return NextResponse.json({ error: `Unknown mode: ${mode}` }, { status: 400 });
