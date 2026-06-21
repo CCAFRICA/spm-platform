@@ -492,51 +492,13 @@ EMISSION DISCIPLINE (HF-252 — read this before drafting the intent):
 
 A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`filtered_aggregate\`, \`scope_aggregate\`, \`prior_component\`.
 
-PER-ENTITY vs PER-ROW differentiation — DISTINGUISH THESE:
-  • PER-ENTITY category = a property of the PAYEE (role, level, tier, seniority, classification of the
-    person/account). One entity has ONE value. This is VARIANT differentiation — emit the component once
-    per category and route via \`applies_to\` (below). Do NOT encode it as a conditional/attribute ref.
-  • PER-ROW / PER-TRANSACTION attribute = a property that VARIES across a single entity's own
-    transaction rows (product category, channel, region, status on each sale). One entity's rows span
-    MANY values; a single entity cannot be in four product categories at once, so this is NOT variant
-    differentiation. Express it with a compositional_intent SHAPE, never as prose:
-      – different RATE per row-category → the \`categorized\` shape (shape #5 below).
-      – a measure/count over only the rows that match a row predicate → a \`filtered_aggregate\`
-        reference (e.g. count rows WHERE Verificado="Si"; sum Amount WHERE Region="North").
-    Do NOT use \`scope_aggregate\` (that scopes to peer ENTITIES, not transaction rows), do NOT emit a
-    per-category variant, and do NOT leave the rule in a note — emit the structure that carries it.
-
-When a component's rates or outputs differ by an ENTITY category (per-entity, not per-row):
-  • Emit the component ONCE per category — each emission is its own per-component call.
-  • Declare which category each emission applies to via the top-level \`applies_to\` field.
-  • The platform routes each entity to the variant whose components match its category.
+Some differentiation is PER-ENTITY: a property the whole entity carries (one value for the payee). The platform handles that upstream — emit the component once per category and route via \`applies_to\` (below); do not encode it inside \`structure\`.
 
 \`applies_to\` semantics:
   • Omitted, empty, or \`["all"]\` — applies to all variants of the plan.
   • \`["<category-id>", ...]\` — applies only to the listed category id(s). Category ids match what the plan_skeleton call enumerated in \`employeeTypes\`.
 
-\`attribute\` ReferenceSource is reserved for numeric attributes (entity-level numeric properties consumed by the calculation, e.g., a quota the entity carries). It MUST NOT drive categorical payout differentiation.
-
-ACCELERATOR / MULTIPLIER folding (OB-223) — when a plan applies an accelerator or multiplier to a base
-amount (e.g. "if total sales ≥ threshold, multiply the commission by 1.25"), fold the multiplier INSIDE
-the base component as a conditional wrapper — do NOT emit a separate component for the multiplier. A
-separate component that outputs a scalar (1.0 / 1.25) is ADDED to the dollar commission by the engine
-(components are summed), producing a wrong result. Correct shape:
-  conditional(condition: compare(<threshold metric>, <threshold>, gte), then: multiply(<base>, <multiplier>), else: <base>)
-The base computation appears in BOTH branches; only the multiplier differs.
-
-CLAWBACK / REVERSAL (OB-223, binding) — a component that reverses or adjusts a PRIOR period's CALCULATED
-result (returns, chargebacks, clawbacks) MUST carry a \`temporal_adjustment\` modifier and its
-calculationIntent MUST be \`constant(0)\` as the in-period base. The reversal amount is the stored OUTPUT
-of a prior calculation — the engine retrieves it (Pattern D). DO NOT reference prior-plan rates/outputs
-as data-column inputs (they are not in the data). Emit, as a sibling \`modifiers\` array on the component:
-  modifiers: [{ "modifier":"temporal_adjustment", "adjustmentType":"per_transaction_reversal",
-    "referenceMapping": { "returnField":"<col on the return row referencing the original txn>",
-                          "originalField":"<matching col on the original row>" }, "recoveryRate": <0..1> }]
-
 <<COMPONENT_TYPE_LIST>>
-
-<<PRIME_GRAMMAR>>
 
 CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
 
@@ -574,13 +536,6 @@ CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
 
    { "shape": "composed", "composition": "sum|max|min|first_match", "children": [<structure>, ...] }
 
-5. categorized — per-ROW category-differentiated rates (ONE component; one entity's rows span categories)
-
-   { "shape": "categorized", "category_field": "<row field holding the category>", "measure_field": "<row field to aggregate>", "op": "sum|count|avg|min|max", "categories": [ { "value": "<category as the PLAN states it>", "rate": <number> }, ... ] }
-
-   Payout = Σ over categories of (op of measure_field over rows WHERE category_field == value) × rate.
-   Use the category VALUES exactly as the PLAN states them (codes like "ALI" or names like "Alimentos"); data-vocabulary grounding happens downstream. For "count of rows matching a condition × a flat bonus", do NOT use categorized — use an arithmetic multiply whose first operand is a \`filtered_aggregate\` (op:"count") reference and whose second is the bonus constant.
-
 Operand kinds:
   { "kind": "reference", "source": <ReferenceSource> }
   { "kind": "constant", "value": <number> }
@@ -617,9 +572,10 @@ RATIO-SOURCE BANDS — quotient-space breaks, NO scale (HF-279, binding):
 HOW TO DESCRIBE THE STRUCTURE — describe what the plan text actually says, using the primitives below and the one rule that composes them. There is NO catalog of component shapes to match against: a finite set of primitives composes without bound. Read the structure and describe it; do NOT match the plan to a remembered kind of plan.
 
 REFERENCE TYPES — how a single value is read from the data:
-  • A value that is one quantity → a metric reference; name that one field.
+  • A single value read directly from one field — the field already holds the number; it is not summed, not counted, not aggregated → a metric reference; name that one field.
   • A value that is one quantity DIVIDED BY another (a rate, a per-unit, an attainment of one amount over another — anything of the form X over Y) → a ratio reference; name BOTH the numerator field AND the denominator field. NEVER collapse a divided quantity to a single field. Even when the plan also mentions a pre-computed column that already holds the quotient, describe the division the plan defines (numerator ÷ denominator), not the pre-baked column.
   • A value summed / counted / averaged over a group → an aggregate reference (scope_aggregate when aggregated within a boundary); name the field and the operation.
+  • A value aggregated over only the rows that match a predicate → a filtered_aggregate reference; name the operation, the measure field, and the predicate (field, operator, value). For a count of matching rows the operation is count and the measure field is omitted.
   • A value carried from an earlier component → a prior_component reference.
 
 STRUCTURAL SHAPES — how values combine:
