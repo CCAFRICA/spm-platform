@@ -84,7 +84,10 @@ export function LifecycleCockpit() {
     const enriched: PeriodInfo[] = data.periods.map(p => ({
       periodId: p.id,
       periodKey: p.canonical_key,
-      label: formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
+      // OB-227 Fix A: prefer the canonical DB label (matches /configure/periods). The formatLabel
+      // fallback parses a date-only string TZ-safely; without 'T00:00:00' it was read as UTC midnight
+      // and rendered one month early in negative-offset zones (e.g. "Oct 2025" → "Sep 2025" in CDMX).
+      label: p.label || formatLabel(p.start_date, isSpanish ? 'es-MX' : 'en-US'),
       status: p.status,
       lifecycleState: p.lifecycleState,
       startDate: p.start_date,
@@ -331,7 +334,9 @@ function defaultReadiness(): DataReadiness {
 }
 function formatLabel(startDate: string, locale: string = 'es-MX'): string {
   try {
-    const d = new Date(startDate);
+    // OB-227 Fix A: 'T00:00:00' forces local-time parse of a date-only string. Without it,
+    // new Date("2025-10-01") is UTC midnight → renders the prior month in negative-offset zones.
+    const d = new Date(`${startDate}T00:00:00`);
     const month = d.toLocaleString(locale, { month: 'short' });
     return `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getFullYear()}`;
   } catch { return startDate; }
