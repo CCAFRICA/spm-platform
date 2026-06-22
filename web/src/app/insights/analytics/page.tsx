@@ -33,7 +33,7 @@ import { ExportDialog } from '@/components/analytics/ExportDialog';
 import { getEntityResults, getPeriodsWithResults } from '@/lib/drill-through';
 import type { EntityResult, EntityScope } from '@/lib/drill-through';
 import type { KPIMetric, MetricTimeSeries, MetricType, ExportConfig } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 
@@ -58,7 +58,7 @@ export default function AnalyticsDashboardPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id;
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 

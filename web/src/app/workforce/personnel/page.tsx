@@ -52,7 +52,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { accessControl, canAccessModule } from '@/lib/access-control';
 
@@ -103,7 +103,7 @@ export default function PersonnelPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isRetail = currentTenant?.industry === 'Retail';
 
   // Check if user can access personnel module

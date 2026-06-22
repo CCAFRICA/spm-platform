@@ -37,7 +37,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import {
   LineChart,
@@ -54,7 +54,7 @@ export default function LocationBenchmarksPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const router = useRouter();
   const { scope } = usePersona();
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)

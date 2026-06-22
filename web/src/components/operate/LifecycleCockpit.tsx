@@ -20,7 +20,7 @@ import { useRouter } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { OnboardingChecklist } from '@/components/insights'; // OB-227 Cluster D
 import { getTenantOnboardingState, type TenantOnboardingState } from '@/lib/insights'; // OB-227 Cluster D
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
 import { PeriodRibbon, type PeriodInfo } from '@/components/design-system/PeriodRibbon';
@@ -65,7 +65,7 @@ export function LifecycleCockpit() {
   const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const tenantId = currentTenant?.id ?? '';
 
   const [periods, setPeriods] = useState<PeriodInfo[]>([]);

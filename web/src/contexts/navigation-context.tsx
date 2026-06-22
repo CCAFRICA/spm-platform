@@ -25,7 +25,7 @@ import {
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from './auth-context';
 import { useTenant } from './tenant-context';
-import { useLocale } from './locale-context';
+import { useLocale, isSpanishLocale } from './locale-context';
 
 import type {
   WorkspaceId,
@@ -106,7 +106,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Locale follows user's language selector (single source of truth)
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const userRole = user?.role || null;
   // OB-94: Effective role from persona (override or derived) — drives all workspace access
   const effectiveRole = persona ? personaToRole(persona) : userRole;

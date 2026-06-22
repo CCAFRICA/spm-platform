@@ -28,7 +28,7 @@ import {
   getPermissionsByCategory,
 } from '@/types/permission';
 import { SYSTEM_ROLE_TEMPLATES } from '@/lib/permissions/role-templates';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface RoleEditorProps {
@@ -47,7 +47,7 @@ interface RoleEditorProps {
 
 export function RoleEditor({ role, onSave, onCancel, isLoading }: RoleEditorProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [name, setName] = useState(role?.name || '');
   const [nameEs, setNameEs] = useState(role?.nameEs || '');

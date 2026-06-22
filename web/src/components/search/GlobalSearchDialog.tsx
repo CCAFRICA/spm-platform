@@ -37,7 +37,7 @@ import {
   addRecentSearch,
   getSearchSuggestions,
 } from '@/lib/search/search-service';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 
 interface GlobalSearchDialogProps {
@@ -60,7 +60,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
   const { locale } = useLocale();
   const { user } = useAuth();
   const router = useRouter();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const userId = user?.id || 'demo-user';
 
   const [query, setQuery] = useState('');

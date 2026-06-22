@@ -7,7 +7,7 @@
  */
 'use client';
 import { useMemo, useState } from 'react';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { X, GitCommit, AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
 import type { PlanStructure, CanonicalComponent } from '@/lib/plan-surface';
 import { extractEditableValues, applyEdits } from '@/lib/plan-surface/edit-model';
@@ -32,7 +32,7 @@ export function ConsequenceTray({ plan, draft, onClose, onCommitted }: {
   onCommitted: () => void;
 }) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const editable = useMemo(() => extractEditableValues(draft.component), [draft.component]);
   const [edits, setEdits] = useState<Record<string, number>>({});
   const [committing, setCommitting] = useState(false);

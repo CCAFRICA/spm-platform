@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface AlertRule {
   id: string;
@@ -59,7 +59,7 @@ const metricLabels: Record<string, Record<string, string>> = {
 export default function AlertsPage() {
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const lang = isSpanish ? 'es' : 'en';
 
   const [alerts, setAlerts] = useState<AlertRule[]>([

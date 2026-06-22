@@ -36,7 +36,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context'; // OB-226C: Korean Test
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context'; // OB-226C: Korean Test
 import { useAuth } from '@/contexts/auth-context'; // OB-226C: Korean Test
 import { isVLAdmin } from '@/types/auth'; // OB-226C: Korean Test
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
@@ -89,7 +89,7 @@ export default function InsightsPerformancePage() {
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const tenantId = currentTenant?.id ?? '';
   // Korean Test (codebase standard): VL admins see English; tenant users follow locale.
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
 
   // OB-226C: real entity payouts for the non-hospitality branch (replaces techCorp* mock).
   const [entityResults, setEntityResults] = useState<EntityResult[] | null>(null);

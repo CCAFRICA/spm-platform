@@ -14,7 +14,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { ImpactRating } from '@/lib/approval-routing/types';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface ImpactRatingBadgeProps {
   rating: ImpactRating | number;
@@ -32,7 +32,7 @@ export function ImpactRatingBadge({
   className,
 }: ImpactRatingBadgeProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const value = typeof rating === 'number' ? rating : rating.overall;
   const dimensions = typeof rating === 'number' ? null : rating.dimensions;

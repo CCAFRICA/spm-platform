@@ -16,7 +16,12 @@ import {
   formatLocalizedDate,
   formatLocalizedNumber,
   formatLocalizedPercent,
+  isSpanishLocale,
 } from '@/lib/i18n';
+
+// HF-335: re-export so consumers that already import from this context can get the shared predicate
+// from one module. Canonical definition lives in @/lib/i18n.
+export { isSpanishLocale, localeToLanguageName } from '@/lib/i18n';
 import { audit } from '@/lib/audit-service';
 import { useAuth } from './auth-context';
 import { createClient } from '@/lib/supabase/client';
@@ -39,6 +44,7 @@ interface LocaleContextType {
   formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
   formatPercent: (value: number, decimals?: number) => string;
   isLoading: boolean;
+  isSpanish: boolean; // HF-335: startsWith('es') — catches es-MX AND es-PE
 }
 
 const LocaleContext = createContext<LocaleContextType | undefined>(undefined);
@@ -157,6 +163,7 @@ export function LocaleProvider({
         formatNumber,
         formatPercent,
         isLoading,
+        isSpanish: isSpanishLocale(locale),
       }}
     >
       {children}

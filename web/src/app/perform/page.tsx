@@ -28,7 +28,7 @@ import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { useSession } from '@/contexts/session-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
 import { loadICMHealthData, type ICMHealthData } from '@/lib/data/page-loaders';
@@ -59,7 +59,7 @@ function PerformContent() {
   const hasFinancial = useFeature('financial');
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasICM = ruleSetCount > 0;
   const tenantId = currentTenant?.id ?? '';
 

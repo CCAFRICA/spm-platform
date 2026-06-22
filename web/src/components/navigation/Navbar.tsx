@@ -37,7 +37,7 @@ import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { TenantSwitcher } from "@/components/tenant/tenant-switcher";
 import { GlobalSearch } from "@/components/search/global-search";
 import { useTenant } from "@/contexts/tenant-context";
-import { useLocale } from "@/contexts/locale-context";
+import { useLocale, isSpanishLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useNavigation } from "@/contexts/navigation-context";
 import { usePeriod } from "@/contexts/period-context";
@@ -65,7 +65,7 @@ export function Navbar({ onMenuToggle, isMobileMenuOpen }: NavbarProps) {
   const { cycleState, queueItems } = useNavigation();
   const { activePeriodLabel, availablePeriods, activePeriodKey } = usePeriod();
   const pathname = usePathname();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const pendingCount = queueItems.length;
   const activePeriod = availablePeriods.find(p => p.periodKey === activePeriodKey);
   const [notificationCount, setNotificationCount] = useState(0);

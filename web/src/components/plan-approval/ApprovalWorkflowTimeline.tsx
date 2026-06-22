@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import {
   CheckCircle,
   Circle,
@@ -37,7 +37,7 @@ export function ApprovalWorkflowTimeline({
   compact = false,
 }: ApprovalWorkflowTimelineProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const getStageStatus = (stage: ApprovalStage): 'completed' | 'current' | 'pending' | 'rejected' => {
     if (request.status === 'rejected' && request.stage === 'rejected') {

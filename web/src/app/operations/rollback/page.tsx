@@ -55,7 +55,7 @@ import {
 } from '@/lib/rollback';
 import type { Checkpoint } from '@/lib/data-architecture/types';
 import { ImpactRatingBadge } from '@/components/approvals/impact-rating-badge';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
@@ -65,7 +65,7 @@ export default function RollbackManagementPage() {
   const { locale } = useLocale();
   const { currentTenant, isVLAdmin } = useTenant();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [activeTab, setActiveTab] = useState('batches');

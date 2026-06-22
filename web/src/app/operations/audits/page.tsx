@@ -40,7 +40,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { AccessControl, MANAGER_ROLES } from '@/components/access-control';
 import { audit } from '@/lib/audit-service';
 import { AuditLogEntry, AuditChange } from '@/types/audit';
@@ -248,7 +248,7 @@ function transformAuditEntry(entry: AuditLogEntry): ChangeAudit {
 function AuditsPageContent() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isHospitality = currentTenant?.industry === 'Hospitality';
 
   // Get real audit logs first, fallback to mock data if empty

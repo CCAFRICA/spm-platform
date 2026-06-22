@@ -44,7 +44,7 @@ import {
 } from 'lucide-react';
 import { ImpactRatingBadge } from './impact-rating-badge';
 import type { ApprovalRequest, ApprovalDomain } from '@/lib/approval-routing/types';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface ApprovalRequestCardProps {
@@ -74,7 +74,7 @@ export function ApprovalRequestCard({
   isProcessing = false,
 }: ApprovalRequestCardProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);

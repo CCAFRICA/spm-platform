@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ============================================
@@ -95,7 +95,7 @@ export function ImpactRatingBadge({
   className,
 }: ImpactRatingBadgeProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-316: rating numbers → DM Mono, tracks → line (impact gradient kept intentional)
 
   const clampedRating = Math.max(1, Math.min(10, Math.round(rating)));
@@ -214,7 +214,7 @@ export function ImpactRatingBar({
   className?: string;
 }) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-316: track → line, rating number → DM Mono under Vialuce
 
   const clampedRating = Math.max(1, Math.min(10, rating));
@@ -262,7 +262,7 @@ export function ImpactRatingSummary({
   className?: string;
 }) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-316: design-spec .card + DM Mono dim scores + line tracks under Vialuce
 
   const clampedRating = Math.max(1, Math.min(10, Math.round(rating)));

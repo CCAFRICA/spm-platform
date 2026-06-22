@@ -42,7 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTerm } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface Location {
@@ -77,7 +77,7 @@ export default function ConfigurationLocationsPage() {
   const isVialuce = useIsVialuce();
   const locationTerm = useTerm('location');
   const locationPluralTerm = useTerm('location', true);
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [locations, setLocations] = useState<Location[]>(mockLocations);
   const [searchTerm, setSearchTerm] = useState('');

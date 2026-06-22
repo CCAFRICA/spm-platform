@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface SalesHistoryData {
   period: string;
@@ -30,7 +30,7 @@ interface SalesHistoryChartProps {
 export function SalesHistoryChart({ data, title }: SalesHistoryChartProps) {
   const { format, symbol } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const defaultTitle = isSpanish ? 'Histórico de Ventas' : 'Sales History';
   const foodLabel = isSpanish ? 'Alimentos' : 'Food';

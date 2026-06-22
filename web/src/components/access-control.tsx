@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Shield, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 
 type UserRole = 'sales_rep' | 'supervisor' | 'manager' | 'admin' | 'platform';
@@ -24,7 +24,7 @@ export function AccessControl({
   const router = useRouter();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   // Get role from auth context
   const currentRole = (user?.role as UserRole) || 'sales_rep';

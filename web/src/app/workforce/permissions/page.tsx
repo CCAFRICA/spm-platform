@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { toast } from 'sonner';
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // Permission service not yet migrated to Supabase -- using empty defaults
@@ -49,7 +49,7 @@ import { PermissionMatrix } from '@/components/permissions/PermissionMatrix';
 export default function PermissionsPage() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id;
 
   const [roles, setRoles] = useState<Role[]>([]);

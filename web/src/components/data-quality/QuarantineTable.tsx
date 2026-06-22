@@ -49,7 +49,7 @@ import type {
   QuarantineResolution,
 } from '@/types/data-quality';
 import { SEVERITY_COLORS, ERROR_TYPE_LABELS, SOURCE_LABELS } from '@/types/data-quality';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface QuarantineTableProps {
@@ -68,7 +68,7 @@ export function QuarantineTable({
   isLoading = false,
 }: QuarantineTableProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');

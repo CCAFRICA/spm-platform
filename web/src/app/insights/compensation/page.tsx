@@ -5,7 +5,7 @@ import { DollarSign, TrendingUp, Target, Trophy, Utensils, Wine, Coins } from 'l
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context'; // OB-226 Korean Test
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context'; // OB-226 Korean Test
 import { useAuth } from '@/contexts/auth-context'; // OB-226 isSpanish ternary
 import { isVLAdmin } from '@/types/auth'; // OB-226 isSpanish ternary
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
@@ -70,7 +70,7 @@ export default function CompensationPage() {
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   // OB-226: VL admins always see English; tenant users localize (codebase isSpanish standard).
-  const isSpanish = user && isVLAdmin(user) ? false : locale === 'es-MX';
+  const isSpanish = user && isVLAdmin(user) ? false : isSpanishLocale(locale);
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const tenantId = currentTenant?.id ?? '';

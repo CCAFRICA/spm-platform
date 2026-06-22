@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-319: branch the inline-dark reference strip
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +26,7 @@ export default function DataQualityPage() {
   const isVialuce = useIsVialuce();
   const [isScanning, setIsScanning] = useState(false);
 
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const scanDate = new Date().toLocaleDateString(isSpanish ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   const qualityIssues = [

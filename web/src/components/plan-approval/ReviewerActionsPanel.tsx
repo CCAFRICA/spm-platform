@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
 import { CheckCircle, XCircle, AlertTriangle, Plus, Trash2 } from 'lucide-react';
@@ -43,7 +43,7 @@ export function ReviewerActionsPanel({
 }: ReviewerActionsPanelProps) {
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showChangesDialog, setShowChangesDialog] = useState(false);

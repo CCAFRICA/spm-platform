@@ -27,7 +27,7 @@ import { Save, Shield } from 'lucide-react';
 import type { Role, Permission, PermissionCategory } from '@/types/rbac';
 import { PERMISSION_CATEGORIES, PERMISSION_ACTIONS } from '@/types/rbac';
 import { getAllPermissions } from '@/lib/rbac/rbac-service';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface RoleEditorDialogProps {
   open: boolean;
@@ -43,7 +43,7 @@ export function RoleEditorDialog({
   onSave,
 }: RoleEditorDialogProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

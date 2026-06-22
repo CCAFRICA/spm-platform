@@ -22,7 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useTenant, useTerm, useFeature } from "@/contexts/tenant-context";
-import { useLocale } from "@/contexts/locale-context";
+import { useLocale, isSpanishLocale } from "@/contexts/locale-context";
 import { useAuth } from "@/contexts/auth-context";
 import { isVLAdmin } from "@/types/auth";
 import { accessControl, type AppModule } from "@/lib/access-control";
@@ -71,7 +71,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   // Standing Rule 3: VL Admin always sees English, regardless of tenant locale.
   // Other users follow their language selector preference.
-  const isSpanish = userIsVLAdmin ? false : locale === 'es-MX';
+  const isSpanish = userIsVLAdmin ? false : isSpanishLocale(locale);
 
   // Get user's accessible modules
   const accessibleModules = accessControl.getAccessibleModules(user);

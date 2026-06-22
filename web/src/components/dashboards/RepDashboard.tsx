@@ -32,7 +32,7 @@ import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIf
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { useFeature } from '@/contexts/tenant-context';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
@@ -104,7 +104,7 @@ export function RepDashboard() {
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const hasFinancial = useFeature('financial');
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id ?? '';
   const isVialuce = useIsVialuce(); // HF-315: dark zinc DS-001 cards → design-spec .card surfaces + readable text
   // Theme-aware surface + section text. Non-Vialuce keeps the exact dark literals (byte-identical).
@@ -301,7 +301,7 @@ export function RepDashboard() {
       <AssessmentPanel
         persona="rep"
         data={assessmentData}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
         accentColor="#10b981"
         tenantId={tenantId}
       />
@@ -310,7 +310,7 @@ export function RepDashboard() {
         insights={repInsights}
         tenantName={currentTenant?.name || ''}
         periodLabel={activePeriodLabel}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
       />
       {/* ── Hero: Full width ── */}
       <div style={heroStyle}>

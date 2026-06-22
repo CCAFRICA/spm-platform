@@ -52,7 +52,7 @@ import {
 } from '@/lib/rbac/rbac-service';
 import type { Role, AuditLogEntry, UserRoleAssignment } from '@/types/rbac';
 import { PERMISSION_CATEGORIES } from '@/types/rbac';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
@@ -61,7 +61,7 @@ export default function AccessControlPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const tenantId = currentTenant?.id;
   const userId = user?.id || 'admin';

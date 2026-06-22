@@ -41,7 +41,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import {
   AreaChart,
   Area,
@@ -75,7 +75,7 @@ export default function LocationDetailPage() {
   const tenantId = currentTenant?.id;
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<LocationDetailData | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('revenue');

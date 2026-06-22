@@ -19,7 +19,7 @@ import { Shield, Users, MoreVertical, Edit, Trash2, Copy, Lock } from 'lucide-re
 import type { Role } from '@/types/rbac';
 import { PERMISSION_CATEGORIES } from '@/types/rbac';
 import type { PermissionCategory } from '@/types/rbac';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface RoleCardProps {
   role: Role;
@@ -37,7 +37,7 @@ export function RoleCard({
   onViewUsers,
 }: RoleCardProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   // Group permissions by category
   const permissionsByCategory = role.permissions.reduce<Record<string, number>>(

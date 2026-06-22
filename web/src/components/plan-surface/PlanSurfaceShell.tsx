@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { LayoutGrid, ShieldCheck, Loader2 } from 'lucide-react';
 import type { PlanStructure, PersonaScope, CanonicalComponent } from '@/lib/plan-surface';
@@ -29,7 +29,7 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
   const { locale } = useLocale();
   const isVialuce = useIsVialuce();
   const router = useRouter();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id;
 
   const [payload, setPayload] = useState<PlansPayload | null>(null);

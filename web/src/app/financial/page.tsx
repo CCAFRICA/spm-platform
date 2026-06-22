@@ -30,7 +30,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import {
   LineChart,
@@ -45,7 +45,7 @@ export default function FinancialLandingPage() {
   const { locale } = useLocale();
   const router = useRouter();
   const { persona, entityId, scope } = usePersona();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const tenantId = currentTenant?.id;
 
