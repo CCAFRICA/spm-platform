@@ -1,14 +1,37 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function GlobalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // OB-230 3A: report the root-layout fault to platform_events (raw fetch — no deps that could
+  // themselves fail inside the error boundary). Best-effort, never throws.
+  useEffect(() => {
+    try {
+      fetch('/api/auth/log-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventType: 'client.error.unhandled',
+          payload: {
+            message: String(error?.message || 'root layout error').slice(0, 500),
+            stack: String(error?.stack || '').slice(0, 2000),
+            digest: error?.digest ?? null,
+            pathname: typeof window !== 'undefined' ? window.location.pathname : null,
+            kind: 'global-error-boundary',
+          },
+        }),
+      }).catch(() => {});
+    } catch { /* never block the error screen */ }
+  }, [error]);
+
   return (
     <html>
       <body>

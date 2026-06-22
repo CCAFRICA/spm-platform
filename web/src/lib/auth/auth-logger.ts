@@ -12,6 +12,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import type { ObservabilityEventType } from '@/lib/observability/event-types';
 
 export type AuthEventType =
   | 'auth.login.success'
@@ -49,12 +50,17 @@ export type AuthEventType =
   | 'tenant.entered'                     // ObservatoryTab.handleSelectTenant success
   | 'tenant.load_failed';                // ObservatoryTab.handleSelectTenant failure
 
+// OB-230: the loggers also accept the observability event vocabulary (admin.user.*, client.error.*,
+// platform.user.session_churn, navigation.route_change). The UI classifies events structurally by
+// prefix (Korean Test), so this union exists only to type the writers.
+export type LoggableEventType = AuthEventType | ObservabilityEventType;
+
 /**
  * Log an auth event — server-side (service role client, direct INSERT).
  * Called from middleware and API routes where SUPABASE_SERVICE_ROLE_KEY is available.
  */
 export async function logAuthEvent(
-  eventType: AuthEventType,
+  eventType: LoggableEventType,
   payload: Record<string, unknown>,
   actorId?: string,
   tenantId?: string | null,
@@ -91,15 +97,19 @@ const recentEvents = new Map<string, number>();
  * for cases where cookies are about to be destroyed (logout).
  */
 export async function logAuthEventClient(
-  eventType: AuthEventType,
+  eventType: LoggableEventType,
   payload: Record<string, unknown>,
+  dedupKey?: string,
 ): Promise<void> {
   try {
-    // HF-150: Deduplicate — same event type within 5 seconds is dropped
+    // HF-150: Deduplicate — same key within 5 seconds is dropped. OB-230: callers may pass an explicit
+    // dedupKey (e.g. `navigation.route_change:${pathname}`) so distinct routes within the window are
+    // each logged while same-route rapid transitions collapse to one. Defaults to eventType.
+    const key = dedupKey ?? eventType;
     const now = Date.now();
-    const lastLogged = recentEvents.get(eventType) || 0;
+    const lastLogged = recentEvents.get(key) || 0;
     if (now - lastLogged < 5000) return;
-    recentEvents.set(eventType, now);
+    recentEvents.set(key, now);
 
     await fetch('/api/auth/log-event', {
       method: 'POST',

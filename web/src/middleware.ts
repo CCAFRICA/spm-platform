@@ -25,6 +25,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
+import { detectSessionChurn } from '@/lib/observability/session-churn';
 import { resolveIdentity } from '@/lib/auth/resolve-identity';
 import { resolveSessionOwnership } from '@/lib/auth/session-lifecycle'; // HF-331: decodeJwtSessionId retired from middleware (getClaims supplies session_id)
 
@@ -249,6 +250,8 @@ export async function middleware(request: NextRequest) {
       prior_last_activity_age_ms: ownership.priorLastActivityAgeMs,
       prior_session_start_age_ms: ownership.priorSessionStartAgeMs,
     }, user.id);
+    // OB-230 3B: a session-identity change is the churn moment — flag rapid re-establishment.
+    void detectSessionChurn(user.id, null);
     // fall through to MFA/workspace checks on the SAME pass-through response.
   } else if (ownership.action === 'expired_absolute') {
     // sid MATCH → raw absolute check (8h), byte-preserved. HF-167.

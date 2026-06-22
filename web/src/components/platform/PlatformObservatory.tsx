@@ -24,6 +24,7 @@ import {
   Loader2,
   Cpu,
   DollarSign,
+  Users,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -34,11 +35,14 @@ const FeatureFlagsTab = lazy(() => import('./FeatureFlagsTab').then(m => ({ defa
 // OB-215: model governance — per-task model control + per-call cost.
 const ModelConfigTab = lazy(() => import('./ModelConfigTab').then(m => ({ default: m.ModelConfigTab })));
 const AIMetricsTab = lazy(() => import('./AIMetricsTab').then(m => ({ default: m.AIMetricsTab })));
+// OB-230: User Operations Console — per-user observability + remediation (platform.system_config).
+const UsersTab = lazy(() => import('./UsersTab').then(m => ({ default: m.UsersTab })));
 
-type TabId = 'command-center' | 'intelligence' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
+type TabId = 'command-center' | 'users' | 'intelligence' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
+  { id: 'users', label: 'Users', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
   { id: 'ai-models', label: 'Model Config', icon: Cpu },
   { id: 'ai-cost', label: 'AI Cost', icon: DollarSign },
@@ -159,6 +163,7 @@ export function PlatformObservatory() {
           </div>
         }>
           {activeTab === 'command-center' && <ObservatoryTab />}
+          {activeTab === 'users' && <UsersTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
           {activeTab === 'ai-models' && <ModelConfigTab />}
           {activeTab === 'ai-cost' && <AIMetricsTab />}

@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { SESSION_COOKIE_OPTIONS } from '@/lib/supabase/cookie-config';
-import type { AuthEventType } from '@/lib/auth/auth-logger';
+import type { LoggableEventType } from '@/lib/auth/auth-logger';
 
 // HF-150: Reject GET requests (F10 — redirects hitting this endpoint as GET)
 export async function GET() {
@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
-      eventType: AuthEventType;
+      eventType: LoggableEventType;
       payload: Record<string, unknown>;
     };
 
