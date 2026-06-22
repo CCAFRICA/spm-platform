@@ -85,6 +85,18 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     accentColor: 'hsl(262, 83%, 58%)', // Purple
     roles: ['platform', 'admin'],
     sections: [
+      // HF-332: Plans & Canvas relocated here from Platform Core > Configure. The Living Plan
+      // Surface (OB-228) is meaningful only to viewers entitled to the Calculate agent; the menu
+      // visibility now matches the route's own `icm.configure_plans` gate (capability-filtered by
+      // getWorkspaceRoutesForRole). Route path unchanged (/configure/plans) — DD-7 reachability.
+      {
+        id: 'plans',
+        label: 'Plans & Canvas',
+        labelEs: 'Planes y Lienzo',
+        routes: [
+          { path: '/configure/plans', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' },
+        ],
+      },
       {
         id: 'cockpit',
         label: 'Lifecycle',
@@ -214,13 +226,14 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operate/import/quarantine', label: 'Quarantine Resolution', labelEs: 'Resolución de Cuarentena', icon: 'ShieldAlert', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
         ],
       },
-      // Configure: plans/canvas, entities, periods, terminology, locations.
+      // Configure: entities, periods, terminology, locations.
+      // HF-332: Plans & Canvas moved OUT of here to the Calculate agent (it is a Calculate-entitled
+      // surface, gated on icm.configure_plans). It no longer appears under Platform Core > Configure.
       {
         id: 'configure',
         label: 'Configure',
         labelEs: 'Configurar',
         routes: [
-          { path: '/configure/plans', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' }, // OB-228: the Living Plan Surface (was /design redirect stub)
           { path: '/configure/people', label: 'Entities', labelEs: 'Entidades', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
           { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'], requiredCapability: 'tenant.configure_periods' },
           { path: '/configuration/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },

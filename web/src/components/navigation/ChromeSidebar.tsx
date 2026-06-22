@@ -324,7 +324,7 @@ export function ChromeSidebar() {
         <div className={cn('shrink-0 border-b border-zinc-800/40', isRailCollapsed ? 'py-2 px-1' : 'py-2 px-3')}>
           {!isRailCollapsed && (
             <p data-nav-section style={{ fontSize: '12px', color: '#a1a1aa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }} className="mb-2 px-1">
-              {isSpanish ? 'Espacios' : 'Workspaces'}
+              {isSpanish ? 'AGENTES' : 'AGENTS'}
             </p>
           )}
           <div className={cn(isRailCollapsed ? 'flex flex-col items-center gap-1' : 'flex flex-wrap gap-1')}>
