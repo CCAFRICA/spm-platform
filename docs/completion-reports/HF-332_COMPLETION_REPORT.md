@@ -92,4 +92,4 @@ SUBSTRATE: Wayfinder Layer 1 exercised (elevated agent tiles = primary-destinati
 ---
 
 ## PR
-`gh pr create --base main` — link appended below. **CC does not merge (SR-44).**
+**https://github.com/CCAFRICA/spm-platform/pull/582** (`hf-332-agents-nav` → `main`). **CC does not merge (SR-44).**
