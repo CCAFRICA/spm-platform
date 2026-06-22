@@ -8,6 +8,7 @@ import { LocaleProvider } from "@/contexts/locale-context";
 import { TenantProvider } from "@/contexts/tenant-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
+import { ShellErrorBoundary } from "@/components/shell/ShellErrorBoundary"; // HF-334: missing shell-layer boundary
 import { PrivacyNoticeFooter } from "@/components/privacy/PrivacyNoticeFooter";
 import { ClientErrorReporter } from "@/components/observability/ClientErrorReporter"; // OB-230 3A
 import { NavigationBreadcrumbs } from "@/components/observability/NavigationBreadcrumbs"; // OB-230 3C
@@ -66,6 +67,11 @@ export default async function RootLayout({
            the `background` shorthand) so the bliss diamond background-image can coexist. */
         style={{ backgroundColor: 'var(--app-bg)', color: 'var(--app-fg)', minHeight: '100vh' }}
       >
+        {/* HF-334: shell-level recoverable boundary — wraps the ENTIRE provider stack inside <body> so a
+            client render throw in ANY provider (AuthProvider outermost) or in AuthShell chrome is caught
+            in-document (recoverable retry) instead of escaping to global-error's chromeless document
+            replacement. Sits above all providers; its fallback consumes none of them. */}
+        <ShellErrorBoundary>
         <AuthProvider initialAuthState={authState}>
           <TenantProvider>
             <LocaleProvider>
@@ -82,6 +88,7 @@ export default async function RootLayout({
             </LocaleProvider>
           </TenantProvider>
         </AuthProvider>
+        </ShellErrorBoundary>
       </body>
     </html>
   );
