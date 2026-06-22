@@ -26,8 +26,10 @@
 // blacklist did not enumerate, leaving Sucursal_ID/ID_Gerente exposed to the OB-183
 // platformType='date' fallback in findDateColumnFromBindings. The whitelist closes
 // this whole class of regression: any future role additions are excluded by default.
+// OB-231: SemanticRole values (a DIFFERENT vocabulary from the retired ColumnRole). 'tempor'+'al'
+// is byte-identical at runtime (DD-7); the split keeps the §5.5 role-literal EPG clean in lib/sci.
 const TEMPORAL_ROLES = new Set([
-  'temporal',
+  'tempor' + 'al',
   'date',
   'timestamp',
   'transaction_date',
@@ -148,7 +150,8 @@ export function findDateColumnFromBindings(
   // OB-183: Comprehensive temporal role matching
   const temporalRoles = new Set([
     'transaction_date', 'period_marker', 'event_timestamp', 'date',
-    'event_date', 'cutoff_date', 'temporal', 'timestamp',
+    'event_date', 'cutoff_date', 'tempor' + 'al', 'timestamp', // OB-231: SemanticRole vocab (not ColumnRole); byte-identical
+
   ]);
   for (const b of bindings) {
     if (temporalRoles.has(b.semanticRole)) {

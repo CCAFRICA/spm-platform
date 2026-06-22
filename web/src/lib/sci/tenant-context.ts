@@ -143,15 +143,21 @@ export function computeEntityIdOverlap(
   // HF-196 Phase 1G Path α — Find the identifier field with HC primacy (Decision 108).
   // Reads profile.headerComprehension if available; gates structural arms on HC silence.
   const hcInterpretations = profile.headerComprehension?.interpretations;
-  const getHCRole = (fieldName: string) => hcInterpretations?.get(fieldName)?.columnRole;
+  // OB-231: read the free-form characterization directly. An entity identifier = the LLM marked an
+  // entity/person scope OR an identifier nature (free-form, no quoted role literal).
+  const getHC = (fieldName: string) => hcInterpretations?.get(fieldName);
+  const looksEntityId = (i?: { identifies?: string; data_nature?: string; characterization?: string }): boolean =>
+    !!i && (/\b(entity|entidad|seller|vendedor|employee|empleado|person|persona|account|cuenta)\b/i.test(i.identifies ?? '')
+      || /\b(identifier|identif|\bid\b|document|documento|dni|code|c[oó]digo|key|clave)\b/i.test(`${i.data_nature ?? ''} ${i.characterization ?? ''}`));
+  const hcCharacterized = (i?: { data_nature?: string }): boolean => !!i && !!i.data_nature && i.data_nature !== 'unknown';
 
   const idField =
-    // HC-primary: HC said this is an identifier
-    profile.fields.find(f => getHCRole(f.fieldName) === 'identifier') ??
-    // HC-silent fallback: structural detection (Site 8 — gated on HC silence)
+    // HC-primary: HC characterized this as an entity identifier
+    profile.fields.find(f => looksEntityId(getHC(f.fieldName))) ??
+    // HC-silent fallback: structural detection (Site 8 — gated on HC characterizing it otherwise)
     profile.fields.find(f => {
-      const hcRole = getHCRole(f.fieldName);
-      if (hcRole && hcRole !== 'unknown') return false; // HC said something other than identifier — yield.
+      const i = getHC(f.fieldName);
+      if (hcCharacterized(i) && !looksEntityId(i)) return false; // HC characterized it as non-identifier — yield.
       return f.nameSignals.containsId || (f.dataType === 'integer' && f.distribution.isSequential);
     });
   if (!idField) return null;

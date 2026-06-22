@@ -20,10 +20,10 @@ async function resolveSuggestedEmails(
   const { data: sigs } = await sb.from('classification_signals').select('header_comprehension').eq('tenant_id', tenantId).not('header_comprehension', 'is', null).limit(500);
   const emailKeys = new Set<string>();
   for (const s of (sigs ?? [])) {
-    const hc = s.header_comprehension as Record<string, { semanticMeaning?: string; columnRole?: string }> | null;
+    const hc = s.header_comprehension as Record<string, { characterization?: string; data_nature?: string }> | null;
     if (!hc || typeof hc !== 'object') continue;
     for (const [k, meta] of Object.entries(hc)) {
-      const semantic = `${meta?.semanticMeaning ?? ''} ${meta?.columnRole ?? ''}`.toLowerCase();
+      const semantic = `${meta?.characterization ?? ''} ${meta?.data_nature ?? ''}`.toLowerCase();
       if (semantic.includes('email')) emailKeys.add(k);   // semantic type, not a header literal
     }
   }

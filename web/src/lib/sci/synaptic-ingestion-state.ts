@@ -97,7 +97,7 @@ export interface ClassificationTrace {
   // Phase B: Header comprehension
   headerComprehension: {
     available: boolean;
-    interpretations: Record<string, { semanticMeaning: string; columnRole: string; confidence: number }>;
+    interpretations: Record<string, { characterization: string; data_nature: string; confidence: number }>;
     crossSheetInsights: string[];
     llmCalled: boolean;
     llmDuration: number | null;
@@ -465,7 +465,7 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
     interpretations: Object.fromEntries(
       Array.from(headerComp.interpretations.entries()).map(([col, interp]) => [
         col,
-        { semanticMeaning: interp.semanticMeaning, columnRole: interp.columnRole, confidence: interp.confidence },
+        { characterization: interp.characterization, data_nature: interp.data_nature, confidence: interp.confidence },
       ])
     ),
     crossSheetInsights: headerComp.crossSheetInsights,
@@ -674,8 +674,8 @@ function extractVocabularyBindings(
   if (!profile.headerComprehension?.interpretations) return undefined;
   const bindings: Record<string, string> = {};
   for (const [col, interp] of Array.from(profile.headerComprehension.interpretations.entries())) {
-    if (interp?.semanticMeaning) {
-      bindings[col] = interp.semanticMeaning;
+    if (interp?.characterization) {
+      bindings[col] = interp.characterization;
     }
   }
   return Object.keys(bindings).length > 0 ? bindings : undefined;

@@ -246,7 +246,7 @@ export async function POST(req: NextRequest) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
         '',
       );
-      // HF-254 Fix 3b: additive lexical prior via columnRole distribution (same path).
+      // HF-254 Fix 3b: additive lexical prior via data_nature distribution (same path).
       const lexicalPriors = await lookupLexicalPrior(
         tenantId,
         profile.fields.map(f => f.fieldName),
@@ -374,18 +374,18 @@ export async function POST(req: NextRequest) {
       const unitHash = computeFingerprintHashSync(sheetForUnit.columns, sheetForUnit.rows);
       const columnRoles: Record<string, string> = {};
       for (const b of unit.fieldBindings) columnRoles[b.sourceField] = b.semanticRole;
-      // HF-254 Fix 2a: enrich fieldBindings with native columnRole from the server-side
+      // HF-254 Fix 2a: enrich fieldBindings with native data_nature from the server-side
       // trace HC (identical shape to analyze + emitFlywheelSignals, AP-17).
       const pjInterpMap = ((unit.classificationTrace as Record<string, unknown> | undefined)
         ?.headerComprehension as
-          | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+          | { interpretations?: Record<string, { data_nature?: string; identifies?: string }> }
           | undefined)?.interpretations ?? {};
       const pjEnrichedFieldBindings = unit.fieldBindings.map(b => {
         const interp = pjInterpMap[b.sourceField];
         return {
           ...b,
-          ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
-          ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+          ...(interp?.data_nature ? { data_nature: interp.data_nature } : {}),
+          ...(interp?.identifies ? { identifies: interp.identifies } : {}),
         };
       });
       writeFingerprint(

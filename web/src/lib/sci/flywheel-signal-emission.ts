@@ -30,7 +30,7 @@ import { writeFingerprint } from './fingerprint-flywheel';
 import { computeFingerprintHashSync } from './structural-fingerprint';
 import type { StructuralFingerprint } from './classification-signal-service';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
-import type { VocabularyBindingValue, ColumnRole } from './sci-types';
+import type { VocabularyBindingValue } from './sci-types';
 
 /**
  * Minimal shape required by the emitter. Both BulkContentUnit (execute-bulk)
@@ -78,29 +78,31 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
 
       const confidenceValue = wasOverridden ? 1.0 : (unit.originalConfidence || 0);
 
-      // HF-254 Fix 3a (T1-E902): persist role-bearing vocabulary_bindings from the trace
-      // HC — {semanticMeaning, columnRole, confidence} per column, the full interpretation,
+      // HF-254 Fix 3a (T1-E902): persist nature-bearing vocabulary_bindings from the trace
+      // HC — {characterization, data_nature, confidence} per column, the full interpretation,
       // nothing narrowed. confidence is the LLM's emitted value (AP-7: never a constant).
-      // Columns whose HC role is absent/'unknown' are omitted (no fabrication). Falls back
+      // Columns whose HC data_nature is absent/'unknown' are omitted (no fabrication). Falls back
       // to the legacy passthrough only when the trace carries no HC.
       const vocabHcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
         ?.headerComprehension as
-          | { interpretations?: Record<string, { semanticMeaning?: string; columnRole?: string; confidence?: number }> }
+          | { interpretations?: Record<string, { characterization?: string; data_nature?: string; identifies?: string; relationships?: string[]; confidence?: number }> }
           | undefined;
       const vocabInterpMap = vocabHcInterps?.interpretations ?? {};
-      const roleBearingVocab: Record<string, VocabularyBindingValue> = {};
+      const natureBearingVocab: Record<string, VocabularyBindingValue> = {};
       for (const [col, interp] of Object.entries(vocabInterpMap)) {
-        if (interp.columnRole && interp.columnRole !== 'unknown' && typeof interp.confidence === 'number') {
-          roleBearingVocab[col] = {
-            semanticMeaning: interp.semanticMeaning ?? 'unknown',
-            columnRole: interp.columnRole as ColumnRole,
+        if (interp.data_nature && interp.data_nature !== 'unknown' && typeof interp.confidence === 'number') {
+          natureBearingVocab[col] = {
+            characterization: interp.characterization ?? 'unknown',
+            data_nature: interp.data_nature,
+            identifies: interp.identifies ?? 'unknown',
+            relationships: interp.relationships ?? [],
             confidence: interp.confidence,
           };
         }
       }
       const vocabularyBindingsToWrite: Record<string, VocabularyBindingValue> | null =
-        Object.keys(roleBearingVocab).length > 0
-          ? roleBearingVocab
+        Object.keys(natureBearingVocab).length > 0
+          ? natureBearingVocab
           : ((unit.vocabularyBindings as Record<string, VocabularyBindingValue> | null | undefined) ?? null);
 
       writeClassificationSignal({
@@ -153,16 +155,18 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
       ) {
         const cols = Object.keys(rowsForHash[0]);
         const hash = computeFingerprintHashSync(cols, rowsForHash.slice(0, 5));
-        const confirmedColumnRoles: Record<string, string> = {};
+        // OB-231: holds binding.semanticRole (the SemanticRole vocabulary — NOT the retired
+        // ColumnRole). Renamed for accuracy + to clear the ColumnRole token from the tree.
+        const confirmedSemanticRoles: Record<string, string> = {};
         for (const binding of unit.confirmedBindings) {
           if (binding.sourceField && binding.semanticRole) {
-            confirmedColumnRoles[binding.sourceField] = binding.semanticRole;
+            confirmedSemanticRoles[binding.sourceField] = binding.semanticRole;
           }
         }
 
         const hcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
           ?.headerComprehension as
-            | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string }> }
+            | { interpretations?: Record<string, { data_nature?: string; identifies?: string }> }
             | undefined;
         const interpMap = hcInterps?.interpretations ?? {};
 
@@ -170,8 +174,8 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
           const interp = interpMap[b.sourceField];
           return {
             ...b,
-            ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
-            ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+            ...(interp?.data_nature ? { data_nature: interp.data_nature } : {}),
+            ...(interp?.identifies ? { identifies: interp.identifies } : {}),
           };
         });
 
@@ -184,7 +188,7 @@ export function emitFlywheelSignals(params: EmitFlywheelSignalsParams): void {
             fieldBindings: enrichedFieldBindings,
             tabName: unit.tabName || '',
           },
-          confirmedColumnRoles,
+          confirmedSemanticRoles,
           unit.sourceFile || '',
           supabaseUrl,
           serviceRoleKey,

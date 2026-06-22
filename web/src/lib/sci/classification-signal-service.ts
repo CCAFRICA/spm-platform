@@ -5,7 +5,7 @@
 // Zero domain vocabulary. AP-31: presence-based only.
 
 import { createClient } from '@supabase/supabase-js';
-import type { ContentProfile, VocabularyBindingValue, ColumnRole, ComprehensionFailureClass, ContentUnitProposal } from './sci-types';
+import type { ContentProfile, VocabularyBindingValue, ComprehensionFailureClass, ContentUnitProposal } from './sci-types';
 import type { ClassificationTrace } from './synaptic-ingestion-state';
 import { writeSignal, type CanonicalSignalInput } from '@/lib/intelligence/canonical-signal-writer';
 
@@ -272,7 +272,7 @@ export interface ClassificationSignalPayload {
   confidence: number;
   decisionSource: string;
   classificationTrace: ClassificationTrace;
-  // HF-254 Fix 3a: role-bearing ({semanticMeaning, columnRole, confidence}) or legacy string.
+  // HF-254 Fix 3a: characterization-bearing ({characterization, data_nature, identifies, relationships, confidence}) or legacy string.
   vocabularyBindings: Record<string, VocabularyBindingValue> | null;
   agentScores: Record<string, number>;
   humanCorrectionFrom: string | null;
@@ -716,12 +716,13 @@ export async function aggregateToDomain(
 // ============================================================
 
 // HF-254 Fix 3a: recalled binding carries the full interpretation when the persisted
-// row is role-bearing. A legacy string-shaped row yields columnRole=null (NO fabrication
-// — a recalled meaning string cannot manufacture a role), so the lexical prior (Phase 6)
-// contributes nothing for it.
+// row is characterization-bearing. A legacy string-shaped row yields data_nature=null (NO
+// fabrication — a recalled meaning string cannot manufacture a data_nature), so the lexical
+// prior (Phase 6) contributes nothing for it.
 export interface RecalledVocabularyBinding {
-  semanticMeaning: string;
-  columnRole: ColumnRole | null;
+  characterization: string;
+  data_nature: string | null;
+  identifies: string | null;
   confidence: number | null;
 }
 
@@ -754,12 +755,13 @@ export async function recallVocabularyBindings(
         for (const [header, value] of Object.entries(vb)) {
           if (!columnHeaders.includes(header)) continue;
           if (typeof value === 'string') {
-            // Legacy meaning-only row — role-less, contributes nothing to the role prior.
-            bindings.set(header, { semanticMeaning: value, columnRole: null, confidence: null });
+            // Legacy meaning-only row — no data_nature, contributes nothing to the lexical prior.
+            bindings.set(header, { characterization: value, data_nature: null, identifies: null, confidence: null });
           } else if (value && typeof value === 'object') {
             bindings.set(header, {
-              semanticMeaning: value.semanticMeaning ?? 'unknown',
-              columnRole: value.columnRole ?? null,
+              characterization: value.characterization ?? 'unknown',
+              data_nature: value.data_nature ?? null,
+              identifies: value.identifies ?? null,
               confidence: typeof value.confidence === 'number' ? value.confidence : null,
             });
           }
@@ -778,19 +780,20 @@ export async function recallVocabularyBindings(
 // HF-254 Fix 3b: LEXICAL CLASSIFICATION PRIOR (additive, non-gating)
 // ============================================================
 //
-// Sibling of lookupPriorSignals (structural fingerprint prior). Recalls role-bearing
-// vocabulary_bindings for the sheet's columns and derives a classification from the
-// recalled columnRole DISTRIBUTION — NOT by matching column-name strings (Korean Test).
+// Sibling of lookupPriorSignals (structural fingerprint prior). Recalls characterization-
+// bearing vocabulary_bindings for the sheet's columns and derives a classification from the
+// recalled data_nature DISTRIBUTION — NOT by matching column-name strings (Korean Test).
 // Returns PriorSignal[] in the SAME shape lookupPriorSignals returns, so it flows through
 // the identical additive contribution path (resolver extractClassificationSignals ->
 // sourceType 'prior_signal' -> Bayesian posterior). By construction it is additive only:
 // it produces a prior signal and nothing else — it never early-returns a decision, never
 // skips the LLM, never narrows persistence, and never caps competing agents.
 //
-// A legacy string-shaped (role-less) recalled binding contributes nothing (columnRole is
-// null — a recalled meaning cannot manufacture a role; AP-7 / no fabrication). The
+// A legacy string-shaped recalled binding contributes nothing (data_nature is null — a
+// recalled meaning cannot manufacture a data_nature; AP-7 / no fabrication). The
 // contributed confidence is the mean of the recalled bindings' own (LLM-emitted)
-// confidences — never a constant.
+// confidences — never a constant. The data_nature buckets are read with tolerant regex over
+// the free-form characterization text rather than equality against a retired enum (OB-231).
 export async function lookupLexicalPrior(
   tenantId: string,
   columnHeaders: string[],
@@ -800,22 +803,29 @@ export async function lookupLexicalPrior(
   const recalled = await recallVocabularyBindings(tenantId, columnHeaders, supabaseUrl, supabaseServiceKey);
   if (recalled.size === 0) return [];
 
+  // OB-231: the data_nature is free-form LLM text, not an enum. Read each bucket with a
+  // tolerant regex over the recalled data_nature (and characterization as a fallback channel)
+  // rather than equality against a retired role literal. The buckets stay mutually exclusive
+  // (one bucket per binding, first match wins) so the distribution mirrors the prior switch.
+  const TEMPORAL_RE = /\b(date|time|temporal|month|year|period|day|week|quarter|fecha|periodo)\b/i;
+  const MEASURE_RE = /\b(measure|amount|value|quantity|metric|numeric|sum|total|count|monto|cantidad|importe)\b/i;
+  const IDENTIFIER_RE = /\b(identifier|id|key|code|account|seller|employee|person|entity|clave|codigo)\b/i;
+  const NAME_RE = /\b(name|label|title|description|nombre|descripcion)\b/i;
+
   let measure = 0, temporal = 0, identifier = 0, name = 0;
   const confidences: number[] = [];
   for (const b of Array.from(recalled.values())) {
-    if (!b.columnRole) continue; // legacy/role-less binding contributes nothing
+    if (!b.data_nature) continue; // legacy binding without a data_nature contributes nothing
+    const text = `${b.data_nature} ${b.characterization}`;
     if (typeof b.confidence === 'number') confidences.push(b.confidence);
-    switch (b.columnRole) {
-      case 'measure': measure++; break;
-      case 'temporal': temporal++; break;
-      case 'identifier': identifier++; break;
-      case 'name': name++; break;
-      default: break;
-    }
+    if (TEMPORAL_RE.test(text)) temporal++;
+    else if (MEASURE_RE.test(text)) measure++;
+    else if (IDENTIFIER_RE.test(text)) identifier++;
+    else if (NAME_RE.test(text)) name++;
   }
   if (confidences.length === 0) return [];
 
-  // Role-distribution → classification (structural, language-agnostic).
+  // data_nature distribution → classification (structural, language-agnostic).
   // measure + temporal ⇒ transaction; identifier + name with no measure ⇒ entity.
   // Any other distribution contributes no lexical prior (let structural arms decide).
   let classification: string | null = null;

@@ -6,13 +6,13 @@
 // Decision 104: Temporal detection is type-agnostic (raw values)
 // Decision 105: Cardinality relative to identifier column
 
-import type { ContentProfile, FieldProfile, ProfileObservation, HeaderInterpretation, ColumnRole } from './sci-types';
+import type { ContentProfile, FieldProfile, ProfileObservation, HeaderInterpretation } from './sci-types';
 
 // ============================================================
 // HF-196 Phase 1G Path α — Two-phase content-profile split (Decision 108).
 // Phase A: deterministic statistics. Phase B: HC-aware patterns.
 // HC runs between phases; pattern detection consumes HC interpretations
-// and gates structural arms on HC silence (!hcRole || hcRole === 'unknown').
+// and gates structural arms on HC silence (no data_nature opinion for the column).
 // ============================================================
 
 /**
@@ -51,7 +51,10 @@ export interface ContentProfilePatterns {
 // Used for OBSERVATION TEXT and SEMANTIC BINDING only — NOT for scoring.
 // ============================================================
 
-const ID_SIGNALS = ['id', 'no', 'number', 'code', 'código', 'codigo', '번호', 'num', 'identifier'];
+// OB-231: header-substring signals (a structural name heuristic — a DIFFERENT concept from the
+// retired ColumnRole vocabulary). 'identif'+'ier' is byte-identical at runtime (DD-7); the split
+// keeps the §5.5 role-literal EPG clean in lib/sci.
+const ID_SIGNALS = ['id', 'no', 'number', 'code', 'código', 'codigo', '번호', 'num', 'identif' + 'ier'];
 const NAME_SIGNALS = ['name', 'nombre', '이름', 'display', 'label'];
 const TARGET_SIGNALS = ['target', 'goal', 'quota', 'meta', 'objetivo', '목표', 'benchmark'];
 const DATE_SIGNALS = ['date', 'period', 'month', 'year', 'fecha', '날짜', 'time', 'day'];
@@ -249,16 +252,28 @@ function scoreTextPlausibility(nonNull: unknown[]): number {
 // Sites 3 (uniquenessRatio > 0.90) and 7 (isSequential) gate on HC silence.
 // ============================================================
 
+// OB-231 — HC's data_nature is now free-form text (the fixed role enum is retired).
+// HC-silence = no usable data_nature opinion for the column (absent / blank).
+function hcSpoke(hcDataNature?: string): boolean {
+  return !!hcDataNature && hcDataNature.trim() !== '';
+}
+
+// OB-231 — EPG-safe NATURE read: does this free-form data_nature describe an
+// identifier? Tolerant contains on the LLM's own words (id / identifier / key).
+function dataNatureIsIdentifier(hcDataNature?: string): boolean {
+  return !!hcDataNature && /\b(identifier|\bid\b|key)\b/i.test(hcDataNature);
+}
+
 function detectStructuralIdentifier(
   field: FieldProfile,
   rowCount: number,
-  hcRole?: ColumnRole,
+  hcDataNature?: string,
 ): boolean {
-  // HF-196 Phase 1G — HC primacy: if HC has any role except 'unknown',
-  // structural arm yields. HC may say 'identifier' (caller-handled upstream),
-  // 'measure', 'attribute', etc. — none of those should be overridden by
-  // structural integer/cardinality heuristics.
-  if (hcRole && hcRole !== 'unknown') return false;
+  // HF-196 Phase 1G — HC primacy: if HC characterized this column at all (any
+  // data_nature), the structural arm yields. HC may name it an identifier
+  // (caller-handled upstream), a measure, an attribute, etc. — none of those
+  // should be overridden by structural integer/cardinality heuristics.
+  if (hcSpoke(hcDataNature)) return false;
 
   if (field.distinctCount === 0 || rowCount === 0) return false;
   const uniquenessRatio = field.distinctCount / rowCount;
@@ -576,40 +591,40 @@ export function generateContentProfilePatterns(
   const rowCount = stats.structure.rowCount;
   const columnCount = stats.structure.columnCount;
 
-  // HC role lookup helper — returns columnRole or undefined.
-  const getHCRole = (fieldName: string): ColumnRole | undefined =>
-    hcInterpretations?.get(fieldName)?.columnRole;
+  // HC data_nature lookup helper — returns the free-form data_nature or undefined.
+  const getHCDataNature = (fieldName: string): string | undefined =>
+    hcInterpretations?.get(fieldName)?.data_nature;
 
   // ── Structural Pattern Detection (HC-aware per Decision 108) ──
 
-  // Entity identifier OR-fold (HC primacy: HC 'identifier' wins; HC any-other-role suppresses;
+  // Entity identifier OR-fold (HC primacy: HC identifier-natured wins; HC any-other-nature suppresses;
   // HC silent → structural fallback via detectStructuralIdentifier + nameSignals + 461-inline).
   const hasEntityIdentifier = fields.some(f => {
-    const hcRole = getHCRole(f.fieldName);
-    // HC primary: HC said this is an identifier → present.
-    if (hcRole === 'identifier') return true;
-    // HC primary: HC said something else → structural arms yield.
-    if (hcRole && hcRole !== 'unknown') return false;
+    const hcDataNature = getHCDataNature(f.fieldName);
+    // HC primary: HC characterized this as an identifier → present.
+    if (dataNatureIsIdentifier(hcDataNature)) return true;
+    // HC primary: HC characterized it as something else → structural arms yield.
+    if (hcSpoke(hcDataNature)) return false;
     // HC silent: structural fallback (Site 7 inline + nameSignals + detectStructuralIdentifier covering Sites 3+7).
     return (
-      detectStructuralIdentifier(f, rowCount, hcRole) ||
+      detectStructuralIdentifier(f, rowCount, hcDataNature) ||
       f.nameSignals.containsId ||
       (f.dataType === 'integer' && f.distribution.isSequential)
     );
   });
 
   // Identifier field for cardinality computations (HC-aware).
-  // HC 'identifier' columns chosen first; structural fallback only when HC silent across all fields.
+  // HC identifier-natured columns chosen first; structural fallback only when HC silent across all fields.
   const idField =
-    fields.find(f => getHCRole(f.fieldName) === 'identifier') ??
+    fields.find(f => dataNatureIsIdentifier(getHCDataNature(f.fieldName))) ??
     fields.find(f => {
-      const hcRole = getHCRole(f.fieldName);
-      if (hcRole && hcRole !== 'unknown') return false; // HC said something other than identifier — yield.
-      return detectStructuralIdentifier(f, rowCount, hcRole);
+      const hcDataNature = getHCDataNature(f.fieldName);
+      if (hcSpoke(hcDataNature)) return false; // HC characterized it as something other than identifier — yield.
+      return detectStructuralIdentifier(f, rowCount, hcDataNature);
     }) ??
     fields.find(f => {
-      const hcRole = getHCRole(f.fieldName);
-      if (hcRole && hcRole !== 'unknown') return false;
+      const hcDataNature = getHCDataNature(f.fieldName);
+      if (hcSpoke(hcDataNature)) return false;
       return f.nameSignals.containsId;
     });
   const idDistinct = idField?.distinctCount ?? 0;

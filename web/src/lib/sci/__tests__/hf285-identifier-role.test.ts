@@ -29,9 +29,11 @@ function profileWithUniqueIdentifier(): ContentProfile {
     distribution: { isSequential: false } as FieldProfile['distribution'],
   } as unknown as FieldProfile);
 
-  const interpretations = new Map<string, { columnName: string; columnRole: string; confidence: number; semanticMeaning: string; dataExpectation: string }>();
-  interpretations.set('location_id', { columnName: 'location_id', columnRole: 'identifier', confidence: 0.85, semanticMeaning: 'id', dataExpectation: '' });
-  // no identifiesWhat → forces the deterministic/classification-aware fallback
+  // OB-231: free-form characterization shape. data_nature='identifier' (identifier nature) with NO
+  // `identifies` scope → forces the deterministic/classification-aware fallback (entity vs transaction
+  // decided by the sheet classification), exactly the pre-OB-231 columnRole='identifier'+no-identifiesWhat case.
+  const interpretations = new Map<string, { columnName: string; data_nature: string; identifies: string; confidence: number; characterization: string; dataExpectation: string; relationships: string[] }>();
+  interpretations.set('location_id', { columnName: 'location_id', data_nature: 'identifier', identifies: '', confidence: 0.85, characterization: 'id', dataExpectation: '', relationships: [] });
 
   return {
     contentUnitId: 'f::Sucursales::0',

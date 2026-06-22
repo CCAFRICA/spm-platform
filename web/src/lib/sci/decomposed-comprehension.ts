@@ -43,12 +43,14 @@ export interface ResidueRequest {
   rowCount: number;
 }
 
-/** Full per-column interpretation as the LLM returns it (for headerComprehension reconstruction). */
+/** Full per-column interpretation as the LLM returns it (for headerComprehension reconstruction).
+ *  OB-231: free-form characterization channels (was semanticMeaning/columnRole/identifiesWhat). */
 export interface ComprehendedInterpretation {
-  semanticMeaning: string;
+  characterization: string;
   dataExpectation: string;
-  columnRole: string;
-  identifiesWhat?: string;
+  data_nature: string;
+  identifies: string;
+  relationships: string[];
   confidence: number;
 }
 
@@ -136,12 +138,13 @@ export async function decomposeComprehension(
       const comprehendedColumns: Array<{ columnName: string; interpretation: ComprehendedInterpretation }> = [];
       for (const col of plan.novelColumns) {
         const interp: ComprehendedInterpretation = res.interpretations[col] ?? {
-          semanticMeaning: 'unknown', dataExpectation: 'unknown', columnRole: 'unknown', confidence: 0.5,
+          characterization: 'unknown', dataExpectation: 'unknown', data_nature: 'unknown', identifies: 'nothing', relationships: [], confidence: 0.5,
         };
         comprehendedColumns.push({ columnName: col, interpretation: interp });
-        if (interp.columnRole && interp.columnRole !== 'unknown') {
+        // OB-231: the accumulated atom "role" label carries the free-form data_nature.
+        if (interp.data_nature && interp.data_nature !== 'unknown') {
           const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.columnRole, roleConfidence: interp.confidence });
+          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence });
         }
       }
 
