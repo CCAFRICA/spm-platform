@@ -8,6 +8,32 @@ export const SUPPORTED_LOCALES: { code: Locale; name: string; flag: string }[] =
 
 export const DEFAULT_LOCALE: Locale = 'en-US';
 
+// HF-335 — shared, presentation-layer locale predicates (NOT engine/SCI/calculation; AP-25 safe).
+// Accept a broad `string` because the TENANT locale set (types/tenant.ts) is wider than the i18n
+// `Locale` union — e.g. `es-PE`, `en-GB`, `fr-FR` — and must be classified correctly.
+
+/**
+ * Is this a Spanish locale? Prefix match so BOTH `es-MX` and `es-PE` (a real, creatable tenant
+ * locale with no dedicated catalog) render Spanish. Replaces the ~90 exact `locale === 'es-MX'`
+ * checks that previously left es-PE tenants in English.
+ */
+export function isSpanishLocale(locale?: string | null): boolean {
+  return !!locale && locale.toLowerCase().startsWith('es');
+}
+
+/**
+ * Map an ISO locale code to a language NAME for AI prompt construction (Defect Class B). Prefix-based
+ * and extensible — adding a locale family is one line. Presentation-layer only (used to build the
+ * model's LANGUAGE REQUIREMENT instruction), never a structural identifier.
+ */
+export function localeToLanguageName(locale?: string | null): string {
+  const l = (locale || '').toLowerCase();
+  if (l.startsWith('es')) return 'Spanish';
+  if (l.startsWith('pt')) return 'Portuguese';
+  if (l.startsWith('fr')) return 'French';
+  return 'English';
+}
+
 // Translation cache
 const translationCache: Record<string, Record<string, unknown>> = {};
 

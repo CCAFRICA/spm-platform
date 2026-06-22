@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { loadChequesData, type ChequeDrillData } from '@/lib/financial/financial-data-service';
 
 interface ChequeListProps {
@@ -22,7 +22,7 @@ interface ChequeListProps {
 export function ChequeList({ tenantId, entityId, meseroId, leakageCategory, emphasis }: ChequeListProps) {
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const es = locale === 'es-MX';
+  const es = isSpanishLocale(locale);
   const [data, setData] = useState<ChequeDrillData | null>(null);
   const [loading, setLoading] = useState(true);
 

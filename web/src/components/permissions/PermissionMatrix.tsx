@@ -16,7 +16,7 @@ import {
   PERMISSION_CATEGORIES,
   getPermissionsByCategory,
 } from '@/types/permission';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface PermissionMatrixProps {
@@ -37,7 +37,7 @@ export function PermissionMatrix({
   compactMode = false,
 }: PermissionMatrixProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const categories = useMemo(() => {
     return Object.keys(PERMISSION_CATEGORIES) as PermissionCategory[];

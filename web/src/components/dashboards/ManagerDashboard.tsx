@@ -26,7 +26,7 @@ import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { Sparkline } from '@/components/design-system/Sparkline';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getManagerDashboardData,
@@ -121,7 +121,7 @@ export function ManagerDashboard() {
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-315: dark zinc DS-001 cards → design-spec .card surfaces + readable text
   // Theme-aware surface + section text. Non-Vialuce keeps the exact dark literals (byte-identical).
   const cardStyle = isVialuce ? VL_CARD_STYLE : CARD_STYLE;

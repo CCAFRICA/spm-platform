@@ -18,7 +18,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useSession } from '@/contexts/session-context';
 import { isVLAdmin } from '@/types/auth';
@@ -392,7 +392,7 @@ export default function OperateLandingPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const { ruleSetCount } = useSession();
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasFinancial = useFeature('financial');
   const tenantId = currentTenant?.id ?? '';
   const hasICM = ruleSetCount > 0;

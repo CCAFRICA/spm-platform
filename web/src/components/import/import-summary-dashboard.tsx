@@ -28,7 +28,7 @@ import {
   Tooltip,
 } from 'recharts';
 import type { ImportBatchSummary, AnomalyFlag } from '@/lib/data-architecture/types';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface ImportSummaryDashboardProps {
@@ -48,7 +48,7 @@ export function ImportSummaryDashboard({
   className,
 }: ImportSummaryDashboardProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const chartData = [
     {

@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // HF-316: design-spec ring fill — indigo ramp for high, gold for medium, slate for low/unknown.
@@ -63,7 +63,7 @@ export function ConfidenceRing({
   className,
 }: ConfidenceRingProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-316: indigo/gold ring ramp + line track + DM Mono score under Vialuce
 
   const sizeConfig = SIZE_CONFIG[size];
@@ -176,7 +176,7 @@ export function ConfidenceRingWithLabel({
   className,
 }: Omit<ConfidenceRingProps, 'showScore'>) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-316: DM Mono score under Vialuce
 
   const level = getConfidenceLevel(score);

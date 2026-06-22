@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Globe, Check } from 'lucide-react';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { SUPPORTED_LOCALES, Locale } from '@/lib/i18n';
 
 export function LanguageSwitcher() {
@@ -18,7 +18,7 @@ export function LanguageSwitcher() {
 
   // Use context locale as source of truth (user selection overrides tenant default)
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const handleLocaleChange = (newLocale: Locale) => {
     if (newLocale !== locale) {

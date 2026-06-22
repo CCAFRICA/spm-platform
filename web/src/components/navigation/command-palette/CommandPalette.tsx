@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useCommandPalette, useNavigation } from '@/contexts/navigation-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import type { UserRole } from '@/types/auth';
 import type { CommandItem, CommandCategory } from '@/types/navigation';
 import {
@@ -152,7 +152,7 @@ export function CommandPalette() {
   const { currentTenant } = useTenant();
 
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id || 'default';
 
   const [query, setQuery] = useState('');

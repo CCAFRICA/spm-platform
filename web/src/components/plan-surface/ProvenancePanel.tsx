@@ -8,11 +8,11 @@
 import { useEffect, useState } from 'react';
 import { Quote, Link2, GitBranch, History, Loader2 } from 'lucide-react';
 import { getProvenance, type CanonicalComponent, type ProvenanceData } from '@/lib/plan-surface';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 export function ProvenancePanel({ component, ruleSetId, planConfidence }: { component: CanonicalComponent; ruleSetId: string; planConfidence?: number }) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const prov: ProvenanceData = getProvenance(component, planConfidence);
   const [corrections, setCorrections] = useState<ProvenanceData['corrections']>([]);
   const [loading, setLoading] = useState(true);

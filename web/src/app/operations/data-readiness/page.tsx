@@ -44,7 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface FileColumn {
   id: string;
@@ -82,7 +82,7 @@ const initialAlertConfigs: AlertConfig[] = [];
 
 export default function DataReadinessPage() {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [files, setFiles] = useState<ExpectedFile[]>(initialFiles);
   const [alertConfigs, setAlertConfigs] = useState<AlertConfig[]>(initialAlertConfigs);

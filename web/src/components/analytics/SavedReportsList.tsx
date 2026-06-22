@@ -25,7 +25,7 @@ import {
   Clock,
 } from 'lucide-react';
 import type { SavedReport } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface SavedReportsListProps {
   reports: SavedReport[];
@@ -41,7 +41,7 @@ export function SavedReportsList({
   onDuplicate,
 }: SavedReportsListProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(locale, {

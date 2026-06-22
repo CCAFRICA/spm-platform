@@ -14,7 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
 import { getTenantOnboardingState, type TenantOnboardingState } from '@/lib/insights'; // HF-326 Defect C
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -145,7 +145,7 @@ export default function PeriodsPage() {
   const { locale } = useLocale();
   const isVialuce = useIsVialuce();
   const tenantId = currentTenant?.id;
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const router = useRouter(); // HF-326 Defect C
   const [tenantState, setTenantState] = useState<TenantOnboardingState | null>(null); // HF-326 Defect C

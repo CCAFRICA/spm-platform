@@ -18,7 +18,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'rea
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useOperate } from '@/contexts/operate-context';
 import { isVLAdmin } from '@/types/auth';
@@ -251,7 +251,7 @@ export default function ReconciliationPage() {
   const { locale } = useLocale();
   const { user } = useAuth();
   const { selectedBatchId: contextBatchId } = useOperate();
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   // HF-324 D6/O6: the inline-style CARD_STYLE const (dark rgba) bypasses the HF-316 utility-class
   // CSS net, so the reconciliation cards stayed grey under Vialuce. Make it theme-aware (matches the

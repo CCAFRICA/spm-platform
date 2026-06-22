@@ -21,7 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Download, FileText, FileSpreadsheet, File } from 'lucide-react';
 import type { MetricType, ExportConfig } from '@/types/analytics';
 import { METRIC_CONFIG } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface ExportDialogProps {
   open: boolean;
@@ -37,7 +37,7 @@ export function ExportDialog({
   dateRange,
 }: ExportDialogProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [format, setFormat] = useState<'csv' | 'xlsx' | 'pdf'>('csv');
   const [selectedMetrics, setSelectedMetrics] = useState<MetricType[]>([

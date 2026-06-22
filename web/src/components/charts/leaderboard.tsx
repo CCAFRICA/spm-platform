@@ -3,7 +3,7 @@
 import { Trophy, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface LeaderboardItem {
@@ -32,7 +32,7 @@ export function Leaderboard({
 }: LeaderboardProps) {
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const getRankBadgeStyle = (rank: number) => {
     if (rank === 1) return 'bg-yellow-100 text-yellow-700 border-yellow-300';

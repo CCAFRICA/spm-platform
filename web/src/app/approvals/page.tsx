@@ -46,7 +46,7 @@ import {
   escalateRequest,
 } from '@/lib/approval-routing/approval-service';
 import type { ApprovalRequest, ApprovalDomain, ApprovalStatus } from '@/lib/approval-routing/types';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 
@@ -65,7 +65,7 @@ export default function ApprovalCenterPage() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [activeTab, setActiveTab] = useState('pending');

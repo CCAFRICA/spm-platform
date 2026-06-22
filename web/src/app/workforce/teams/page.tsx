@@ -56,7 +56,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface TeamMember {
   id: string;
@@ -150,7 +150,7 @@ const regions = ['CDMX', 'Jalisco', 'Nuevo León', 'Puebla', 'Nacional'];
 
 export default function TeamsPage() {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [teams, setTeams] = useState<Team[]>(mockTeams);
   const [searchTerm, setSearchTerm] = useState('');

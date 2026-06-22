@@ -17,7 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 // ============================================
@@ -64,7 +64,7 @@ const SIZE_CONFIG = {
 export function StateIndicator(props: StateIndicatorProps) {
   const { type, className, showLabel = false, size = 'md' } = props;
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   if (type === 'confidence') {
     return (

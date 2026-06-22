@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import type { BulkOperationType, BulkActionConfig } from '@/types/bulk-operations';
 import { BULK_ACTIONS } from '@/types/bulk-operations';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface BulkSelectionBarProps {
   selectedCount: number;
@@ -71,7 +71,7 @@ export function BulkSelectionBar({
   totalItems,
 }: BulkSelectionBarProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [confirmAction, setConfirmAction] = useState<BulkActionConfig | null>(null);
 

@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { createClient } from '@/lib/supabase/client';
@@ -64,7 +64,7 @@ function PeopleConfigurePageInner() {
   const { currentTenant } = useTenant();
   const { locale } = useLocale();
   const isVialuce = useIsVialuce();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const tenantId = currentTenant?.id ?? '';
 
   const [entities, setEntities] = useState<EntityRow[]>([]);

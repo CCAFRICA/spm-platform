@@ -37,7 +37,7 @@ import type {
   ScopeType,
 } from '@/types/permission';
 import { ALL_PERMISSIONS, PERMISSION_CATEGORIES } from '@/types/permission';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface UserPermissionCardProps {
   assignment: UserPermissionAssignment;
@@ -55,7 +55,7 @@ export function UserPermissionCard({
   readOnly = false,
 }: UserPermissionCardProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [showPermissions, setShowPermissions] = useState(false);
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
@@ -327,7 +327,7 @@ export function UserPermissionListItem({
   onClick,
 }: UserPermissionListItemProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const getInitials = (name: string) => {
     return name

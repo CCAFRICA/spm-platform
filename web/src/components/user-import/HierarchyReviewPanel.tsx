@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ConfidenceRing } from '@/components/design-system/ConfidenceRing';
 import { cn } from '@/lib/utils';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import type {
   HierarchyDetectionResult,
   HierarchyConflict,
@@ -112,7 +112,7 @@ export function HierarchyReviewPanel({
   className,
 }: HierarchyReviewPanelProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
   // Group results by review status

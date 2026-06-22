@@ -21,7 +21,7 @@ import {
   Heart,
 } from 'lucide-react';
 import type { KPIMetric, MetricType } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useCurrency } from '@/contexts/tenant-context';
 
 interface KPICardProps {
@@ -54,7 +54,7 @@ const COLOR_MAP: Record<MetricType, string> = {
 export function KPICard({ metric, onClick }: KPICardProps) {
   const { locale } = useLocale();
   const { format: formatCurrency } = useCurrency();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const Icon = ICON_MAP[metric.id] || BarChart3;
   const colorClass = COLOR_MAP[metric.id] || 'text-zinc-400 bg-zinc-800/50';

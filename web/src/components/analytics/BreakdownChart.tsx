@@ -22,7 +22,7 @@ import {
 } from 'recharts';
 import { ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
 import type { DimensionBreakdown } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useCurrency } from '@/contexts/tenant-context';
 
 interface BreakdownChartProps {
@@ -48,7 +48,7 @@ export function BreakdownChart({
 }: BreakdownChartProps) {
   const { locale } = useLocale();
   const { symbol } = useCurrency();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const formatCurrency = (value: number) => {
     if (value >= 1000000) {

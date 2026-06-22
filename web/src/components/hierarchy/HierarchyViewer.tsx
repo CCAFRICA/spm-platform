@@ -39,7 +39,7 @@ import {
 import { HierarchyNodeCard, HierarchyNodeCompact } from './HierarchyNode';
 import { ConfidenceRing } from '@/components/design-system/ConfidenceRing';
 import { cn } from '@/lib/utils';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import type {
   HierarchyTree,
   HierarchyNode,
@@ -93,7 +93,7 @@ export function HierarchyViewer({
   className,
 }: HierarchyViewerProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [options, setOptions] = useState<HierarchyViewOptions>({
     ...DEFAULT_OPTIONS,

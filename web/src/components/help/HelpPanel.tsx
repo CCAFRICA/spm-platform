@@ -38,7 +38,7 @@ import {
   searchArticles,
   getArticlesForRoute,
 } from '@/lib/help/help-service';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface HelpPanelProps {
   currentRoute?: string;
@@ -55,7 +55,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
 
 export function HelpPanel({ currentRoute = '/' }: HelpPanelProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArticle, setSelectedArticle] = useState<HelpArticle | null>(null);

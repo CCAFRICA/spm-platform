@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import type { BulkOperation, BulkOperationResult } from '@/types/bulk-operations';
 import { BULK_ACTIONS } from '@/types/bulk-operations';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface BulkProgressDialogProps {
   open: boolean;
@@ -44,7 +44,7 @@ export function BulkProgressDialog({
   onCancel,
 }: BulkProgressDialogProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [showErrors, setShowErrors] = useState(false);
 

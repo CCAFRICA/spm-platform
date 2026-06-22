@@ -30,7 +30,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import type { Role, UserRoleAssignment } from '@/types/rbac';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface UserRoleAssignmentsProps {
   role: Role;
@@ -46,7 +46,7 @@ export function UserRoleAssignments({
   onRevoke,
 }: UserRoleAssignmentsProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);

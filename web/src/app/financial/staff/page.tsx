@@ -45,7 +45,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { loadStaffData, type StaffMemberData, type FinancialScope } from '@/lib/financial/financial-data-service';
@@ -58,7 +58,7 @@ export default function StaffPerformancePage() {
   const router = useRouter();
   const { scope } = usePersona();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const financialScope: FinancialScope | undefined = useMemo(() => {

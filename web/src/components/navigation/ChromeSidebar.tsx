@@ -22,7 +22,7 @@ import { useNavigation, useCommandPalette } from '@/contexts/navigation-context'
 import { usePersona } from '@/contexts/persona-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { WORKSPACES, getWorkspaceRoutesForRole } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 import { UserIdentity } from './mission-control/UserIdentity';
@@ -146,7 +146,7 @@ export function ChromeSidebar() {
 
   // Standing Rule 3: Admin interfaces always English
   const isAdminPersona = persona === 'admin';
-  const isSpanish = !isAdminPersona && locale === 'es-MX';
+  const isSpanish = !isAdminPersona && isSpanishLocale(locale);
 
   // Section accordion state — tracks which section IDs are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());

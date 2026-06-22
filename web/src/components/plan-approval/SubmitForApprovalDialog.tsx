@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { toast } from 'sonner';
@@ -39,7 +39,7 @@ export function SubmitForApprovalDialog({
   const { locale } = useLocale();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState('');

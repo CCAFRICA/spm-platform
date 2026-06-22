@@ -17,7 +17,7 @@ import { Keyboard } from 'lucide-react';
 import { getShortcutsByCategory } from '@/lib/help/help-service';
 import { SHORTCUT_CATEGORIES } from '@/types/help';
 import type { ShortcutCategory } from '@/types/help';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface KeyboardShortcutsDialogProps {
   open: boolean;
@@ -29,7 +29,7 @@ export function KeyboardShortcutsDialog({
   onOpenChange,
 }: KeyboardShortcutsDialogProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const shortcutsByCategory = getShortcutsByCategory();
 

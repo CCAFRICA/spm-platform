@@ -23,7 +23,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
 import { usePeriod } from '@/contexts/period-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
 import { useSearchParams } from 'next/navigation';
@@ -333,7 +333,7 @@ export function AdminDashboard() {
   }
 
   // Standing Rule 3: VL Admin always sees English
-  const isSpanish = userIsVLAdmin ? false : locale === 'es-MX';
+  const isSpanish = userIsVLAdmin ? false : isSpanishLocale(locale);
 
   if (!data || data.entityCount === 0) {
     return (

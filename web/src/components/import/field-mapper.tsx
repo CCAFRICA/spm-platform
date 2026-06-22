@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { FieldMapping } from '@/lib/import-pipeline/smart-mapper';
 import { getPlatformFields, getFieldTypeOptions } from '@/lib/import-pipeline/smart-mapper';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { cn } from '@/lib/utils';
 
 interface FieldMapperProps {
@@ -44,7 +44,7 @@ export function FieldMapper({
   className,
 }: FieldMapperProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const [templateName, setTemplateName] = useState('');
 
   const platformFields = getPlatformFields();

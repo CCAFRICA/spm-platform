@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Building2, User, Receipt } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTenant } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getFranquicias, getMeseros } from '@/lib/restaurant-service';
 import Link from 'next/link';
@@ -29,7 +29,7 @@ export function GlobalSearch() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const performSearch = useCallback(async (q: string) => {
     if (!q || q.length < 2) {

@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import { getUserDisplayRole, isVLAdmin } from '@/types/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -70,7 +70,7 @@ export function UserIdentity({ collapsed = false }: UserIdentityProps) {
   if (!user) return null;
 
   const userIsVLAdmin = isVLAdmin(user);
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const baseRole = getUserDisplayRole(user);
 
   // HF-063D: Show active persona role when VL Admin has persona override

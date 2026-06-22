@@ -20,7 +20,7 @@ import {
   AreaChart,
 } from 'recharts';
 import type { MetricTimeSeries } from '@/types/analytics';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useCurrency } from '@/contexts/tenant-context';
 
 interface MetricTrendChartProps {
@@ -40,7 +40,7 @@ export function MetricTrendChart({
 }: MetricTrendChartProps) {
   const { locale } = useLocale();
   const { symbol } = useCurrency();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);

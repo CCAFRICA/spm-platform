@@ -12,7 +12,7 @@ import { resolveRenderer } from './renderers';
 import { DistributionSparkline } from './DistributionSparkline';
 import { ConfidenceGlyph } from './ConfidenceGlyph';
 import { ProvenancePanel } from './ProvenancePanel';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 const SHAPE_GLYPH: Record<string, React.ReactNode> = {
   banded_lookup: <Layers className="h-4 w-4" />,
@@ -39,7 +39,7 @@ export interface ComponentCardProps {
 
 export function ComponentCard({ component, ruleSetId, periodId, confidence, planConfidence, canEdit, editSlot }: ComponentCardProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const view = analyzeComponent(component);
   const Renderer = resolveRenderer(component.componentType);
   const [dist, setDist] = useState<ComponentDistribution | null>(null);

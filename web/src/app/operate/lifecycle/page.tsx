@@ -20,7 +20,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption
 import { useTenant, useCurrency, useFeature } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useAuth } from '@/contexts/auth-context';
 import { isVLAdmin } from '@/types/auth';
 import { OperateSelector } from '@/components/operate/OperateSelector';
@@ -59,7 +59,7 @@ export default function OperateCockpitPage() {
   const { symbol: currencySymbol, format: formatCurrency } = useCurrency();
   const { locale } = useLocale();
   const { user } = useAuth();
-  const isSpanish = (user && isVLAdmin(user)) ? false : locale === 'es-MX';
+  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasFinancial = useFeature('financial');
   const tenantId = currentTenant?.id ?? '';
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)

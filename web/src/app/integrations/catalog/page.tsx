@@ -44,7 +44,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 
 interface Product {
@@ -91,7 +91,7 @@ const defaultSchema: SchemaColumn[] = [
 export default function ProductCatalogPage() {
   const { format } = useCurrency();
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   const [products, setProducts] = useState<Product[]>(mockProducts);

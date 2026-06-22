@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useNavigation, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import { CycleIndicator } from './CycleIndicator';
 import { QueuePanel } from './QueuePanel';
@@ -43,7 +43,7 @@ export function MissionControlRail({ isOpen = true, onClose }: MissionControlRai
   const { locale } = useLocale();
   const { persona } = usePersona();
 
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   // Respect persona override for cycle visibility (admin-only feature)
   const showCycle = persona === 'admin';

@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import type { AuditLogEntry, AuditAction, PermissionCategory } from '@/types/rbac';
 import { AUDIT_ACTIONS, PERMISSION_CATEGORIES } from '@/types/rbac';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 
 interface AuditLogTableProps {
   entries: AuditLogEntry[];
@@ -52,7 +52,7 @@ interface AuditLogTableProps {
 
 export function AuditLogTable({ entries, onExport }: AuditLogTableProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');

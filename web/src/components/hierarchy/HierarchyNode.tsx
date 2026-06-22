@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ConfidenceRing } from '@/components/design-system/ConfidenceRing';
 import { cn } from '@/lib/utils';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import type { HierarchyNode as HierarchyNodeType } from '@/types/hierarchy';
 
 // ============================================
@@ -96,7 +96,7 @@ export function HierarchyNodeCard({
   className,
 }: HierarchyNodeProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   const statusConfig = STATUS_CONFIG[node.status];
   const hasChildren = node.childrenIds.length > 0;

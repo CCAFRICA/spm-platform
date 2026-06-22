@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { QualityScore } from '@/types/data-quality';
 import { getQualityStatusLabel, getQualityStatusColor } from '@/lib/data-quality/quality-score-service';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
 import { TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,7 +22,7 @@ export function QualityScoreGauge({
   compact = false,
 }: QualityScoreGaugeProps) {
   const { locale } = useLocale();
-  const isSpanish = locale === 'es-MX';
+  const isSpanish = isSpanishLocale(locale);
 
   // Calculate trend direction
   const getTrendDirection = () => {
