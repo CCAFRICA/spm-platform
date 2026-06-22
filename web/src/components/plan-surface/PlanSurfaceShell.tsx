@@ -17,7 +17,8 @@ import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { LayoutGrid, ShieldCheck, Loader2 } from 'lucide-react';
 import type { PlanStructure, PersonaScope, CanonicalComponent } from '@/lib/plan-surface';
 import { PlanRail } from './PlanRail';
-import { PlanCanvas, type PeriodOption } from './PlanCanvas';
+import { type PeriodOption } from './PlanCanvas';
+import { resolvePersonaCanvas } from './persona-renderers';
 import { ConsequenceTray, type EditDraft } from './ConsequenceTray';
 import { ConfidenceGlyph } from './ConfidenceGlyph';
 
@@ -109,17 +110,19 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
           {/* Zone B — canvas */}
           <main>
             {selectedPlan ? (
-              <PlanCanvas
-                plan={selectedPlan}
-                periods={periods}
-                selectedPeriodId={selectedPeriodId}
-                onPeriodChange={setSelectedPeriodId}
-                editLabel={isSpanish ? 'Editar' : 'Edit'}
-                canEdit={!!persona?.canEdit}
-                onEditComponent={persona?.canEdit
+              // Concept ⑧ — the persona seam selects the renderer (only AdminCanvas this OB).
+              resolvePersonaCanvas(persona?.persona ?? 'admin')({
+                plan: selectedPlan,
+                periods,
+                selectedPeriodId,
+                onPeriodChange: setSelectedPeriodId,
+                editLabel: isSpanish ? 'Editar' : 'Edit',
+                canEdit: !!persona?.canEdit,
+                isSpanish,
+                onEditComponent: persona?.canEdit
                   ? (c: CanonicalComponent, variantId: string) => setDraft({ planId: selectedPlan.id, planName: selectedPlan.name, variantId, component: c, periodId: selectedPeriodId })
-                  : undefined}
-              />
+                  : undefined,
+              })
             ) : (
               <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
                 <LayoutGrid className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
