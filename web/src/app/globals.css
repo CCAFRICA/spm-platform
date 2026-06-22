@@ -658,6 +658,23 @@ html[data-theme="vialuce"] .nav a:hover .ti{color:var(--vl-nav-text)}
 html[data-theme="vialuce"] .nav a.on{color:#fff;font-weight:var(--vl-fw-med)}
 html[data-theme="vialuce"] .nav a.on .ti{color:var(--vialuce-gold-light)}
 html[data-theme="vialuce"] .nav a.on::before{content:"";position:absolute;left:-9px;top:7px;bottom:7px;width:2px;border-radius:0 2px 2px 0;background:var(--vl-sidebar-active-bar)}
+/* HF-332 — AGENTS: elevated wayfinding tiles (Wayfinder Layer 1). The agents become the visually
+   dominant region: an elevated bordered container of tiles (icon + name + descriptor); the active
+   agent carries a gold accent and reveals its children subordinate below; a divider then separates
+   the restrained utility row. Deep-Indigo base / Gold active, via the token system (no ad-hoc color). */
+html[data-theme="vialuce"] .agents{display:flex;flex-direction:column;gap:6px;padding:8px;margin-bottom:6px;background:rgba(255,255,255,.03);border:1px solid var(--vl-nav-line);border-radius:var(--vl-r-lg)}
+html[data-theme="vialuce"] .agent{border-radius:var(--vl-r-md)}
+html[data-theme="vialuce"] .agent-tile{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.04);padding:10px 11px;border-radius:var(--vl-r-md);cursor:pointer;transition:background var(--vl-dur),border-color var(--vl-dur)}
+html[data-theme="vialuce"] .agent-tile:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14)}
+html[data-theme="vialuce"] .agent-ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0;background:linear-gradient(135deg,var(--vialuce-indigo-light),var(--vialuce-indigo));color:#fff}
+html[data-theme="vialuce"] .agent-text{min-width:0;display:flex;flex-direction:column;line-height:1.2}
+html[data-theme="vialuce"] .agent-text b{font-size:13.5px;font-weight:var(--vl-fw-med);color:#fff}
+html[data-theme="vialuce"] .agent-desc{font-size:10.5px;color:var(--vl-nav-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-theme="vialuce"] .agent.on .agent-tile{background:rgba(102,104,216,.30);border-color:transparent;box-shadow:inset 3px 0 0 var(--vialuce-gold),inset 0 0 0 1px rgba(255,255,255,.10)}
+html[data-theme="vialuce"] .agent.on .agent-ic{background:linear-gradient(135deg,var(--vialuce-gold-light),var(--vialuce-gold));color:#3a2606}
+html[data-theme="vialuce"] .agent-children{padding:6px 2px 2px 10px;margin-top:2px}
+html[data-theme="vialuce"] .agent-children .sb-sec{padding:9px 10px}
+html[data-theme="vialuce"] .sb-div{height:1px;background:var(--vl-nav-line);margin:10px 4px}
 html[data-theme="vialuce"] .sb-foot{border-top:1px solid var(--vl-nav-line);padding:12px}
 html[data-theme="vialuce"] .persona{display:flex;background:rgba(0,0,0,.22);border-radius:var(--vl-r-pill);padding:3px;margin-bottom:12px}
 html[data-theme="vialuce"] .persona button{flex:1;border:0;background:transparent;font-family:var(--vl-font-sans);font-size:11px;color:var(--vl-nav-text);padding:7px 4px;border-radius:var(--vl-r-pill);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}

@@ -31,9 +31,9 @@ import { useWorkspace, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { usePersona } from '@/contexts/persona-context';
-import { WORKSPACES } from '@/lib/navigation/workspace-config';
+import { WORKSPACES, getWorkspaceRoutesForRole } from '@/lib/navigation/workspace-config';
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
-import type { WorkspaceId, WorkspaceSection, WorkspaceRoute } from '@/types/navigation';
+import type { WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
 import type { TenantFeatures } from '@/types/tenant';
 import type { PersonaKey } from '@/lib/design/tokens';
@@ -68,7 +68,14 @@ export function VialuceSidebar() {
       })
     : [], [effectiveRole, currentTenant?.features]);
 
-  const sections = useMemo<WorkspaceSection[]>(() => WORKSPACES[activeWorkspace]?.sections ?? [], [activeWorkspace]);
+  // HF-332: capability-gated sections (the single PDP, hasCapability) — replaces reading
+  // WORKSPACES[].sections raw + roles-only itemVisible. This is what gates Plans & Canvas on
+  // icm.configure_plans in the Vialuce rail (ChromeSidebar already used this helper). Reuses the
+  // live entitlement signal the OB-228 route enforces; no new entitlement concept invented.
+  const sections = useMemo<WorkspaceSection[]>(
+    () => effectiveRole ? getWorkspaceRoutesForRole(activeWorkspace, effectiveRole as UserRole) : [],
+    [activeWorkspace, effectiveRole],
+  );
 
   // HF-313 Defect 3: the per-user theme toggle (was UserIdentity's, not rendered under Vialuce since
   // ChromeSidebar swaps in this sidebar). Same mechanism as UserIdentity: POST /api/user/theme -> cookie
@@ -95,7 +102,6 @@ export function VialuceSidebar() {
     } catch { setThemeSaving(false); }
   };
 
-  const itemVisible = (it: WorkspaceRoute) => !it.roles || !effectiveRole || it.roles.includes(effectiveRole as UserRole);
   const isItemActive = (path: string) => pathname === path || (path !== '/' && pathname?.startsWith(path + '/'));
 
   // Open the section that contains the active route by default; others collapsed.
@@ -140,49 +146,74 @@ export function VialuceSidebar() {
         {/* HF-312: the gold Calculate CTA moved to VialuceTopbar (its design-spec home). Not
             duplicated here. */}
 
-        {/* Workspace switcher (2×2) */}
-        <div className="sb-lbl">{isSpanish ? 'Espacios' : 'Workspaces'}</div>
-        <div className="ws">
+        {/* HF-332 — AGENTS: elevated wayfinding tiles (Wayfinder Layer 1). Each entitled agent is an
+            elevated tile (icon + name + one-line descriptor from the config); the active agent carries
+            the gold accent and reveals its children (capability-gated sections) below, subordinate to
+            the tile. Below the container: a divider, then the restrained utility row. */}
+        <div className="sb-lbl">{isSpanish ? 'AGENTES' : 'AGENTS'}</div>
+        <div className="agents">
           {accessibleWorkspaces.map(wsId => {
             const ws = WORKSPACES[wsId];
+            const active = wsId === activeWorkspace;
             return (
-              <a key={wsId} className={cn(wsId === activeWorkspace && 'on')} onClick={() => navigateToWorkspace(wsId)}>
-                <Icon name={WS_ICON[wsId]} className="h-4 w-4" />
-                <span className="truncate">{isSpanish ? ws.labelEs : ws.label}</span>
-              </a>
+              <div key={wsId} className={cn('agent', active && 'on')}>
+                <button className="agent-tile" onClick={() => navigateToWorkspace(wsId)} aria-current={active ? 'page' : undefined}>
+                  <span className="agent-ic"><Icon name={WS_ICON[wsId]} className="h-4 w-4" /></span>
+                  <span className="agent-text">
+                    <b className="truncate">{isSpanish ? ws.labelEs : ws.label}</b>
+                    <span className="agent-desc">{isSpanish ? ws.descriptionEs : ws.description}</span>
+                  </span>
+                </button>
+                {active && sections.length > 0 && (
+                  <div className="agent-children">
+                    {sections.map(sec => {
+                      // HF-319 Surface D: OB-226 absorbed /operate/lifecycle into the /operate cockpit
+                      // (redirects under Vialuce); drop the redundant item here (Vialuce-scoped).
+                      const items = sec.routes.filter(it => it.path !== '/operate/lifecycle');
+                      if (items.length === 0) return null;
+                      // HF-332: single-route section → a direct child link (no redundant header),
+                      // matching ChromeSidebar's single-child behavior (e.g. Plans & Canvas under Calculate).
+                      if (items.length === 1) {
+                        const it = items[0];
+                        return (
+                          <div className="nav" key={sec.id}>
+                            <a className={cn(isItemActive(it.path) && 'on')} onClick={() => router.push(it.path)}>
+                              <Icon name={it.icon} className="h-4 w-4" />
+                              <span className="truncate">{isSpanish ? (it.labelEs ?? it.label) : it.label}</span>
+                            </a>
+                          </div>
+                        );
+                      }
+                      const open = sectionOpen(sec);
+                      return (
+                        <div key={sec.id}>
+                          <div className={cn('sb-sec', items.some(it => isItemActive(it.path)) && 'active', open && 'open')} onClick={() => toggleSection(sec.id)}>
+                            <span className="truncate">{isSpanish ? sec.labelEs : sec.label}</span>
+                            <span className="meta">{items.length}<ChevronDown className="chev h-3.5 w-3.5" /></span>
+                          </div>
+                          <div className={cn('nav', !open && 'collapsed')}>
+                            {items.map(it => (
+                              <a key={it.path} className={cn(isItemActive(it.path) && 'on')} onClick={() => router.push(it.path)}>
+                                <Icon name={it.icon} className="h-4 w-4" />
+                                <span className="truncate">{isSpanish ? (it.labelEs ?? it.label) : it.label}</span>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
 
-        {/* Active workspace sections → expandable groups + sub-items */}
-        {sections.map(sec => {
-          // HF-319 Surface D: OB-226 absorbed /operate/lifecycle (Operations Center) into the
-          // /operate Lifecycle Cockpit (it now redirects back to /operate under Vialuce). Drop the
-          // redundant nav item HERE — VialuceSidebar renders ONLY under data-theme="vialuce", so this
-          // is inherently Vialuce-scoped; Dark/Bliss (ChromeSidebar) keep the three-page structure.
-          const items = sec.routes.filter(itemVisible).filter(it => it.path !== '/operate/lifecycle');
-          if (items.length === 0) return null;
-          const open = sectionOpen(sec);
-          return (
-            <div key={sec.id}>
-              <div className={cn('sb-sec', items.some(it => isItemActive(it.path)) && 'active', open && 'open')} onClick={() => toggleSection(sec.id)}>
-                <span className="truncate">{isSpanish ? sec.labelEs : sec.label}</span>
-                <span className="meta">{items.length}<ChevronDown className="chev h-3.5 w-3.5" /></span>
-              </div>
-              <div className={cn('nav', !open && 'collapsed')}>
-                {items.map(it => (
-                  <a key={it.path} className={cn(isItemActive(it.path) && 'on')} onClick={() => router.push(it.path)}>
-                    <Icon name={it.icon} className="h-4 w-4" />
-                    <span className="truncate">{isSpanish ? (it.labelEs ?? it.label) : it.label}</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+        {/* Divider — separates the elevated AGENTS from the restrained utility row below */}
+        <div className="sb-div" />
 
-        {/* Search (⌘K) */}
-        <div className="sb-sec" onClick={() => setCommandPaletteOpen(true)} style={{ marginTop: 8 }}>
+        {/* Search (⌘K) — utility */}
+        <div className="sb-sec" onClick={() => setCommandPaletteOpen(true)}>
           <Command className="ti lead h-4 w-4" />
           <span>{isSpanish ? 'Buscar' : 'Search'}</span>
           <span className="meta">⌘K</span>
