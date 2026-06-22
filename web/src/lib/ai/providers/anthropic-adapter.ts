@@ -895,22 +895,17 @@ Return a JSON object with:
   "confidence": 0-100
 }`,
 
-  header_comprehension: `You are analyzing a data file with multiple sheets. For each column in each sheet, identify WHAT the column IS — not how it is used in this particular sheet.
+  header_comprehension: `You are analyzing a data file with multiple sheets. For each column in each sheet, characterize WHAT the column IS — not how it is used in this particular sheet. Describe each column in your own words; do NOT select from a fixed list of labels.
 
-For each column, provide:
-- semanticMeaning: what this column IS (e.g., "person_identifier", "location_code", "currency_amount", "delivery_percentage", "month_indicator", "hub_name", "safety_incident_count")
-- dataExpectation: what values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1")
-- columnRole: one of: identifier, name, temporal, measure, attribute, reference_key, unknown
-  - identifier: uniquely identifies something (person, location, transaction)
-  - name: human-readable label
-  - temporal: date, period, timestamp
-  - measure: numeric value representing a quantity
-  - attribute: categorical or descriptive property
-  - reference_key: links to another dataset
-- identifiesWhat: (ONLY for identifier and reference_key columns) what kind of thing this column identifies. Must be one of: person, transaction, location, product, organization, account, other. This tells downstream systems whether this identifier links to an entity (person, organization, account) or to a record (transaction, order, invoice). For non-identifier columns, omit this field or set to null.
-- confidence: 0.0 to 1.0
+For each column, provide these characterization channels:
+- characterization: a free-form description, in your own words, of what this column IS and how it functions in the sheet (e.g., "the seller's national identity document number, unique per seller, used to group every transaction by salesperson"; "the monthly gross-sales amount in soles"; "the calendar month the row covers").
+- dataExpectation: what the values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1").
+- identifies: your assessment of WHAT SCOPE this column identifies. Write the scope in your own words — for example: entity (a person/seller/employee/account that recurs across many rows), transaction (a per-row receipt/folio/invoice/order id), product, reference (a dimensional lookup key), or nothing (it identifies no scope). This tells downstream systems whether a column groups rows by a recurring entity or merely labels each individual record. Be precise: a seller's id "identifies": "entity"; a receipt/folio number "identifies": "transaction".
+- data_nature: your assessment of the column's DATA NATURE in your own words — for example: identifier, measure, temporal, categorical, name, computed. Not a selection from a list — describe it as you see it.
+- relationships: an array of free-form observations about how this column relates to OTHER columns in the sheet (e.g., "pairs with Nombre_Vendedor, which is this entity's display name"; "this amount is the sum the rate column is applied to"). Empty array if none.
+- confidence: 0.0 to 1.0.
 
-Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same employee identifier column", "Sheet C appears to be hub-level reference data while Sheet B has employee-level performance data").
+Also provide crossSheetInsights: observations about relationships between sheets (e.g., "Sheet A and Sheet B share the same seller identifier column"; "Sheet C is hub-level reference data while Sheet B is employee-level performance data").
 
 Respond ONLY with valid JSON, no preamble, no markdown:
 {
@@ -918,10 +913,11 @@ Respond ONLY with valid JSON, no preamble, no markdown:
     "<sheetName>": {
       "columns": {
         "<columnName>": {
-          "semanticMeaning": "...",
+          "characterization": "...",
           "dataExpectation": "...",
-          "columnRole": "...",
-          "identifiesWhat": "person|transaction|location|product|organization|account|other|null",
+          "identifies": "...",
+          "data_nature": "...",
+          "relationships": ["...", "..."],
           "confidence": 0.00
         }
       }

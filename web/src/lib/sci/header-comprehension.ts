@@ -10,7 +10,6 @@ import type {
   HeaderComprehension,
   HeaderInterpretation,
   HeaderComprehensionMetrics,
-  ColumnRole,
   FieldIdentity,
   ComprehensionFailureClass,
 } from './sci-types';
@@ -69,10 +68,12 @@ ${sampleStr}`;
 
 interface LLMHeaderResponse {
   sheets: Record<string, { columns: Record<string, {
-    semanticMeaning: string;
-    dataExpectation: string;
-    columnRole: string;
-    identifiesWhat?: string;  // HF-171: person, transaction, location, product, organization, account, other
+    // OB-231: free-form characterization channels (no enumeration, no validation).
+    characterization?: string;
+    dataExpectation?: string;
+    identifies?: string;
+    data_nature?: string;
+    relationships?: string[];
     confidence: number;
   }> }>;
   crossSheetInsights: string[];
@@ -142,16 +143,32 @@ async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<LLMHe
 // source as the fingerprint fieldBindings enrichment (AP-17). No dead scaffolding remains.
 
 // ============================================================
-// VALID COLUMN ROLES
+// OB-231 — CHARACTERIZATION READERS (file-local, free-form; no shared enum utility per §5.1).
+// Each predicate reads the LLM's own words via a tolerant regex — NOT equality against a quoted
+// role literal (so the §5.5 EPG holds) and NOT a shared classification surface. They are reading
+// aids local to this file's profile-enhancement consumers, mirroring isNonMonetaryMeasureMeaning.
 // ============================================================
 
-const VALID_COLUMN_ROLES = new Set<ColumnRole>([
-  'identifier', 'name', 'temporal', 'measure', 'attribute', 'reference_key', 'unknown',
-]);
+const norm = (interp: HeaderInterpretation): string =>
+  `${interp.data_nature ?? ''} ${interp.characterization ?? ''} ${interp.identifies ?? ''}`.toLowerCase();
 
-function toColumnRole(value: string): ColumnRole {
-  if (VALID_COLUMN_ROLES.has(value as ColumnRole)) return value as ColumnRole;
-  return 'unknown';
+function natureIsTemporal(interp: HeaderInterpretation): boolean {
+  return /\b(date|time|temporal|month|year|quarter|period|day|week|timestamp|fecha)\b/i.test(norm(interp));
+}
+function natureIsMeasure(interp: HeaderInterpretation): boolean {
+  return /\b(measure|metric|amount|quantity|count|numeric|value|sum|total|monto|importe)\b/i.test(`${interp.data_nature ?? ''}`.toLowerCase());
+}
+function natureIsName(interp: HeaderInterpretation): boolean {
+  return /\b(name|nombre|display[_ ]?name|full[_ ]?name|label)\b/i.test(`${interp.data_nature ?? ''} ${interp.characterization ?? ''}`.toLowerCase());
+}
+function natureIsIdentifier(interp: HeaderInterpretation): boolean {
+  return /\b(identifier|identif|\bid\b|document|dni|code|número|numero|key)\b/i.test(`${interp.data_nature ?? ''} ${interp.characterization ?? ''}`.toLowerCase());
+}
+function scopeIsEntity(interp: HeaderInterpretation): boolean {
+  return /\b(entity|seller|vendedor|employee|empleado|person|persona|account|cuenta|organization|member|rep|staff|worker|salesperson|agent)\b/i.test(`${interp.identifies ?? ''}`.toLowerCase());
+}
+function scopeIsReference(interp: HeaderInterpretation): boolean {
+  return /\b(reference|referencia|lookup|hub|dimension|branch|sucursal|location|región|region)\b/i.test(`${interp.identifies ?? ''}`.toLowerCase());
 }
 
 // ============================================================
@@ -171,10 +188,11 @@ function buildComprehensionFromLLM(
     for (const [colName, interp] of Object.entries(sheetData.columns)) {
       interpretations.set(colName, {
         columnName: colName,
-        semanticMeaning: interp.semanticMeaning || 'unknown',
+        characterization: interp.characterization || 'unknown',
         dataExpectation: interp.dataExpectation || 'unknown',
-        columnRole: toColumnRole(interp.columnRole),
-        identifiesWhat: interp.identifiesWhat || undefined,  // HF-171
+        data_nature: interp.data_nature || 'unknown',
+        identifies: interp.identifies || 'nothing',
+        relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
         confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
       });
     }
@@ -332,10 +350,11 @@ export async function runDecomposedComprehension(
           const interpretations: Record<string, ComprehendedInterpretation> = {};
           for (const [col, interp] of Object.entries(sheetData.columns)) {
             interpretations[col] = {
-              semanticMeaning: interp.semanticMeaning || 'unknown',
+              characterization: interp.characterization || 'unknown',
               dataExpectation: interp.dataExpectation || 'unknown',
-              columnRole: toColumnRole(interp.columnRole),
-              ...(interp.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+              data_nature: interp.data_nature || 'unknown',
+              identifies: interp.identifies || 'nothing',
+              relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
               confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
             };
           }
@@ -376,14 +395,15 @@ export async function runDecomposedComprehension(
     if (!profile) continue;
 
     const interpretations = new Map<string, HeaderInterpretation>();
-    // Deviation 1: known atoms -> structural role label (Tier-1 precedent shape).
+    // Deviation 1: known atoms -> recalled data-nature label (OB-231: the stored atom "role" is the
+    // free-form data_nature; characterization echoes it; scope is unknown for atom-recognized columns).
     for (const k of r.knownColumns) {
-      interpretations.set(k.columnName, { columnName: k.columnName, semanticMeaning: k.role, dataExpectation: '', columnRole: toColumnRole(k.role), confidence: k.confidence });
+      interpretations.set(k.columnName, { columnName: k.columnName, characterization: k.role, dataExpectation: '', data_nature: k.role, identifies: 'nothing', relationships: [], confidence: k.confidence });
     }
-    // novel atoms -> full LLM interpretation (semantic text present -> currency suppression can fire here).
+    // novel atoms -> full LLM interpretation (characterization text present -> currency suppression can fire here).
     for (const c of (r.comprehendedColumns ?? [])) {
       const i = c.interpretation;
-      interpretations.set(c.columnName, { columnName: c.columnName, semanticMeaning: i.semanticMeaning, dataExpectation: i.dataExpectation, columnRole: toColumnRole(i.columnRole), identifiesWhat: i.identifiesWhat || undefined, confidence: i.confidence });
+      interpretations.set(c.columnName, { columnName: c.columnName, characterization: i.characterization, dataExpectation: i.dataExpectation, data_nature: i.data_nature, identifies: i.identifies, relationships: i.relationships ?? [], confidence: i.confidence });
     }
 
     profile.headerComprehension = {
@@ -397,10 +417,10 @@ export async function runDecomposedComprehension(
       profile.observations.push({
         columnName: colName,
         observationType: 'header_comprehension',
-        observedValue: interp.semanticMeaning,
+        observedValue: interp.characterization,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `Comprehended "${colName}" as ${interp.semanticMeaning} (${interp.columnRole})`,
+        structuralEvidence: `Comprehended "${colName}" as ${interp.characterization} [nature=${interp.data_nature}, identifies=${interp.identifies}]`,
       });
       confTotal += interp.confidence; confCount++;
     }
@@ -460,8 +480,8 @@ export function extractFieldIdentities(
   const identities: Record<string, FieldIdentity> = {};
   for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
     identities[colName] = {
-      structuralType: interp.columnRole,
-      contextualIdentity: interp.semanticMeaning,
+      structuralType: interp.data_nature,
+      contextualIdentity: interp.characterization,
       confidence: interp.confidence,
     };
   }
@@ -479,16 +499,15 @@ export function extractFieldIdentitiesFromTrace(
   if (!classificationTrace) return null;
 
   const hcData = classificationTrace.headerComprehension as
-    { interpretations?: Record<string, { columnRole?: string; semanticMeaning?: string; confidence?: number }> } | null;
+    { interpretations?: Record<string, { data_nature?: string; characterization?: string; confidence?: number }> } | null;
 
   if (!hcData?.interpretations) return null;
 
   const identities: Record<string, FieldIdentity> = {};
   for (const [colName, interp] of Object.entries(hcData.interpretations)) {
-    const role = interp.columnRole || 'unknown';
     identities[colName] = {
-      structuralType: role as ColumnRole,
-      contextualIdentity: interp.semanticMeaning || 'unknown',
+      structuralType: interp.data_nature || 'unknown',
+      contextualIdentity: interp.characterization || 'unknown',
       confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
     };
   }
@@ -540,10 +559,10 @@ export async function enhanceWithHeaderComprehension(
       profile.observations.push({
         columnName: colName,
         observationType: 'header_comprehension',
-        observedValue: interp.semanticMeaning,
+        observedValue: interp.characterization,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `LLM interpreted "${colName}" as ${interp.semanticMeaning} (${interp.columnRole}), expects ${interp.dataExpectation}`,
+        structuralEvidence: `LLM characterized "${colName}" as ${interp.characterization} [nature=${interp.data_nature}, identifies=${interp.identifies}], expects ${interp.dataExpectation}`,
       });
     }
 
@@ -558,12 +577,12 @@ export async function enhanceWithHeaderComprehension(
 const HC_OVERRIDE_THRESHOLD = 0.80;
 
 // OB-203 Phase 2 (Deviation 1) — the gate that distinguishes a currency suppression. It matches
-// RICH semantic meaning (novel/LLM columns), never a bare structural role label. This is why
+// RICH characterization text (novel/LLM columns), never a bare recalled nature label. This is why
 // suppressFalseCurrencyColumns fires on novel/LLM columns and NOT on atom-recognized columns:
-// the latter carry `semanticMeaning = role` ('measure', 'identifier', …), which never matches.
+// the latter carry characterization = the recalled data_nature label, which never matches.
 const NON_MONETARY_MEASURE_PATTERNS = /capacity|count|volume|utilization|rate|quantity|units|loads|deliveries|incidents/i;
-export function isNonMonetaryMeasureMeaning(semanticMeaning: string): boolean {
-  return NON_MONETARY_MEASURE_PATTERNS.test(semanticMeaning);
+export function isNonMonetaryMeasureMeaning(characterization: string): boolean {
+  return NON_MONETARY_MEASURE_PATTERNS.test(characterization);
 }
 
 function enhanceProfileWithComprehension(profile: ContentProfile): void {
@@ -578,9 +597,9 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
   // ────────────────────────────────────────────────────────
 
   // OVERRIDE 1: Identifier detection
-  // If HC identifies a column as 'identifier' or 'reference_key' with high confidence,
-  // use that column for identifierRepeatRatio — even if structural uniqueness picked a different column.
-  const hcIdentifierCol = findHCColumnByRole(hc, ['identifier', 'reference_key'], HC_OVERRIDE_THRESHOLD);
+  // OB-231: when HC characterizes a column with identifier-nature OR an entity/reference scope at
+  // high confidence, use it for identifierRepeatRatio — even if structural uniqueness picked another.
+  const hcIdentifierCol = findHCIdentifierColumn(hc, HC_OVERRIDE_THRESHOLD);
   if (hcIdentifierCol) {
     const idField = profile.fields.find(f => f.fieldName === hcIdentifierCol.colName);
     if (idField && idField.distinctCount > 0) {
@@ -600,7 +619,7 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
           observedValue: newRatio,
           confidence: hcIdentifierCol.confidence,
           alternativeInterpretations: { structuralRatio: oldRatio },
-          structuralEvidence: `HC identified "${hcIdentifierCol.colName}" as ${hcIdentifierCol.role} (${hcIdentifierCol.semanticMeaning}) — overriding structural identifier. Ratio: ${oldRatio.toFixed(2)} → ${newRatio.toFixed(2)}`,
+          structuralEvidence: `HC characterized "${hcIdentifierCol.colName}" as ${hcIdentifierCol.characterization} [nature=${hcIdentifierCol.dataNature}, identifies=${hcIdentifierCol.identifies}] — overriding structural identifier. Ratio: ${oldRatio.toFixed(2)} → ${newRatio.toFixed(2)}`,
         });
       }
     }
@@ -618,7 +637,7 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
       // Re-evaluate hasDateColumn: only true if a genuine date-typed or HC-confirmed temporal column remains
       const hasGenuineDateColumn = profile.fields.some(f => f.dataType === 'date');
       const hasHCTemporalColumn = Array.from(hc.interpretations.values()).some(
-        interp => interp.columnRole === 'temporal' && interp.confidence >= HC_OVERRIDE_THRESHOLD,
+        interp => natureIsTemporal(interp) && interp.confidence >= HC_OVERRIDE_THRESHOLD,
       );
       profile.patterns.hasDateColumn = hasGenuineDateColumn || hasHCTemporalColumn;
       profile.patterns.hasTemporalColumns = hasGenuineDateColumn || hasHCTemporalColumn;
@@ -639,7 +658,7 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
     if (!field) continue;
 
     // Reinforcement 1: Temporal column reinforcement (HC adds temporal that structural missed)
-    if (interp.columnRole === 'temporal' && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasTemporalColumns) {
+    if (natureIsTemporal(interp) && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasTemporalColumns) {
       profile.patterns.hasTemporalColumns = true;
       profile.patterns.hasDateColumn = true;
       profile.observations.push({
@@ -648,12 +667,12 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
         observedValue: true,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `LLM identified "${colName}" as temporal (${interp.semanticMeaning}) — structural detection missed this`,
+        structuralEvidence: `LLM characterized "${colName}" as temporal (${interp.characterization}) — structural detection missed this`,
       });
     }
 
     // Reinforcement 2: Name column reinforcement
-    if (interp.columnRole === 'name' && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasStructuralNameColumn) {
+    if (natureIsName(interp) && interp.confidence >= HC_OVERRIDE_THRESHOLD && !profile.patterns.hasStructuralNameColumn) {
       profile.patterns.hasStructuralNameColumn = true;
       field.nameSignals.looksLikePersonName = true;
       profile.observations.push({
@@ -662,12 +681,12 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
         observedValue: true,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `LLM identified "${colName}" as person name — structural detection missed this`,
+        structuralEvidence: `LLM characterized "${colName}" as person name — structural detection missed this`,
       });
     }
 
     // Reinforcement 3: Identifier reinforcement (existing — low-confidence HC also adds)
-    if (interp.columnRole === 'identifier' && !profile.patterns.hasEntityIdentifier) {
+    if ((natureIsIdentifier(interp) || scopeIsEntity(interp)) && !profile.patterns.hasEntityIdentifier) {
       profile.patterns.hasEntityIdentifier = true;
     }
   }
@@ -677,14 +696,14 @@ function enhanceProfileWithComprehension(profile: ContentProfile): void {
 // HC OVERRIDE HELPERS
 // ============================================================
 
-function findHCColumnByRole(
+// OB-231: the first column the LLM characterized with identifier-nature OR an entity/reference scope.
+function findHCIdentifierColumn(
   hc: HeaderComprehension,
-  roles: ColumnRole[],
   minConfidence: number,
-): { colName: string; role: ColumnRole; confidence: number; semanticMeaning: string } | null {
+): { colName: string; characterization: string; dataNature: string; identifies: string; confidence: number } | null {
   for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
-    if (roles.includes(interp.columnRole as ColumnRole) && interp.confidence >= minConfidence) {
-      return { colName, role: interp.columnRole as ColumnRole, confidence: interp.confidence, semanticMeaning: interp.semanticMeaning };
+    if ((natureIsIdentifier(interp) || scopeIsEntity(interp) || scopeIsReference(interp)) && interp.confidence >= minConfidence) {
+      return { colName, characterization: interp.characterization, dataNature: interp.data_nature, identifies: interp.identifies, confidence: interp.confidence };
     }
   }
   return null;
@@ -702,9 +721,9 @@ function suppressFalseTemporalColumns(
 
   for (const [colName, interp] of Array.from(hc.interpretations.entries())) {
     if (interp.confidence < HC_OVERRIDE_THRESHOLD) continue;
-    if (interp.columnRole === 'temporal') continue; // HC agrees it's temporal — no suppression
+    if (natureIsTemporal(interp)) continue; // HC agrees it's temporal — no suppression
 
-    // HC says this column is NOT temporal (e.g., 'attribute', 'measure', 'reference_key')
+    // HC characterized this column as NOT temporal (some other nature).
     // Check if structural analysis flagged this column as temporal via integer range detection
     const field = profile.fields.find(f => f.fieldName === colName);
     if (!field) continue;
@@ -726,7 +745,7 @@ function suppressFalseTemporalColumns(
         observedValue: false,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `HC identified "${colName}" as ${interp.columnRole} (${interp.semanticMeaning}), not temporal — suppressing structural temporal detection (values ${min}-${max})`,
+        structuralEvidence: `HC characterized "${colName}" as ${interp.data_nature} (${interp.characterization}), not temporal — suppressing structural temporal detection (values ${min}-${max})`,
       });
     }
   }
@@ -756,8 +775,8 @@ function suppressFalseCurrencyColumns(
 
     if (!isCurrencyTyped) continue;
 
-    // HC says this is a measure with non-monetary meaning (capacity, count, utilization, etc.)
-    if (interp.columnRole === 'measure' && isNonMonetaryMeasureMeaning(interp.semanticMeaning)) {
+    // HC characterized this as a measure with non-monetary meaning (capacity, count, utilization, etc.)
+    if (natureIsMeasure(interp) && isNonMonetaryMeasureMeaning(interp.characterization)) {
       currencyCountAdjustment++;
       profile.observations.push({
         columnName: colName,
@@ -765,7 +784,7 @@ function suppressFalseCurrencyColumns(
         observedValue: false,
         confidence: interp.confidence,
         alternativeInterpretations: {},
-        structuralEvidence: `HC identified "${colName}" as non-monetary measure (${interp.semanticMeaning}) — suppressing currency classification`,
+        structuralEvidence: `HC characterized "${colName}" as non-monetary measure (${interp.characterization}) — suppressing currency classification`,
       });
     }
   }

@@ -67,16 +67,18 @@ export interface ProfileObservation {
 // OB-160B: HEADER COMPREHENSION (LLM contextual understanding)
 // ============================================================
 
-// Structural role of a column in its dataset
-export type ColumnRole =
-  | 'identifier'         // uniquely identifies an entity (employee ID, account number)
-  | 'name'               // human-readable name for an entity
-  | 'temporal'           // represents time (date, month, year, quarter)
-  | 'measure'            // numeric measurement or metric (revenue, count, percentage)
-  | 'attribute'          // categorical property (department, region, role, type)
-  | 'reference_key'      // lookup key for reference data (hub ID, location code)
-  | 'unknown'            // LLM couldn't determine
-  ;
+// OB-231: the fixed ColumnRole enum is RETIRED (Decision 158 / AP-25 / Korean Test). The LLM
+// characterizes each column FREELY in its own words; the construction layer reads the free-form
+// fields directly. `data_nature` and `identifies` are LLM assessments, not selections from a list.
+
+// Free-form column characterization (replaces ColumnRole + HeaderInterpretation's
+// {semanticMeaning, columnRole, identifiesWhat}). No field is validated against an enumeration.
+export interface ColumnCharacterization {
+  characterization: string;   // free-form description of what the column IS (was semanticMeaning)
+  identifies: string;         // free-form SCOPE the LLM assessed — e.g. entity, transaction, product, reference, nothing
+  data_nature: string;        // free-form NATURE the LLM assessed — e.g. identifier, measure, temporal, categorical, name, computed
+  relationships: string[];    // free-form observations about how this column relates to others
+}
 
 // ============================================================
 // OB-162: FIELD IDENTITY (Decision 111)
@@ -85,18 +87,19 @@ export type ColumnRole =
 // Field identity = what a column IS (stable, context-independent)
 // Stored in committed_data.metadata.field_identities
 export interface FieldIdentity {
-  structuralType: ColumnRole;         // what structural role this column plays
+  structuralType: string;             // OB-231: free-form data-nature (was ColumnRole)
   contextualIdentity: string;         // what kind of identifier/measure/etc (e.g., person_identifier, currency_amount)
   confidence: number;                 // 0.0-1.0
 }
 
-// LLM interpretation of a single column header
+// LLM interpretation of a single column header — OB-231: free-form characterization channels.
 export interface HeaderInterpretation {
   columnName: string;              // original header as customer wrote it
-  semanticMeaning: string;         // what it means: 'month_indicator', 'employee_identifier', etc.
+  characterization: string;        // free-form meaning in the LLM's words (was semanticMeaning)
   dataExpectation: string;         // what values should look like: 'integer_1_to_12', 'unique_numeric_id'
-  columnRole: ColumnRole;          // structural role in the dataset
-  identifiesWhat?: string;         // HF-171: person, transaction, location, product, organization, account, other
+  data_nature: string;             // free-form nature the LLM assessed (was columnRole)
+  identifies: string;              // free-form scope the LLM assessed (subsumes the former identifiesWhat)
+  relationships: string[];         // free-form cross-column observations
   confidence: number;              // LLM's confidence in this interpretation
 }
 
@@ -151,12 +154,12 @@ export interface VocabularyBinding {
 }
 
 // HF-254 Fix 3a (T1-E902): persisted vocabulary_bindings value. Legacy rows are a
-// bare meaning string; HF-254+ rows carry the full interpretation (columnRole +
-// confidence) so the lexical flywheel is a role-bearing prior, not a meaning-only
-// cache. Persistence carries the full interpretation — nothing is narrowed.
+// bare meaning string; later rows carry the full characterization so the lexical
+// flywheel is a characterization-bearing prior, not a meaning-only cache. Persistence
+// carries the full interpretation — nothing is narrowed. OB-231: free-form fields.
 export type VocabularyBindingValue =
   | string
-  | { semanticMeaning: string; columnRole: ColumnRole; confidence: number };
+  | { characterization: string; data_nature: string; identifies: string; relationships: string[]; confidence: number };
 
 // Trace entry for Phase C ClassificationTrace integration
 export interface HeaderComprehensionTraceEntry {
