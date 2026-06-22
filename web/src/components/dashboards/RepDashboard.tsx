@@ -32,7 +32,7 @@ import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIf
 import { ComponentStack } from '@/components/design-system/ComponentStack';
 import { RelativeLeaderboard } from '@/components/design-system/RelativeLeaderboard';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
-import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
+import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { useFeature } from '@/contexts/tenant-context';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
@@ -301,7 +301,7 @@ export function RepDashboard() {
       <AssessmentPanel
         persona="rep"
         data={assessmentData}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
         accentColor="#10b981"
         tenantId={tenantId}
       />
@@ -310,7 +310,7 @@ export function RepDashboard() {
         insights={repInsights}
         tenantName={currentTenant?.name || ''}
         periodLabel={activePeriodLabel}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
       />
       {/* ── Hero: Full width ── */}
       <div style={heroStyle}>

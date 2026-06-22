@@ -26,7 +26,7 @@ import { AnimatedNumber } from '@/components/design-system/AnimatedNumber';
 import { BenchmarkBar } from '@/components/design-system/BenchmarkBar';
 import { Sparkline } from '@/components/design-system/Sparkline';
 import { TrendArrow } from '@/components/design-system/TrendArrow';
-import { useLocale , isSpanishLocale} from '@/contexts/locale-context';
+import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { AssessmentPanel } from '@/components/design-system/AssessmentPanel';
 import {
   getManagerDashboardData,
@@ -359,7 +359,7 @@ export function ManagerDashboard() {
       <AssessmentPanel
         persona="manager"
         data={assessmentData}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
         accentColor="#f59e0b"
         tenantId={tenantId}
       />
@@ -368,7 +368,7 @@ export function ManagerDashboard() {
         insights={managerInsights}
         tenantName={currentTenant?.name || ''}
         periodLabel={activePeriodLabel}
-        locale={locale === 'es-MX' ? 'es' : 'en'}
+        locale={isSpanishLocale(locale) ? 'es' : 'en'}
       />
       {/* ── Row 1: Zone Hero (4) + Pacing (3) + Acceleration (5) ── */}
       <div className="grid grid-cols-12 gap-4">
