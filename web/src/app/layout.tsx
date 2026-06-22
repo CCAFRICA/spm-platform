@@ -9,6 +9,8 @@ import { TenantProvider } from "@/contexts/tenant-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { PrivacyNoticeFooter } from "@/components/privacy/PrivacyNoticeFooter";
+import { ClientErrorReporter } from "@/components/observability/ClientErrorReporter"; // OB-230 3A
+import { NavigationBreadcrumbs } from "@/components/observability/NavigationBreadcrumbs"; // OB-230 3C
 import { Toaster } from "sonner";
 import { cookies } from "next/headers";
 import { getServerAuthState } from "@/lib/auth/server-auth";
@@ -72,6 +74,9 @@ export default async function RootLayout({
                   <AuthShell>{children}</AuthShell>
                   <PrivacyNoticeFooter />
                   <Toaster position="top-right" richColors closeButton />
+                  {/* OB-230 Objective 3 — diagnostic signal capture (render nothing). */}
+                  <ClientErrorReporter />
+                  <NavigationBreadcrumbs />
                 </ConfigProvider>
               </SessionProvider>
             </LocaleProvider>
