@@ -177,3 +177,14 @@ SUBSTRATE: T1-E910 (AP-25) PASS (PG-5); T1-E952 (Adjacent-Arm Drift) — detecti
            instance (SR-34); T1-E953 (Decision-Implementation Gap) — locale threaded where missing in the
            swept set; Decision 158 — LLM generates language, code passes locale (Class B util in place).
 ```
+
+## FINAL BUILD VERIFICATION (Step 2)
+Run from repo root after all phases (`kill $(lsof -t -i:3000); rm -rf .next; npm run build`):
+```
+FINAL BUILD EXIT CODE: 0
+ ✓ Compiled successfully
+ ✓ Generating static pages (205/205)
+Route (app)                                    Size     First Load JS
++ First Load JS shared by all                  88.1 kB
+```
+PG-1 confirmed: clean production build, exit 0, 205/205 static pages. ("Dynamic server usage" notices during static generation are standard Next.js logs for cookie/searchParams routes, pre-existing across the app — not errors.)
