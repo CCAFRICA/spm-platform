@@ -2,7 +2,7 @@
 
 **Branch:** `ob-230-user-observability` · **Date:** 2026-06-22 · **Repo:** VP `CCAFRICA/spm-platform`
 **Directive:** `docs/vp-prompts/OB-230_DIRECTIVE_20260622.md` · **ADR:** `docs/completion-reports/OB-230_ARCHITECTURE_DECISION_RECORD.md`
-**Mode:** ULTRACODE. **Status:** built, type-clean, build-clean, dev-verified. **PR:** _(see §PR — opened by CC; architect merges + browser-verifies + applies migration, SR-43/SR-44)._
+**Mode:** ULTRACODE. **Status:** built, type-clean, build-clean, dev-verified. **PR:** https://github.com/CCAFRICA/spm-platform/pull/584 — opened by CC; architect merges + browser-verifies + applies migration (SR-43/SR-44).
 
 > Sequence check (HALT-4): `OB-230` maps uniquely to this objective. The directive file was architect-pre-placed; no competing OB-230 exists (no branch, no completion report). OB-231 (free-form characterization) is a separate, already-merged objective; OB-229 has no directive. Non-sequential build order, but **no collision** → proceeded.
 
