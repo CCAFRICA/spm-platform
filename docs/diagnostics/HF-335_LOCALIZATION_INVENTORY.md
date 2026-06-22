@@ -89,6 +89,26 @@ Type 1 = file has locale but this string lacks the branch; Type 2 = file has no 
 
 ---
 
+## §5 — PHASE 2: ARCHITECTURE DECISION RECORD (architect-disposed 2026-06-22)
+
+**HALT-1 disposition (architect):** (1) **Normalize to a shared `startsWith('es')` predicate**; (2) **inline ternary completion** (directive as-written — keyed `t()` migration remains the future OB per §6A #1; do NOT pivot to keys now).
+
+**Class A — repair approach:**
+- Add two presentation-layer utilities in `web/src/lib/i18n.ts` (presentation layer, NOT engine/SCI/calculation → AP-25 safe):
+  - `isSpanishLocale(locale?: string): boolean` → `!!locale && locale.startsWith('es')` (catches `es-MX` **and** `es-PE`).
+  - (Class B) `localeToLanguageName(locale?: string): string` → `es*`→`Spanish`, `pt*`→`Portuguese`, default `English`. One line per locale family; extensible.
+- Expose `isSpanish` from `useLocale()` (computed `isSpanishLocale(locale)`) so new/threaded code reads it directly.
+- **Normalization sweep:** replace the dominant derivation `const isSpanish = locale === 'es-MX'` (and the admin-coerced / `useAdminLocale` variants) with `isSpanishLocale(locale)`, so every already-branched surface renders Spanish for es-PE. This is the single highest-leverage fix.
+- **Type-2 files** (no locale access): thread locale via the existing `useLocale()` hook (no new state mechanism — IGF-T1-E953), then branch strings.
+- **Inline ternary completion** for Type-1 gaps (toasts/placeholders/titles/headers). Formal es-MX Spanish, B2B register, domain-correct finance terms; consistent term-per-concept (PG-S2). Product/brand nouns (Dashboard, Observatory, Vialuce) may stay English.
+
+**Class B — repair approach:**
+- Thread tenant locale per-task into **user-facing** prompts only, mirroring the existing `dashboard_assessment` / `narration` pattern. Inject the §6 LANGUAGE REQUIREMENT block built from `localeToLanguageName(locale)`. Surfaces: `recommendation`, `reconciliation_diagnosis` (thread locale through route→agent def→runner), `natural_language_query`, `anomaly_detection` (explanation field); extend `dashboard_assessment`+`narration` from binary en/es to the util (enables pt-BR).
+- **NEVER** add a language instruction to a shared prompt layer or to any **structured-JSON** task (`field_mapping`, `header_comprehension`, `convergence_mapping`, `plan_*`, classifications) — would corrupt enum/key output (HALT-3 warning).
+- Data path: client surfaces read `useLocale().locale` (from `profiles.locale`) and pass it in the request body (as `dashboard_assessment` does); server/agent routes read tenant/profile locale and thread to the prompt builder.
+
+**Out of scope (unchanged):** keyed-resource migration, schema changes, engine/SCI/calculation, email/PDF surfaces.
+
 ## ARTIFACT SYNC
 ```
 ARTIFACT SYNC
