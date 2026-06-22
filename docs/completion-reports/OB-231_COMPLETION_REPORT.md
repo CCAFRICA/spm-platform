@@ -72,4 +72,4 @@ After merge + deploy: architect reimports MIR plans + data, then confirms every 
 Plan-import finalize race (`ruleSets=3` not 5; reimport workaround) · MIR plan-interpretation defects (OB-214) · Plan-5 reconciliation magnitude guard · session-state ~1/s polling.
 
 ## PR
-`gh pr create --base main --head ob-231-free-form-characterization` — link appended below. **CC does not merge (SR-44).**
+**https://github.com/CCAFRICA/spm-platform/pull/583** (`ob-231-free-form-characterization` → `main`). **CC does not merge (SR-44).**
