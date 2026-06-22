@@ -16,13 +16,13 @@
 
 /** The set of componentTypes that have a bespoke renderer. Membership sets
  *  CanonicalComponent.isKnownType; it NEVER gates inclusion (Korean Test). Any
- *  type not here renders via GenericComponentRenderer (the mandatory `??` fallback). */
+ *  type not here renders via GenericComponentRenderer (the mandatory fallback).
+ *  The platform's real componentType is prime_dag (the prime-DAG engine); the
+ *  legacy lookup-type names are forbidden by the HF-195 build gate, so prime_dag
+ *  is the sole bespoke entry and it dispatches internally on structural shape. */
 export const KNOWN_RENDERER_TYPES = new Set<string>([
-  'prime_dag',              // MIR dialect — PrimeDagRenderer
-  'tier_lookup',            // typed dialect — TierRenderer
-  'matrix_lookup',          // typed dialect — MatrixRenderer
-  'percentage',             // typed dialect — RateRenderer
-  'conditional_percentage', // typed dialect — ConditionalRenderer
+  'prime_dag',   // PrimeDagRenderer (dispatches on structural shape: band/tier, conditional, rate, matrix)
+  'percentage',  // RateRenderer (a non-legacy flat-rate type, if a tenant emits it)
 ]);
 
 // ───────────────────────── Persona seam (Concept ⑧) ─────────────────────────

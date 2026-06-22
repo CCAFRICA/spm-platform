@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * OB-228 Phase 2 — normalizeComponents Korean-Test proof.
  * Proves: all three dialects normalize; an UNKNOWN componentType is CARRIED
@@ -26,10 +27,10 @@ test('MIR dialect — bare { variants: [...] } with prime_dag', () => {
 });
 
 test('alt dialect — { configuration: { variants: [...] } }', () => {
-  const json = { configuration: { variants: [{ variantId: 'v', variantName: 'V', components: [{ id: 'x', name: 'Tier', componentType: 'tier_lookup', tierConfig: { tiers: [] } }] }] } };
+  const json = { configuration: { variants: [{ variantId: 'v', variantName: 'V', components: [{ id: 'x', name: 'Rate', componentType: 'percentage', percentageConfig: { rate: 0.1 } }] }] } };
   const { variants, recognized } = normalizeComponents(json);
   assert.equal(recognized, true);
-  assert.equal(variants[0].components[0].componentType, 'tier_lookup');
+  assert.equal(variants[0].components[0].componentType, 'percentage');
   assert.equal(variants[0].components[0].isKnownType, true);
 });
 

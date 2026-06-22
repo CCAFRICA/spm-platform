@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */ // OB-228: data layer walks untyped rule_sets.components / committed_data.row_data JSONB (substrate is dynamic by design)
 /**
  * OB-228 — getBaselineOutcomes (Concept ② baseline for the consequence engine).
  *
