@@ -137,15 +137,9 @@ export function clearSupabaseLocalStorage(): void {
   keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
-/**
- * Get the current Supabase auth session from local cookies (no network request).
- * WARNING: May return stale session data in Chrome. Always double-check with getAuthUser().
- */
-export async function getSession() {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  return session;
-}
+// HF-331 (OB-178 Phase C closure): the getSession() wrapper (cookie-trusted, stale-read race)
+// was retired — its sole consumer (auth-context initAuth) now uses getAuthUser() exclusively.
+// Server-verified getUser()/getClaims() is the only sanctioned session-read path (Decision 142).
 
 /**
  * Validate the current auth user with the Supabase server (network request).

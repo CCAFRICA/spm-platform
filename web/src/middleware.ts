@@ -26,7 +26,7 @@ import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/a
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { resolveIdentity } from '@/lib/auth/resolve-identity';
-import { resolveSessionOwnership, decodeJwtSessionId } from '@/lib/auth/session-lifecycle';
+import { resolveSessionOwnership } from '@/lib/auth/session-lifecycle'; // HF-331: decodeJwtSessionId retired from middleware (getClaims supplies session_id)
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -216,8 +216,13 @@ export async function middleware(request: NextRequest) {
   // (A1.1): token refresh advances iat while session-start is fixed at birth.
   let tokenSessionId: string | null = null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    tokenSessionId = decodeJwtSessionId(session?.access_token);
+    // HF-331 (OB-178 Phase C closure): server-verified claim read replaces getSession()+local
+    // decode. getClaims() verifies the JWT (JWKS / Auth server) and returns the session_id claim —
+    // the same ownership tag, now server-authenticated (Decision 142 / SR-39), without a
+    // cookie-trusted getSession(). The token was already validated by getUser() above (:137).
+    const { data } = await supabase.auth.getClaims();
+    const sid = (data?.claims as { session_id?: unknown } | undefined)?.session_id;
+    tokenSessionId = typeof sid === 'string' ? sid : null;
   } catch {
     tokenSessionId = null; // unobtainable → ownership cannot be established this request
   }

@@ -21,7 +21,6 @@ import {
   signInWithEmail,
   signOut,
   fetchCurrentProfile,
-  getSession,
   getAuthUser,
   onAuthStateChange,
   clearSupabaseLocalStorage,
@@ -178,20 +177,16 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
           return; // isLoading set false in finally
         }
 
-        // 1. Check local session first (no network request).
-        //    If no session cookie exists, skip everything.
-        const session = await getSession();
-        if (!session) {
-          return; // No cookies at all → unauthenticated, isLoading set false in finally
-        }
-
-        // 2. Validate with server (network request).
-        //    getSession() can return stale cookie data in Chrome.
-        //    getAuthUser() verifies the token with Supabase server.
+        // HF-331 (OB-178 Phase C closure): server-verified user is the SOLE session source.
+        // The prior getSession() cookie-presence pre-check was the stale-read race (a stale
+        // pre-MFA / aal1 cookie could be read before the cookie updated — Symptom A/B root).
+        // getAuthUser() round-trips to the Supabase Auth server and authenticates the token.
+        // If it returns null, clear any stale cookies (preserving the pre-HF stale-cookie
+        // signOut so middleware stops redirecting /login → /); on a genuinely unauthenticated
+        // session signOut() is a harmless no-op (and public routes are already short-circuited
+        // above via AUTH_SKIP_ROUTES).
         const authUser = await getAuthUser();
         if (!authUser) {
-          // Stale cookie — session cookie exists but server says invalid.
-          // Clear the stale cookies so the middleware stops redirecting /login → /.
           await signOut().catch(() => {});
           return; // isLoading set false in finally
         }
