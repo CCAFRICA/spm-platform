@@ -220,7 +220,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Configure',
         labelEs: 'Configurar',
         routes: [
-          { path: '/design', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' },
+          { path: '/configure/plans', label: 'Plans & Canvas', labelEs: 'Planes y Lienzo', icon: 'LayoutGrid', roles: ['platform', 'admin'], requiredCapability: 'icm.configure_plans' }, // OB-228: the Living Plan Surface (was /design redirect stub)
           { path: '/configure/people', label: 'Entities', labelEs: 'Entidades', icon: 'Users', roles: ['platform', 'admin'], requiredCapability: 'view.all_entities' },
           { path: '/configure/periods', label: 'Periods', labelEs: 'Períodos', icon: 'Calendar', roles: ['platform', 'admin'], requiredCapability: 'tenant.configure_periods' },
           { path: '/configuration/terminology', label: 'Terminology', labelEs: 'Terminología', icon: 'Languages', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
