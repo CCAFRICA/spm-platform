@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { UserListItem, UserListResponse } from '@/lib/observability/api-types';
 import { HEALTH_COLOR, HEALTH_LABEL, type AuthHealthStatus } from '@/lib/observability/auth-health';
 import { parseUserAgent } from '@/lib/observability/ua-parser';
-import { C, Dot, Initial, Panel, Pill, Spinner, relativeTime, ConfirmAction } from './ui';
+import { C, Dot, Initial, Panel, Spinner, relativeTime, ConfirmAction } from './ui';
 
 const PER_PAGE = 25;
 

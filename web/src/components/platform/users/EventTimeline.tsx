@@ -62,7 +62,7 @@ export function EventTimeline({ events }: { events: TimelineEventDTO[] }) {
   const shown = filtered.slice(0, visibleCount);
   const selectStyle: React.CSSProperties = { background: C.deep, color: C.ink2, border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12 };
 
-  const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <Panel>
