@@ -129,4 +129,4 @@ eoadmin excessive session count (Decision 139 scope) · ~1/sec session-state pol
 ---
 
 ## PR
-`gh pr create --base main --head hf-331-getsession-retirement` — link appended below. **CC does not merge (SR-44).**
+**https://github.com/CCAFRICA/spm-platform/pull/581** (`hf-331-getsession-retirement` → `main`). **CC does not merge (SR-44).**
