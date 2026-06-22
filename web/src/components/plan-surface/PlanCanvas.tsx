@@ -6,7 +6,7 @@
  */
 'use client';
 import { useMemo, useState } from 'react';
-import { Calendar } from 'lucide-react';
+import { Calendar, Pencil } from 'lucide-react';
 import type { PlanStructure, CanonicalComponent } from '@/lib/plan-surface';
 import { ComponentCard } from './ComponentCard';
 
@@ -17,13 +17,15 @@ export interface PlanCanvasProps {
   periods: PeriodOption[];
   selectedPeriodId: string | null;
   onPeriodChange: (id: string) => void;
-  // Phase 4/5 slots
+  // Phase 5 slots
   confidenceGlyph?: (c: CanonicalComponent) => React.ReactNode;
   provenanceSlot?: (c: CanonicalComponent) => React.ReactNode;
-  editSlot?: (c: CanonicalComponent) => React.ReactNode;
+  // Phase 4 — edit affordance (receives the active variantId so the tray can target it)
+  onEditComponent?: (c: CanonicalComponent, variantId: string) => void;
+  editLabel?: string;
 }
 
-export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, confidenceGlyph, provenanceSlot, editSlot }: PlanCanvasProps) {
+export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, confidenceGlyph, provenanceSlot, onEditComponent, editLabel }: PlanCanvasProps) {
   const [variantIdx, setVariantIdx] = useState(0);
   const variant = plan.variants[variantIdx] ?? plan.variants[0];
   const components = useMemo(() => variant?.components ?? [], [variant]);
@@ -78,7 +80,14 @@ export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, co
               periodId={selectedPeriodId}
               confidenceGlyph={confidenceGlyph?.(c)}
               provenanceSlot={provenanceSlot}
-              editSlot={editSlot}
+              editSlot={onEditComponent ? () => (
+                <button
+                  onClick={() => onEditComponent(c, variant.variantId)}
+                  className="flex items-center gap-1 text-xs rounded-md border border-border px-2 py-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Pencil className="h-3 w-3" />{editLabel ?? 'Edit'}
+                </button>
+              ) : undefined}
             />
           ))}
         </div>

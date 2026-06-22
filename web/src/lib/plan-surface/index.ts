@@ -12,3 +12,5 @@ export { getComponentDistribution } from './distribution';
 export { getBaselineOutcomes } from './baseline';
 export { analyzeComponent } from './prime-dag-view';
 export { collectFieldRefs, findScope, findScopeMeasure } from './binding-extract';
+export { extractEditableValues, applyEdits, setAtPath, type EditableValue, type EditableRole, type AppliedEdit } from './edit-model';
+export { recomputeConsequence, diffConsequence, summarizeEdits, type RecomputeResult, type ConsequenceDiff } from './consequence';

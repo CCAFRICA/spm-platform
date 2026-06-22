@@ -15,9 +15,10 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useLocale } from '@/contexts/locale-context';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { LayoutGrid, ShieldCheck, Loader2 } from 'lucide-react';
-import type { PlanStructure, PersonaScope } from '@/lib/plan-surface';
+import type { PlanStructure, PersonaScope, CanonicalComponent } from '@/lib/plan-surface';
 import { PlanRail } from './PlanRail';
 import { PlanCanvas, type PeriodOption } from './PlanCanvas';
+import { ConsequenceTray, type EditDraft } from './ConsequenceTray';
 
 interface PlansPayload { persona: PersonaScope; tenantId: string; plans: PlanStructure[] }
 
@@ -33,6 +34,7 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<EditDraft | null>(null); // Phase 4 — consequence edit draft
 
   useEffect(() => {
     if (!tenantId) return;
@@ -54,7 +56,7 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  const plans = payload?.plans ?? [];
+  const plans = useMemo(() => payload?.plans ?? [], [payload]);
   const persona = payload?.persona;
   const selectedPlan = useMemo(() => plans.find((p) => p.id === selectedId) ?? null, [plans, selectedId]);
   const totalComponents = plans.reduce((s, p) => s + p.componentCount, 0);
@@ -106,6 +108,10 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
                 periods={periods}
                 selectedPeriodId={selectedPeriodId}
                 onPeriodChange={setSelectedPeriodId}
+                editLabel={isSpanish ? 'Editar' : 'Edit'}
+                onEditComponent={persona?.canEdit
+                  ? (c: CanonicalComponent, variantId: string) => setDraft({ planId: selectedPlan.id, planName: selectedPlan.name, variantId, component: c, periodId: selectedPeriodId })
+                  : undefined}
               />
             ) : (
               <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
@@ -121,6 +127,18 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
             )}
           </main>
         </div>
+      )}
+
+      {/* Zone C — consequence tray (Phase 4) */}
+      {draft && selectedPlan && (
+        <ConsequenceTray
+          plan={selectedPlan}
+          draft={draft}
+          periodId={selectedPeriodId}
+          tenantId={tenantId ?? null}
+          onClose={() => setDraft(null)}
+          onCommitted={() => { setDraft(null); router.refresh(); window.location.reload(); }}
+        />
       )}
     </div>
   );
