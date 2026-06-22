@@ -223,4 +223,4 @@ SUBSTRATE exercised: Korean Test (dispatch-map + generic fallback, proven on 미
 ---
 
 ## PR
-`gh pr create --base main` — see PR link appended below. **CC does not merge (SR-44).**
+**https://github.com/CCAFRICA/spm-platform/pull/580** (`ob-228-living-plan-surface` → `main`). **CC does not merge (SR-44 architect-only).**
