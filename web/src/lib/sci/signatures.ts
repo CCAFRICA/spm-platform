@@ -17,7 +17,9 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   const matches: SignatureMatch[] = [];
   const { structure, patterns } = profile;
 
-  // Header comprehension column role counts (when available)
+  // Header comprehension data-nature counts (when available).
+  // OB-231: data_nature is now free-form text — read it with tolerant regex
+  // against the characterization/data_nature wording rather than fixed labels.
   const hc = profile.headerComprehension;
   let hcTemporalCount = 0;
   let hcMeasureCount = 0;
@@ -26,13 +28,20 @@ export function detectSignatures(profile: ContentProfile): SignatureMatch[] {
   let hcReferenceKeyCount = 0;
   if (hc) {
     for (const interp of Array.from(hc.interpretations.values())) {
-      switch (interp.columnRole) {
-        case 'temporal': hcTemporalCount++; break;
-        case 'measure': hcMeasureCount++; break;
-        case 'name': hcNameCount++; break;
-        case 'attribute': hcAttributeCount++; break;
-        case 'reference_key': hcReferenceKeyCount++; break;
-      }
+      const nature = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
+      const isTemporal = /\b(date|time|temporal|month|year|period|day|week|quarter)\b/i.test(nature);
+      const isMeasure = /\b(measure|numeric|amount|quantity|value|metric|count|total|sum|currency|money|rate|score)\b/i.test(nature);
+      const isName = /\b(name|label|title|description|display)\b/i.test(nature);
+      const isAttribute = /\b(attribute|category|categorical|property|type|status|flag|tag|group)\b/i.test(nature);
+      const isReferenceKey = /\b(reference|lookup|foreign[\s_-]?key|ref[\s_-]?key|fk|join[\s_-]?key|code)\b/i.test(nature);
+      // Mutually-exclusive precedence preserves the original switch semantics:
+      // each interpretation incremented exactly one counter (or none when no
+      // nature word matched — the original switch had no default case).
+      if (isTemporal) hcTemporalCount++;
+      else if (isMeasure) hcMeasureCount++;
+      else if (isName) hcNameCount++;
+      else if (isAttribute) hcAttributeCount++;
+      else if (isReferenceKey) hcReferenceKeyCount++;
     }
   }
 

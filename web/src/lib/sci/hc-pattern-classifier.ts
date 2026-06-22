@@ -5,24 +5,27 @@
 //
 // HF-230 replaces the pre-existing four-pattern registry (entity_roster,
 // repeated_measures_over_time, lookup_table, per_entity_benchmarks) with
-// a decision tree built from three HC role primitives:
-//   1. reference_key presence + identifier absence  -> dimensional lookup
+// a decision tree built from three HC nature primitives:
+//   1. reference-key presence + identifier absence  -> dimensional lookup
 //   2. measure presence                              -> data ABOUT entities
 //   3. identifier count (0 / 1 / 2+)                 -> reference / target / transaction
 //
 // Decision 108 (HC Override Authority, LOCKED 2026-03-07) is enforced by
-// construction: every branch is gated solely on HC role output. No
+// construction: every branch is gated solely on HC nature output. No
 // structural-profile fields are read (no row-repetition heuristic, no
 // row count, no sampling). When HC is confident on at least 50% of
 // columns the tree runs; otherwise it returns null and Level-2 CRR
 // Bayesian classifies from structural scoring.
 //
-// Korean Test (LOCKED): the tree reads ColumnRole values from the
-// sci-types ColumnRole union — `identifier`, `name`, `temporal`,
-// `measure`, `attribute`, `reference_key`, `unknown`. Zero domain
-// vocabulary; zero field-name matching; zero value-content checks.
+// Korean Test (LOCKED): the tree reads the free-form `data_nature`
+// characterization the LLM assessed for each column — identifier, name,
+// temporal, measure, attribute, reference-key, etc. OB-231 retired the
+// fixed enum, so the primitives below read the free-form text with
+// tolerant regex (NATURE) and the free-form `identifies` scope (IDENTITY)
+// rather than equality on a closed vocabulary. Zero domain vocabulary;
+// zero field-name matching; zero value-content checks.
 
-import type { ContentProfile, AgentType } from './sci-types';
+import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
 
 // ============================================================
 // HC PATTERN RESULT (interface preserved from HF-105)
@@ -35,13 +38,64 @@ export interface HCPatternResult {
   matchedConditions: string[];
 }
 
-// Minimum HC confidence to count a role as present (Decision 108 threshold).
+// Minimum HC confidence to count a nature as present (Decision 108 threshold).
 const HC_ROLE_THRESHOLD = 0.80;
 
 // Minimum fraction of columns reaching HC_ROLE_THRESHOLD before the tree
 // will classify. Below this the tree returns null and Level-2 CRR Bayesian
 // handles the file.
 const MIN_COVERAGE_RATIO = 0.50;
+
+// ============================================================
+// NATURE PRIMITIVES — free-form readers (OB-231)
+// ============================================================
+// The former closed enum is gone; each consumer reads the free-form
+// `data_nature` (and `characterization` as a backup signal) directly with
+// tolerant regex. These helpers are FILE-LOCAL by design — no shared
+// classifier module (the architecture forbids an intermediary matching
+// utility; each consumer reads the LLM's words for itself).
+
+// Combined free-form text the LLM produced for a column's nature.
+function natureText(interp: HeaderInterpretation): string {
+  return `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
+}
+
+// A column has an assessed nature when its free-form text is non-empty and
+// the LLM did not mark it indeterminate.
+function hasNature(interp: HeaderInterpretation): boolean {
+  const txt = natureText(interp).trim();
+  if (!txt) return false;
+  return !/\b(unknown|indeterminate|unclear|unrecognized)\b/i.test(interp.data_nature ?? '');
+}
+
+// Reference-key: a foreign key / lookup pointer to another entity.
+// Read FIRST so it stays disjoint from the plain identifier primitive
+// (both involve id/key wording; reference wins when present).
+function isReferenceKey(interp: HeaderInterpretation): boolean {
+  return /\b(reference|foreign[\s_-]?key|lookup|dimensional)\b/i.test(natureText(interp));
+}
+
+// Identifier: the row's own identity (id/identity/key) and NOT a reference.
+function isIdentifier(interp: HeaderInterpretation): boolean {
+  if (isReferenceKey(interp)) return false;
+  return /\b(identifier|identity|\bid\b|primary[\s_-]?key|unique[\s_-]?key)\b/i.test(natureText(interp));
+}
+
+// Measure: a quantitative / monetary value. HF-230's contemplated `currency`
+// nature folds in here — monetary content is a measure for the tree.
+function isMeasure(interp: HeaderInterpretation): boolean {
+  return /\b(measure|amount|metric|quantity|numeric|monetary|currency|value)\b/i.test(natureText(interp));
+}
+
+// Name: a human-readable label for an entity.
+function isName(interp: HeaderInterpretation): boolean {
+  return /\b(name|label|title|description)\b/i.test(natureText(interp));
+}
+
+// Temporal: a date/time/period marker.
+function isTemporal(interp: HeaderInterpretation): boolean {
+  return /\b(date|time|temporal|month|year|period|day|quarter|week)\b/i.test(natureText(interp));
+}
 
 // ============================================================
 // LEVEL 1 CLASSIFIER — PRIMITIVE-BASED DECISION TREE
@@ -64,32 +118,30 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
     return null;
   }
 
-  // ── HC role primitives ──────────────────────────────────
-  // OB-203 (class fix, AUD-009): conditions key on resolved role PRESENCE, NOT a re-threshold of the
+  // ── HC nature primitives ────────────────────────────────
+  // OB-203 (class fix, AUD-009): conditions key on resolved nature PRESENCE, NOT a re-threshold of the
   // per-column confidence. Memory layers supply confidence on heterogeneous scales (LLM ~0.95, atom
   // recognition/roleConf, sheet-flywheel binding 0.30-0.90 — the last classification-derived and
   // self-reinforcing). The confidence gate is applied ONCE above (the coverage gate); past it, a
-  // column's assigned role is trusted. This fixes BOTH the atom-claim (D5) and flywheel-injection
-  // arms at one site — given identical role assignments, the classification is identical regardless
+  // column's assigned nature is trusted. This fixes BOTH the atom-claim (D5) and flywheel-injection
+  // arms at one site — given identical nature assignments, the classification is identical regardless
   // of which layer supplied them or at what confidence.
-  const roles = Array.from(hc.interpretations.values()).filter(r => r.columnRole && r.columnRole !== 'unknown');
-  const identifierCount = roles.filter(r => r.columnRole === 'identifier').length;
-  const measureCount = roles.filter(r => r.columnRole === 'measure').length;
+  const roles = Array.from(hc.interpretations.values()).filter(hasNature);
+  const identifierCount = roles.filter(isIdentifier).length;
+  const measureCount = roles.filter(isMeasure).length;
   const hasMeasure = measureCount > 0;
-  const hasReferenceKey = roles.some(r => r.columnRole === 'reference_key');
-  const hasName = roles.some(r => r.columnRole === 'name');
-  // AUD-013: temporal role primitive — distinguishes per-period transactional
+  const hasReferenceKey = roles.some(isReferenceKey);
+  const hasName = roles.some(isName);
+  // AUD-013: temporal nature primitive — distinguishes per-period transactional
   // data (actuals over time) from one-time entity snapshots (targets).
   // A sheet with identifier + measure + temporal is event data over time;
   // a sheet with identifier + measure + no temporal is an entity snapshot.
-  const hasTemporal = roles.some(r => r.columnRole === 'temporal');
-  // HF-230 directive contemplated a separate `currency` ColumnRole that would
-  // imply a monetary measure. The sci-types ColumnRole union does NOT carry
-  // `currency` (the seven values are identifier / name / temporal / measure /
-  // attribute / reference_key / unknown). Monetary content is classified as
-  // `measure` by the LLM today; if a future schema extension adds `currency`
-  // it should join this disjunction. For now the tree reads only the union
-  // values that actually exist in the type.
+  const hasTemporal = roles.some(isTemporal);
+  // HF-230 directive contemplated a separate `currency` nature that would
+  // imply a monetary measure. The free-form data_nature has no fixed schema;
+  // monetary content reads as `measure` here (isMeasure folds currency wording
+  // into the measure primitive), so the disjunction stays intact regardless of
+  // how the LLM phrased a monetary column.
   const measurePresent = hasMeasure;
   // HF-268 B: restore the target/transaction discriminant (Decision 108). idRepeatRatio is the
   // structural signal HC's profile already encodes — > 1.5 means repeated entities over time
@@ -99,7 +151,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
 
   // ── Branch 1: dimensional lookup ─────────────────────────
   // A categorical lookup key with no entity identifier — hub capacity,
-  // product catalog, rate table, etc. The reference_key role IS the
+  // product catalog, rate table, etc. The reference-key nature IS the
   // discriminator; identifier absence confirms it isn't entity-keyed
   // data with an additional reference column.
   if (hasReferenceKey && identifierCount === 0) {
@@ -108,7 +160,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       confidence: 0.85,
       patternName: 'dimensional_lookup',
       matchedConditions: [
-        'HAS reference_key',
+        'HAS reference key',
         'NO identifier',
       ],
     };
@@ -134,20 +186,20 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // ── Branches 3 & 4: measure present ──────────────────────
   // HF-232: Discriminate target from transaction by `hasReferenceKey`, not
   // by `identifierCount`. The LLM distinguishes two kinds of ID columns:
-  //   `identifier`    — the row's own identity (transaction_id, employee_id)
-  //   `reference_key` — a foreign key to another entity (sales_rep_id)
-  // HF-230 counted only `identifier` roles, so a sales file with
-  // `transaction_id:identifier@0.95 + sales_rep_id:reference_key@0.95`
+  //   identifier    — the row's own identity (transaction_id, employee_id)
+  //   reference-key — a foreign key to another entity (sales_rep_id)
+  // HF-230 counted only identifier natures, so a sales file with
+  // transaction_id (identifier @0.95) + sales_rep_id (reference-key @0.95)
   // landed in `identifierCount === 1` → target. Wrong: the presence of a
-  // reference_key is the semantic signal that the file RECORDS events
+  // reference key is the semantic signal that the file RECORDS events
   // referencing entities (transactional), not entity-level records (target).
 
   // Branch 3: Transaction data — events that REFERENCE entities.
-  // Has a per-row identifier AND a reference_key (foreign key to another entity).
+  // Has a per-row identifier AND a reference key (foreign key to another entity).
   // "Each row is an event with its own ID, linked to an entity via foreign key."
   //
   // AUD-013 extension: per-period actuals data (entity_id + measure + temporal)
-  // is ALSO transactional even when no reference_key is present. The temporal
+  // is ALSO transactional even when no reference key is present. The temporal
   // column means each row is a measurement AT A POINT IN TIME — the row is an
   // event, not an entity-level snapshot. Without this branch, monthly
   // actuals with employee_id + amount + period_date classified as target
@@ -160,7 +212,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       patternName: 'event_transactions',
       matchedConditions: [
         'HAS measure',
-        'HAS reference_key — event references entities',
+        'HAS reference key — event references entities',
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
@@ -182,10 +234,10 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   }
 
   // Branch 4: Target/reference data — entity-level records with measures.
-  // Has an identifier but NO reference_key AND NO temporal — this IS the
+  // Has an identifier but NO reference key AND NO temporal — this IS the
   // entity record, not referencing another, and not per-period.
   // "One value set per entity — quotas, targets, thresholds, rates."
-  // HF-268 B: a per-entity record with measures and NO reference_key is a target. This now
+  // HF-268 B: a per-entity record with measures and NO reference key is a target. This now
   // INCLUDES per-period temporal targets: the high-repeat temporal case (idRepeatRatio > 1.5) was
   // already classified transaction above, so any temporal file reaching here has idRepeatRatio <= 1.5
   // — a quota whose effective-date is a period marker, one row per entity (idRepeatRatio=1.00) lands
@@ -197,7 +249,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       patternName: 'entity_targets',
       matchedConditions: [
         'HAS measure',
-        'NO reference_key — entity-level record',
+        'NO reference key — entity-level record',
         hasTemporal
           ? `HAS temporal but idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5 — per-period target, not events)`
           : 'NO temporal — snapshot, not per-period',

@@ -187,10 +187,10 @@ export async function POST(req: NextRequest) {
       // HF-254 Fix 2b: the HF-236 divert gate (NATIVE_COLUMN_ROLES set +
       // insufficientFlywheelCache) is DELETED. HF-236 was a compensation (SR-34) for an
       // unreliable fingerprint write: when the cached fieldBindings lacked native
-      // columnRole, it diverted the sheet into fresh-LLM HC — which, after HF-239 armed
+      // data_nature, it diverted the sheet into fresh-LLM HC — which, after HF-239 armed
       // the warm caches, routed straight into the now-deleted vocabulary fabrication gate
       // (D1) and corrupted the import to entity. HF-254 Fix 2a makes the fingerprint write
-      // always carry native columnRole server-side, so the cache the warm import reads is
+      // always carry native data_nature server-side, so the cache the warm import reads is
       // reliable and the compensation is removed. The fingerprint flywheel is now the SOLE
       // LLM-skip authority. (HF-247's lookupFingerprint column_roles-'unknown' outcome gate
       // is unchanged — it remains the failure-quality guard on the READ surface.)
@@ -267,10 +267,10 @@ export async function POST(req: NextRequest) {
 
       // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
       // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
-      // HF-254 Fix 2: the cached binding's native columnRole is read directly. With Fix 2a
-      // the fingerprint write always carries native columnRole server-side, so a tier-1
-      // cache hit reliably yields real roles here (no registry, no HF-236 divert). Legacy
-      // pre-HF-254 cache rows that lack native columnRole self-heal on clean re-import
+      // HF-254 Fix 2: the cached binding's native data_nature is read directly. With Fix 2a
+      // the fingerprint write always carries native data_nature server-side, so a tier-1
+      // cache hit reliably yields real natures here (no registry, no HF-236 divert). Legacy
+      // pre-HF-254 cache rows that lack native data_nature self-heal on clean re-import
       // (§6A); the HF-247 read-surface column_roles-'unknown' gate remains the failure guard.
       const injectedBindingsBySheet = new Map<string, number>();
       for (const sheet of file.sheets) {
@@ -282,8 +282,8 @@ export async function POST(req: NextRequest) {
           semanticRole: string;
           confidence: number;
           displayContext?: string;
-          columnRole?: 'identifier' | 'name' | 'temporal' | 'measure' | 'attribute' | 'reference_key';
-          identifiesWhat?: string;
+          data_nature?: string;
+          identifies?: string;
         }> | undefined;
         if (!flywheelBindings || flywheelBindings.length === 0) continue;
 
@@ -292,14 +292,15 @@ export async function POST(req: NextRequest) {
 
         const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
         for (const fb of flywheelBindings) {
-          // HF-254 Fix 2a: native columnRole reliably present on the cached binding.
+          // HF-254 Fix 2a: native data_nature reliably present on the cached binding.
           interpretations.set(fb.sourceField, {
             columnName: fb.sourceField,
-            semanticMeaning: fb.displayContext || fb.semanticRole,
+            characterization: fb.displayContext || fb.semanticRole,
             dataExpectation: '',
-            columnRole: fb.columnRole!,
+            data_nature: fb.data_nature!,
+            identifies: fb.identifies ?? '',
+            relationships: [],
             confidence: fb.confidence,
-            ...(fb.identifiesWhat ? { identifiesWhat: fb.identifiesWhat } : {}),
           });
         }
         sheetProfile.headerComprehension = {
@@ -310,7 +311,7 @@ export async function POST(req: NextRequest) {
           fromVocabularyBinding: false,
         };
         injectedBindingsBySheet.set(sheet.sheetName, flywheelBindings.length);
-        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native columnRole, HF-254)`);
+        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native data_nature, HF-254)`);
         ob203Trace('binding', { sheet: sheet.sheetName, injected: flywheelBindings.length, source: 'flywheel-tier1' });
       }
 
@@ -375,7 +376,7 @@ export async function POST(req: NextRequest) {
         const hc = profile.headerComprehension;
         if (hc) {
           const roles = Array.from(hc.interpretations.entries())
-            .map(([col, interp]) => `${col}:${interp.columnRole}@${interp.confidence.toFixed(2)}`)
+            .map(([col, interp]) => `${col}:${interp.data_nature}@${interp.confidence.toFixed(2)}`)
             .join(', ');
           console.log(`[SCI-HC-DIAG] sheet=${sheetName} roles=[${roles}]`);
         } else {
@@ -405,8 +406,8 @@ export async function POST(req: NextRequest) {
           );
           // HF-254 Fix 3b: additive lexical prior (sibling of the structural prior). Recalls
           // role-bearing vocabulary_bindings for this sheet's columns and contributes via
-          // columnRole distribution through the SAME prior-signal path. Non-gating; legacy
-          // role-less bindings contribute nothing.
+          // data_nature distribution through the SAME prior-signal path. Non-gating; legacy
+          // nature-less bindings contribute nothing.
           const lexicalPriors = await lookupLexicalPrior(
             tenantId,
             sheet.columns,
@@ -475,9 +476,11 @@ export async function POST(req: NextRequest) {
           let hasMeasure = false;
           if (interps) for (const [col, interp] of Array.from(interps.entries())) {
             const values = new Set(rows.map(r => String(r[col] ?? '')).filter(v => v !== ''));
-            if (interp.columnRole === 'identifier') identifierColumns.push({ column: col, values });
-            else if (interp.columnRole === 'reference_key') referenceKeyColumns.push({ column: col, values });
-            else if (interp.columnRole === 'measure') hasMeasure = true;
+            // OB-231: read the free-form data_nature. The carried-over nature words are the same
+            // tokens the retired role enum used, so equality here preserves behavior exactly (DD-7).
+            if (interp.data_nature === 'identifier') identifierColumns.push({ column: col, values });
+            else if (interp.data_nature === 'reference_key') referenceKeyColumns.push({ column: col, values });
+            else if (interp.data_nature === 'measure') hasMeasure = true;
             atomHashes.push(computeAtomFingerprint(col, rows.map(r => r[col])).hash);
           }
           return {
@@ -913,52 +916,54 @@ export async function POST(req: NextRequest) {
           continue;
         }
         if (!unit.fieldBindings || unit.fieldBindings.length === 0) continue;
-        // HF-254 Fix 2a: enrich fieldBindings with NATIVE columnRole, server-side, so the
-        // cold-import cache the warm import reads carries real roles independent of the
-        // client round-trip. SemanticBinding carries no columnRole; the only native source
+        // HF-254 Fix 2a: enrich fieldBindings with NATIVE data_nature, server-side, so the
+        // cold-import cache the warm import reads carries real natures independent of the
+        // client round-trip. SemanticBinding carries no data_nature; the only native source
         // is the HC interpretations (resolveClassification builds them onto the trace).
         const hcInterps = (unit.classificationTrace as Record<string, unknown> | undefined)
           ?.headerComprehension as
-            | { interpretations?: Record<string, { columnRole?: string; identifiesWhat?: string; confidence?: number; semanticMeaning?: string }> }
+            | { interpretations?: Record<string, { data_nature?: string; identifies?: string; confidence?: number; characterization?: string }> }
             | undefined;
         const interpMap = hcInterps?.interpretations ?? {};
         // HF-268 A1 (Carry Everything — T1-E902 v2): the flywheel cache must carry EVERY
-        // HC-interpreted column's structural role, not just the subset that became a
+        // HC-interpreted column's data_nature, not just the subset that became a
         // semanticBinding. Previously this mapped unit.fieldBindings only (e.g. 5 of 11),
-        // dropping sales_rep_id:reference_key — so a Tier-1 warm replay reconstructed an
-        // incomplete role set and the entity pointer vanished, causing phantom entities (A2).
+        // dropping sales_rep_id (reference_key nature) — so a Tier-1 warm replay reconstructed an
+        // incomplete nature set and the entity pointer vanished, causing phantom entities (A2).
         // Build from the semantic bindings first (they carry semanticRole + confidence), then
-        // ADD any HC column with a real structural columnRole not already covered. Low-quality
-        // roles ('unknown'/empty) are gated out (HALT-4 — carry all STRUCTURAL roles, not blanket).
-        const STRUCTURAL_ROLES = new Set(['identifier', 'reference_key', 'measure', 'temporal', 'name', 'attribute']);
+        // ADD any HC column with a real data_nature not already covered. Low-quality
+        // natures ('unknown'/empty) are gated out (HALT-4 — carry all STRUCTURAL natures, not blanket).
+        const STRUCTURAL_NATURES = new Set(['identifier', 'reference_key', 'measure', 'temporal', 'name', 'attribute']);
         const enrichedBySource = new Map<string, Record<string, unknown>>();
         for (const b of unit.fieldBindings) {
           const interp = interpMap[b.sourceField];
           enrichedBySource.set(b.sourceField, {
             ...b,
-            ...(interp?.columnRole ? { columnRole: interp.columnRole } : {}),
-            ...(interp?.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+            ...(interp?.data_nature ? { data_nature: interp.data_nature } : {}),
+            ...(interp?.identifies ? { identifies: interp.identifies } : {}),
           });
         }
         for (const [colName, interp] of Object.entries(interpMap)) {
           if (enrichedBySource.has(colName)) continue;
-          const role = interp.columnRole;
-          if (!role || !STRUCTURAL_ROLES.has(role)) continue;
+          const nature = interp.data_nature;
+          if (!nature || !STRUCTURAL_NATURES.has(nature)) continue;
           enrichedBySource.set(colName, {
             sourceField: colName,
-            semanticRole: role,
+            semanticRole: nature,
             confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.8,
-            displayContext: interp.semanticMeaning,
-            columnRole: role,
-            ...(interp.identifiesWhat ? { identifiesWhat: interp.identifiesWhat } : {}),
+            displayContext: interp.characterization,
+            data_nature: nature,
+            ...(interp.identifies ? { identifies: interp.identifies } : {}),
           });
         }
         const enrichedFieldBindings = Array.from(enrichedBySource.values());
-        // column_roles map mirrors the COMPLETE binding set (native columnRole), so the
-        // poisoned-cache quality gate and warm-replay role reconstruction both see all roles.
+        // column_roles map mirrors the COMPLETE binding set (native data_nature), so the
+        // poisoned-cache quality gate and warm-replay nature reconstruction both see all natures.
+        // (The persisted JSONB key stays `column_roles` — an existing store column — but its
+        // string values now carry the data_nature.)
         const columnRoles: Record<string, string> = {};
         for (const fb of enrichedFieldBindings) {
-          columnRoles[fb.sourceField as string] = (fb.columnRole as string) ?? (fb.semanticRole as string);
+          columnRoles[fb.sourceField as string] = (fb.data_nature as string) ?? (fb.semanticRole as string);
         }
         // HF-197B: locate the unit's OWN sheet for the hash, not sheets[0].
         const sourceFile = files.find(f => f.fileName === unit.sourceFile);

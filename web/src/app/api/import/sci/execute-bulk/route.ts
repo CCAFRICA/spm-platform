@@ -32,7 +32,7 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit, findHcRole } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
@@ -310,7 +310,7 @@ export async function POST(req: NextRequest) {
       if (unit.confirmedClassification === 'plan') continue;
       const hc = (unit.classificationTrace as Record<string, unknown> | undefined)
         ?.headerComprehension as
-          | { interpretations?: Record<string, { semanticMeaning?: string; columnRole?: string; confidence?: number }> }
+          | { interpretations?: Record<string, { characterization?: string; data_nature?: string; confidence?: number }> }
           | null
           | undefined;
       const interps = hc?.interpretations;
@@ -320,8 +320,8 @@ export async function POST(req: NextRequest) {
         if (!comprehendedFieldMap.has(colName)) {
           comprehendedFieldMap.set(colName, {
             field: colName,
-            meaning: interp.semanticMeaning || '',
-            role: interp.columnRole || 'unknown',
+            meaning: interp.characterization || '',
+            role: interp.data_nature || 'unknown',
           });
         }
       }
@@ -815,16 +815,16 @@ async function processEntityUnit(
   const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');
 
   // HF-285-A (DIAG-066): the entity identifier lives on ONE canonical surface —
-  // the HC interpretation's columnRole==='identifier' (HC_IDENTIFIER_THRESHOLD),
+  // the HC interpretation's data_nature reading 'identifier' (HC_IDENTIFIER_THRESHOLD),
   // the surface commitContentUnit.resolveEntityIdField already trusts. The
   // confirmedBindings.semanticRole vocabulary is a SECOND surface that the warm
   // flywheel can populate with a non-entity role (transaction_identifier) when its
   // cold write diverged from the cold proposal. When the semantic binding is
   // absent, read the canonical surface — blind to producer (AUD-009: a future
   // third producer needs no change here; Decision 64 v3 one-surface).
-  const idSourceField = idBinding?.sourceField ?? findHcRole(unit.classificationTrace, 'identifier');
+  const idSourceField = idBinding?.sourceField ?? findHcEntityIdColumn(unit.classificationTrace);
   if (!idSourceField) {
-    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity identifier found on any surface (semanticBinding or HC columnRole)' };
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity identifier found on any surface (semanticBinding or HC data_nature)' };
   }
 
   // Collect unique external IDs with metadata + enrichment attributes

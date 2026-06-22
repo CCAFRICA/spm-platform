@@ -135,34 +135,41 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // layer (entity-resolution.ts OB-203 D3: a transaction-only id that defines no entity
 // is suppressed, never fabricated), so honoring the identifier here is safe.
 
-// HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC
-// surface this resolver already trusts (Decision 64 v3 — one surface, not a
-// second binding-vocabulary surface). No duplication of the read logic.
-export function findHcRole(
+// OB-231 (MIR fix): the entity key is the column the LLM characterized as identifying an ENTITY
+// SCOPE (a recurring seller/employee/person/account) — NOT a per-row transaction identifier
+// (folio/receipt/invoice). The fixed `identifier` columnRole could not tell the two apart (MIR
+// Ventas had both Folio and DNI_Vendedor as `identifier`, so confidence ranking picked Folio).
+// Now we read the LLM's free-form `identifies` channel directly (Decision 158): DNI_Vendedor
+// "identifies":"entity"; Folio "identifies":"transaction". The highest-confidence entity-scope
+// column wins. Scope words (entity/transaction/...) are read free-form — no quoted role literal.
+// HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC surface.
+const ENTITY_SCOPE = /\b(entity|entidad|seller|vendedor|employee|empleado|person|persona|account|cuenta|organization|organizaci[oó]n|member|miembro|rep|staff|worker|salesperson|agent|agente)\b/i;
+const TXN_SCOPE = /\b(transaction|transacci[oó]n|receipt|recibo|folio|invoice|factura|order|pedido|ticket|event|evento|record|registro|line|l[ií]nea)\b/i;
+const IDENTIFIER_NATURE = /\b(identifier|identif|\bid\b|document|documento|dni|code|c[oó]digo|n[uú]mero|key|clave)\b/i;
+
+export function findHcEntityIdColumn(
   classificationTrace: Record<string, unknown> | undefined,
-  targetRole: 'identifier' | 'reference_key',
 ): string | null {
   if (!classificationTrace) return null;
   const hcData = classificationTrace.headerComprehension as
-    | {
-        interpretations?: Record<
-          string,
-          { columnRole?: string; confidence?: number }
-        >;
-      }
+    | { interpretations?: Record<string, { identifies?: string; data_nature?: string; characterization?: string; confidence?: number }> }
     | undefined;
   const interpretations = hcData?.interpretations;
   if (!interpretations) return null;
+  let best: { col: string; conf: number } | null = null;
   for (const [colName, interp] of Object.entries(interpretations)) {
-    if (
-      interp.columnRole === targetRole &&
-      typeof interp.confidence === 'number' &&
-      interp.confidence >= HC_IDENTIFIER_THRESHOLD
-    ) {
-      return colName;
+    const conf = typeof interp.confidence === 'number' ? interp.confidence : 0;
+    if (conf < HC_IDENTIFIER_THRESHOLD) continue;
+    const scope = `${interp.identifies ?? ''}`;
+    const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
+    const isEntity = ENTITY_SCOPE.test(scope);
+    const isTxn = TXN_SCOPE.test(scope);
+    // Entity-scope identifier only. A transaction-scope id (folio/receipt) is never the entity key.
+    if (isEntity && !isTxn && IDENTIFIER_NATURE.test(natureText)) {
+      if (!best || conf > best.conf) best = { col: colName, conf };
     }
   }
-  return null;
+  return best?.col ?? null;
 }
 
 function resolveEntityIdField(
@@ -205,7 +212,7 @@ function resolveEntityIdField(
   // null — the engine resolves at calc time (Decision 92 / OB-183). reference_key is
   // never itself a candidate for entity_id_field (§6A: do not force an identifier
   // where comprehension didn't classify one).
-  const hcIdentifier = findHcRole(classificationTrace, 'identifier');
+  const hcIdentifier = findHcEntityIdColumn(classificationTrace);
   if (hcIdentifier) return hcIdentifier;
   const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
   return binding?.sourceField ?? null;
@@ -356,6 +363,22 @@ export async function commitContentUnit(
     unit.classificationTrace,
     classification,
   );
+
+  // OB-231 §5.2: structural sanity signal (NOT a gate). The LLM's entity-scope assessment is
+  // authoritative (Decision 158); but an entity identifier should REPEAT across rows (e.g. ~30
+  // sellers across thousands of transactions). If the resolved column is ~1:1 distinct-to-row
+  // (the per-row-transaction-id shape the MIR Folio bug produced), log a warning and proceed —
+  // the semantic assessment still wins, this only surfaces a possible mis-characterization.
+  if (entityIdField && rows.length >= 20) {
+    const seen = new Set<unknown>();
+    for (const r of rows) if (entityIdField in (r as Record<string, unknown>)) seen.add((r as Record<string, unknown>)[entityIdField]);
+    if (seen.size > 0) {
+      const distinctRatio = seen.size / rows.length;
+      if (distinctRatio > 0.95) {
+        console.warn(`[OB-231][entity-id-sanity] resolved entity_id_field="${entityIdField}" is ~1:1 across rows (${seen.size}/${rows.length} distinct) on "${tabName}" — looks per-row (transaction-shaped), not a repeating entity. Proceeding on the LLM's semantic assessment (Decision 158); flag for review if numbers look mis-attributed.`);
+      }
+    }
+  }
 
   // HF-247 Phase 4: commit-stage type validation. Refuse to write
   // classification-content inconsistent commits. Pre-HF-247 a misclassified

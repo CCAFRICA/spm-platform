@@ -25,6 +25,23 @@ function looksLikeRowIndex(values: string[]): boolean {
   return sorted[0] <= 1 && sorted[sorted.length - 1] <= sorted.length + 1;
 }
 
+// OB-231: the fixed column-role enum was retired for a free-form LLM data_nature string.
+// These file-local helpers read that free-form text tolerantly (regex/contains) so this
+// consumer reads the characterization directly — no shared classifier intermediary (by design).
+// Each predicate takes the structuralType (the column's data_nature value, possibly empty/null).
+function natureIsName(dataNature: string | null | undefined): boolean {
+  return /\b(name|label|full[\s_-]?name|display)\b/i.test(dataNature ?? '');
+}
+function natureIsIdentifier(dataNature: string | null | undefined): boolean {
+  return /\b(identifier|id|key|code)\b/i.test(dataNature ?? '') && !natureIsReferenceKey(dataNature);
+}
+function natureIsReferenceKey(dataNature: string | null | undefined): boolean {
+  return /reference[\s_-]?key|foreign[\s_-]?key|\bfk\b|grouping|dimension/i.test(dataNature ?? '');
+}
+function natureIsAttribute(dataNature: string | null | undefined): boolean {
+  return /\b(attribute|property|trait)\b/i.test(dataNature ?? '');
+}
+
 export async function resolveEntitiesFromCommittedData(
   supabase: SupabaseClient,
   tenantId: string,
@@ -35,10 +52,11 @@ export async function resolveEntitiesFromCommittedData(
   // HF-199 D3: also discover attribute columns per batch for entities.materializedState projection
   const batchIdentifiers = new Map<string, { idColumn: string; nameColumn: string | null; attributeColumns: string[]; isEventUnit: boolean }>();
   const batchLabels = new Map<string, string>(); // batchId -> informational_label
-  // HF-263 (corrected, Decision 111): batchId -> the structuralType of the column that produced
-  // this batch's external_ids (its idColumn). 'identifier' => individual; 'reference_key' => a
-  // grouping entity (location). Import-order independent — HC classifies the column the same way
-  // regardless of what was imported before. Korean Test: structuralType enum only, no column names.
+  // HF-263 (corrected, Decision 111): batchId -> the structuralType (free-form data_nature) of the
+  // column that produced this batch's external_ids (its idColumn). An identifier-natured column =>
+  // individual; a reference-key-natured column => a grouping entity (location). Import-order
+  // independent — HC characterizes the column the same way regardless of what was imported before.
+  // Korean Test: read the column's free-form data_nature only, no column names.
   const batchIdStructType = new Map<string, string>();
   const BATCH_SIZE = 200;
 
@@ -102,15 +120,15 @@ export async function resolveEntitiesFromCommittedData(
       }> | undefined;
 
       if (fieldIds && Object.keys(fieldIds).length > 0) {
-        // HF-263 (corrected): Korean Test — select by structuralType ONLY. The prior
-        // `contextualIdentity.toLowerCase().includes('person')` content-matching (on both the
+        // HF-263 (corrected): Korean Test — select by the column's free-form data_nature ONLY. The
+        // prior `contextualIdentity.toLowerCase().includes('person')` content-matching (on both the
         // identifier and name selection) was a hardcoded-vocabulary violation and is removed.
         // entity_id_field (above) remains the authoritative override; these are first-match
         // structural fallbacks.
-        // Name: first name column
+        // Name: first name-natured column (OB-231: tolerant read of the free-form data_nature)
         if (!nameColumn) {
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (fi.structuralType === 'name') {
+            if (natureIsName(fi.structuralType)) {
               nameColumn = colName;
               break;
             }
@@ -122,9 +140,11 @@ export async function resolveEntitiesFromCommittedData(
         // reference_key is present, idColumn stays null → no entities (calc-time resolution, OB-183).
         // Entity/reference units keep identifier-based discovery (the identifier IS the entity).
         if (!idColumn) {
-          const fallbackType = isEventUnit ? 'reference_key' : 'identifier';
+          // OB-231: select by the column's free-form data_nature. An event unit discovers from a
+          // reference-key-natured column; an entity/reference unit discovers from an identifier-natured one.
+          const matchesFallback = isEventUnit ? natureIsReferenceKey : natureIsIdentifier;
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (fi.structuralType === fallbackType) {
+            if (matchesFallback(fi.structuralType)) {
               idColumn = colName;
               break;
             }
@@ -146,23 +166,23 @@ export async function resolveEntitiesFromCommittedData(
       }
 
       if (idColumn) {
-        // HF-263 (corrected): record the idColumn's structuralType (from field_identities) so the
-        // external_ids it produces inherit it for Decision-111 entity typing. Works even when
-        // idColumn was chosen via entity_id_field or semantic_roles, as long as field_identities
-        // carries the column (Meridian reference batch: idColumn=Hub via semantic_roles, but
-        // field_identities[Hub].structuralType === 'reference_key').
+        // HF-263 (corrected): record the idColumn's structuralType (free-form data_nature, from
+        // field_identities) so the external_ids it produces inherit it for Decision-111 entity typing.
+        // Works even when idColumn was chosen via entity_id_field or semantic_roles, as long as
+        // field_identities carries the column (Meridian reference batch: idColumn=Hub via
+        // semantic_roles, but field_identities[Hub].structuralType reads as a reference-key nature).
         const idFi = fieldIds?.[idColumn];
         if (idFi?.structuralType) batchIdStructType.set(batchId, idFi.structuralType);
 
         // HF-199 D3: discover attribute columns from field_identities (Korean Test compliant —
-        // iterates structuralType only; no language-specific column-name matching).
+        // reads each column's free-form data_nature only; no language-specific column-name matching).
         // Only entity-typed batches (Plantilla / roster) carry attribute projections — exclude
         // identifier/name (already used for entity identity) and exclude HF-199 entity-batch-only
         // restriction is implicit because we only project from rows of label='entity' batches below.
         const attributeColumns: string[] = [];
         if (fieldIds && Object.keys(fieldIds).length > 0) {
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (fi.structuralType === 'attribute') {
+            if (natureIsAttribute(fi.structuralType)) {
               attributeColumns.push(colName);
             }
           }
@@ -192,8 +212,9 @@ export async function resolveEntitiesFromCommittedData(
   // Iterates field_identities-marked attribute columns only — no language-specific
   // column-name matching. Korean Test compliant.
   const entityAttributes = new Map<string, Record<string, unknown>>();
-  // HF-263 (corrected): external_id -> set of structuralTypes of the idColumns that produced it.
-  // 'identifier' => individual (a real person id wins); else 'reference_key' => grouping (location).
+  // HF-263 (corrected): external_id -> set of structuralType (free-form data_nature) strings of the
+  // idColumns that produced it. An identifier-natured source => individual (a real person id wins);
+  // else a reference-key-natured source => grouping (location).
   const extIdStructTypes = new Map<string, Set<string>>();
   // OB-203 Phase 6 (D3): external_ids that ORIGINATE from an entity-DEFINING batch (entity / reference
   // — NOT a transaction/target event unit). A transaction's reference_key LINKS to existing entities;
@@ -240,7 +261,7 @@ export async function resolveEntitiesFromCommittedData(
         }
 
         // HF-199 D3: project attribute columns from entity-typed batches only.
-        // For each attribute column flagged by HC (structuralType==='attribute'),
+        // For each attribute column flagged by HC (attribute-natured data_nature),
         // capture row's value. Stored per external_id; later written to
         // entities.temporal_attributes (calc-time materialization surface).
         if (isEntityBatch && attributeColumns.length > 0) {
@@ -323,16 +344,18 @@ export async function resolveEntitiesFromCommittedData(
       // transaction/target reference_key is a categorical dimension, not a foreign key — do not
       // fabricate an entity for it. (A real FK's entities were created by the roster → in existingMap.)
       if (!definedByEntityDefiningBatch.has(extId)) { suppressedSpurious++; continue; }
-      // HF-263 (CPI Phase 1, corrected — Decision 111): entity_type derives from the structuralType
+      // HF-263 (CPI Phase 1, corrected — Decision 111): entity_type derives from the data_nature
       // of the idColumn(s) that produced this external_id. A real person identifier wins (always an
-      // 'individual'); otherwise an id discovered as a 'reference_key' is a grouping entity →
+      // 'individual'); otherwise an id discovered as reference-key-natured is a grouping entity →
       // 'location'. Anything else (or no field_identity) defaults to 'individual'. Import-order
-      // independent (HC classifies the column stably). Korean Test: structuralType enum ONLY — never
-      // the entity name, external_id format, or contextualIdentity string content.
+      // independent (HC characterizes the column stably). Korean Test: read the free-form data_nature
+      // ONLY — never the entity name, external_id format, or contextualIdentity string content.
+      // OB-231: the set now holds free-form data_nature strings, so test membership tolerantly.
       const structTypes = extIdStructTypes.get(extId);
-      const entityType = structTypes?.has('identifier')
+      const natures = structTypes ? Array.from(structTypes) : [];
+      const entityType = natures.some(natureIsIdentifier)
         ? 'individual'
-        : structTypes?.has('reference_key')
+        : natures.some(natureIsReferenceKey)
           ? 'location'
           : 'individual';
       newEntities.push({

@@ -12,8 +12,8 @@ function profileFrom(roles: Array<{ col: string; role: string; conf: number }>, 
   const interpretations = new Map<string, HeaderInterpretation>();
   for (const r of roles) {
     interpretations.set(r.col, {
-      columnName: r.col, semanticMeaning: r.role, dataExpectation: '',
-      columnRole: r.role as HeaderInterpretation['columnRole'], confidence: r.conf,
+      columnName: r.col, characterization: r.role, dataExpectation: '',
+      data_nature: r.role, identifies: '', relationships: [], confidence: r.conf,
     });
   }
   return {

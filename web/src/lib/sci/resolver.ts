@@ -442,7 +442,7 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
     interpretations: Object.fromEntries(
       Array.from(headerComp.interpretations.entries()).map(([col, interp]) => [
         col,
-        { semanticMeaning: interp.semanticMeaning, columnRole: interp.columnRole, confidence: interp.confidence },
+        { characterization: interp.characterization, data_nature: interp.data_nature, confidence: interp.confidence },
       ])
     ),
     crossSheetInsights: headerComp.crossSheetInsights,

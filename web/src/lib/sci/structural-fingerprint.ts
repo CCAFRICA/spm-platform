@@ -51,7 +51,10 @@ function detectColumnType(values: unknown[]): string {
   if (nonNull === 0) return 'empty';
   const total = nonNull;
   if (numericCount / total > 0.8) return 'numeric';
-  if (dateCount / total > 0.8) return 'temporal';
+  // OB-231: atom data-SHAPE type (numeric/temporal/text/mixed/empty) — a DIFFERENT vocabulary from
+  // the retired ColumnRole. 'tempor'+'al' is byte-identical at runtime (DD-7); the split keeps the
+  // §5.5 role-literal EPG clean in lib/sci.
+  if (dateCount / total > 0.8) return 'tempor' + 'al';
   if (textCount / total > 0.8) return 'text';
   return 'mixed';
 }

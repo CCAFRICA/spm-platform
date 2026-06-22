@@ -45,6 +45,19 @@ import type { PlanComponent } from '@/types/compensation-plan';
 
 export type AttributionPattern = 'additive' | 'qualified' | 'non-attributable' | 'clawback';
 
+// OB-231: the fixed column-role enum was retired for a free-form LLM data_nature string carried in
+// FieldIdentity.structuralType. This file-local predicate reads that free-form text tolerantly
+// (regex/contains) so this consumer reads the characterization directly — no shared classifier
+// intermediary (by design). It excludes reference-key/foreign-key natures so a grouping/dimension
+// column is not mistaken for a transaction identifier. The pre-OB-231 stored value "identifier"
+// still matches, so behavior is preserved (DD-7). Korean Test: nature text only, no column names.
+function natureIsReferenceKey(dataNature: string | null | undefined): boolean {
+  return /reference[\s_-]?key|foreign[\s_-]?key|\bfk\b|grouping|dimension/i.test(dataNature ?? '');
+}
+function natureIsIdentifier(dataNature: string | null | undefined): boolean {
+  return /\b(identifier|id|key|code)\b/i.test(dataNature ?? '') && !natureIsReferenceKey(dataNature);
+}
+
 /**
  * OB-218: a parsed `temporal_adjustment` (per-transaction reversal) modifier. The column names are
  * DATA VOCABULARY carried by the plan modifier (above the Deterministic Calculation Boundary) and
@@ -244,7 +257,11 @@ export function extractTransactionRef(
   const metaEntityIdField = typeof metadata.entity_id_field === 'string' ? metadata.entity_id_field : null;
   const candidates: Array<{ col: string; isTxn: boolean }> = [];
   for (const [col, fi] of Object.entries(fieldIdentities)) {
-    if (!fi || fi.structuralType !== 'identifier') continue;
+    // OB-231: structuralType now carries a free-form data_nature string — read it tolerantly
+    // (was an exact equality against the retired identifier-nature enum value). The pre-OB-231
+    // stored identifier-nature value still matches; reference-key/grouping natures are excluded
+    // so a dimension column is not picked as the transaction ref.
+    if (!fi || !natureIsIdentifier(fi.structuralType)) continue;
     if (entityIdField && col === entityIdField) continue;
     if (metaEntityIdField && col === metaEntityIdField) continue;
     if (rowData[col] === null || rowData[col] === undefined || rowData[col] === '') continue;
