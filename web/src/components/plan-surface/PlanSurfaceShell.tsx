@@ -19,6 +19,7 @@ import type { PlanStructure, PersonaScope, CanonicalComponent } from '@/lib/plan
 import { PlanRail } from './PlanRail';
 import { PlanCanvas, type PeriodOption } from './PlanCanvas';
 import { ConsequenceTray, type EditDraft } from './ConsequenceTray';
+import { ConfidenceGlyph } from './ConfidenceGlyph';
 
 interface PlansPayload { persona: PersonaScope; tenantId: string; plans: PlanStructure[] }
 
@@ -74,15 +75,20 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
             {isSpanish ? 'Ver, entender y ajustar los componentes de cada plan.' : 'View, understand, and adjust each plan’s components.'}
           </div>
         </div>
-        {persona?.persona && (
-          <div className="flex items-center gap-2 text-xs rounded-full border border-border px-3 py-1.5" style={{ background: 'var(--vl-indigo-50, #EEF0FB)' }}>
-            <ShieldCheck className="h-3.5 w-3.5" style={{ color: 'var(--vl-kpi-accent, #4446B8)' }} />
-            <span className="text-muted-foreground">{isSpanish ? 'Vista' : 'Viewing as'}</span>
-            <span className="font-medium capitalize text-foreground">{persona.persona}</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">{persona.unrestricted ? (isSpanish ? 'todos los planes' : 'all plans') : `${persona.visibleRuleSetIds.length} ${isSpanish ? 'visibles' : 'visible'}`}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {selectedPlan?.topology && selectedPlan.topology.needsReviewCount > 0 && (
+            <ConfidenceGlyph severity={selectedPlan.topology.worst} count={selectedPlan.topology.needsReviewCount} label={`${selectedPlan.topology.needsReviewCount} ${isSpanish ? 'requieren revisión' : 'need review'}`} />
+          )}
+          {persona?.persona && (
+            <div className="flex items-center gap-2 text-xs rounded-full border border-border px-3 py-1.5" style={{ background: 'var(--vl-indigo-50, #EEF0FB)' }}>
+              <ShieldCheck className="h-3.5 w-3.5" style={{ color: 'var(--vl-kpi-accent, #4446B8)' }} />
+              <span className="text-muted-foreground">{isSpanish ? 'Vista' : 'Viewing as'}</span>
+              <span className="font-medium capitalize text-foreground">{persona.persona}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{persona.unrestricted ? (isSpanish ? 'todos los planes' : 'all plans') : `${persona.visibleRuleSetIds.length} ${isSpanish ? 'visibles' : 'visible'}`}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -109,6 +115,7 @@ export function PlanSurfaceShell({ selectedId }: { selectedId: string | null }) 
                 selectedPeriodId={selectedPeriodId}
                 onPeriodChange={setSelectedPeriodId}
                 editLabel={isSpanish ? 'Editar' : 'Edit'}
+                canEdit={!!persona?.canEdit}
                 onEditComponent={persona?.canEdit
                   ? (c: CanonicalComponent, variantId: string) => setDraft({ planId: selectedPlan.id, planName: selectedPlan.name, variantId, component: c, periodId: selectedPeriodId })
                   : undefined}

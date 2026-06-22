@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getServerAuthState } from '@/lib/auth/server-auth';
 import { personaFromIdentity, getVisiblePlans } from '@/lib/plan-surface';
+import { buildPlanTopology } from '@/lib/plan-surface/confidence';
+import { resolveBindingColumns } from '@/lib/plan-surface/binding-status';
 
 const PLATFORM_ROLES = new Set(['platform', 'vl_admin']);
 
@@ -54,6 +56,20 @@ export async function GET(request: NextRequest) {
 
   try {
     const plans = await getVisiblePlans(effectiveTenant, scope, sb as any);
+
+    // Concept ③ — confidence/anomaly topology. Precise per-column existence probe (accurate
+    // across sheets of any size; period-agnostic — an interpreter-token binding never appears
+    // in ANY period, the stable anomaly). One limit-1 query per DISTINCT bound column.
+    const allColumns = plans.flatMap((p) => p.variants.flatMap((v) => v.components.map((c) => c.binding.column)));
+    const present = await resolveBindingColumns(sb as any, effectiveTenant, allColumns);
+    for (const p of plans) {
+      const resolvedByComponent: Record<string, boolean> = {};
+      for (const v of p.variants) for (const c of v.components) {
+        resolvedByComponent[c.id] = c.binding.column ? present.has(c.binding.column) : false;
+      }
+      p.topology = buildPlanTopology(p, resolvedByComponent);
+    }
+
     return NextResponse.json({ persona: scope, tenantId: effectiveTenant, plans });
   } catch (err) {
     console.error('[GET /api/plan-surface/plans]', err);

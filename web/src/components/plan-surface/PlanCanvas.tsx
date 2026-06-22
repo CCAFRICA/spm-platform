@@ -17,15 +17,14 @@ export interface PlanCanvasProps {
   periods: PeriodOption[];
   selectedPeriodId: string | null;
   onPeriodChange: (id: string) => void;
-  // Phase 5 slots
-  confidenceGlyph?: (c: CanonicalComponent) => React.ReactNode;
-  provenanceSlot?: (c: CanonicalComponent) => React.ReactNode;
-  // Phase 4 — edit affordance (receives the active variantId so the tray can target it)
+  /** Phase 4 — edit affordance (receives the active variantId so the tray can target it). */
   onEditComponent?: (c: CanonicalComponent, variantId: string) => void;
   editLabel?: string;
+  /** Whether the viewer may edit / acknowledge (icm.configure_plans). */
+  canEdit?: boolean;
 }
 
-export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, confidenceGlyph, provenanceSlot, onEditComponent, editLabel }: PlanCanvasProps) {
+export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, onEditComponent, editLabel, canEdit }: PlanCanvasProps) {
   const [variantIdx, setVariantIdx] = useState(0);
   const variant = plan.variants[variantIdx] ?? plan.variants[0];
   const components = useMemo(() => variant?.components ?? [], [variant]);
@@ -78,8 +77,9 @@ export function PlanCanvas({ plan, periods, selectedPeriodId, onPeriodChange, co
               component={c}
               ruleSetId={plan.id}
               periodId={selectedPeriodId}
-              confidenceGlyph={confidenceGlyph?.(c)}
-              provenanceSlot={provenanceSlot}
+              confidence={plan.topology?.components[c.id]}
+              planConfidence={plan.confidence}
+              canEdit={canEdit}
               editSlot={onEditComponent ? () => (
                 <button
                   onClick={() => onEditComponent(c, variant.variantId)}

@@ -107,6 +107,46 @@ export interface PlanStructure {
   /** Set true when normalization could not find a recognizable variant/component
    *  shape — the plan still renders (generic), but the surface flags it. */
   shapeUnrecognized?: boolean;
+  /** Concept ③ — confidence/anomaly topology (populated by the plans route). */
+  topology?: PlanTopology;
+}
+
+// ───────────────────────── Confidence topology (Concept ③) ─────────────────────────
+
+export type ConfidenceSeverity = 'critical' | 'warning' | 'info';
+
+export interface ComponentConfidence {
+  componentId: string;
+  severity: ConfidenceSeverity;
+  /** 0..1 health score (1 = clean). */
+  score: number;
+  /** Did the component's bound column resolve against the tenant's committed_data? */
+  bindingResolved: boolean;
+  confidence?: number;
+  reasons: string[];
+  /** severity !== 'info'. */
+  needsReview: boolean;
+}
+
+export interface PlanTopology {
+  components: Record<string, ComponentConfidence>;
+  /** count of components with severity critical|warning — the "Needs Review" number. */
+  needsReviewCount: number;
+  worst: ConfidenceSeverity;
+}
+
+// ───────────────────────── Provenance thread (Concept ④) ─────────────────────────
+
+export interface ProvenanceData {
+  componentId: string;
+  componentName: string;
+  /** The source sentence the Reader recorded (compositional_intent.metadata.note), if any. */
+  sourceNote: string | null;
+  constructionMethod: string | null;
+  confidence?: number;
+  binding: { column: string | null; matchReason?: string; tokenOverlap?: number; fieldRefs: { field: string; via: string }[] };
+  /** Correction history from classification_signals (filled by the provenance route). */
+  corrections: { id: string; signalType: string; at: string | null; detail: unknown }[];
 }
 
 // ───────────────────────── Distribution overlay (Concept ① / ②) ─────────────────────────

@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
 import type { PlanStructure } from '@/lib/plan-surface';
+import { ConfidenceGlyph } from './ConfidenceGlyph';
 
 function StatusChip({ status }: { status: string }) {
   const s = status.toLowerCase();
@@ -21,11 +22,9 @@ function StatusChip({ status }: { status: string }) {
 export interface PlanRailProps {
   plans: PlanStructure[];
   selectedId: string | null;
-  /** Phase 5 health-glyph slot per plan (Needs Review count). Dormant in Phase 3. */
-  healthGlyph?: (plan: PlanStructure) => React.ReactNode;
 }
 
-export function PlanRail({ plans, selectedId, healthGlyph }: PlanRailProps) {
+export function PlanRail({ plans, selectedId }: PlanRailProps) {
   return (
     <nav className="space-y-1.5" aria-label="Plans">
       {plans.map((p) => {
@@ -53,7 +52,10 @@ export function PlanRail({ plans, selectedId, healthGlyph }: PlanRailProps) {
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
                 <StatusChip status={p.status} />
-                {healthGlyph?.(p) /* Phase 5 slot */}
+                {/* Phase 5 — health glyph (Needs Review count) */}
+                {p.topology && p.topology.needsReviewCount > 0 && (
+                  <ConfidenceGlyph severity={p.topology.worst} count={p.topology.needsReviewCount} label={`${p.topology.needsReviewCount} need review`} />
+                )}
               </div>
             </div>
           </Link>
