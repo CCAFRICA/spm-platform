@@ -1,9 +1,11 @@
-// OB-232 EP-1 — POST /api/signals/ui : write a UI interaction to the canonical signal surface.
-// Tenant is resolved server-side from the caller's profile (tenant isolation); platform admins may
-// target a selected tenant via body.tenantId. Fire-and-forget from the client; never blocks the UI.
+// OB-233 (DS-030) Obj 9 item 5 — POST /api/signals/comprehension-correction : write a
+// "this characterization is wrong" judgement to the canonical signal surface. Tenant is resolved
+// server-side from the caller's profile (tenant isolation); platform admins may target a selected
+// tenant via body.tenantId. Capture only — acting on the signal is Out of Scope.
+// Modelled exactly on web/src/app/api/signals/ui/route.ts.
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { recordUiSignal } from '@/lib/signals/ui-signal';
+import { recordComprehensionCorrection } from '@/lib/signals/comprehension-correction';
 
 export const runtime = 'nodejs';
 
@@ -14,12 +16,12 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ ok: false }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    signalType?: string; surface?: string; entityId?: string | null; metricKey?: string | null; sessionId?: string | null; tenantId?: string | null;
+    fieldName?: string; correction?: string; tenantId?: string | null;
   };
-  // Structural-property check only (C0/AP-26): require a non-empty signalType + surface. There is NO
-  // set-membership gate — any free-form interaction characterization is accepted (open-vocabulary).
-  if (!body.signalType?.trim() || !body.surface) {
-    return NextResponse.json({ ok: false, error: 'signalType (structural) + surface required' }, { status: 400 });
+  // Structural-property check only (C0/AP-26): require a non-empty fieldName + correction. There is NO
+  // set-membership gate — any free-form correction is accepted (open-vocabulary).
+  if (!body.fieldName?.trim() || !body.correction?.trim()) {
+    return NextResponse.json({ ok: false, error: 'fieldName + correction (both non-empty) required' }, { status: 400 });
   }
 
   const svc = await createServiceRoleClient();
@@ -30,13 +32,10 @@ export async function POST(req: NextRequest) {
   const tenantId = (isPlatform && body.tenantId) ? body.tenantId : (profile as any)?.tenant_id;
   if (!tenantId) return NextResponse.json({ ok: false, error: 'no tenant' }, { status: 400 });
 
-  const ok = await recordUiSignal(svc, {
+  const ok = await recordComprehensionCorrection(svc, {
     tenantId,
-    signalType: body.signalType,
-    surface: body.surface,
-    entityId: body.entityId ?? null,
-    metricKey: body.metricKey ?? null,
-    sessionId: body.sessionId ?? null,
+    fieldName: body.fieldName,
+    correction: body.correction,
     actorId: user.id,
   });
   return NextResponse.json({ ok });

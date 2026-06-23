@@ -10,11 +10,11 @@ import { getSummaryArtifacts, rollupByEntity, networkTotals, type SummaryArtifac
 import { defaultModel } from '@/lib/ai/model-policy';
 import { validateInsight } from './insight-validator';
 import { computeInsightShape } from './insight-shape';
-import { ARTIFACT_TYPES, type GeneratedInsight } from './insight-types';
+import type { GeneratedInsight } from './insight-types';
+import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const round2 = (v: number) => Math.round(v * 100) / 100;
 function round2obj(m: Record<string, number>): Record<string, number> {
   const o: Record<string, number> = {};
@@ -82,60 +82,71 @@ function buildDigest(arts: SummaryArtifact[], entMeta: Map<string, EntityMeta>) 
   };
 }
 
+// DS-030 §4.3 — the prompt names NO fixed categories. The LLM characterizes each insight in its own
+// words (free-form), so a pattern outside any four boxes (a seasonal cycle, a correlation, a phase
+// shift) is emitted, not forced into a label. Korean-Test-clean: no domain/tenant strings, no fixed
+// vocabulary the code later matches against.
 const SYSTEM = [
   'You are an analytics insight generator for a performance-intelligence platform.',
   'You are given PRE-COMPUTED summary data — every number is already final and correct.',
   'Your job: RECOGNIZE patterns and write concise, human-readable insights.',
   'You must NEVER compute, invent, scale, or alter a number. Every numeric value in data_references',
-  'MUST be copied EXACTLY from the provided data. Use entity_id values verbatim from the data (or null',
-  'for network-level insights, with entity_type "network").',
+  'MUST be copied EXACTLY from the provided data. Use entity_id values verbatim from the data, or null',
+  'for network-level insights.',
   '',
-  'Generate 8-10 CONCISE insights (≤2-sentence narratives) covering ALL of: "anomaly" (entity far from the network norm or a sharp',
-  'recent change), "trend" (sustained recent-vs-prior direction), "coaching" (an underperformer that',
-  'could improve — include recommended_action), "benchmark" (top/bottom vs perEntityAvg).',
-  'severity is one of: critical, warning, info, positive.',
+  'Generate 8-10 CONCISE insights (<=2-sentence narratives). Cover the FULL DIVERSITY of patterns the',
+  'data actually shows — do not force every insight into the same shape, and do not limit yourself to a',
+  'fixed set of categories. Describe whatever the data reveals.',
+  '',
+  'For each insight, describe these IN YOUR OWN WORDS (free-form — there is no fixed list to choose from):',
+  '- insight_characterization: what KIND of pattern this is, structurally (the nature of the deviation,',
+  '  movement, gap, comparison, cycle, or relationship you observed).',
+  '- insight_severity: how much it matters and WHY (not a fixed label — explain the magnitude/impact).',
+  '- shape_description: a tenant-content-free structural fingerprint of the pattern. Describe its',
+  '  structure (scope, direction, magnitude band, timeframe, measure class) with NO entity name, NO',
+  '  tenant id, NO metric name, and NO numeric value.',
   '',
   'Return ONLY a JSON array, no prose, no code fences. Each element:',
-  '{"artifact_type","severity","entity_id","entity_type","period_start","period_end","title",',
-  '"narrative","data_references":[{"metric","value","delta_pct"}],"recommended_action"}',
+  '{"insight_characterization","insight_severity","entity_id","entity_type","period_start","period_end",',
+  '"title","narrative","data_references":[{"metric","value","delta_pct"}],"shape_description","recommended_action"}',
+  'entity_type: a free-form description of what the entity is, or "network" for network-level insights.',
   'period_start/period_end use the dateRange. data_references.value MUST be a number copied from the data.',
 ].join('\n');
 
 async function callInsightLLM(digest: unknown, model: string): Promise<GeneratedInsight[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-  const body = JSON.stringify({
-    model,
-    max_tokens: 3500,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: `DATA:\n${JSON.stringify(digest)}` }],
+  // Streamed via the shared helper — a full insight array is a long generation; a non-streaming socket
+  // idles out mid-response (UND_ERR_SOCKET). parseInsightArray tolerates a truncated tail. temp 0 = C5.
+  const text = await streamAnthropicText({
+    model, system: SYSTEM, user: `DATA:\n${JSON.stringify(digest)}`, maxTokens: 4000, label: 'insights',
   });
-  // OB-155: fetch() can drop transiently (UND_ERR_SOCKET) — retry with backoff.
-  let res: Response | null = null;
-  let lastErr: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      res = await fetch(ANTHROPIC_API_URL, {
-        method: 'POST',
-        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body,
-      });
-      break;
-    } catch (e) {
-      lastErr = e;
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-    }
-  }
-  if (!res) throw new Error(`Anthropic fetch failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = await res.json() as any;
-  const text: string = json?.content?.[0]?.text ?? '';
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  return parseInsightArray(stripFences(text));
+}
+
+// Tolerant array parse: first try the whole array; if the response was truncated (max_tokens) or has a
+// malformed trailing element, salvage every COMPLETE top-level {...} object. Never throws on a partial
+// array — a truncated last insight is dropped, the rest are kept (then validated downstream).
+function parseInsightArray(cleaned: string): GeneratedInsight[] {
   const start = cleaned.indexOf('[');
-  const end = cleaned.lastIndexOf(']');
-  if (start < 0 || end < 0) throw new Error(`No JSON array in LLM response: ${cleaned.slice(0, 200)}`);
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
-  return Array.isArray(parsed) ? parsed as GeneratedInsight[] : [];
+  if (start < 0) throw new Error(`No JSON array in LLM response: ${cleaned.slice(0, 200)}`);
+  const body = cleaned.slice(start);
+  const end = body.lastIndexOf(']');
+  if (end > 0) {
+    try { const p = JSON.parse(body.slice(0, end + 1)); if (Array.isArray(p)) return p as GeneratedInsight[]; } catch { /* salvage below */ }
+  }
+  const out: GeneratedInsight[] = [];
+  let depth = 0, objStart = -1, inStr = false, esc = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { if (depth === 0) objStart = i; depth++; }
+    else if (ch === '}') { depth--; if (depth === 0 && objStart >= 0) { try { out.push(JSON.parse(body.slice(objStart, i + 1)) as GeneratedInsight); } catch { /* skip malformed */ } objStart = -1; } }
+  }
+  if (out.length === 0) throw new Error(`No parseable insight objects in LLM response: ${cleaned.slice(0, 200)}`);
+  // C2 (HF-337 1b): reaching the salvage loop means the whole-array parse failed (truncated stream).
+  // Salvaging complete insights is acceptable for insights ONLY because it is logged here, not silent.
+  console.warn(`[HF-337] insight.partial_salvage: whole-array parse failed; recovered ${out.length} complete insight(s) from a truncated response`);
+  return out;
 }
 
 export interface InsightRunResult {
@@ -147,7 +158,7 @@ export interface InsightRunResult {
   byType: Record<string, number>;
   failures: string[];
   validated: number;
-  samples: Array<{ artifact_type: string; severity: string; title: string; narrative: string; data_references: unknown; shape: unknown }>;
+  samples: Array<{ insight_characterization: string; insight_severity: string; title: string; narrative: string; data_references: unknown; shape: unknown }>;
 }
 
 export async function generateInsights(
@@ -166,6 +177,20 @@ export async function generateInsights(
   const { digest, traceable } = buildDigest(arts, entMeta);
   const insights = await callInsightLLM(digest, model);
 
+  // Data-driven novelty (C0, no registry): the set of characterizations already recorded as flywheel
+  // signals. A characterization absent from this set is flagged novel by the validator and logged
+  // here (never rejected). entityIds backs the validator's structural entity_id check.
+  const entityIds = new Set<string>(entMeta.keys());
+  const seenCharacterizations = new Set<string>();
+  try {
+    const { data: priorSigs } = await sb.from('classification_signals')
+      .select('signal_value').eq('tenant_id', tenantId).eq('signal_type', 'insight.characterization');
+    for (const s of (priorSigs ?? []) as any[]) {
+      const c = s?.signal_value?.characterization;
+      if (typeof c === 'string' && c.trim()) seenCharacterizations.add(c.trim());
+    }
+  } catch { /* novelty is best-effort; never blocks generation */ }
+
   // idempotent (Constraint 8): replace this tenant's artifacts
   if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId);
 
@@ -177,35 +202,60 @@ export async function generateInsights(
   let validated = 0;
 
   for (const ins of insights) {
-    const v = validateInsight(ins, traceable);
+    const v = validateInsight(ins, traceable, { entityIds, seenCharacterizations });
     if (!v.ok) { failed++; failures.push(...v.failures.slice(0, 2)); continue; }
     const shape = computeInsightShape(ins);
     validated++;
-    byType[ins.artifact_type] = (byType[ins.artifact_type] ?? 0) + 1;
-    if (samples.length < 8) samples.push({ artifact_type: ins.artifact_type, severity: ins.severity, title: ins.title, narrative: ins.narrative, data_references: ins.data_references, shape });
-    if (opts.dryRun) continue; // EP-2 validation + EP-3 shape proven; skip persistence
+    byType[ins.insight_characterization] = (byType[ins.insight_characterization] ?? 0) + 1;
+
+    // Log a flywheel signal for a never-before-seen characterization (DS-030 §4.2/§4.4): the system
+    // learns new pattern-types from the data, with NO developer registry to grow (C0, AP-26).
+    if (v.novelCharacterization && !opts.dryRun) {
+      seenCharacterizations.add(v.novelCharacterization);
+      try {
+        await sb.from('classification_signals').insert({
+          tenant_id: tenantId,
+          entity_id: null, // a pattern-type signal is tenant-scoped, not entity-scoped
+          signal_type: 'insight.characterization', // structural namespace (open-vocabulary; never set-validated)
+          signal_value: { characterization: v.novelCharacterization, severity: ins.insight_severity, shape: ins.shape_description ?? null },
+          source: 'insight-engine',
+          context: { novel: true },
+        });
+      } catch { /* signal logging is best-effort */ }
+    }
+
+    if (samples.length < 8) samples.push({ insight_characterization: ins.insight_characterization, insight_severity: ins.insight_severity, title: ins.title, narrative: ins.narrative, data_references: ins.data_references, shape });
+    if (opts.dryRun) continue; // validation + shape proven; skip persistence
     const entityId = ins.entity_id && entMeta.has(ins.entity_id) ? ins.entity_id : null; // never store an unknown FK
+    // OB-233 §8.5 — writer reconciled to the LIVE intelligence_artifacts schema (the live table is
+    // OB-233-aligned: separate shape_description + structural_fingerprint_hash, source, context). The
+    // date range is already validated in-memory by validateInsight (structural-coherence) above; only the
+    // storage mapping changes. period_id=null (Decision 92). recommended_action/generated_by/period_*
+    // are folded into context (jsonb) so no insight data is lost — recommended_action lives in context
+    // for now (PC-4: zero consumers; promote to a first-class column when the Performance tier consumes it).
     const { error } = await sb.from('intelligence_artifacts').insert({
       tenant_id: tenantId,
-      artifact_type: ins.artifact_type,
-      severity: ins.severity,
+      artifact_type: ins.insight_characterization, // free-form (TEXT column unchanged; no enum)
+      severity: ins.insight_severity,              // free-form (TEXT column unchanged; no enum)
       entity_id: entityId,
-      entity_type: ins.entity_type ?? (entityId ? entMeta.get(entityId)?.type : 'network'),
-      period_start: ins.period_start || null,
-      period_end: ins.period_end || null,
+      entity_type: ins.entity_type ?? (entityId ? entMeta.get(entityId)?.type ?? null : 'network'),
+      period_id: null,
       title: ins.title,
       narrative: ins.narrative,
       data_references: ins.data_references ?? [],
-      insight_shape: shape,
-      recommended_action: ins.recommended_action ?? null,
-      generated_by: model,
+      shape_description: shape.shape_description,
+      structural_fingerprint_hash: shape.structural_fingerprint_hash,
+      source: 'insight-engine',
+      context: {
+        recommended_action: ins.recommended_action ?? null,
+        generated_by: model,
+        period_start: ins.period_start || null,
+        period_end: ins.period_end || null,
+      },
     });
     if (error) { failed++; failures.push(error.message); continue; }
     stored++;
   }
-
-  // ensure registry coverage is observable
-  for (const t of ARTIFACT_TYPES) if (!(t in byType)) byType[t] = byType[t] ?? 0;
 
   return { tenantId, model, generated: insights.length, stored, failed, validated, byType, failures: failures.slice(0, 10), samples };
 }

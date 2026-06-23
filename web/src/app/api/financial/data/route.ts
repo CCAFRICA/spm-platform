@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js'; // OB-229
 import { getSummaryArtifacts } from '@/lib/summary/summary-read'; // OB-229
+import { recognize } from '@/lib/comprehension/surface-binding-recognition'; // HF-337
 
 // ═══════════════════════════════════════════════════════════════════
 // Types (shared with financial-data-service.ts)
@@ -334,23 +335,44 @@ async function aggregateNetworkPulseFromSummaries(
   if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
   const locations = entities.filter(e => e.entity_type === 'location');
   const brandLookup = buildBrandLookup(entities);
+  // HF-337 Surface Binding Recognition: resolve each financial measure to the comprehended field that
+  // satisfies its FREE-FORM purpose (recognition, not a hardcoded semantic key — the OB-233 break was
+  // m.revenue/m.tips, whose keys are now comprehension display_labels). Cached per (tenant
+  // comprehension-fingerprint x surface) in surface_bindings; re-encounter reads the binding (no LLM).
+  // The financial measure->purpose authoring lives in THIS financial consumer; the recognizer + store
+  // hold no domain vocabulary (Korean Test).
+  const MEASURES = [
+    { key: 'revenue',   surface: 'financial.network_pulse.revenue',       purpose: 'the primary monetary amount of money earned or charged as the gross outcome of each transaction or sale' },
+    { key: 'tips',      surface: 'financial.network_pulse.tips',          purpose: 'the gratuity or tip amount the customer adds on top of the charge' },
+    { key: 'food',      surface: 'financial.network_pulse.food',          purpose: 'the portion of the charge attributable to food, or the primary product category' },
+    { key: 'bev',       surface: 'financial.network_pulse.beverage',      purpose: 'the portion of the charge attributable to beverages, or a secondary product category' },
+    { key: 'discounts', surface: 'financial.network_pulse.discount',      purpose: 'the amount discounted or reduced from the charge' },
+    { key: 'comps',     surface: 'financial.network_pulse.complimentary', purpose: 'the amount given away as complimentary or comped (a zero-charge item)' },
+  ] as const;
+  const summaryKeyFor: Record<string, string> = {};
+  for (const meas of MEASURES) {
+    const r = await recognize(sb, tenantId, meas.surface, meas.purpose);
+    if (r.status === 'resolved' && r.fields[0]) summaryKeyFor[meas.key] = r.fields[0].display_label ?? r.fields[0].field_name;
+  }
+  // Graceful degradation (C2 / strict-2): no measure resolved -> the opinionated financial lens has
+  // nothing to bind; return null so the caller renders the raw aggregation (comprehension-driven
+  // salience over row_data) — never a silent blank.
+  if (Object.keys(summaryKeyFor).length === 0) return null;
+  const mv = (m: Record<string, number>, key: string) => (summaryKeyFor[key] ? (m[summaryKeyFor[key]] ?? 0) : 0);
+
   const locMap = newNpLocMap(locations, brandLookup);
   for (const a of arts) {
     const agg = locMap.get(a.entity_id);
     if (!agg) continue;
-    // HF-336: read by PLATFORM SEMANTIC ROLE (revenue/tips/food_revenue/…), not raw POS field names.
-    // summary_artifacts is enriched via convergence bindings (contextualIdentity), so any tenant in any
-    // language whose fields map to these roles renders here — Korean Test. The raw-cheque fallback path
-    // (aggregateNetworkPulse) still reads raw fields for tenants without enriched summaries.
     const m = a.metrics || {};
     agg.cheques += a.row_count;
-    agg.revenue += m.revenue ?? 0;
-    agg.tips += m.tips ?? 0;
-    agg.food += m.food_revenue ?? 0;
-    agg.bev += m.beverage_revenue ?? 0;
-    agg.discounts += m.discount ?? 0;
-    agg.comps += m.complimentary ?? 0;
-    agg.daily.set(a.summary_date, (agg.daily.get(a.summary_date) || 0) + (m.revenue ?? 0));
+    agg.revenue += mv(m, 'revenue');
+    agg.tips += mv(m, 'tips');
+    agg.food += mv(m, 'food');
+    agg.bev += mv(m, 'bev');
+    agg.discounts += mv(m, 'discounts');
+    agg.comps += mv(m, 'comps');
+    agg.daily.set(a.summary_date, (agg.daily.get(a.summary_date) || 0) + mv(m, 'revenue'));
   }
   return finalizeNetworkPulse(locMap, locations, brandLookup);
 }

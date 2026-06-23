@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { Check, XCircle, ArrowRight, Upload, AlertTriangle, RotateCcw, MinusCircle, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
+import { ComprehensionReport } from './ComprehensionReport';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
 import type { SessionStateView, UnitStateView, ImportTelemetry } from '@/lib/sci/comprehension-state-service';
@@ -492,6 +493,10 @@ export function ImportReadyState({
           Summary + classification confidence + a forward action derived from pipeline
           readiness, plus a path into the stream. Augments (does not replace) the
           existing Go-to-Calculate action below. */}
+      {/* OB-233 (DS-030 §5.3) — the comprehension report: "here's what I understood about your data",
+          rendered generically from comprehension_artifacts (no domain conditionals, C3). */}
+      <ComprehensionReport tenantId={tenantId} />
+
       {carrier && (
         <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -512,7 +517,7 @@ export function ImportReadyState({
                 return <button onClick={onNavigateToCalculate} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Calculate <ArrowRight className="w-4 h-4" /></button>;
               }
               if (!r.hasPlan) {
-                return <button onClick={() => router.push('/operate/import')} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Upload Plan <ArrowRight className="w-4 h-4" /></button>;
+                return <button onClick={() => router.push('/operate/import')} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Import Data <ArrowRight className="w-4 h-4" /></button>;
               }
               return <button onClick={() => router.push('/operate/calculate')} className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">Review Bindings <ArrowRight className="w-4 h-4" /></button>;
             })()}

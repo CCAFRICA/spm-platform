@@ -7,16 +7,19 @@
  * violation that made regime-3 attainment (actual÷target) uncomputable without name-matching.
  *
  * THE CANONICAL DECLARATION already exists: `rule_sets.input_bindings.convergence_bindings` (HF-234)
- * maps each DAG field name → its persisted `column` (+ a semantic `field_identity.contextualIdentity`).
- * This module resolves field identity THROUGH that one declaration — never a hardcoded pair, never a
- * per-tenant/domain string list. Verified on BCL: Colocación 103200÷120000 = 86.0% (matches the
- * persisted Cumplimiento_Colocacion 0.86); Captación 31500÷35000 = 90.0% (matches Pct_Meta_Depositos 0.9).
+ * maps each DAG field name → its persisted `column`. This module resolves field identity THROUGH that one
+ * declaration — never a hardcoded pair, never a per-tenant/domain string list. Verified on BCL:
+ * Colocación 103200÷120000 = 86.0% (matches the persisted Cumplimiento_Colocacion 0.86); Captación
+ * 31500÷35000 = 90.0% (matches Pct_Meta_Depositos 0.9).
+ *
+ * OB-233: the former vestigial reads of `field_identity.contextualIdentity`/`structuralType` here were
+ * unused by resolveAttainmentPct and the results page, so they are removed (no more field_identity read
+ * from input_bindings). Field comprehension now lives in comprehension_artifacts; the DAG-field→column
+ * resolution below remains calc-binding I/O (convergence_bindings.column), untouched (C6).
  */
 
 export interface FieldBinding {
   column: string;
-  contextualIdentity?: string;
-  structuralType?: string;
   /** The engine applies these to the operand BEFORE the ratio. The persisted top-level metrics JSONB is
    *  the RAW unscaled/unfiltered aggregate — so a client-side recompute is only valid when both are absent. */
   scaleFactor?: number;
@@ -34,13 +37,11 @@ export function buildFieldBindingMap(inputBindings: unknown): Map<string, FieldB
   for (const comp of Object.values(cb as Record<string, unknown>)) {
     if (!comp || typeof comp !== 'object') continue;
     for (const [dagField, b] of Object.entries(comp as Record<string, unknown>)) {
-      const binding = b as { column?: unknown; scale_factor?: unknown; filters?: unknown; field_identity?: { contextualIdentity?: unknown; structuralType?: unknown } } | null;
+      const binding = b as { column?: unknown; scale_factor?: unknown; filters?: unknown } | null;
       const column = binding?.column;
       if (typeof column === 'string' && !out.has(dagField)) {
         out.set(dagField, {
           column,
-          contextualIdentity: typeof binding?.field_identity?.contextualIdentity === 'string' ? binding.field_identity.contextualIdentity : undefined,
-          structuralType: typeof binding?.field_identity?.structuralType === 'string' ? binding.field_identity.structuralType : undefined,
           scaleFactor: typeof binding?.scale_factor === 'number' ? binding.scale_factor : undefined,
           hasFilters: Array.isArray(binding?.filters) && (binding.filters as unknown[]).length > 0,
         });

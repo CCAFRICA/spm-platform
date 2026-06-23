@@ -4,6 +4,12 @@
 
 *Source: Supabase live database (information_schema via OpenAPI spec)*
 
+> **OB-233 FP-49 addendum (2026-06-22, service-role probe).** This doc predates OB-229/OB-232 and is stale in three places verified by `web/scripts/_ob233-fp49-schema-verify.ts`:
+> - `summary_artifacts` — **LIVE but undocumented here** (11 cols: id, tenant_id, entity_id, summary_date, period_id, data_type, metrics, row_count, convergence_hash, computed_at, created_at). OB-229 migration applied.
+> - `intelligence_artifacts` — **NOT in the live schema cache** (`PGRST205 Could not find the table 'public.intelligence_artifacts'`). OB-232 persistence residual. Insight persistence (and OB-233 PG-1/PG-2 insight proofs) require the architect to apply/expose it + `NOTIFY pgrst, 'reload schema'`.
+> - `comprehension_artifacts` — added below; **pending architect application** of the OB-233 migration.
+> Column counts on individual tables below may also be stale (e.g. `import_batches` is 17 cols live, `classification_signals` is 24).
+
 ## Tables (36)
 
 ### agent_inbox (16 columns)
@@ -169,6 +175,28 @@
 | created_at | timestamp with time zone | NO | now() |
 | source_date | date | YES | |
 
+### comprehension_artifacts (12 columns) — OB-233, PENDING architect application (SR-44)
+
+*Plan-independent comprehension store (DS-030). Keyed by data identity `(tenant_id, field_name)` — NOT by rule_set. All semantic columns are free-form text (Korean Test / C0: no role-enum, no fixed-set data_type). Created by `web/supabase/migrations/20260622_ob233_comprehension_artifacts.sql`; **not yet live** — verify with `web/scripts/_ob233-fp49-schema-verify.ts` after the architect applies it.*
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | (FK -> tenants.id, ON DELETE CASCADE) |
+| field_name | text | NO | |
+| characterization | text | NO | |
+| data_nature | text | YES | |
+| relationships | text | YES | |
+| aggregation_behavior | text | YES | |
+| identifies | text | YES | |
+| display_label | text | YES | |
+| aggregation_method | text | YES | |
+| source_import_batch_id | uuid | YES | (FK -> import_batches.id, ON DELETE SET NULL) |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+*UNIQUE (tenant_id, field_name). Index: comprehension_artifacts_tenant_idx (tenant_id). RLS enabled (tenant-isolation + platform/vl_admin).*
+
 ### disputes (16 columns)
 
 | Column | Type | Nullable | Default |
@@ -316,6 +344,32 @@
 | started_at | timestamp with time zone | YES | |
 | completed_at | timestamp with time zone | YES | |
 | created_at | timestamp with time zone | NO | now() |
+
+### intelligence_artifacts (17 columns)
+
+*Insight Engine store (OB-232 / DS-028 Phase 2). One row per LLM-recognized insight; deterministic code builds the digest, the LLM writes narrative. `artifact_type`/`severity`/`entity_type` are free-form TEXT (Korean Test — no enum). Recovery migration: `web/supabase/migrations/20260622_ob232_intelligence_artifacts_recovery.sql` (table was created manually at OB-232; the migration is `CREATE ... IF NOT EXISTS` and is a no-op against the live DB). Columns derived from the live OpenAPI spec; nullability from its `required` set.*
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | (FK -> tenants.id, ON DELETE CASCADE) |
+| entity_id | uuid | YES | (FK -> entities.id, ON DELETE SET NULL) |
+| period_id | uuid | YES | |
+| artifact_type | text | YES | |
+| severity | text | YES | |
+| entity_type | text | YES | |
+| title | text | NO | |
+| narrative | text | YES | |
+| data_references | jsonb | NO | '[]'::jsonb |
+| shape_description | text | YES | |
+| structural_fingerprint_hash | text | YES | |
+| source | text | YES | |
+| context | jsonb | NO | '{}'::jsonb |
+| source_import_batch_id | uuid | YES | (FK -> import_batches.id, ON DELETE SET NULL) |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+*Indexes: idx_intelligence_artifacts_tenant (tenant_id), idx_intelligence_artifacts_tenant_entity (tenant_id, entity_id). RLS enabled (tenant-isolation + platform/vl_admin).*
 
 ### period_entity_state (9 columns)
 
@@ -544,6 +598,25 @@
 | source_file_sample | text | YES | |
 | created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
+
+### surface_bindings (9 columns) — HF-337, PENDING architect application (SR-44)
+
+*Surface Binding Recognition store (DS-030 consumer-side mirror of Decision 158). Keyed `(tenant_id, structural_fingerprint_hash, surface_id)` → free-form `resolved_fields` — NOT by any developer intent/role/field string, NO property-schema columns (registry bright line). Grows by encounter (recognition), never by maintenance. The `(structural_fingerprint_hash, surface_id)` index is OB-235's cross-tenant matching key. Created by `web/supabase/migrations/20260623_hf337_surface_bindings.sql`; **not yet live** — verify with `web/scripts/_hf337-p0-probe.ts` after the architect applies it.*
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | (FK -> tenants.id, ON DELETE CASCADE) |
+| structural_fingerprint_hash | text | NO | |
+| surface_id | text | NO | |
+| purpose_text | text | YES | |
+| resolved_fields | jsonb | NO | '[]' |
+| confidence | numeric | YES | |
+| recognized_by | text | YES | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+*UNIQUE (tenant_id, structural_fingerprint_hash, surface_id). Indexes: (tenant_id, surface_id), (structural_fingerprint_hash, surface_id). RLS enabled (tenant-isolation + platform/vl_admin).*
 
 ### synaptic_density (11 columns)
 

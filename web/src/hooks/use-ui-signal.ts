@@ -1,12 +1,12 @@
 'use client';
 
-// OB-232 EP-1 — client hook: capture a UI interaction to the canonical signal surface (fire-and-forget).
+// OB-233 EP-1 — client hook: capture a UI interaction to the canonical signal surface (fire-and-forget).
+// signalType is FREE-FORM (open-vocabulary, AP-26): any interaction characterization, never a fixed set.
 import { useCallback } from 'react';
-import type { UiSignalType } from '@/lib/signals/ui-signal';
 
 export function useUiSignal(surface: string) {
   return useCallback(
-    (signalType: UiSignalType, ctx: { entityId?: string | null; metricKey?: string | null } = {}) => {
+    (signalType: string, ctx: { entityId?: string | null; metricKey?: string | null } = {}) => {
       try {
         void fetch('/api/signals/ui', {
           method: 'POST',
