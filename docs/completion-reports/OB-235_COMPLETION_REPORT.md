@@ -41,7 +41,7 @@ One canonical writer already exists: `lib/intelligence/canonical-signal-writer.t
 Captured at the P9 proof (run-1 cold IS T₁; run-2 warm measured against it). Methodology fixed here: comprehension total-call counter (1.2); calc execution-mode distribution + wall-clock; expression-binding recognition call count on first encounter.
 
 ### 1.7 Material premise corrections (load-bearing for P1/P4/P5)
-The directive's "calculation runs cold every time; the stores need closing, not designing" is accurate that the **stores** exist; but the live calc route **already** consolidates density (c), fires the foundational+domain flywheel (d), and loads cold-start priors. So **P4 reduces to reconnecting (b) + aligning the EMA formula** (math-neutral); **P5 is largely present → its work is verification + the privacy-firewall grep + the cold-start proof**; **P1 extends the existing canonical writer** (register `surface_binding_recognition` + repoint the ~10 bypass sites) rather than building one. The genuinely-new code is **P2** (shared spine), **P3** (comprehension recall), **P-EXP** (cross-tenant binding inheritance), **P6** (correction propagation + binding invalidation), **P8** (recognition curve), and the **P7** convergence read.
+The directive's "calculation runs cold every time; the stores need closing, not designing" is accurate that the **stores** exist; but the live calc route **already** consolidates density (c), fires the foundational+domain flywheel (d), and loads cold-start priors. So **P4 reduces to reconnecting (b) + aligning the EMA formula** (math-neutral); **P5 is largely present → its work is verification + the privacy-firewall grep + the cold-start proof**; **P1 extends the existing canonical writer** — routes the ~10 bypass sites through it (open vocabulary; **no registration** — NO-REGISTRY rule) rather than building a second writer. The genuinely-new code is **P2** (shared spine), **P3** (comprehension recall), **P-EXP** (cross-tenant binding inheritance), **P6** (correction propagation + binding invalidation), **P8** (recognition curve), and the **P7** convergence read.
 
 **Disposition: RECONNECT** the calc density loop (no HALT-REBUILD). Proceed to P1.
 
@@ -80,3 +80,22 @@ Per-site classification (DD-3 — all **retire→canonical-write**):
 - **tsc = 0.** Build green on HEAD (§build).
 - **Structural validation preserved (NOT a registry):** the writer's out-of-range-confidence structured failure (`CanonicalWriteError` cause `out_of_range`) is kept — a confidence outside [0,1] fails loud. This is structural-property validation (range), never set-membership. signal_type remains **open vocabulary**; `surface_binding_recognition` and every other kind flow freely with no registration.
 - **Single-site normalization:** confidence is normalized/validated only at the one writer (`validateSignal`).
+
+---
+
+## 3. PG-2 — Learner core + structural-fingerprint matcher (the shared spine)
+
+New modules (NEW-BEHAVIOR, no new stores): `lib/learning/structural-fingerprint-matcher.ts`, `lib/learning/learn-store.ts` (adapter interface), `lib/learning/learner-core.ts`.
+
+- **Matcher keys on STRUCTURE only (Korean Test at the learning layer):** features = `columnCount`, `typeDistribution`, `rangeBuckets` (value-magnitude), `cardinalityBuckets`. **Zero field-name literals** in `lib/learning/` (grep clean). Unit proof (`_ob235-p2-proof.ts`):
+  ```
+  [Korean Test] English vs Hangul, SAME structure -> identical fingerprint: PASS (name-blind)
+  [match-on-similar]  sim(A, A-Hangul) = 1.000 -> MATCH
+  [miss-on-dissimilar] sim(A, B-diff)  = 0.303 -> MISS
+  [stable] re-extract(A) hash == hash(A): PASS
+  ```
+  A dataset with Hangul column names fingerprints **identically** to its English-named structural twin — the matcher never reads a name.
+- **Learner-core is scope- and store-generic:** `recall(sb, store, q)` reads via the per-layer adapter; `consolidate(sb, store, artifact, signal)` persists the artifact to its EXISTING store **and** emits one signal **through the one canonical writer** (`writeSignalWithClient`) — the dual-write pattern, single surface, never a side-channel (G7). The adapter (`LearnStore<T>`) is the only layer-specific piece; **no new stores** are defined here.
+- **Match scope parameterized:** `RecallQuery.scope` ∈ tenant | foundational | domain | expression; `tenantId` present for same-tenant reads, **dropped** for the cross-tenant reads keyed on `(structural_fingerprint_hash[, surface_id])` — the index HF-337 built.
+- **NO REGISTRY (grep-verified, DD-5):** the only `new Set(...)` hits are a per-column distinct-value cardinality counter and a key-union for the similarity overlap — both non-gating computation, not permitted-value gates. No enum/allowed-set gates any artifact. The bucket edges (magnitude/cardinality) are histogram bins (Residual 1), not a gate — every value maps to a bucket.
+- **tsc = 0.** Build green (§build).
