@@ -1,7 +1,7 @@
 # HF-337 — OB-233 Foundation Fix + Surface Binding Recognition — Completion Report
 
 **Directive:** `docs/vp-prompts/HF-337_DIRECTIVE_20260623.md` · **Branch:** `ob-233-comprehension-pipeline` · **PR #593**
-**Status:** P0 + P1 (foundation) COMPLETE on HEAD; **HALT-MIGRATION** (surface_bindings store awaiting architect SQL application) + **MIR-empty gap** (P1c blocked, architect seed). P2 (recognizer + finance repoint) proceeds after both clear.
+**Status:** P0 + P1 + **P2 (Surface Binding Recognition) COMPLETE** on HEAD. HALT-MIGRATION cleared (`surface_bindings` live, Step 0). Build green on HEAD; the finance break is fixed by recognition (network_pulse revenue resolves `total`→`Total`→$40,013,055.26, was $0). RG1/RG2 pass. **Outstanding (architect channel, not blockers for P2→P3):** G-MIR (MIR empty — demo-gate, deferred via substrate-substitution to Sabor), G-BCL (BCL+Meridian reconciliation), G-GT (29 GT-leak scrubs). PR #593 updated (P3). Do not merge (SR-44).
 
 Self-attestation rejected — every gate pastes live evidence. Reconciliation figures reported verbatim; CC never reconciles (architect-channel).
 
