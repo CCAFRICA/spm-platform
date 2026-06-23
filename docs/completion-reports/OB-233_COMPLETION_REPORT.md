@@ -184,9 +184,60 @@ A brand-new interaction class (outside selection/dwell/drill/dismissal) flows wi
 
 ## 6. HALT outcomes
 - **HALT-SEQ:** not triggered (no sequence collision).
-- **HALT-1 (ANTHROPIC_API_KEY):** cleared locally — key present in `web/.env.local`.
-- **HALT-MIGRATION:** ACTIVE — see §2.3.
-- (Others assessed as their objectives are reached.)
+- **HALT-1 (ANTHROPIC_API_KEY):** cleared — key present in `web/.env.local`.
+- **HALT-MIGRATION:** **CLEARED.** Architect applied both migrations; Step-0 FP-49 re-run confirms `comprehension_artifacts` EXISTS (empty) and `intelligence_artifacts` EXISTS (empty) from the service-role view.
+- **HALT-2 / HALT-3 / HALT-4 / HALT-IMPORT:** assessed in §8 (Phase A Decision Package) — **awaiting architect dispositions (HALT-DECISIONS).**
 
 ## 7. Timing
 *(PG-8 — filled after end-to-end run)*
+
+---
+
+# 8. OB-233 Phase A — Architect Decision Package (HALT-DECISIONS)
+
+Phase A ran the four decision-HALT reconnaissances (A1–A4, read-only) + two decision-independent prep writes (A5–A6) in parallel. tsc `EXIT=0` across all Phase-A writes + the eradication wave. **Phase B is NOT started; it awaits the dispositions below in a single architect response.**
+
+| HALT | Verdict | CC recommendation |
+|---|---|---|
+| **HALT-3** (calc reads field_identity/structuralType/contextualIdentity from input_bindings?) | **DOES-NOT-FIRE** | Proceed; ACK the guardrail (do not touch `committed_data.metadata.field_identities`). |
+| **HALT-4** (input_bindings={} blank entanglement) | **FIRES — ENTANGLED** | Option A (targeted invalidation) — or Option 0 (keep blank). See below. |
+| **HALT-IMPORT** (mapping form removable?) | **NO MAPPING FORM EXISTS** (already domain-agnostic) | Re-scope Obj 9 from *removal* to *enrichment*. |
+| **HALT-2** (timing within Vercel window?) | **PREDICTED WITHIN WINDOW** | Proceed in-request; keep comprehension batched; parallelize per-`data_type`. |
+| **NEW: writer/table divergence** | intelligence_artifacts live shape ≠ insight-engine writer | Reconcile the writer to the live schema in Phase B. Confirm. |
+
+### 8.1 HALT-3 — DOES-NOT-FIRE (evidence: A1)
+`grep field_identity|structuralType|contextualIdentity` over `run/route.ts` = 0. The calc engine reads only column-name resolution fields (`.column`, `.reduction`, `.filters`, `.scale_factor`, `.columnMap`, `.via`). The only readers of `input_bindings...field_identity` are `lib/results/field-identity.ts` + `lib/summary/summary-engine.ts` (results/summary surfaces — which Obj 4 is migrating to `comprehension_artifacts`); the calc engine imports neither.
+- **GUARDRAIL (architect please ACK):** the calc engine DOES read `committed_data.metadata.field_identities[col].structuralType/contextualIdentity` via `extractTransactionRef` (`per-row-attribution.ts:248-268`, called from `run/route.ts:3007`). That is a **different table/column** from `input_bindings`. OB-233 must stay within `input_bindings` + `comprehension_artifacts`; **touching `committed_data.metadata.field_identities` would break calc.** No disposition needed if scope holds.
+
+### 8.2 HALT-4 — FIRES / ENTANGLED (evidence: A2) — DISPOSITION REQUIRED
+The `input_bindings = {}` blank (`finalize-import:56-63`, HF-269) is **the only mechanism that forces convergence re-derivation on reimport.** Findings:
+- `generateConvergenceBindings` (the HF-336 generator) is **NOT wired** into the runtime (only `scripts/hf336-run.ts`). The real populator is `convergeBindings` (`convergence-service.ts:241`) at **calc time** (`run/route.ts:266`).
+- Calc gate `run/route.ts:240-264`: re-derives **only if** `(!hasMetricDerivations && !hasConvergenceBindings) || convergence_version !== 'HF-234'`. If current bindings persist, **re-derivation is skipped**, and `hasCompleteBindings` (`convergence-service.ts:2571`) is **structural-only — it does not check the bound columns still exist** in the reimported data.
+- **Consequence of a bare blank-removal:** stale bindings (pointing at old columns) are reused after a reimport with changed columns → resolver finds nothing → **silent zero / wrong calc** (the T3 RESOLUTION_FAILURE backstop does not fire because the token *is* mapped). The blank currently prevents exactly this.
+- **Premise update:** because Obj 2/3 moves comprehension into `comprehension_artifacts`, the blank **no longer destroys comprehension** — Obj 1's motivation (a) is satisfied structurally by the new table, not by removing the blank.
+
+**Dispositions (pick one):**
+- **Option A (recommended, directive-aligned):** replace the wholesale `{}` blank with **targeted invalidation** — clear only `convergence_bindings` + `metric_derivations` + `convergence_version`, preserving the rest of `input_bindings`. Calc gate then re-derives (correct on reimport), and any non-cache keys / component bindings survive (C6). *Caveat:* its benefit over keeping the blank depends on whether `input_bindings` holds non-cache keys worth preserving (e.g. `metric_mappings`, `_provenance`, human-authored corrections). **Architect: does any human-authored/corrected binding live in `input_bindings` that must survive a reimport?**
+- **Option 0 (minimal, safest for calc):** **keep the blank as-is.** Now that comprehension is off `input_bindings`, the blank only forces correct re-derivation and harms nothing. Obj 1 becomes: confirm comprehension is refreshed by idempotent upsert to `comprehension_artifacts` (never blanked-without-replacement) — Obj 2/3's job — and make **no** change to the blank. (Contradicts the directive's literal "input_bindings not blanked," so flagged for explicit approval.)
+- **Option B (most correct, larger):** Option A **plus** harden `hasCompleteBindings` to validate bound columns exist against current `committed_data` (closes the root silent-reuse defect independent of import-time hygiene; touches the calc engine — heavier C6 review).
+
+### 8.3 HALT-IMPORT — NO MAPPING FORM EXISTS (evidence: A3)
+The import surface is **already domain-agnostic**: `operate/import/page.tsx` header is "Import"; `import/enhanced/page.tsx` is a pure redirect; `SCIProposal.tsx` offers **classification-confirm only** with a **read-only** `sourceField → semanticRole` display; ICM component bindings derive at **calc time** from `committed_data` (no manual mapping step). The directive's "replace the field-mapping configuration form" premise is **stale** — there is no form to remove, and removing it is therefore safe for BCL/MIR calc.
+- **Disposition (recommended):** **re-scope Obj 9 from *removal* to *enrichment*** — render the comprehension report by enriching the existing read-only `SCIProposal` binding display + `ImportReadyState` "Field Mappings Applied" surface to read `comprehension_artifacts` generically (no domain conditionals — C3). No form deletion. **Architect: confirm the re-scope.**
+
+### 8.4 HALT-2 — WITHIN WINDOW (evidence: A4)
+finalize-import (`maxDuration=300`) will make **3 LLM calls** after Phase B: comprehension (1 **batched** call for all fields — `convergence-binding-generator.ts:89` already batches via `classifyFields`), Summary backfill label/method (1), Insight Engine (1, ≤3 socket-retries). Typical ~80-100s; pessimistic ~155-175s — within 300s.
+- **Disposition (recommended):** proceed **in-request**; **mandate batched comprehension** (never regress to per-field); if a tenant has multiple `data_type`s, run the per-`data_type` comprehension calls with `Promise.all` (not serial); defensive fallback = move the Insight Engine to a background job only if observed runtime exceeds ~200s (HALT-2 re-fires at runtime per the directive). **Architect: ACK in-request + the batching mandate.**
+
+### 8.5 NEW — intelligence_artifacts writer/table divergence (evidence: A5) — CONFIRM
+The architect-created live `intelligence_artifacts` (17 cols, OpenAPI-verified) is **OB-233-aligned** but diverges from the current `insight-engine.ts` writer:
+- Live has `shape_description`, `structural_fingerprint_hash`, `source`, `context`, `period_id`, `source_import_batch_id`.
+- Writer sets `insight_shape` (jsonb), `period_start`, `period_end`, `recommended_action`, `generated_by` — **none of which are live columns** → the insert would be rejected by PostgREST.
+- The live `shape_description` + `structural_fingerprint_hash` columns **exactly match** OB-233's new `InsightShape`.
+- **Disposition (recommended, Phase B):** reconcile the writer to the live schema — write `shape_description`/`structural_fingerprint_hash` as separate columns (from `computeInsightShape`), set `source='insight-engine'`, fold `recommended_action`/`generated_by` into `context` (jsonb), and use `period_id` (null) instead of `period_start`/`period_end`. **Architect: confirm this reconciliation (required for PG-1/PG-2 insight persistence).**
+
+### 8.6 Phase A prep writes landed (committed this phase)
+- **A5:** `web/supabase/migrations/20260622_ob232_intelligence_artifacts_recovery.sql` (SR-43 recovery — reproduces the live table with `CREATE TABLE IF NOT EXISTS`, a no-op against prod) + `SCHEMA_REFERENCE_LIVE.md` `intelligence_artifacts` section.
+- **A6:** `web/src/lib/signals/comprehension-correction.ts` + `web/src/app/api/signals/comprehension-correction/route.ts` (free-form `comprehension_correction` signal write path — Obj 9 item 5, capture-only); `Sidebar.tsx:229` "Plan Import" → "Import Data" (the only domain-specific import label). Verified: zero-plan import path is **already ungated**; entry labels otherwise already neutral. Flagged (untouched): `CarrierPipelineReadiness.tsx:30` / `ImportReadyState.tsx:515` "Upload Plan" follow-on CTAs.
+
+**HALT-DECISIONS: awaiting architect dispositions for HALT-4 (Option A / 0 / B), HALT-IMPORT (re-scope confirm), HALT-2 (in-request + batching ACK), HALT-3 (scope-guardrail ACK), and §8.5 (writer reconciliation confirm), in a single response. Phase B will not begin until they are returned.**

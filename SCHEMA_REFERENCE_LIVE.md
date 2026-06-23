@@ -345,6 +345,32 @@
 | completed_at | timestamp with time zone | YES | |
 | created_at | timestamp with time zone | NO | now() |
 
+### intelligence_artifacts (17 columns)
+
+*Insight Engine store (OB-232 / DS-028 Phase 2). One row per LLM-recognized insight; deterministic code builds the digest, the LLM writes narrative. `artifact_type`/`severity`/`entity_type` are free-form TEXT (Korean Test — no enum). Recovery migration: `web/supabase/migrations/20260622_ob232_intelligence_artifacts_recovery.sql` (table was created manually at OB-232; the migration is `CREATE ... IF NOT EXISTS` and is a no-op against the live DB). Columns derived from the live OpenAPI spec; nullability from its `required` set.*
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | (FK -> tenants.id, ON DELETE CASCADE) |
+| entity_id | uuid | YES | (FK -> entities.id, ON DELETE SET NULL) |
+| period_id | uuid | YES | |
+| artifact_type | text | YES | |
+| severity | text | YES | |
+| entity_type | text | YES | |
+| title | text | NO | |
+| narrative | text | YES | |
+| data_references | jsonb | NO | '[]'::jsonb |
+| shape_description | text | YES | |
+| structural_fingerprint_hash | text | YES | |
+| source | text | YES | |
+| context | jsonb | NO | '{}'::jsonb |
+| source_import_batch_id | uuid | YES | (FK -> import_batches.id, ON DELETE SET NULL) |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+*Indexes: idx_intelligence_artifacts_tenant (tenant_id), idx_intelligence_artifacts_tenant_entity (tenant_id, entity_id). RLS enabled (tenant-isolation + platform/vl_admin).*
+
 ### period_entity_state (9 columns)
 
 | Column | Type | Nullable | Default |
