@@ -28,7 +28,7 @@ const keyOf = (entityId: string, date: string, dataType: string | null) => `${en
  * Pure aggregation: SUM every numeric row_data field per (entity, day, data_type). Field names come
  * ONLY from the data — never the code (Korean Test). T1-E902: aggregates ALL numeric fields.
  */
-export function aggregateCommittedRows(rows: CommittedRow[]): AggregatedArtifact[] {
+export function aggregateCommittedRows(rows: CommittedRow[], keyMap?: Record<string, string>): AggregatedArtifact[] {
   const acc = new Map<string, AggregatedArtifact>();
   for (const r of rows) {
     if (!r.entity_id || !r.source_date) continue; // HALT-2 / Residual-4: cannot place per-entity/day
@@ -43,11 +43,39 @@ export function aggregateCommittedRows(rows: CommittedRow[]): AggregatedArtifact
     for (const field in rd) {
       const v = rd[field];
       if (typeof v === 'number' && Number.isFinite(v)) {
-        a.metrics[field] = (a.metrics[field] ?? 0) + v;
+        // HF-336: convergence enrichment — when a semantic key map exists, the metric key is the
+        // field's contextualIdentity (revenue, tips, …) instead of the raw field name (total, propina).
+        const metricKey = keyMap?.[field] ?? field;
+        a.metrics[metricKey] = (a.metrics[metricKey] ?? 0) + v;
       }
     }
   }
   return Array.from(acc.values());
+}
+
+/**
+ * HF-336 — build the semantic key map {raw_column -> contextualIdentity} from a tenant's convergence
+ * bindings (rule_sets.input_bindings.convergence_bindings). Empty map when no bindings exist (the
+ * engine then stores raw field keys, unchanged). Domain-agnostic: keys/labels come from the data.
+ */
+export async function buildSemanticKeyMap(sb: SupabaseClient, tenantId: string): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  const { data } = await sb.from('rule_sets').select('input_bindings').eq('tenant_id', tenantId).eq('status', 'active');
+  for (const rs of (data ?? []) as any[]) {
+    const cb = rs?.input_bindings?.convergence_bindings;
+    if (!cb || typeof cb !== 'object') continue;
+    for (const compKey of Object.keys(cb)) {
+      const comp = cb[compKey];
+      if (!comp || typeof comp !== 'object') continue;
+      for (const bindKey of Object.keys(comp)) {
+        const b = comp[bindKey];
+        const col = b?.column;
+        const ci = b?.field_identity?.contextualIdentity;
+        if (typeof col === 'string' && typeof ci === 'string' && ci) map[col] = ci;
+      }
+    }
+  }
+  return map;
 }
 
 /**
@@ -96,7 +124,8 @@ export async function backfillSummariesJs(
     offset += PAGE;
   }
 
-  const artifacts = aggregateCommittedRows(rows);
+  const keyMap = await buildSemanticKeyMap(sb, tenantId); // HF-336 convergence enrichment
+  const artifacts = aggregateCommittedRows(rows, keyMap);
   const skipped = rows.filter((r) => !r.entity_id || !r.source_date).length;
 
   // idempotent replace (Constraint 6)
@@ -133,8 +162,14 @@ export async function runSummaryEngine(
   tenantId: string,
   log: (m: string) => void = () => {},
 ): Promise<{ written: number; skipped: number; via: 'rpc' | 'js' }> {
-  const rpc = await runSummaryEngineRpc(sb, tenantId);
-  if (rpc) return { ...rpc, via: 'rpc' };
+  // HF-336: if the tenant has convergence bindings, metric keys must be semantic (contextualIdentity).
+  // The SQL RPC stores raw keys only, so an enriched tenant takes the JS path (which applies the key
+  // map). Tenants without bindings keep the fast RPC path (raw keys, unchanged from OB-229).
+  const keyMap = await buildSemanticKeyMap(sb, tenantId);
+  if (Object.keys(keyMap).length === 0) {
+    const rpc = await runSummaryEngineRpc(sb, tenantId);
+    if (rpc) return { ...rpc, via: 'rpc' };
+  }
   const js = await backfillSummariesJs(sb, tenantId, log);
   return { written: js.written, skipped: js.skipped, via: 'js' };
 }
