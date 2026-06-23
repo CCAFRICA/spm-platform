@@ -20,6 +20,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
+import { runSummaryEngine } from '@/lib/summary/summary-engine'; // OB-229
 
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
@@ -69,8 +70,19 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Finalize] createMissingAssignments failed:', err instanceof Error ? err.message : err);
     }
 
+    // 4. OB-229: pre-compute summary_artifacts now that committed_data is written AND entity resolution
+    //    is done (step 1). Production path is the SQL RPC (fast); JS fallback until the RPC is applied.
+    //    Awaited (HF-300 reliability model — post-response work dies on Vercel).
+    let summary: { written: number; skipped: number; via: 'rpc' | 'js' } | null = null;
+    try {
+      summary = await runSummaryEngine(supabase, tenantId, trace);
+      trace(`summary-engine-done via=${summary.via} written=${summary.written} skipped=${summary.skipped}`);
+    } catch (err) {
+      console.error('[SCI Finalize] summary engine failed:', err instanceof Error ? err.message : err);
+    }
+
     trace('done');
-    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, durationMs: Date.now() - t0 });
+    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, summary, durationMs: Date.now() - t0 });
   } catch (err) {
     console.error('[SCI Finalize] Error:', err);
     return NextResponse.json({ error: 'Finalize failed', details: String(err) }, { status: 500 });
