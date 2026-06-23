@@ -60,6 +60,20 @@ const nextConfig = {
         destination: '/transactions',
         permanent: true,
       },
+      // OB-322 O-1: My Team and Sales & Finance removed from Insights; routes redirect to
+      // Overview (not 404). The team view itself lives on at /perform/team (the Performance
+      // agent dashboard surface referenced by insight-engine/pulse-service/command-registry);
+      // only the duplicated Insights entry is retired. Temporary (could change), so not permanent.
+      {
+        source: '/insights/my-team',
+        destination: '/insights',
+        permanent: false,
+      },
+      {
+        source: '/insights/sales-finance',
+        destination: '/insights',
+        permanent: false,
+      },
     ];
   },
 };

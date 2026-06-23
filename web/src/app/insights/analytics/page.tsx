@@ -9,8 +9,12 @@
  * analytics-service (generateKPIs / generateTrends / generateBreakdowns — West/East/
  * Enterprise/Team Alpha, Math.random series). It now derives every rendered number
  * from real calculation_results via the OB-224 drill-through layer
- * (getEntityResults / getPeriodsWithResults). Dimensions the platform does NOT collect
- * (regional/segment/team budgets) are HONEST EMPTY STATES — never fabricated.
+ * (getEntityResults / getPeriodsWithResults).
+ *
+ * OB-322: the Dimension Breakdown is now a real pivot over DISCOVERED dimensions
+ * (lib/insights/dimension-discovery — component + entity-metadata attributes at grouping
+ * cardinality), Korean-clean. The prior hardcoded "No Segment Dimension" empty state was a
+ * false negative; the honest empty is preserved only when the data truly carries no dimension.
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -22,14 +26,13 @@ import {
   RefreshCw,
   ChevronLeft,
   BarChart3,
-  PieChart,
   TrendingUp,
   FileText,
-  Layers,
 } from 'lucide-react';
 import { KPICard } from '@/components/analytics/KPICard';
 import { MetricTrendChart } from '@/components/analytics/MetricTrendChart';
 import { ExportDialog } from '@/components/analytics/ExportDialog';
+import { DimensionBreakdown } from '@/components/insights'; // OB-322: real dimension pivot
 import { getEntityResults, getPeriodsWithResults } from '@/lib/drill-through';
 import type { EntityResult, EntityScope } from '@/lib/drill-through';
 import type { KPIMetric, MetricTimeSeries, MetricType, ExportConfig } from '@/types/analytics';
@@ -66,7 +69,6 @@ export default function AnalyticsDashboardPage() {
   const [aggregates, setAggregates] = useState<PeriodAggregate[]>([]);
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
-  const [chartType, setChartType] = useState<'bar' | 'pie'>('bar');
   const [showExport, setShowExport] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -263,7 +265,7 @@ export default function AnalyticsDashboardPage() {
         <div className="page">
           <div className="phead">
             <div>
-              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <h1>{isSpanish ? 'Analítica' : 'Analytics'}</h1>
               <div className="sub">{isSpanish ? 'Sin datos' : 'No data'}</div>
             </div>
           </div>
@@ -312,7 +314,7 @@ export default function AnalyticsDashboardPage() {
               </Button>
             )}
             <div>
-              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <h1>{isSpanish ? 'Analítica' : 'Analytics'}</h1>
               <div className="sub">{periodLabel}</div>
             </div>
           </div>
@@ -338,7 +340,7 @@ export default function AnalyticsDashboardPage() {
           )}
           <div>
             <h1 className="text-2xl font-bold">
-              {isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}
+              {isSpanish ? 'Analítica' : 'Analytics'}
             </h1>
             <p className="text-muted-foreground">{periodLabel}</p>
           </div>
@@ -412,45 +414,30 @@ export default function AnalyticsDashboardPage() {
               </Card>
             )}
 
-            {/* Dimension Breakdown — HONEST EMPTY STATE: the platform does not collect
-                regional / segment / team dimensions for commission outcomes. */}
+            {/* Dimension Breakdown — OB-322: real pivot over DISCOVERED dimensions (component +
+                entity-metadata attributes at grouping cardinality). Replaces the prior hardcoded
+                "No Segment Dimension" panel, which was a false negative: BCL entities carry
+                region/nivel_cargo/cargo in metadata. Honest empty preserved when no dimension exists. */}
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">
-                  {isSpanish ? 'Desglose por Dimensión' : 'Dimension Breakdown'}
-                </h3>
-                <div className="flex gap-2">
-                  <Button
-                    variant={chartType === 'bar' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setChartType('bar')}
-                    disabled
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant={chartType === 'pie' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setChartType('pie')}
-                    disabled
-                  >
-                    <PieChart className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Layers className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-                  <p className="font-medium mb-1">
-                    {isSpanish ? 'Sin dimensión de segmento' : 'No Segment Dimension'}
-                  </p>
-                  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                    {isSpanish
-                      ? 'Los datos de cálculo no incluyen dimensiones de región, equipo o producto. Los desgloses por segmento no están disponibles para este inquilino.'
-                      : 'The calculation data does not carry region, team, or product dimensions. Segment breakdowns are not available for this tenant.'}
-                  </p>
-                </CardContent>
-              </Card>
+              <h3 className="font-semibold mb-4">
+                {isSpanish ? 'Desglose por Dimensión' : 'Dimension Breakdown'}
+              </h3>
+              {tenantId && latest ? (
+                <DimensionBreakdown
+                  tenantId={tenantId}
+                  periodId={latest.periodId}
+                  emptyTitle={isSpanish ? 'Sin dimensión de segmento' : 'No Segment Dimension'}
+                  emptyBody={isSpanish
+                    ? 'Los datos de cálculo no incluyen ninguna dimensión agrupable para este inquilino.'
+                    : 'The calculation data does not carry any groupable dimension for this tenant.'}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="py-12 text-center text-muted-foreground">
+                    {isSpanish ? 'Sin datos del período.' : 'No period data.'}
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
         </TabsContent>

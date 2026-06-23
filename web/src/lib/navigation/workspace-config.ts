@@ -46,7 +46,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
         ],
       },
-      // OB-213 Phase 1: Insights suite (KEEP) — Overview + 6 sub-pages under Performance.
+      // OB-213 Phase 1 / OB-322 O-1: Insights suite — exactly five sub-pages. My Team and
+      // Sales & Finance were removed (their routes redirect to /insights). OB-322 O-8: the
+      // "Performance" sub-page is retitled "Attainment" to disambiguate from the agent name.
       {
         id: 'insights',
         label: 'Insights',
@@ -54,11 +56,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         routes: [
           { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
           { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/performance', label: 'Performance', labelEs: 'Rendimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights/performance', label: 'Attainment', labelEs: 'Cumplimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
           { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
           { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/my-team', label: 'My Team', labelEs: 'Mi Equipo', icon: 'Users', roles: ['platform', 'admin', 'manager'] },
-          { path: '/insights/sales-finance', label: 'Sales & Finance', labelEs: 'Ventas y Finanzas', icon: 'Briefcase', roles: ['platform', 'admin', 'manager'] },
         ],
       },
       // OB-213 Phase 1: Acceleration (KEEP).

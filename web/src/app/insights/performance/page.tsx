@@ -269,7 +269,7 @@ export default function InsightsPerformancePage() {
           {isVialuce ? (
             <div className="phead">
               <div>
-                <h1>{isSpanish ? 'Resumen de Rendimiento' : 'Performance Overview'}</h1>
+                <h1>{isSpanish ? 'Cumplimiento' : 'Attainment'}</h1>
                 <div className="sub">
                   {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
                   {periodLabel ? ` · ${periodLabel}` : ''}
@@ -279,7 +279,7 @@ export default function InsightsPerformancePage() {
           ) : (
           <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              {isSpanish ? 'Resumen de Rendimiento' : 'Performance Overview'}
+              {isSpanish ? 'Cumplimiento' : 'Attainment'}
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
               {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
