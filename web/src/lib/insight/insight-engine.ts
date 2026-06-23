@@ -143,6 +143,9 @@ function parseInsightArray(cleaned: string): GeneratedInsight[] {
     else if (ch === '}') { depth--; if (depth === 0 && objStart >= 0) { try { out.push(JSON.parse(body.slice(objStart, i + 1)) as GeneratedInsight); } catch { /* skip malformed */ } objStart = -1; } }
   }
   if (out.length === 0) throw new Error(`No parseable insight objects in LLM response: ${cleaned.slice(0, 200)}`);
+  // C2 (HF-337 1b): reaching the salvage loop means the whole-array parse failed (truncated stream).
+  // Salvaging complete insights is acceptable for insights ONLY because it is logged here, not silent.
+  console.warn(`[HF-337] insight.partial_salvage: whole-array parse failed; recovered ${out.length} complete insight(s) from a truncated response`);
   return out;
 }
 

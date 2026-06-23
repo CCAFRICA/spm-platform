@@ -69,11 +69,30 @@ async function comprehendFields(
     'Return ONLY a JSON object: { "<field>": { "characterization","data_nature","relationships",',
     '"aggregation_behavior","identifies" }, ... }. No prose, no code fences. Any field may be null except characterization.',
   ].join('\n');
-  const payload = fields.map((f) => ({ field: f.field, samples: f.samples, prior_note: hints[f.field] ?? null }));
-  // 8000 tokens of headroom for many fields; parseJsonObjectTolerant salvages complete field entries if
-  // the generation still truncates (a dropped trailing field falls back to the field-name characterization).
-  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 8000, label: `comprehend:${dataType}` });
-  const parsed = parseJsonObjectTolerant(stripFences(text));
+  // One batched call over a field subset (8000-token headroom; parseJsonObjectTolerant salvages complete
+  // entries on truncation). Pulled out so incomplete coverage can be RETRIED (C2, HF-337 1b).
+  const callOnce = async (subset: SampledField[]): Promise<Record<string, any>> => {
+    const payload = subset.map((f) => ({ field: f.field, samples: f.samples, prior_note: hints[f.field] ?? null }));
+    const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 8000, label: `comprehend:${dataType}` });
+    return parseJsonObjectTolerant(stripFences(text));
+  };
+  let parsed = await callOnce(fields);
+  // C2 (HF-337 1b): incomplete field coverage (truncated comprehension) is a STRUCTURED FAILURE — log the
+  // named shortfall and RETRY the missing fields. Never silently persist partial comprehension as success.
+  let missing = fields.filter((f) => !parsed[f.field]);
+  if (missing.length > 0) {
+    console.warn(`[HF-337] comprehension.incomplete_coverage data_type=${dataType} expected=${fields.length} received=${fields.length - missing.length} missing=[${missing.map((f) => f.field).join(', ')}] — retrying missing fields`);
+    try {
+      parsed = { ...parsed, ...(await callOnce(missing)) };
+      missing = fields.filter((f) => !parsed[f.field]);
+    } catch (e) {
+      console.warn(`[HF-337] comprehension retry failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  if (missing.length > 0) {
+    // Surface the residual shortfall (these use the field-name fallback below) — flagged, not silent.
+    console.warn(`[HF-337] comprehension.uncharacterized_after_retry data_type=${dataType} fields=[${missing.map((f) => f.field).join(', ')}] — field-name fallback (logged, not silent)`);
+  }
   const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const out: Record<string, Omit<ComprehensionArtifact, 'field_name'>> = {};
   for (const k in parsed) {

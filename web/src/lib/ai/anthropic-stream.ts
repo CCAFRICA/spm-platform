@@ -87,7 +87,10 @@ export function parseJsonObjectTolerant(cleaned: string): Record<string, any> {
   const start = cleaned.indexOf('{');
   if (start < 0) return {};
   const body = cleaned.slice(start);
-  try { const p = JSON.parse(body); if (p && typeof p === 'object') return p as Record<string, any>; } catch { /* salvage */ }
+  try { const p = JSON.parse(body); if (p && typeof p === 'object') return p as Record<string, any>; } catch { /* salvage below */ }
+  // C2 (HF-337 1b): the whole-object parse failed (truncated stream) — salvage is NOT silent. Log the
+  // named event; the caller (comprehension) checks coverage + retries, never persists partial as success.
+  console.warn('[HF-337] anthropic.partial_salvage (object): whole JSON.parse failed; salvaging complete top-level entries from a truncated response');
   const out: Record<string, any> = {};
   const n = body.length;
   let i = 1; // past the opening brace
@@ -117,7 +120,7 @@ export function parseJsonObjectTolerant(cleaned: string): Record<string, any> {
       }
       if (!closed) break; // truncated nested value -> stop
     } else {
-      let inStr = ch === '"', e3 = false, done = false; if (inStr) i++;
+      const inStr = ch === '"'; let e3 = false, done = false; if (inStr) i++;
       while (i < n) { const c = body[i]; if (inStr) { if (e3) e3 = false; else if (c === '\\') e3 = true; else if (c === '"') { i++; done = true; break; } } else { if (c === ',' || c === '}') { done = true; break; } } i++; }
       if (inStr && !done) break; // truncated scalar string
     }

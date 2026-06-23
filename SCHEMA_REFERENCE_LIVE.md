@@ -599,6 +599,25 @@
 | created_at | timestamp with time zone | NO | now() |
 | updated_at | timestamp with time zone | NO | now() |
 
+### surface_bindings (9 columns) — HF-337, PENDING architect application (SR-44)
+
+*Surface Binding Recognition store (DS-030 consumer-side mirror of Decision 158). Keyed `(tenant_id, structural_fingerprint_hash, surface_id)` → free-form `resolved_fields` — NOT by any developer intent/role/field string, NO property-schema columns (registry bright line). Grows by encounter (recognition), never by maintenance. The `(structural_fingerprint_hash, surface_id)` index is OB-235's cross-tenant matching key. Created by `web/supabase/migrations/20260623_hf337_surface_bindings.sql`; **not yet live** — verify with `web/scripts/_hf337-p0-probe.ts` after the architect applies it.*
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| id | uuid | NO | gen_random_uuid() |
+| tenant_id | uuid | NO | (FK -> tenants.id, ON DELETE CASCADE) |
+| structural_fingerprint_hash | text | NO | |
+| surface_id | text | NO | |
+| purpose_text | text | YES | |
+| resolved_fields | jsonb | NO | '[]' |
+| confidence | numeric | YES | |
+| recognized_by | text | YES | |
+| created_at | timestamp with time zone | NO | now() |
+| updated_at | timestamp with time zone | NO | now() |
+
+*UNIQUE (tenant_id, structural_fingerprint_hash, surface_id). Indexes: (tenant_id, surface_id), (structural_fingerprint_hash, surface_id). RLS enabled (tenant-isolation + platform/vl_admin).*
+
 ### synaptic_density (11 columns)
 
 | Column | Type | Nullable | Default |
