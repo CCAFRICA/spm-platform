@@ -2797,7 +2797,11 @@ async function generateAllComponentBindings(
     }
   }
   if (labeledCandidates.length === 0) return;
-  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => c.structuralType === 'attribute').map(c => c.column).join(', ') || 'none'}]`);
+  // HF-333: structuralType now carries the LLM's free-form data_nature (OB-231) — detect attribute/
+  // categorical columns by the LLM's WORDS, not the retired 'attribute' label (Korean Test: regex over
+  // the LLM characterization, never a field-name dictionary).
+  const isAttributeNature = (s: string) => /\b(attribute|categor|property|tag|flag|status|class|grouping|descript|label|atributo)\b/i.test(s || '');
+  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => isAttributeNature(c.structuralType)).map(c => c.column).join(', ') || 'none'}]`);
 
   // OB-216 §2-S5: the §2-S3 measure-only shim and the HF-275 null-rate scoring are removed — the
   // binding loop below consumes `labeledCandidates` directly via LLM recognition (§2-S4) +
@@ -2915,16 +2919,13 @@ async function generateAllComponentBindings(
         console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column}@${proposal.partitionKey.split('␟')[0]}: column not present in proposed sheet → gap`);
         continue;
       }
-      const needed = deriveNeededType(req.metricField, comp.calculationIntent);
-      if (!acceptableStructuralTypes(needed).has(colFi.structuralType)) {
-        bindings[compKey][req.role] = {
-          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
-          match_pass: 'failed', confidence: 0,
-          resolutionFailure: { token: req.metricField, reason: `role_inconsistent:needs_${needed}_got_${colFi.structuralType}`, candidatesConsidered: labeledCandidates.length },
-        };
-        console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (${colFi.structuralType}): role-inconsistent, needs ${needed} → gap`);
-        continue;
-      }
+      // HF-333 SUBTRACTION (Decision 158 / 111): the §2-S5 type-consistency gate is REMOVED. Post-OB-231
+      // colFi.structuralType carries the LLM's FREE-FORM data_nature ("computed measure", "categorical
+      // (boolean-like status flag)"), which never matched the canonical acceptableStructuralTypes() set
+      // → it rejected CORRECT LLM bindings as type-inconsistent (every MIR plan aborted at HF-281). The
+      // LLM's binding proposal is authoritative for type compatibility; a genuinely wrong binding
+      // surfaces in reconciliation, not via a gate checking a retired vocabulary. The column-existence
+      // check above (a real structural guarantee, not a vocabulary check) remains.
 
       // Validated → write. The bound column's SHEET drives provenance; resolveColumnFromBatch scans
       // all batches by column name, so a column resolves from its own sheet's rows — and a component
@@ -2941,7 +2942,7 @@ async function generateAllComponentBindings(
         filters: proposal.filters,
         learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
       };
-      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, needs=${needed}, conf=${proposal.confidence.toFixed(2)}, validated)`);
+      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, conf=${proposal.confidence.toFixed(2)}, validated)`);
     }
 
     // HF-218 Component 1 — Entity identifier self-verification.

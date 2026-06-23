@@ -358,7 +358,7 @@ export async function commitContentUnit(
   // Decision 108 — HC role @ >= 0.80 overrides structural binding.
   // HF-233 — Classification-aware resolution: transaction reads reference_key,
   // entity/target reads identifier, reference is null.
-  const entityIdField = resolveEntityIdField(
+  let entityIdField = resolveEntityIdField(
     unit.confirmedBindings,
     unit.classificationTrace,
     classification,
@@ -375,7 +375,33 @@ export async function commitContentUnit(
     if (seen.size > 0) {
       const distinctRatio = seen.size / rows.length;
       if (distinctRatio > 0.95) {
-        console.warn(`[OB-231][entity-id-sanity] resolved entity_id_field="${entityIdField}" is ~1:1 across rows (${seen.size}/${rows.length} distinct) on "${tabName}" — looks per-row (transaction-shaped), not a repeating entity. Proceeding on the LLM's semantic assessment (Decision 158); flag for review if numbers look mis-attributed.`);
+        // HF-333 §4.3: the resolved id is ~1:1 (transaction-shaped — the MIR Folio bug). The LLM
+        // recognizes; the construction layer VERIFIES and corrects when demonstrably inconsistent
+        // (Decision 158). Prefer another IDENTIFIER-nature column that REPEATS (many rows per distinct
+        // value — the entity shape). Korean Test: candidates come from the LLM's HC interpretations
+        // (data_nature/characterization), matched by the IDENTIFIER_NATURE predicate, never a field name.
+        const hc = (unit.classificationTrace?.headerComprehension as
+          | { interpretations?: Record<string, { data_nature?: string; characterization?: string }> }
+          | undefined)?.interpretations;
+        let bestAlt: { col: string; ratio: number } | null = null;
+        if (hc) {
+          for (const [col, interp] of Object.entries(hc)) {
+            if (col === entityIdField) continue;
+            const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
+            if (!IDENTIFIER_NATURE.test(natureText)) continue;
+            const s = new Set<unknown>();
+            for (const r of rows) if (col in (r as Record<string, unknown>)) s.add((r as Record<string, unknown>)[col]);
+            if (s.size === 0) continue;
+            const ratio = s.size / rows.length;
+            if (ratio < 0.5 && (!bestAlt || ratio < bestAlt.ratio)) bestAlt = { col, ratio };
+          }
+        }
+        if (bestAlt) {
+          console.warn(`[HF-333][entity-id] resolved "${entityIdField}" is ~1:1 (${seen.size}/${rows.length}) on "${tabName}"; preferring repeating identifier "${bestAlt.col}" (${Math.round(bestAlt.ratio * 100)}% distinct) — structural disambiguation (Decision 158: LLM recognizes, construction verifies).`);
+          entityIdField = bestAlt.col;
+        } else {
+          console.warn(`[OB-231][entity-id-sanity] resolved entity_id_field="${entityIdField}" is ~1:1 across rows (${seen.size}/${rows.length} distinct) on "${tabName}" — looks per-row (transaction-shaped), not a repeating entity. No repeating identifier alternative found; proceeding on the LLM's semantic assessment (Decision 158); flag for review if numbers look mis-attributed.`);
+        }
       }
     }
   }
