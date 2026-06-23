@@ -288,19 +288,55 @@ Labels are in the data's OWN language (Spanish — Korean Test); characterizatio
 - **Calculation integrity (C6) — read-path immutability diff:** `git diff --stat main -- web/src/app/api/calculation/run/route.ts web/src/lib/intelligence/convergence-service.ts web/src/lib/calculation/` → **EMPTY** (the calc engine reader + convergence service are unmodified by OB-233). The calc total is reported to the architect for sealed-figure reconciliation in §10.x (run during build/dev verification).
 
 ### PG-8 — timing (HALT-2)
-BCL end-to-end (in-request equivalent): comprehension 51s + summary 16s + insights 80s ≈ **147s** — within the 300s Vercel window. The insight stream is the largest stage. (Sabor timing in PG-1.)
+End-to-end (import start → insights complete), in-request equivalent:
+- **BCL (595 rows):** comprehension 51s + summary 16s + insights 80s ≈ **147s** — comfortably within 300s.
+- **Sabor (263,250 rows):** comprehension 74s + summary 118s + insights 80s = **272s** — within 300s but **tight**.
+**HALT-2 did NOT fire** (no stage exceeded the window at runtime). Note for disposition: Sabor's bottleneck is the **summary JS aggregation of 263K rows (~118s)** — the pre-existing DIAG-075 cost (HF-336 already routed comprehended tenants to the JS path). The scaling fix is to push the comprehension-labeled, method-aware aggregation into a SQL RPC (DIAG-075's ~100× recommendation) so large tenants stay well under the window — a follow-on, flagged not silently capped.
+
+### Build / dev verification (operational rule)
+Clean `next build` (after `rm -rf .next`): **exit 0**, zero `Failed to compile` / `Type error`. `npx tsc --noEmit`: **0**. `npm run korean-test`: **PASS**. `npm run dev` → `localhost:3000` responds (HTTP 307 = middleware auth redirect, server healthy).
 
 ### PG-5 — domain-agnostic import surface
 The import surface (`operate/import/page.tsx` + `ImportReadyState` + `ComprehensionReport` + `SCIProposal`) is already structurally domain-agnostic (HALT-IMPORT: no mapping form; re-scoped to enrichment). Grep of the surface for domain/industry vocabulary (compensation/commission/payout/incentive/ICM/restaurant/banking/loan/POS/franchise/quota): **none in code**. Remaining `Plan` references are the platform `rule_set` concept in OPTIONAL context display (shown only when a plan exists; zero-plan import is ungated — A6) + the SCI **structural** class labels (`CLASSIFICATION_LABELS`: Plan Rules / Team Roster / ... — retained per the SemanticDataType disposition), not tenant-domain vocabulary. The `Upload Plan` button on the surface was renamed to `Import Data`. Both Sabor (Financial) and BCL (ICM) reach the SAME surface, SAME flow, SAME comprehension report — the only difference is the data and the resulting comprehension. The `ComprehensionReport` renders generically from `comprehension_artifacts` (no domain conditionals, C3).
 
-### PG-1 — clean-slate Sabor (POS/Financial)
-*(running — Anthropic API was in a sustained "Overloaded" (HTTP 529) capacity window during the proof; the full pipeline is already proven end-to-end on BCL with ZERO code changes, so PG-1 is a re-run-when-capacity-recovers, not a code defect. Result filled when the run completes.)*
+### PG-1 — clean-slate Sabor (POS/Financial) — PASS
+Sabor (`f7093bcc`, 263,250 committed rows) clean-slate through the exact finalize-import spine:
+```
+[1] comprehension: fields=27 dataTypes=1   (+74s)
+[2] summary: via=js written=2520 skipped=0 (+118s)   [263K-row JS aggregation]
+[3] insights: generated=7 stored=7 failed=0 validated=7 (+80s)
+TOTAL: 272s
 
-### PG-3b — comprehension-plan decoupling (Sabor, 2 plans)
-The `UNIQUE (tenant_id, field_name)` constraint is the **structural** guarantee: one comprehension row per field per tenant, independent of plan count. The generator upserts on that key. Empirical confirmation on Sabor (2 rule_sets): `web/scripts/_ob233-pg3b.ts` asserts `comprehension count == distinct-field-count` and `!= plans x fields`, with zero duplicate `field_name` rows. *(Empirical run gated on Sabor comprehension populating — see PG-1; BCL already demonstrated 1:1 — 21 rows for 21 fields, 1 plan.)*
+comprehension_artifacts: count=27  | has structuralType/contextualIdentity? no (free-form, good)
+  - total    | label="Total"    method="sum"   | "The gross monetary amount charged on the check ..."
+  - propina  | label="Propina"  method="sum"   | "The tip or gratuity amount added by the customer ..."
+  - cierre   | label="Cierre"   method="last"  | "The date and time at which the check was closed ..."
+  - folio    | label="Folio"    method="count" | "A unique sequential document number assigned to each check ..."
+summary_artifacts: count=2520 (semantic display labels relabeled from raw snake_case:
+  "Número de Personas", "Total Alimentos", "Subtotal con Descuento", "Total Descuentos", ...)
+intelligence_artifacts: count=7 (FREE-FORM):
+  - "Extreme tip rate outlier — two locations ..."          / "Cocina Dorada Roma Carries the Network's Highest Tip Rate"  (location)
+  - "Brand-tier revenue gap — Mar y Brasa and Cocina ..."   / "Full-Service Brands Generate ~60-70% More Revenue Per Location" (network)
+  - "Broad-based period-over-period acceleration ..."       / "All 20 Locations Show Revenue Growth in the Recent Half"     (network)
+  - "Outlier low tip rate within a high-revenue brand ..."  / "Cocina Dorada Oaxaca Posts Anomalously Low Tips ..."         (location)
+```
+Free-form comprehension (no structuralType/contextualIdentity), labels in the data's OWN language (Spanish, Korean Test), free-form insights with free-form severity + shape_description, persisted to the live OB-233-shaped table.
+
+**Follow-on (noted, not OB-233 scope):** the summary metric KEYS are now comprehension `display_label`s ("Total", "Propina", spaced/title-case Spanish), which differ from HF-336's curated English `contextualIdentity` ("revenue", "tips"). A downstream surface (financial network_pulse) that looked up HF-336's English keys should be repointed to comprehension labels (or read by characterization) — a consumer-surface alignment, separate from the pipeline.
+
+### PG-3b — comprehension-plan decoupling (Sabor, 2 plans) — PASS
+```
+rule_sets (plans): 2
+distinct fields across committed_data: 27
+comprehension_artifacts rows: 27
+one row per field (count == distinct fields)?  YES
+independent of plan count (NOT plans x fields = 54)?  YES (decoupled)
+duplicate field_name rows (must be 0): 0
+```
+The `UNIQUE (tenant_id, field_name)` constraint holds; comprehension is one-row-per-field regardless of the 2 plans (BCL independently showed 1:1 — 21 rows / 21 fields / 1 plan).
 
 ### BCL calculation total (PG-2 reconciliation)
-*(run during build/dev verification — calc engine unmodified by OB-233 per the C6 diff above, so the total is determined entirely by unchanged calc logic + BCL's data/bindings. Reported verbatim for architect sealed-figure reconciliation; CC does not self-assert pass.)*
+**Calc integrity is proven by the C6 immutability diff** (calc engine reader + convergence service + `lib/calculation/` UNMODIFIED by OB-233 → the BCL total is byte-determined by unchanged logic + BCL's unchanged data/bindings). A headless trigger of `/api/calculation/run` returns **401 Unauthorized** (middleware gates the route; a service-role script carries no JWT session) — so the live number is **architect-run** in an authenticated session, per the directive's reconciliation-channel model. CC does not self-assert pass. (Repo GT records a BCL grand total of $321,381; since OB-233 did not touch the engine, the calculated total is unchanged from pre-OB-233.)
 
 ---
 
@@ -311,5 +347,5 @@ The `UNIQUE (tenant_id, field_name)` constraint is the **structural** guarantee:
 - **MC (Mission Control / capability ledger):** New platform capability — **Persistent Comprehension Pipeline** (IMPORT → COMPREHENSION → RESOLUTION → DERIVATION → INTELLIGENCE), running automatically in `finalize-import` for every tenant/domain. Comprehension is a plan-independent property of the data.
 - **REGISTRY (anti-pattern / open-vocabulary):** AP-26 recurrence **eradicated** at six sites (artifact_type, severity, signal_type, entity_type, insight-shape fingerprint; data_type verified clean). Zero new registries introduced. New open-vocabulary surfaces: `comprehension_artifacts` (free-form text), `comprehension_correction` + `summary.novel_aggregation_method` + `insight.characterization` signals.
 - **R1 (residuals / follow-ons):** Residual 1 comprehension-refresh skip-if-unchanged; Residual 2 structural-feature fingerprint hash; Residual 5 `(tenant_id, field_name)` sheet-collision; PC-4 `recommended_action` promote-to-column when consumed; HALT-2 watch (insight stream is the largest stage). `hasCompleteBindings` column-existence hardening = separate follow-on HF (architect's HALT-4 note).
-- **BOARD (status):** OB-233 R3 Phase 0 + eradication + Phase A + Phase B complete; PG-2 (BCL) proven end-to-end; PG-1 (Sabor) pending transient API capacity; PR open on `ob-233-comprehension-pipeline`.
+- **BOARD (status):** OB-233 R3 complete — Phase 0 + eradication + Phase A + Phase B. PG-1 (Sabor), PG-2 (BCL pipeline + C6), PG-3/3b, PG-4, PG-5, PG-6, PG-7, PG-8 all proven; BCL live calc total = architect-run (engine unmodified). Follow-ons: financial-surface label alignment, summary SQL-RPC for large tenants, `hasCompleteBindings` hardening.
 - **SUBSTRATE (data/schema):** Two migrations — `comprehension_artifacts` (new, OB-233) + `intelligence_artifacts` recovery (SR-43, OB-232 gap). Both architect-applied + verified live. Calc substrate (`input_bindings`, calc engine) **untouched** (C6).
