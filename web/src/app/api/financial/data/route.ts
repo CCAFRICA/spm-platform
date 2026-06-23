@@ -338,15 +338,19 @@ async function aggregateNetworkPulseFromSummaries(
   for (const a of arts) {
     const agg = locMap.get(a.entity_id);
     if (!agg) continue;
+    // HF-336: read by PLATFORM SEMANTIC ROLE (revenue/tips/food_revenue/…), not raw POS field names.
+    // summary_artifacts is enriched via convergence bindings (contextualIdentity), so any tenant in any
+    // language whose fields map to these roles renders here — Korean Test. The raw-cheque fallback path
+    // (aggregateNetworkPulse) still reads raw fields for tenants without enriched summaries.
     const m = a.metrics || {};
     agg.cheques += a.row_count;
-    agg.revenue += m.total ?? 0;
-    agg.tips += m.propina ?? 0;
-    agg.food += m.total_alimentos ?? 0;
-    agg.bev += m.total_bebidas ?? 0;
-    agg.discounts += m.total_descuentos ?? 0;
-    agg.comps += m.total_cortesias ?? 0;
-    agg.daily.set(a.summary_date, (agg.daily.get(a.summary_date) || 0) + (m.total ?? 0));
+    agg.revenue += m.revenue ?? 0;
+    agg.tips += m.tips ?? 0;
+    agg.food += m.food_revenue ?? 0;
+    agg.bev += m.beverage_revenue ?? 0;
+    agg.discounts += m.discount ?? 0;
+    agg.comps += m.complimentary ?? 0;
+    agg.daily.set(a.summary_date, (agg.daily.get(a.summary_date) || 0) + (m.revenue ?? 0));
   }
   return finalizeNetworkPulse(locMap, locations, brandLookup);
 }
