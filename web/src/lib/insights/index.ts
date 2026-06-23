@@ -9,3 +9,5 @@ export { getPayoutDistribution, getComponentTotals } from './distribution';
 export { getEntityTrajectory, getPopulationTrend } from './trajectory';
 export { getEntityTableData } from './entity-table';
 export { getTenantOnboardingState } from './tenant-state';
+export { discoverDimensions, aggregateByDimension, COMPONENT_DIMENSION_KEY } from './dimension-discovery';
+export type { DiscoveredDimension, DimensionSlice } from './dimension-discovery';
