@@ -146,16 +146,18 @@ export interface InsightRunResult {
   failed: number;
   byType: Record<string, number>;
   failures: string[];
+  validated: number;
+  samples: Array<{ artifact_type: string; severity: string; title: string; narrative: string; data_references: unknown; shape: unknown }>;
 }
 
 export async function generateInsights(
   sb: SupabaseClient,
   tenantId: string,
-  opts: { dataType?: string } = {},
+  opts: { dataType?: string; dryRun?: boolean } = {},
 ): Promise<InsightRunResult> {
   const model = defaultModel();
   const arts = await getSummaryArtifacts(sb, tenantId, opts.dataType ? { dataType: opts.dataType } : {});
-  if (arts.length === 0) return { tenantId, model, generated: 0, stored: 0, failed: 0, byType: {}, failures: ['no summary_artifacts'] };
+  if (arts.length === 0) return { tenantId, model, generated: 0, stored: 0, failed: 0, byType: {}, failures: ['no summary_artifacts'], validated: 0, samples: [] };
 
   const { data: ents } = await sb.from('entities').select('id, display_name, entity_type').eq('tenant_id', tenantId);
   const entMeta = new Map<string, EntityMeta>();
@@ -165,17 +167,23 @@ export async function generateInsights(
   const insights = await callInsightLLM(digest, model);
 
   // idempotent (Constraint 8): replace this tenant's artifacts
-  await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId);
+  if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId);
 
   const byType: Record<string, number> = {};
   const failures: string[] = [];
+  const samples: InsightRunResult['samples'] = [];
   let stored = 0;
   let failed = 0;
+  let validated = 0;
 
   for (const ins of insights) {
     const v = validateInsight(ins, traceable);
     if (!v.ok) { failed++; failures.push(...v.failures.slice(0, 2)); continue; }
     const shape = computeInsightShape(ins);
+    validated++;
+    byType[ins.artifact_type] = (byType[ins.artifact_type] ?? 0) + 1;
+    if (samples.length < 8) samples.push({ artifact_type: ins.artifact_type, severity: ins.severity, title: ins.title, narrative: ins.narrative, data_references: ins.data_references, shape });
+    if (opts.dryRun) continue; // EP-2 validation + EP-3 shape proven; skip persistence
     const entityId = ins.entity_id && entMeta.has(ins.entity_id) ? ins.entity_id : null; // never store an unknown FK
     const { error } = await sb.from('intelligence_artifacts').insert({
       tenant_id: tenantId,
@@ -194,11 +202,10 @@ export async function generateInsights(
     });
     if (error) { failed++; failures.push(error.message); continue; }
     stored++;
-    byType[ins.artifact_type] = (byType[ins.artifact_type] ?? 0) + 1;
   }
 
   // ensure registry coverage is observable
   for (const t of ARTIFACT_TYPES) if (!(t in byType)) byType[t] = byType[t] ?? 0;
 
-  return { tenantId, model, generated: insights.length, stored, failed, byType, failures: failures.slice(0, 10) };
+  return { tenantId, model, generated: insights.length, stored, failed, validated, byType, failures: failures.slice(0, 10), samples };
 }
