@@ -1,306 +1,252 @@
 "use client";
 
-import { useState } from "react";
-import { useIsVialuce } from "@/hooks/use-is-vialuce"; // HF-313: Vialuce page-template adoption (else-branch unchanged)
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+/**
+ * Acceleration — OB-322 O-7: HONEST STATE.
+ *
+ * Every fabricated element was removed: the "Holiday Push SPIF" and other invented SPIF programs,
+ * the fake earned/in-progress badges, the mock alerts list, the canned coaching tips, and the
+ * hardcoded regional recommendations. The page now shows only what the tenant's real data
+ * supports — Top Performers and Top Movers, derived from calculation_results via the insights
+ * data layer — and honest "not configured" empty states for SPIFs, Alerts, Coaching, and Goals,
+ * because no such configuration exists in tenant data. Korean-clean (names/values from data).
+ */
+
+import { useState, useEffect, useMemo } from "react";
+import { useIsVialuce } from "@/hooks/use-is-vialuce";
+import { motion } from "framer-motion";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
-  Zap,
+  Rocket,
   Bell,
-  AlertTriangle,
-  TrendingUp,
   Target,
-  CheckCircle2,
-  ChevronRight,
   Lightbulb,
-  ArrowRight,
-  Clock,
-  Award,
+  TrendingUp,
+  TrendingDown,
+  Trophy,
 } from "lucide-react";
-import { useCurrency } from "@/contexts/tenant-context";
-import { GoalPacing } from "@/components/acceleration/goal-pacing";
-import { CoachingCard } from "@/components/acceleration/coaching-card";
-import { BadgeDisplay } from "@/components/acceleration/badge-display";
-import { pageVariants, containerVariants, itemVariants } from "@/lib/animations";
-import { toast } from "sonner";
+import { useTenant, useCurrency } from "@/contexts/tenant-context";
+import { useLocale, isSpanishLocale } from "@/contexts/locale-context";
+import {
+  getCalculatedPeriods,
+  getEntityTableData,
+  type PeriodSummary,
+  type EntityTableRow,
+} from "@/lib/insights";
+import { PeriodCards } from "@/components/insights";
+import { pageVariants } from "@/lib/animations";
 
-// Mock alerts data
-const alerts = [
-  {
-    id: "ALT-001",
-    type: "budget",
-    severity: "warning",
-    title: "Budget Threshold Alert",
-    message: "West Region has exceeded 90% of Q4 outcome budget. Consider reviewing upcoming outcomes.",
-    timestamp: "2024-12-15T10:30:00Z",
-    read: false,
-    actionUrl: "/insights/compensation",
-  },
-  {
-    id: "ALT-002",
-    type: "performance",
-    severity: "success",
-    title: "Top Performer Achievement",
-    message: "A top performer has achieved 150% target achievement this quarter - eligible for accelerator bonus.",
-    timestamp: "2024-12-14T15:45:00Z",
-    read: false,
-  },
-  {
-    id: "ALT-003",
-    type: "goal",
-    severity: "success",
-    title: "Team Goal Achieved",
-    message: "West-Enterprise team has hit their Q4 target ahead of schedule. Congratulations!",
-    timestamp: "2024-12-13T09:00:00Z",
-    read: true,
-  },
-  {
-    id: "ALT-004",
-    type: "performance",
-    severity: "critical",
-    title: "Underperformance Alert",
-    message: "5 entities are below 60% target achievement with 2 weeks remaining in the quarter.",
-    timestamp: "2024-12-11T14:20:00Z",
-    read: false,
-    actionUrl: "/performance",
-  },
-];
-
-const recommendations = [
-  {
-    id: "REC-001",
-    title: "Focus on North Region",
-    description: "North Region is underperforming by 6.5%. Consider additional support or SPIF incentives.",
-    impact: "High",
-    category: "Performance",
-    icon: Target,
-  },
-  {
-    id: "REC-002",
-    title: "Review Tiered Outcome Plan Effectiveness",
-    description: "Tiered outcome plans show 15% higher achievement vs flat-rate plans. Consider expanding eligibility.",
-    impact: "Medium",
-    category: "Outcome",
-    icon: TrendingUp,
-  },
-  {
-    id: "REC-003",
-    title: "Q1 Planning Preparation",
-    description: "Begin target planning for Q1 2025. Historical data suggests 8% YoY growth target is achievable.",
-    impact: "High",
-    category: "Planning",
-    icon: Lightbulb,
-  },
-];
-
-const activeSpifs = [
-  {
-    id: "SPIF-001",
-    name: "Holiday Push SPIF",
-    description: "Extra $500 per deal closed before Dec 20",
-    startDate: "2024-12-01",
-    endDate: "2024-12-20",
-    status: "active",
-    participants: 40,
-    totalPayout: 12500,
-    dealsWon: 25,
-  },
-  {
-    id: "SPIF-002",
-    name: "New Product Launch",
-    description: "2x outcome on new Analytics module",
-    startDate: "2024-11-15",
-    endDate: "2024-12-31",
-    status: "active",
-    participants: 35,
-    totalPayout: 28000,
-    dealsWon: 14,
-  },
-];
-
-const goals = [
-  {
-    id: "GOAL-001",
-    name: "Q4 Revenue Target",
-    target: 2500000,
-    current: 2150000,
-    startDate: "2024-10-01",
-    endDate: "2024-12-31",
-    status: "on-track" as const,
-    milestones: [
-      { date: "2024-10-31", target: 800000, actual: 820000 },
-      { date: "2024-11-30", target: 1700000, actual: 1680000 },
-      { date: "2024-12-31", target: 2500000, actual: 2150000 },
-    ],
-  },
-  {
-    id: "GOAL-002",
-    name: "New Logo Acquisition",
-    target: 50,
-    current: 48,
-    startDate: "2024-10-01",
-    endDate: "2024-12-31",
-    status: "ahead" as const,
-    milestones: [
-      { date: "2024-10-31", target: 15, actual: 18 },
-      { date: "2024-11-30", target: 35, actual: 38 },
-      { date: "2024-12-31", target: 50, actual: 48 },
-    ],
-  },
-  {
-    id: "GOAL-003",
-    name: "Enterprise Expansion",
-    target: 800000,
-    current: 520000,
-    startDate: "2024-10-01",
-    endDate: "2024-12-31",
-    status: "behind" as const,
-    milestones: [
-      { date: "2024-10-31", target: 250000, actual: 180000 },
-      { date: "2024-11-30", target: 550000, actual: 420000 },
-      { date: "2024-12-31", target: 800000, actual: 520000 },
-    ],
-  },
-];
-
-const coachingTips = [
-  {
-    id: "TIP-001",
-    title: "Closing Techniques for Enterprise Deals",
-    summary: "Master the art of multi-stakeholder negotiations",
-    content: "When closing enterprise deals, focus on building consensus among stakeholders. Identify the economic buyer, champion, and technical evaluator early in the process.\n\nKey steps:\n1. Map the decision-making process\n2. Create value propositions for each stakeholder\n3. Address objections proactively\n4. Use ROI calculators to justify investment",
-    category: "skill" as const,
-    difficulty: "advanced" as const,
-    estimatedTime: "15 min read",
-    actionUrl: "/resources/enterprise-closing",
-  },
-  {
-    id: "TIP-002",
-    title: "Leveraging the New Analytics Module",
-    summary: "Tips for positioning our newest product feature",
-    content: "The Analytics Module is our fastest-growing product. Here's how to position it effectively:\n\n• Lead with the pain point: manual reporting takes 20+ hours per month\n• Show the dashboard demo early in the conversation\n• Highlight integration capabilities with existing tools\n• Use the ROI calculator showing 80% time savings",
-    category: "product" as const,
-    difficulty: "intermediate" as const,
-    estimatedTime: "10 min read",
-  },
-  {
-    id: "TIP-003",
-    title: "End of Quarter Momentum",
-    summary: "Stay motivated and focused during the final push",
-    content: "The end of quarter can be challenging. Here are strategies to maintain your energy:\n\n• Break down your remaining quota into daily targets\n• Celebrate small wins with your team\n• Focus on qualified opportunities in your pipeline\n• Use the SPIF programs to create urgency",
-    category: "motivation" as const,
-    difficulty: "beginner" as const,
-    estimatedTime: "5 min read",
-  },
-];
-
-const badges = [
-  {
-    id: "BADGE-001",
-    type: "quota-crusher" as const,
-    name: "Target Crusher",
-    description: "Exceeded target by 25% or more",
-    earnedDate: "2024-11-30",
-    level: "gold" as const,
-  },
-  {
-    id: "BADGE-002",
-    type: "streak" as const,
-    name: "Hot Streak",
-    description: "5 consecutive weeks above target",
-    earnedDate: "2024-12-01",
-    level: "silver" as const,
-  },
-  {
-    id: "BADGE-003",
-    type: "fast-closer" as const,
-    name: "Fast Closer",
-    description: "Average deal cycle under 30 days",
-    earnedDate: "2024-10-15",
-    level: "bronze" as const,
-  },
-  {
-    id: "BADGE-004",
-    type: "rising-star" as const,
-    name: "Rising Star",
-    description: "Top 10% improvement this quarter",
-    earnedDate: "2024-12-10",
-  },
-  {
-    id: "BADGE-005",
-    type: "champion" as const,
-    name: "Team Champion",
-    description: "Helped 3+ teammates hit target",
-    earnedDate: "",
-    progress: 67,
-  },
-];
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function getSeverityStyle(severity: string): { bg: string; text: string; border: string } {
-  switch (severity) {
-    case "critical":
-      return { bg: "bg-red-50 dark:bg-red-950/30", text: "text-red-700 dark:text-red-400", border: "border-red-200 dark:border-red-800" };
-    case "warning":
-      return { bg: "bg-amber-50 dark:bg-amber-950/30", text: "text-amber-700 dark:text-amber-400", border: "border-amber-200 dark:border-amber-800" };
-    case "success":
-      return { bg: "bg-emerald-50 dark:bg-emerald-950/30", text: "text-emerald-700 dark:text-emerald-400", border: "border-emerald-200 dark:border-emerald-800" };
-    default:
-      return { bg: "bg-blue-50 dark:bg-blue-950/30", text: "text-blue-700 dark:text-blue-400", border: "border-blue-200 dark:border-blue-800" };
-  }
-}
-
-function getSeverityIcon(severity: string) {
-  switch (severity) {
-    case "critical":
-      return <AlertTriangle className="h-5 w-5 text-red-500" />;
-    case "warning":
-      return <AlertTriangle className="h-5 w-5 text-amber-500" />;
-    case "success":
-      return <CheckCircle2 className="h-5 w-5 text-emerald-500" />;
-    default:
-      return <Bell className="h-5 w-5 text-blue-500" />;
-  }
+function initialsOf(name: string): string {
+  return (name || "—").split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
 export default function AccelerationPage() {
-  const { format: fmt } = useCurrency();
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
-  const [alertsList, setAlertsList] = useState(alerts);
-  const unreadAlerts = alertsList.filter((a) => !a.read).length;
+  const { currentTenant } = useTenant();
+  const { format } = useCurrency();
+  const { locale } = useLocale();
+  const isSpanish = isSpanishLocale(locale);
+  const isVialuce = useIsVialuce();
 
-  const markAsRead = (alertId: string) => {
-    setAlertsList((prev) =>
-      prev.map((a) => (a.id === alertId ? { ...a, read: true } : a))
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState("");
+  const [rows, setRows] = useState<EntityTableRow[]>([]);
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentTenant) return;
+    let cancelled = false;
+    getCalculatedPeriods(currentTenant.id)
+      .then((ps) => {
+        if (cancelled) return;
+        setPeriods(ps);
+        setSelectedPeriodId(ps[0]?.period_id ?? "");
+        setPeriodsLoaded(true);
+        if (ps.length === 0) setIsLoading(false);
+      })
+      .catch(() => { setPeriodsLoaded(true); setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentTenant]);
+
+  useEffect(() => {
+    if (!currentTenant || !selectedPeriodId) return;
+    let cancelled = false;
+    setIsLoading(true);
+    // Pull a generous page sorted by delta vs prior so we can read both gainers and decliners.
+    getEntityTableData(currentTenant.id, selectedPeriodId, { sortBy: "delta_prior", sortOrder: "desc", pageSize: 100 })
+      .then((res) => { if (!cancelled) { setRows(res.rows); setIsLoading(false); } })
+      .catch(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentTenant, selectedPeriodId]);
+
+  const topPerformers = useMemo(
+    () => [...rows].sort((a, b) => b.total_payout - a.total_payout).slice(0, 5),
+    [rows],
+  );
+  const gainers = useMemo(
+    () => rows.filter((r) => r.delta_prior != null && r.delta_prior > 0).slice(0, 5),
+    [rows],
+  );
+  const decliners = useMemo(
+    () => rows.filter((r) => r.delta_prior != null && r.delta_prior < 0).sort((a, b) => (a.delta_prior ?? 0) - (b.delta_prior ?? 0)).slice(0, 5),
+    [rows],
+  );
+  const hasPriorDeltas = gainers.length > 0 || decliners.length > 0;
+
+  const t = {
+    heading: isSpanish ? "Aceleración" : "Acceleration",
+    sub: isSpanish ? "Rendimiento real y programas de incentivos" : "Real performance and incentive programs",
+    topPerformers: isSpanish ? "Mejores Resultados" : "Top Performers",
+    topPerformersDesc: isSpanish ? "Por pago total este período" : "By total payout this period",
+    movers: isSpanish ? "Mayores Cambios" : "Top Movers",
+    moversDesc: isSpanish ? "Cambio frente al período anterior" : "Change versus the prior period",
+    gainers: isSpanish ? "Suben" : "Gainers",
+    decliners: isSpanish ? "Bajan" : "Decliners",
+    noMovers: isSpanish ? "Se necesitan al menos dos períodos calculados para mostrar cambios." : "At least two calculated periods are required to show movement.",
+    tabSpifs: isSpanish ? "Incentivos" : "SPIFs",
+    tabAlerts: isSpanish ? "Alertas" : "Alerts",
+    tabCoaching: isSpanish ? "Asesoría" : "Coaching",
+    tabGoals: isSpanish ? "Metas" : "Goals",
+    noSpifs: isSpanish ? "No hay programas de incentivos configurados." : "No incentive programs configured.",
+    noSpifsBody: isSpanish ? "Los programas SPIF / incentivos aparecerán aquí cuando se configuren para este inquilino." : "SPIF / incentive programs will appear here when configured for this tenant.",
+    noAlerts: isSpanish ? "Sin alertas." : "No alerts.",
+    noAlertsBody: isSpanish ? "Las alertas aparecerán aquí cuando se configure el monitoreo basado en umbrales." : "Alerts will appear here when threshold-based monitoring is configured.",
+    noCoaching: isSpanish ? "Sin contenido de asesoría." : "No coaching content.",
+    noCoachingBody: isSpanish ? "La guía de asesoría aparecerá aquí cuando se configure." : "Coaching guidance will appear here when configured.",
+    noGoals: isSpanish ? "Sin metas configuradas." : "No goals configured.",
+    noGoalsBody: isSpanish ? "Las metas y el ritmo aparecerán aquí cuando se configuren objetivos para este inquilino." : "Goals and pacing will appear here when targets are configured for this tenant.",
+    noData: isSpanish ? "No hay datos de cálculo" : "No Calculation Data",
+    noDataBody: isSpanish ? "Los resultados aparecerán aquí una vez que se ejecuten cálculos." : "Results will appear here once calculations have been run.",
+  };
+
+  const EmptyTab = ({ icon: Icon, title, body }: { icon: typeof Bell; title: string; body: string }) => (
+    <Card>
+      <CardContent className="py-12 text-center">
+        <Icon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+        <p className="font-medium mb-1">{title}</p>
+        <p className="text-sm text-muted-foreground max-w-sm mx-auto">{body}</p>
+      </CardContent>
+    </Card>
+  );
+
+  const PerfRow = ({ r, idx, showDelta }: { r: EntityTableRow; idx?: number; showDelta?: boolean }) => (
+    <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+      {typeof idx === "number" && (
+        <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
+          idx === 0 ? "bg-amber-400 text-amber-950" : idx === 1 ? "bg-slate-300 text-slate-700" : idx === 2 ? "bg-amber-600 text-amber-50" : "bg-muted text-muted-foreground"
+        }`}>{idx + 1}</div>
+      )}
+      <Avatar className="h-9 w-9"><AvatarFallback className="text-xs">{initialsOf(r.display_name)}</AvatarFallback></Avatar>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{r.display_name}</p>
+        {r.variant && <p className="text-xs text-muted-foreground truncate">{r.variant}</p>}
+      </div>
+      <div className="text-right">
+        <p className="text-sm font-semibold tabular-nums">{format(r.total_payout)}</p>
+        {showDelta && r.delta_prior != null && (
+          <p className={`text-xs tabular-nums flex items-center justify-end gap-0.5 ${r.delta_prior >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+            {r.delta_prior >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {format(Math.abs(r.delta_prior))}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
+  const header = isVialuce ? (
+    <div className="phead">
+      <div>
+        <h1>{t.heading}</h1>
+        <div className="sub">{t.sub}</div>
+      </div>
+    </div>
+  ) : (
+    <div className="mb-6">
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{t.heading}</h1>
+      <p className="mt-2 text-slate-600 dark:text-slate-400">{t.sub}</p>
+    </div>
+  );
+
+  const body =
+    periodsLoaded && periods.length === 0 ? (
+      <Card>
+        <CardContent className="py-16 text-center">
+          <Rocket className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold mb-2">{t.noData}</h3>
+          <p className="text-muted-foreground max-w-md mx-auto">{t.noDataBody}</p>
+        </CardContent>
+      </Card>
+    ) : (
+      <div className="space-y-6">
+        {periods.length > 0 && (
+          <PeriodCards periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
+        )}
+
+        {/* Real performance — top performers + movers from calculation_results */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-500" />{t.topPerformers}</CardTitle>
+              <CardDescription>{t.topPerformersDesc}</CardDescription>
+            </CardHeader>
+            <CardContent className="px-2">
+              {isLoading ? (
+                <p className="text-center py-8 text-muted-foreground text-sm">…</p>
+              ) : topPerformers.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground text-sm">{t.noDataBody}</p>
+              ) : (
+                <div className="space-y-1">{topPerformers.map((r, i) => <PerfRow key={r.entity_id} r={r} idx={i} />)}</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-emerald-500" />{t.movers}</CardTitle>
+              <CardDescription>{t.moversDesc}</CardDescription>
+            </CardHeader>
+            <CardContent className="px-2">
+              {isLoading ? (
+                <p className="text-center py-8 text-muted-foreground text-sm">…</p>
+              ) : !hasPriorDeltas ? (
+                <p className="text-center py-8 text-muted-foreground text-sm max-w-xs mx-auto">{t.noMovers}</p>
+              ) : (
+                <div className="space-y-3">
+                  {gainers.length > 0 && (
+                    <div>
+                      <p className="px-3 text-xs font-medium uppercase text-muted-foreground mb-1">{t.gainers}</p>
+                      <div className="space-y-1">{gainers.map((r) => <PerfRow key={r.entity_id} r={r} showDelta />)}</div>
+                    </div>
+                  )}
+                  {decliners.length > 0 && (
+                    <div>
+                      <p className="px-3 text-xs font-medium uppercase text-muted-foreground mb-1">{t.decliners}</p>
+                      <div className="space-y-1">{decliners.map((r) => <PerfRow key={r.entity_id} r={r} showDelta />)}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Configuration-backed surfaces — honest empty states (no fabricated programs) */}
+        <Tabs defaultValue="spifs" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="spifs"><Rocket className="h-4 w-4 mr-2" />{t.tabSpifs}</TabsTrigger>
+            <TabsTrigger value="alerts"><Bell className="h-4 w-4 mr-2" />{t.tabAlerts}</TabsTrigger>
+            <TabsTrigger value="coaching"><Lightbulb className="h-4 w-4 mr-2" />{t.tabCoaching}</TabsTrigger>
+            <TabsTrigger value="goals"><Target className="h-4 w-4 mr-2" />{t.tabGoals}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="spifs"><EmptyTab icon={Rocket} title={t.noSpifs} body={t.noSpifsBody} /></TabsContent>
+          <TabsContent value="alerts"><EmptyTab icon={Bell} title={t.noAlerts} body={t.noAlertsBody} /></TabsContent>
+          <TabsContent value="coaching"><EmptyTab icon={Lightbulb} title={t.noCoaching} body={t.noCoachingBody} /></TabsContent>
+          <TabsContent value="goals"><EmptyTab icon={Target} title={t.noGoals} body={t.noGoalsBody} /></TabsContent>
+        </Tabs>
+      </div>
     );
-    toast.success("Alert marked as read");
-  };
-
-  const markAllRead = () => {
-    setAlertsList((prev) => prev.map((a) => ({ ...a, read: true })));
-    toast.success("All alerts marked as read");
-  };
-
-  const handleCoachingComplete = () => {
-    toast.success("Coaching tip completed!");
-  };
 
   return (
     <motion.div
@@ -311,335 +257,8 @@ export default function AccelerationPage() {
       className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
     >
       <div className={isVialuce ? "page" : "container mx-auto px-4 md:px-6 py-8"}>
-        {/* Header — HF-313: Vialuce .phead; else unchanged. */}
-        {isVialuce ? (
-          <div className="phead">
-            <div>
-              <h1>Acceleration &amp; Alerts</h1>
-              <div className="sub">Active incentives, notifications, and AI-powered recommendations</div>
-            </div>
-          </div>
-        ) : (
-          <div className="mb-6">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              Acceleration & Alerts
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Active incentives, notifications, and AI-powered recommendations
-            </p>
-          </div>
-        )}
-
-        {/* Badges Section */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="mb-6"
-        >
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-900 to-slate-800">
-            <CardContent className="py-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-1">
-                    <Award className="h-5 w-5 text-amber-400" />
-                    Your Achievements
-                  </h2>
-                  <p className="text-sm text-slate-400">
-                    {badges.filter((b) => !b.progress || b.progress === 100).length} badges earned, {badges.filter((b) => b.progress && b.progress < 100).length} in progress
-                  </p>
-                </div>
-                <BadgeDisplay badges={badges} size="md" showLabels={false} />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Active SPIFs */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="mb-6"
-        >
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-amber-500" />
-            Active Incentive Programs
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            {activeSpifs.map((spif, index) => (
-              <motion.div key={spif.id} variants={itemVariants} custom={index}>
-                <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 overflow-hidden">
-                  <CardContent className="pt-6 relative">
-                    <motion.div
-                      className="absolute top-0 right-0 w-32 h-32 bg-amber-200/20 rounded-full blur-2xl"
-                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                      transition={{ duration: 3, repeat: Infinity }}
-                    />
-                    <div className="flex items-start justify-between mb-3 relative">
-                      <div>
-                        <Badge className="bg-amber-500 text-white hover:bg-amber-500 mb-2">
-                          Active SPIF
-                        </Badge>
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-50">{spif.name}</h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">{spif.description}</p>
-                      </div>
-                      <Zap className="h-8 w-8 text-amber-400" />
-                    </div>
-                    <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-amber-200 dark:border-amber-800">
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Ends</p>
-                        <p className="font-medium text-slate-900 dark:text-slate-50">
-                          {new Date(spif.endDate).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Participants</p>
-                        <p className="font-medium text-slate-900 dark:text-slate-50">{spif.participants}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Deals Won</p>
-                        <p className="font-medium text-emerald-600">{spif.dealsWon}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Total Outcome</p>
-                        <p className="font-medium text-emerald-600">
-                          {fmt(spif.totalPayout)}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Tabbed Content */}
-        <Tabs defaultValue="alerts" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 md:w-auto md:inline-grid">
-            <TabsTrigger value="alerts" className="flex items-center gap-2">
-              <Bell className="h-4 w-4" />
-              <span className="hidden sm:inline">Alerts</span>
-              {unreadAlerts > 0 && (
-                <Badge variant="destructive" className="h-5 w-5 p-0 text-xs">
-                  {unreadAlerts}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="goals" className="flex items-center gap-2">
-              <Target className="h-4 w-4" />
-              <span className="hidden sm:inline">Goals</span>
-            </TabsTrigger>
-            <TabsTrigger value="coaching" className="flex items-center gap-2">
-              <Lightbulb className="h-4 w-4" />
-              <span className="hidden sm:inline">Coaching</span>
-            </TabsTrigger>
-            <TabsTrigger value="recommendations" className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              <span className="hidden sm:inline">Insights</span>
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Alerts Tab */}
-          <TabsContent value="alerts">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Bell className="h-5 w-5 text-slate-400" />
-                      Notifications
-                    </CardTitle>
-                    <CardDescription>System alerts and important updates</CardDescription>
-                  </div>
-                  {unreadAlerts > 0 && (
-                    <Button variant="ghost" size="sm" onClick={markAllRead}>
-                      Mark all read
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <motion.div
-                  variants={containerVariants}
-                  initial="hidden"
-                  animate="visible"
-                  className="space-y-3"
-                >
-                  <AnimatePresence>
-                    {alertsList.map((alert, index) => {
-                      const style = getSeverityStyle(alert.severity);
-                      return (
-                        <motion.div
-                          key={alert.id}
-                          variants={itemVariants}
-                          custom={index}
-                          layout
-                          className={`p-4 rounded-lg border ${style.border} ${style.bg} ${
-                            !alert.read ? "ring-2 ring-offset-2 ring-slate-200 dark:ring-slate-700 dark:ring-offset-slate-900" : ""
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            {getSeverityIcon(alert.severity)}
-                            <div className="flex-1">
-                              <div className="flex items-start justify-between">
-                                <h4 className={`font-medium ${style.text}`}>
-                                  {alert.title}
-                                </h4>
-                                {!alert.read && (
-                                  <motion.span
-                                    initial={{ scale: 0 }}
-                                    animate={{ scale: 1 }}
-                                    className="w-2 h-2 bg-blue-500 rounded-full"
-                                  />
-                                )}
-                              </div>
-                              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                                {alert.message}
-                              </p>
-                              <div className="flex items-center justify-between mt-2">
-                                <span className="text-xs text-slate-500 flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {formatDate(alert.timestamp)}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  {!alert.read && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={() => markAsRead(alert.id)}
-                                    >
-                                      Mark read
-                                    </Button>
-                                  )}
-                                  {alert.actionUrl && (
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                                      View Details
-                                      <ChevronRight className="h-3 w-3" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </AnimatePresence>
-                </motion.div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Goals Tab */}
-          <TabsContent value="goals">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="h-5 w-5 text-sky-500" />
-                  Goal Pacing
-                </CardTitle>
-                <CardDescription>
-                  Track progress toward your quarterly objectives
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <GoalPacing goals={goals} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Coaching Tab */}
-          <TabsContent value="coaching">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Lightbulb className="h-5 w-5 text-amber-500" />
-                  Coaching Tips
-                </CardTitle>
-                <CardDescription>
-                  Personalized recommendations to improve your performance
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <CoachingCard tips={coachingTips} onComplete={handleCoachingComplete} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Recommendations Tab */}
-          <TabsContent value="recommendations">
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-emerald-500" />
-                  AI Recommendations
-                </CardTitle>
-                <CardDescription>
-                  Insights and suggested actions based on your data
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <motion.div
-                  variants={containerVariants}
-                  initial="hidden"
-                  animate="visible"
-                  className="space-y-4"
-                >
-                  {recommendations.map((rec, index) => (
-                    <motion.div
-                      key={rec.id}
-                      variants={itemVariants}
-                      custom={index}
-                      whileHover={{ scale: 1.01 }}
-                      className="p-4 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors dark:border-slate-700 dark:hover:border-slate-600"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="p-2 bg-slate-100 rounded-lg dark:bg-slate-800">
-                          <rec.icon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between">
-                            <h4 className="font-medium text-slate-900 dark:text-slate-50">
-                              {rec.title}
-                            </h4>
-                            <Badge
-                              variant="secondary"
-                              className={
-                                rec.impact === "High"
-                                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              }
-                            >
-                              {rec.impact} Impact
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                            {rec.description}
-                          </p>
-                          <div className="flex items-center justify-between mt-3">
-                            <Badge variant="outline" className="text-xs">
-                              {rec.category}
-                            </Badge>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                              Take Action
-                              <ArrowRight className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </motion.div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        {header}
+        {body}
       </div>
     </motion.div>
   );

@@ -265,7 +265,7 @@ export default function AnalyticsDashboardPage() {
         <div className="page">
           <div className="phead">
             <div>
-              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <h1>{isSpanish ? 'Analítica' : 'Analytics'}</h1>
               <div className="sub">{isSpanish ? 'Sin datos' : 'No data'}</div>
             </div>
           </div>
@@ -314,7 +314,7 @@ export default function AnalyticsDashboardPage() {
               </Button>
             )}
             <div>
-              <h1>{isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}</h1>
+              <h1>{isSpanish ? 'Analítica' : 'Analytics'}</h1>
               <div className="sub">{periodLabel}</div>
             </div>
           </div>
@@ -340,7 +340,7 @@ export default function AnalyticsDashboardPage() {
           )}
           <div>
             <h1 className="text-2xl font-bold">
-              {isSpanish ? 'Panel de Análisis' : 'Analytics Dashboard'}
+              {isSpanish ? 'Analítica' : 'Analytics'}
             </h1>
             <p className="text-muted-foreground">{periodLabel}</p>
           </div>

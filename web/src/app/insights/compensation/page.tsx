@@ -19,8 +19,7 @@ import { createClient } from '@/lib/supabase/client'; // OB-226 plan-distributio
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
 import { Leaderboard } from '@/components/charts/leaderboard';
-import { CompensationPieChart } from '@/components/charts/CompensationPieChart';
-import { PeriodSelector, EntityTable } from '@/components/insights'; // OB-227
+import { PeriodCards, EntityTable, DimensionBreakdown } from '@/components/insights'; // OB-227 / OB-322
 import { getCalculatedPeriods, type PeriodSummary } from '@/lib/insights'; // OB-227
 import { Users, PieChart, ArrowUpRight } from 'lucide-react';
 import type { Cheque, Franquicia, Mesero } from '@/types/cheques';
@@ -267,20 +266,20 @@ export default function CompensationPage() {
 
     // i18n strings (codebase isSpanish standard; VL admins always English).
     const t = {
-      heading: isSpanish ? 'Resumen de Resultados' : 'Outcome Overview',
+      heading: isSpanish ? 'Compensación' : 'Compensation',
       sub: isSpanish
-        ? 'Pagos por entidad y distribución por plan'
-        : 'Per-entity payouts and plan distribution',
+        ? 'Pagos por entidad y composición del período'
+        : 'Per-entity payouts and period composition',
       currentPeriod: isSpanish ? 'Periodo actual' : 'Current Period',
       avgPerEntity: isSpanish ? 'Promedio por entidad' : 'Average per Entity',
       activePlans: isSpanish ? 'Planes activos' : 'Active Plans',
       entitiesPaid: isSpanish ? 'entidades pagadas' : 'entities paid',
       planLabel: isSpanish ? 'plan' : 'plan',
       plansLabel: isSpanish ? 'planes' : 'plans',
-      distTitle: isSpanish ? 'Resultados por Plan' : 'Outcome by Plan',
+      distTitle: isSpanish ? 'A Dónde Va el Dinero' : 'Where the Money Goes',
       distDesc: isSpanish
-        ? 'Distribución de pagos por plan de comisiones'
-        : 'Payout distribution across commission plans',
+        ? 'Composición del pago por componente o dimensión, este período'
+        : 'Payout composition by component or dimension, this period',
       payTitle: isSpanish ? 'Pagos por Entidad' : 'Payments by Entity',
       payDesc: isSpanish
         ? 'Pagos de comisiones calculados por entidad'
@@ -332,12 +331,6 @@ export default function CompensationPage() {
                   {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
                 </div>
               </div>
-              {/* OB-227: period selector (canonical getCalculatedPeriods source) */}
-              {periods.length > 0 && (
-                <div className="pactions">
-                  <PeriodSelector periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
-                </div>
-              )}
             </div>
           ) : (
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -350,10 +343,17 @@ export default function CompensationPage() {
                 {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
               </p>
             </div>
-            {periods.length > 0 && (
-              <PeriodSelector periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
-            )}
           </div>
+          )}
+
+          {/* OB-322 O-2: shared period cards (canonical getCalculatedPeriods source) */}
+          {periods.length > 0 && (
+            <PeriodCards
+              periods={periods}
+              selectedPeriodId={selectedPeriodId}
+              onPeriodChange={setSelectedPeriodId}
+              className="mb-6"
+            />
           )}
 
           {compLoading ? (
@@ -428,21 +428,23 @@ export default function CompensationPage() {
             </Card>
           </div>
 
-          {/* Plan Distribution — sum(total_payout) grouped by rule_set_id → rule_sets.name.
-              A single-plan tenant (BCL) renders one honest slice; no invented plans. */}
-          <Card className="border-0 shadow-lg mb-8">
-            <CardHeader>
-              <CardTitle>{t.distTitle}</CardTitle>
-              <CardDescription>{t.distDesc}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {planDistribution.length > 0 ? (
-                <CompensationPieChart data={planDistribution} />
-              ) : (
-                <p className="text-center py-12 text-slate-400">{t.noDist}</p>
-              )}
-            </CardContent>
-          </Card>
+          {/* OB-322 O-6: "Where the money goes" — composition by DISCOVERED dimension
+              (component + entity-metadata attributes via lib/insights/dimension-discovery),
+              horizontal bars with a pivot. Replaces the single-slice plan donut, which was
+              uninformative for single-plan tenants (BCL). */}
+          <div className="mb-8">
+            <div className="mb-3">
+              <h2 className="text-lg font-semibold text-slate-50">{t.distTitle}</h2>
+              <p className="text-sm text-slate-400">{t.distDesc}</p>
+            </div>
+            {selectedPeriodId ? (
+              <DimensionBreakdown tenantId={tenantId} periodId={selectedPeriodId} />
+            ) : (
+              <Card className="border-0 shadow-lg">
+                <CardContent className="text-center py-12 text-slate-400">{t.noDist}</CardContent>
+              </Card>
+            )}
+          </div>
 
           {/* Payments by Entity — real entity displayName + totalPayout (the per-entity comp). */}
           <Card className="border-0 shadow-lg">
