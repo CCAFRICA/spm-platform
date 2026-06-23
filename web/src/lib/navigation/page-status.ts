@@ -29,7 +29,6 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/insights':                     'preview',
   '/insights/analytics':           'preview',
   '/insights/performance':         'preview',
-  '/insights/my-team':             'preview',
   '/insights/compensation':        'preview',
   '/insights/trends':              'preview',
   '/financial':                    'preview',
@@ -43,7 +42,6 @@ export const PAGE_STATUS: Record<string, PageStatus> = {
   '/govern/calculation-approvals': 'preview',
 
   // COMING — stubs or placeholders
-  '/insights/sales-finance':       'coming',
   '/performance':                  'coming',
   '/performance/goals':            'coming',
   '/performance/adjustments':      'coming',
