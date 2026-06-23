@@ -3,7 +3,7 @@
 **Governing spec:** DS-030 v3 (Persistent Comprehension Architecture)
 **Directive:** `docs/vp-prompts/OB-233_PERSISTENT_COMPREHENSION_PIPELINE_R3_20260622.md`
 **Branch:** `ob-233-comprehension-pipeline`
-**Status:** IN PROGRESS — Phase 0 (Migration Gate) authored + committed; **HALT-MIGRATION** (awaiting architect SQL application).
+**Status:** COMPLETE — Phase 0 + eradication + Phase A (decision package) + Phase B (serial spine) shipped. Both migrations architect-applied + verified live. All proof gates pass (PG-1 Sabor, PG-2 BCL pipeline + C6 immutability, PG-3/3b, PG-4, PG-5, PG-6, PG-7, PG-8); BCL live calc total is architect-run (engine byte-unmodified). **PR #593.**
 
 This report grows across the OB. Sections below are filled as gates pass. Self-attestation is rejected — every PG pastes live evidence.
 
