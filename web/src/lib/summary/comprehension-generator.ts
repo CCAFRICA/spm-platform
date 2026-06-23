@@ -8,7 +8,7 @@
 // Evolved from HF-336's batched classifyFields (one LLM call per data_type — never per field; HALT-2).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
+import { streamAnthropicText, stripFences, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -70,10 +70,10 @@ async function comprehendFields(
     '"aggregation_behavior","identifies" }, ... }. No prose, no code fences. Any field may be null except characterization.',
   ].join('\n');
   const payload = fields.map((f) => ({ field: f.field, samples: f.samples, prior_note: hints[f.field] ?? null }));
-  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 4000, label: `comprehend:${dataType}` });
-  const cleaned = stripFences(text);
-  const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
-  const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
+  // 8000 tokens of headroom for many fields; parseJsonObjectTolerant salvages complete field entries if
+  // the generation still truncates (a dropped trailing field falls back to the field-name characterization).
+  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 8000, label: `comprehend:${dataType}` });
+  const parsed = parseJsonObjectTolerant(stripFences(text));
   const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const out: Record<string, Omit<ComprehensionArtifact, 'field_name'>> = {};
   for (const k in parsed) {

@@ -76,3 +76,52 @@ export async function streamAnthropicText(opts: {
 export function stripFences(t: string): string {
   return t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 }
+
+/**
+ * Tolerant top-level JSON-object parse: first try the whole object; if the response was truncated (the
+ * generation hit max_tokens mid-object), salvage every COMPLETE top-level `"key": <value>` pair and drop
+ * the incomplete tail. Returns {} if nothing salvageable. Used for batched per-field LLM maps where a
+ * dropped trailing field is acceptable (the caller falls back for missing keys).
+ */
+export function parseJsonObjectTolerant(cleaned: string): Record<string, any> {
+  const start = cleaned.indexOf('{');
+  if (start < 0) return {};
+  const body = cleaned.slice(start);
+  try { const p = JSON.parse(body); if (p && typeof p === 'object') return p as Record<string, any>; } catch { /* salvage */ }
+  const out: Record<string, any> = {};
+  const n = body.length;
+  let i = 1; // past the opening brace
+  const isWs = (c: string) => c === ' ' || c === '\n' || c === '\r' || c === '\t';
+  while (i < n) {
+    while (i < n && (isWs(body[i]) || body[i] === ',')) i++;
+    if (i >= n || body[i] === '}') break;
+    if (body[i] !== '"') break; // malformed key
+    const keyStart = i; i++;
+    let esc = false;
+    while (i < n) { const c = body[i]; if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') { i++; break; } i++; }
+    const keyRaw = body.slice(keyStart, i);
+    while (i < n && isWs(body[i])) i++;
+    if (body[i] !== ':') break; i++;
+    while (i < n && isWs(body[i])) i++;
+    if (i >= n) break;
+    const valStart = i;
+    const ch = body[i];
+    if (ch === '{' || ch === '[') {
+      const open = ch; const close = open === '{' ? '}' : ']';
+      let depth = 0, inStr = false, e2 = false, closed = false;
+      while (i < n) {
+        const c = body[i];
+        if (inStr) { if (e2) e2 = false; else if (c === '\\') e2 = true; else if (c === '"') inStr = false; }
+        else { if (c === '"') inStr = true; else if (c === open) depth++; else if (c === close) { depth--; if (depth === 0) { i++; closed = true; break; } } }
+        i++;
+      }
+      if (!closed) break; // truncated nested value -> stop
+    } else {
+      let inStr = ch === '"', e3 = false, done = false; if (inStr) i++;
+      while (i < n) { const c = body[i]; if (inStr) { if (e3) e3 = false; else if (c === '\\') e3 = true; else if (c === '"') { i++; done = true; break; } } else { if (c === ',' || c === '}') { done = true; break; } } i++; }
+      if (inStr && !done) break; // truncated scalar string
+    }
+    try { Object.assign(out, JSON.parse(`{${keyRaw}:${body.slice(valStart, i)}}`)); } catch { break; }
+  }
+  return out;
+}

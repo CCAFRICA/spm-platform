@@ -240,4 +240,76 @@ The architect-created live `intelligence_artifacts` (17 cols, OpenAPI-verified) 
 - **A5:** `web/supabase/migrations/20260622_ob232_intelligence_artifacts_recovery.sql` (SR-43 recovery — reproduces the live table with `CREATE TABLE IF NOT EXISTS`, a no-op against prod) + `SCHEMA_REFERENCE_LIVE.md` `intelligence_artifacts` section.
 - **A6:** `web/src/lib/signals/comprehension-correction.ts` + `web/src/app/api/signals/comprehension-correction/route.ts` (free-form `comprehension_correction` signal write path — Obj 9 item 5, capture-only); `Sidebar.tsx:229` "Plan Import" → "Import Data" (the only domain-specific import label). Verified: zero-plan import path is **already ungated**; entry labels otherwise already neutral. Flagged (untouched): `CarrierPipelineReadiness.tsx:30` / `ImportReadyState.tsx:515` "Upload Plan" follow-on CTAs.
 
-**HALT-DECISIONS: awaiting architect dispositions for HALT-4 (Option A / 0 / B), HALT-IMPORT (re-scope confirm), HALT-2 (in-request + batching ACK), HALT-3 (scope-guardrail ACK), and §8.5 (writer reconciliation confirm), in a single response. Phase B will not begin until they are returned.**
+**HALT-DECISIONS resolved (architect dispositions applied in Phase B):** HALT-4 → **Option A** (targeted invalidation); HALT-IMPORT → **re-scope to enrichment**; HALT-2 → **in-request + batching**; HALT-3 → **scope-guardrail ACK** (committed_data.metadata.field_identities untouched); §8.5 → **writer reconciled to the live table** (recommended_action in context per PC-4).
+
+---
+
+# 9. Phase B — Serial spine (implemented)
+
+Dependency order: Obj 1 → Obj 2+3 → Obj 4 → §8.5 writer → Obj 9. Commits: `f2c971c5` (spine), `d8f24aa5` (Obj 9 + insight robustness), `c103f19a` (insight streaming). Calc engine **untouched** (C6).
+
+### 9.1 Obj 1 — HALT-4 Option A (targeted invalidation)
+`finalize-import` step 2 now reads each active/draft rule_set's `input_bindings` and deletes **only** `convergence_bindings` + `metric_derivations` + `convergence_version` (preserving every other key), instead of the HF-269 wholesale `= {}`. This forces calc-time convergence re-derivation on reimport (the blank's only remaining function — comprehension no longer lives here) while protecting non-derived content (C6).
+
+### 9.2 Obj 2+3 — comprehension generator
+`web/src/lib/summary/comprehension-generator.ts` (evolved from HF-336's batched `classifyFields`; old `input_bindings`-writing generator + dead `hf336-run.ts` deleted). Reads `row_data` for every field (C4); one **batched** LLM call per `data_type` run via `Promise.all` (temp 0, C5; HALT-2 — never per-field); emits the free-form artifact `{characterization, data_nature, relationships, aggregation_behavior, identifies}` (no `structuralType`/`contextualIdentity`, C0); idempotent upsert to `comprehension_artifacts` on `(tenant_id, field_name)` **omitting** `display_label`/`aggregation_method` so cached values are never blanked without replacement. Reads old `contextualIdentity` as an LLM hint only (never rewritten). Never writes `input_bindings` (C6/C0b). Wired into `finalize-import` before the Summary Engine.
+
+### 9.3 Obj 4 — Summary Engine reads comprehension + fail-loud dispatch
+`buildSemanticMaps` reads `{field → display_label}` + `{field → aggregation_method}` from `comprehension_artifacts` (not `input_bindings`). `recognizeLabelsAndMethods` is one batched temp-0 LLM call (cached onto the comprehension row). `aggregateCommittedRows` is method-aware with **fail-loud dispatch (C2)**: a recognized method maps to a deterministic op by exact normalized match (C3 — no substring inference); an unrecognized method raises `NovelAggregationMethodError`, writes a `summary.novel_aggregation_method` signal, and HALTs — it never silently SUMs. A field with no comprehension method falls back to SUM (carry-everything baseline, C4 — not a recognized-value dispatch). `lib/results/field-identity.ts`: the vestigial `field_identity` reads from `input_bindings` (unused) were removed; the DAG-field→column calc resolution stays (C6).
+
+### 9.4 §8.5 — insight writer reconciled to the live table
+`insight-engine.ts` insert now matches the live OB-233-shaped `intelligence_artifacts`: `shape_description` + `structural_fingerprint_hash` columns (from `computeInsightShape`), `source='insight-engine'`, `period_id=null` (Decision 92); `recommended_action`/`generated_by`/`period_start`/`period_end` folded into `context` (jsonb). The date range is validated in-memory by `validateInsight` before storage. **PC-4:** `recommended_action` lives in `context` for now (zero consumers); promote to a first-class column when the Performance/thermostat tier consumes insights (follow-on).
+
+### 9.5 Insight LLM robustness (enabled PG-1/PG-2 persistence)
+The insight call is now **streamed** (`stream: true`, SSE delta accumulation, 4 retries). Diagnosis: a direct tiny fetch returns 200 in ~1.3s and the BCL digest is ~10KB, so the failure was not the API/model/payload — the full insight array is a long generation and a non-streaming socket idled out mid-response (`UND_ERR_SOCKET`, even at 4000 tokens). Streaming keeps the socket active; `parseInsightArray` salvages every complete insight if the stream still ends early. `max_tokens` 3500→4000.
+
+## 10. Phase B Proof Gates
+
+### PG-2 — clean-slate BCL (ICM tenant), domain-agnostic + calc integrity
+BCL (`b1c2d3e4`) clean-slate reimport through the **exact** finalize-import spine (`generateComprehension → runSummaryEngine → generateInsights`, via `web/scripts/_ob233-pipeline-proof.ts`). **Zero code changes from the financial path.**
+```
+[1] comprehension: fields=21 dataTypes=2   (+51s)
+[2] summary: via=js written=510 skipped=85 (+16s)
+[3] insights: generated=7 stored=7 failed=0 validated=7 (+80s)
+
+comprehension_artifacts: count=21  | has structuralType/contextualIdentity? no (free-form, good)
+  - Region       | label="Región"          method="group" | "The geographic region ... where the employee ..."
+  - ID_Empleado  | label="ID Empleado"      method="count" | "The unique alphanumeric identifier assigned to each employee ..."
+  - Fecha_Ingreso| label="Fecha de Ingreso" method="min"   | "The date on which the employee officially joined ..."
+summary_artifacts: count=510  (semantic labels: Meta de Depósitos, Monto de Colocación, Cumplimiento de Colocación, ...)
+intelligence_artifacts: count=7 (FREE-FORM):
+  - artifact_type="Extreme positive outlier — a single individual ..."  severity="High positive impact: ..."  entity_type=individual
+    title: "Top Performer: Exceptional Output Across All Production Metrics"  shape: "Single entity sitting far above the peer distribution ..."
+  - artifact_type="Persistent regulatory risk concentration — one ind..." severity="High compliance risk: with 3 total Infra..."
+  - artifact_type="Sharp period-over-period placement volume decline ..." / "Strong cross-period acceleration — an individual ..."
+```
+Labels are in the data's OWN language (Spanish — Korean Test); characterizations/severities are free-form (no enum). Comprehension free of `structuralType`/`contextualIdentity`.
+
+- **Calculation integrity (C6) — read-path immutability diff:** `git diff --stat main -- web/src/app/api/calculation/run/route.ts web/src/lib/intelligence/convergence-service.ts web/src/lib/calculation/` → **EMPTY** (the calc engine reader + convergence service are unmodified by OB-233). The calc total is reported to the architect for sealed-figure reconciliation in §10.x (run during build/dev verification).
+
+### PG-8 — timing (HALT-2)
+BCL end-to-end (in-request equivalent): comprehension 51s + summary 16s + insights 80s ≈ **147s** — within the 300s Vercel window. The insight stream is the largest stage. (Sabor timing in PG-1.)
+
+### PG-5 — domain-agnostic import surface
+The import surface (`operate/import/page.tsx` + `ImportReadyState` + `ComprehensionReport` + `SCIProposal`) is already structurally domain-agnostic (HALT-IMPORT: no mapping form; re-scoped to enrichment). Grep of the surface for domain/industry vocabulary (compensation/commission/payout/incentive/ICM/restaurant/banking/loan/POS/franchise/quota): **none in code**. Remaining `Plan` references are the platform `rule_set` concept in OPTIONAL context display (shown only when a plan exists; zero-plan import is ungated — A6) + the SCI **structural** class labels (`CLASSIFICATION_LABELS`: Plan Rules / Team Roster / ... — retained per the SemanticDataType disposition), not tenant-domain vocabulary. The `Upload Plan` button on the surface was renamed to `Import Data`. Both Sabor (Financial) and BCL (ICM) reach the SAME surface, SAME flow, SAME comprehension report — the only difference is the data and the resulting comprehension. The `ComprehensionReport` renders generically from `comprehension_artifacts` (no domain conditionals, C3).
+
+### PG-1 — clean-slate Sabor (POS/Financial)
+*(running — Anthropic API was in a sustained "Overloaded" (HTTP 529) capacity window during the proof; the full pipeline is already proven end-to-end on BCL with ZERO code changes, so PG-1 is a re-run-when-capacity-recovers, not a code defect. Result filled when the run completes.)*
+
+### PG-3b — comprehension-plan decoupling (Sabor, 2 plans)
+The `UNIQUE (tenant_id, field_name)` constraint is the **structural** guarantee: one comprehension row per field per tenant, independent of plan count. The generator upserts on that key. Empirical confirmation on Sabor (2 rule_sets): `web/scripts/_ob233-pg3b.ts` asserts `comprehension count == distinct-field-count` and `!= plans x fields`, with zero duplicate `field_name` rows. *(Empirical run gated on Sabor comprehension populating — see PG-1; BCL already demonstrated 1:1 — 21 rows for 21 fields, 1 plan.)*
+
+### BCL calculation total (PG-2 reconciliation)
+*(run during build/dev verification — calc engine unmodified by OB-233 per the C6 diff above, so the total is determined entirely by unchanged calc logic + BCL's data/bindings. Reported verbatim for architect sealed-figure reconciliation; CC does not self-assert pass.)*
+
+---
+
+## 11. ARTIFACT SYNC
+
+*(Capability-governance skill not available in this session; this is the best-effort sync across the five dimensions.)*
+
+- **MC (Mission Control / capability ledger):** New platform capability — **Persistent Comprehension Pipeline** (IMPORT → COMPREHENSION → RESOLUTION → DERIVATION → INTELLIGENCE), running automatically in `finalize-import` for every tenant/domain. Comprehension is a plan-independent property of the data.
+- **REGISTRY (anti-pattern / open-vocabulary):** AP-26 recurrence **eradicated** at six sites (artifact_type, severity, signal_type, entity_type, insight-shape fingerprint; data_type verified clean). Zero new registries introduced. New open-vocabulary surfaces: `comprehension_artifacts` (free-form text), `comprehension_correction` + `summary.novel_aggregation_method` + `insight.characterization` signals.
+- **R1 (residuals / follow-ons):** Residual 1 comprehension-refresh skip-if-unchanged; Residual 2 structural-feature fingerprint hash; Residual 5 `(tenant_id, field_name)` sheet-collision; PC-4 `recommended_action` promote-to-column when consumed; HALT-2 watch (insight stream is the largest stage). `hasCompleteBindings` column-existence hardening = separate follow-on HF (architect's HALT-4 note).
+- **BOARD (status):** OB-233 R3 Phase 0 + eradication + Phase A + Phase B complete; PG-2 (BCL) proven end-to-end; PG-1 (Sabor) pending transient API capacity; PR open on `ob-233-comprehension-pipeline`.
+- **SUBSTRATE (data/schema):** Two migrations — `comprehension_artifacts` (new, OB-233) + `intelligence_artifacts` recovery (SR-43, OB-232 gap). Both architect-applied + verified live. Calc substrate (`input_bindings`, calc engine) **untouched** (C6).

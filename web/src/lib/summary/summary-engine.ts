@@ -9,7 +9,7 @@
 // defaults to SUM. C3: no substring inference on the method string (exact normalized match only).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
+import { streamAnthropicText, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -154,10 +154,8 @@ export async function recognizeLabelsAndMethods(sb: SupabaseClient, tenantId: st
     'Return ONLY a JSON object { "<field>": { "display_label","aggregation_method" }, ... }. No prose, no code fences.',
   ].join('\n');
   const payload = pending.map((r) => ({ field: r.field_name, characterization: r.characterization, aggregation_behavior: r.aggregation_behavior }));
-  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 4000, label: 'label+method' });
-  const cleaned = stripFences(text);
-  const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
-  const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
+  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 8000, label: 'label+method' });
+  const parsed = parseJsonObjectTolerant(text);
   const now = new Date().toISOString();
   let updated = 0;
   for (const r of pending) {
