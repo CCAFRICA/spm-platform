@@ -47,3 +47,8 @@ The directive's "calculation runs cold every time; the stores need closing, not 
 
 ---
 *(P1–P9 + PG sections appended as phases land.)*
+
+---
+
+## P0 Re-Map Addendum (extend-in-place; zero-new-surfaces; HOLD)
+See `docs/vp-prompts/OB-235_P0_REMAP_ADDENDUM_20260623.md` — corrected phase implementation, file-ownership classification, the four-point zero-new-surfaces attestation, the re-tiered Tier-1 topology, adjusted PG-1/4/5, and the **P1 HALT-FORK** (DS-022 registry gate vs HF-219/AP-26 open-vocabulary). Tier-1 HELD pending architect ratification.
