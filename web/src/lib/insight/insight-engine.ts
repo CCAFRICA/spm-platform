@@ -116,42 +116,61 @@ const SYSTEM = [
 async function callInsightLLM(digest: unknown, model: string): Promise<GeneratedInsight[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  // STREAMING (OB-233): a full insight array is a long generation; a non-streaming socket idles out
+  // mid-generation (UND_ERR_SOCKET, observed even at 4000 tokens). Streaming keeps the connection active
+  // and lets us salvage complete insights if the stream still ends early. temp 0 = C5.
   const body = JSON.stringify({
     model,
-    max_tokens: 4000, // proven-stable ceiling here (8000 over-runs the socket -> UND_ERR_SOCKET). The
-                      // tolerant parser (parseInsightArray) salvages every complete insight if the array
-                      // is truncated, so a long run yields validated insights rather than a hard failure.
-    temperature: 0, // C5: recognition layer is semantically stable on reimport
+    max_tokens: 4000,
+    temperature: 0,
+    stream: true,
     system: SYSTEM,
     messages: [{ role: 'user', content: `DATA:\n${JSON.stringify(digest)}` }],
   });
-  // OB-155: fetch() can drop transiently (UND_ERR_SOCKET) — retry with backoff.
-  let res: Response | null = null;
+  const strip = (t: string) => t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let text = '';
     try {
-      res = await fetch(ANTHROPIC_API_URL, {
+      const res = await fetch(ANTHROPIC_API_URL, {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body,
       });
-      break;
+      if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      if (!res.body) throw new Error('Anthropic stream: no response body');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          let ev: any;
+          try { ev = JSON.parse(payload); } catch { continue; } // skip keep-alive/non-JSON lines
+          if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') text += ev.delta.text as string;
+          else if (ev?.type === 'error') throw new Error(`Anthropic stream error: ${ev.error?.message ?? 'unknown'}`);
+        }
+      }
+      return parseInsightArray(strip(text));
     } catch (e) {
       lastErr = e;
+      // If the stream dropped mid-generation but complete insight objects were already captured, use them.
+      if (text) { try { const salvaged = parseInsightArray(strip(text)); if (salvaged.length) return salvaged; } catch { /* retry */ } }
       const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
-      console.warn(`[OB-232] insight fetch attempt ${attempt + 1} failed: ${e instanceof Error ? e.message : e}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
+      console.warn(`[OB-232] insight stream attempt ${attempt + 1} failed: ${e instanceof Error ? e.message : e}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
   }
-  if (!res) {
-    const cause = (lastErr as { cause?: { code?: string; message?: string } })?.cause;
-    throw new Error(`Anthropic fetch failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
-  }
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = await res.json() as any;
-  const text: string = json?.content?.[0]?.text ?? '';
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-  return parseInsightArray(cleaned);
+  const cause = (lastErr as { cause?: { code?: string; message?: string } })?.cause;
+  throw new Error(`Anthropic insight stream failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
 }
 
 // Tolerant array parse: first try the whole array; if the response was truncated (max_tokens) or has a
