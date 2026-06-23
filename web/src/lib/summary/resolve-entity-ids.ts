@@ -23,7 +23,7 @@ function discoverIdentifierField(rows: NullRow[], extIds: Set<string>): { field:
   }
   let field: string | null = null;
   let matches = 0;
-  for (const [k, c] of counts) if (c > matches) { field = k; matches = c; }
+  for (const [k, c] of Array.from(counts.entries())) if (c > matches) { field = k; matches = c; }
   // require a real signal: at least 3 matches and ≥10% of the sample
   const threshold = Math.max(3, Math.floor(sample.length * 0.1));
   return matches >= threshold ? { field, matches } : { field: null, matches };
@@ -102,7 +102,7 @@ export async function resolveEntityIds(
 
   // 5. batch update
   let resolved = 0;
-  for (const [entityId, ids] of byEntity) {
+  for (const [entityId, ids] of Array.from(byEntity.entries())) {
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
       const { error } = await sb.from('committed_data').update({ entity_id: entityId }).in('id', chunk);

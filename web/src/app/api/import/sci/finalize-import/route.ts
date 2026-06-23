@@ -21,6 +21,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { runSummaryEngine } from '@/lib/summary/summary-engine'; // OB-229
+import { generateInsights } from '@/lib/insight/insight-engine'; // OB-232
 
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
@@ -81,8 +82,19 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Finalize] summary engine failed:', err instanceof Error ? err.message : err);
     }
 
+    // 5. OB-232: generate insights from the freshly-computed summaries (Insight Engine, DS-028 P2).
+    //    LLM recognizes patterns; deterministic validator + shape enforce the Decision-158 boundary.
+    let insights: { stored: number; failed: number } | null = null;
+    try {
+      const r = await generateInsights(supabase, tenantId);
+      insights = { stored: r.stored, failed: r.failed };
+      trace(`insight-engine-done stored=${r.stored} failed=${r.failed} model=${r.model}`);
+    } catch (err) {
+      console.error('[SCI Finalize] insight engine failed:', err instanceof Error ? err.message : err);
+    }
+
     trace('done');
-    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, summary, durationMs: Date.now() - t0 });
+    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, summary, insights, durationMs: Date.now() - t0 });
   } catch (err) {
     console.error('[SCI Finalize] Error:', err);
     return NextResponse.json({ error: 'Finalize failed', details: String(err) }, { status: 500 });
