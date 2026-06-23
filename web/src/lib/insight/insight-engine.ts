@@ -118,7 +118,9 @@ async function callInsightLLM(digest: unknown, model: string): Promise<Generated
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
   const body = JSON.stringify({
     model,
-    max_tokens: 3500,
+    max_tokens: 4000, // proven-stable ceiling here (8000 over-runs the socket -> UND_ERR_SOCKET). The
+                      // tolerant parser (parseInsightArray) salvages every complete insight if the array
+                      // is truncated, so a long run yields validated insights rather than a hard failure.
     temperature: 0, // C5: recognition layer is semantically stable on reimport
     system: SYSTEM,
     messages: [{ role: 'user', content: `DATA:\n${JSON.stringify(digest)}` }],
@@ -136,19 +138,44 @@ async function callInsightLLM(digest: unknown, model: string): Promise<Generated
       break;
     } catch (e) {
       lastErr = e;
+      const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+      console.warn(`[OB-232] insight fetch attempt ${attempt + 1} failed: ${e instanceof Error ? e.message : e}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
   }
-  if (!res) throw new Error(`Anthropic fetch failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
+  if (!res) {
+    const cause = (lastErr as { cause?: { code?: string; message?: string } })?.cause;
+    throw new Error(`Anthropic fetch failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}${cause ? ` (cause: ${cause.code ?? cause.message ?? JSON.stringify(cause)})` : ''}`);
+  }
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const json = await res.json() as any;
   const text: string = json?.content?.[0]?.text ?? '';
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  return parseInsightArray(cleaned);
+}
+
+// Tolerant array parse: first try the whole array; if the response was truncated (max_tokens) or has a
+// malformed trailing element, salvage every COMPLETE top-level {...} object. Never throws on a partial
+// array — a truncated last insight is dropped, the rest are kept (then validated downstream).
+function parseInsightArray(cleaned: string): GeneratedInsight[] {
   const start = cleaned.indexOf('[');
-  const end = cleaned.lastIndexOf(']');
-  if (start < 0 || end < 0) throw new Error(`No JSON array in LLM response: ${cleaned.slice(0, 200)}`);
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
-  return Array.isArray(parsed) ? parsed as GeneratedInsight[] : [];
+  if (start < 0) throw new Error(`No JSON array in LLM response: ${cleaned.slice(0, 200)}`);
+  const body = cleaned.slice(start);
+  const end = body.lastIndexOf(']');
+  if (end > 0) {
+    try { const p = JSON.parse(body.slice(0, end + 1)); if (Array.isArray(p)) return p as GeneratedInsight[]; } catch { /* salvage below */ }
+  }
+  const out: GeneratedInsight[] = [];
+  let depth = 0, objStart = -1, inStr = false, esc = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { if (depth === 0) objStart = i; depth++; }
+    else if (ch === '}') { depth--; if (depth === 0 && objStart >= 0) { try { out.push(JSON.parse(body.slice(objStart, i + 1)) as GeneratedInsight); } catch { /* skip malformed */ } objStart = -1; } }
+  }
+  if (out.length === 0) throw new Error(`No parseable insight objects in LLM response: ${cleaned.slice(0, 200)}`);
+  return out;
 }
 
 export interface InsightRunResult {
