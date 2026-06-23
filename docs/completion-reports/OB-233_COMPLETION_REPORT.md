@@ -349,3 +349,7 @@ The `UNIQUE (tenant_id, field_name)` constraint holds; comprehension is one-row-
 - **R1 (residuals / follow-ons):** Residual 1 comprehension-refresh skip-if-unchanged; Residual 2 structural-feature fingerprint hash; Residual 5 `(tenant_id, field_name)` sheet-collision; PC-4 `recommended_action` promote-to-column when consumed; HALT-2 watch (insight stream is the largest stage). `hasCompleteBindings` column-existence hardening = separate follow-on HF (architect's HALT-4 note).
 - **BOARD (status):** OB-233 R3 complete — Phase 0 + eradication + Phase A + Phase B. PG-1 (Sabor), PG-2 (BCL pipeline + C6), PG-3/3b, PG-4, PG-5, PG-6, PG-7, PG-8 all proven; BCL live calc total = architect-run (engine unmodified). Follow-ons: financial-surface label alignment, summary SQL-RPC for large tenants, `hasCompleteBindings` hardening.
 - **SUBSTRATE (data/schema):** Two migrations — `comprehension_artifacts` (new, OB-233) + `intelligence_artifacts` recovery (SR-43, OB-232 gap). Both architect-applied + verified live. Calc substrate (`input_bindings`, calc engine) **untouched** (C6).
+
+---
+
+**PR:** #593 — https://github.com/CCAFRICA/spm-platform/pull/593 (base main, head ob-233-comprehension-pipeline)
