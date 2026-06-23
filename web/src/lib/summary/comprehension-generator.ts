@@ -8,10 +8,10 @@
 // Evolved from HF-336's batched classifyFields (one LLM call per data_type — never per field; HALT-2).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
 
 export interface ComprehensionArtifact {
@@ -55,8 +55,6 @@ async function distinctDataTypes(sb: SupabaseClient, tenantId: string): Promise<
 async function comprehendFields(
   fields: SampledField[], dataType: string, hints: Record<string, string>,
 ): Promise<Record<string, Omit<ComprehensionArtifact, 'field_name'>>> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
   const system = [
     'You comprehend data fields for a domain-agnostic intelligence platform. You are given the fields of',
     `one data set (data_type="${dataType}") with sample values. For EACH field, describe IN YOUR OWN WORDS`,
@@ -72,15 +70,8 @@ async function comprehendFields(
     '"aggregation_behavior","identifies" }, ... }. No prose, no code fences. Any field may be null except characterization.',
   ].join('\n');
   const payload = fields.map((f) => ({ field: f.field, samples: f.samples, prior_note: hints[f.field] ?? null }));
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, max_tokens: 4000, temperature: 0, system, messages: [{ role: 'user', content: JSON.stringify(payload) }] }),
-  });
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = await res.json() as any;
-  const text: string = json?.content?.[0]?.text ?? '';
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 4000, label: `comprehend:${dataType}` });
+  const cleaned = stripFences(text);
   const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
   const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
   const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);

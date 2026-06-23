@@ -9,10 +9,10 @@
 // defaults to SUM. C3: no substring inference on the method string (exact normalized match only).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-6';
 
 export interface CommittedRow {
@@ -144,8 +144,6 @@ export async function recognizeLabelsAndMethods(sb: SupabaseClient, tenantId: st
   const pending = rows.filter((r) => !r.display_label || !r.aggregation_method);
   if (pending.length === 0) return 0;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
   const system = [
     'You are given comprehended data fields, each with a free-form characterization and an',
     'aggregation_behavior description. For EACH field produce:',
@@ -156,15 +154,8 @@ export async function recognizeLabelsAndMethods(sb: SupabaseClient, tenantId: st
     'Return ONLY a JSON object { "<field>": { "display_label","aggregation_method" }, ... }. No prose, no code fences.',
   ].join('\n');
   const payload = pending.map((r) => ({ field: r.field_name, characterization: r.characterization, aggregation_behavior: r.aggregation_behavior }));
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, max_tokens: 4000, temperature: 0, system, messages: [{ role: 'user', content: JSON.stringify(payload) }] }),
-  });
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = await res.json() as any;
-  const text: string = json?.content?.[0]?.text ?? '';
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const text = await streamAnthropicText({ model: MODEL, system, user: JSON.stringify(payload), maxTokens: 4000, label: 'label+method' });
+  const cleaned = stripFences(text);
   const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
   const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
   const now = new Date().toISOString();
