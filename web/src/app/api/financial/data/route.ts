@@ -12,6 +12,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js'; // OB-229
+import { getSummaryArtifacts } from '@/lib/summary/summary-read'; // OB-229
 
 // ═══════════════════════════════════════════════════════════════════
 // Types (shared with financial-data-service.ts)
@@ -201,18 +203,17 @@ function getLocationBrand(loc: EntityRecord, brandLookup: Map<string, BrandInfo>
 // Aggregation: Network Pulse
 // ═══════════════════════════════════════════════════════════════════
 
-function aggregateNetworkPulse(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
+// OB-229: source-agnostic per-location accumulator (shared by the raw and summary-backed paths).
+interface NpLocAgg {
+  id: string; name: string; city: string;
+  brandId: string; brandName: string; brandColor: string;
+  revenue: number; cheques: number; tips: number;
+  food: number; bev: number; discounts: number; comps: number;
+  daily: Map<string, number>;
+}
 
-  interface LocAgg {
-    id: string; name: string; city: string;
-    brandId: string; brandName: string; brandColor: string;
-    revenue: number; cheques: number; tips: number;
-    food: number; bev: number; discounts: number; comps: number;
-    daily: Map<string, number>;
-  }
-  const locMap = new Map<string, LocAgg>();
+function newNpLocMap(locations: EntityRecord[], brandLookup: Map<string, BrandInfo>): Map<string, NpLocAgg> {
+  const locMap = new Map<string, NpLocAgg>();
   for (const loc of locations) {
     const m = (loc.metadata || {}) as Record<string, unknown>;
     const brand = getLocationBrand(loc, brandLookup);
@@ -227,25 +228,14 @@ function aggregateNetworkPulse(raw: { cheques: ChequeRecord[]; entities: EntityR
       daily: new Map(),
     });
   }
+  return locMap;
+}
 
-  let totalCheques = 0;
-  for (const c of raw.cheques) {
-    const agg = locMap.get(c.entity_id);
-    if (!agg) continue;
-    const rd = c.row_data;
-    totalCheques++;
-    agg.cheques++;
-    agg.revenue += n(rd.total);
-    agg.tips += n(rd.propina);
-    agg.food += n(rd.total_alimentos);
-    agg.bev += n(rd.total_bebidas);
-    agg.discounts += n(rd.total_descuentos);
-    agg.comps += n(rd.total_cortesias);
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) agg.daily.set(dt, (agg.daily.get(dt) || 0) + n(rd.total));
-  }
-
+// OB-229: shared finalize — identical output shape whether locMap was filled from raw cheques or from
+// pre-computed summary_artifacts. The ONLY difference between paths is how locMap is populated.
+function finalizeNetworkPulse(locMap: Map<string, NpLocAgg>, locations: EntityRecord[], brandLookup: Map<string, BrandInfo>) {
   const locs = Array.from(locMap.values()).filter(l => l.cheques > 0);
+  const totalCheques = locs.reduce((s, l) => s + l.cheques, 0);
   const totalRevenue = locs.reduce((s, l) => s + l.revenue, 0);
   const totalTips = locs.reduce((s, l) => s + l.tips, 0);
   const totalDiscounts = locs.reduce((s, l) => s + l.discounts, 0);
@@ -304,6 +294,61 @@ function aggregateNetworkPulse(raw: { cheques: ChequeRecord[]; entities: EntityR
       tipRate: b.revenue > 0 ? b.tips / b.revenue : 0,
     })),
   };
+}
+
+// Raw path (preserved): populate locMap from cheques, then finalize.
+function aggregateNetworkPulse(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
+  const locations = raw.entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(raw.entities);
+  const locMap = newNpLocMap(locations, brandLookup);
+  for (const c of raw.cheques) {
+    const agg = locMap.get(c.entity_id);
+    if (!agg) continue;
+    const rd = c.row_data;
+    agg.cheques++;
+    agg.revenue += n(rd.total);
+    agg.tips += n(rd.propina);
+    agg.food += n(rd.total_alimentos);
+    agg.bev += n(rd.total_bebidas);
+    agg.discounts += n(rd.total_descuentos);
+    agg.comps += n(rd.total_cortesias);
+    const dt = String(rd.fecha || '').substring(0, 10);
+    if (dt) agg.daily.set(dt, (agg.daily.get(dt) || 0) + n(rd.total));
+  }
+  return finalizeNetworkPulse(locMap, locations, brandLookup);
+}
+
+// OB-229 summary-backed path: populate locMap from summary_artifacts (O(1)) instead of fetching+looping
+// 263K raw cheques. Byte-equivalent to the raw path BY CONSTRUCTION: metrics.total = Σ cheque.total per
+// (entity, day); row_count = the real cheque count; summary_date = the daily key. Returns null if the
+// tenant has no summaries yet (caller falls back to raw). The financial field names (total/propina/…)
+// live in this financial-domain CONSUMER, not in the domain-agnostic engine (Korean Test unaffected).
+async function aggregateNetworkPulseFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  scopeEntityIds?: string[],
+): Promise<ReturnType<typeof finalizeNetworkPulse> | null> {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
+  const locMap = newNpLocMap(locations, brandLookup);
+  for (const a of arts) {
+    const agg = locMap.get(a.entity_id);
+    if (!agg) continue;
+    const m = a.metrics || {};
+    agg.cheques += a.row_count;
+    agg.revenue += m.total ?? 0;
+    agg.tips += m.propina ?? 0;
+    agg.food += m.total_alimentos ?? 0;
+    agg.bev += m.total_bebidas ?? 0;
+    agg.discounts += m.total_descuentos ?? 0;
+    agg.comps += m.total_cortesias ?? 0;
+    agg.daily.set(a.summary_date, (agg.daily.get(a.summary_date) || 0) + (m.total ?? 0));
+  }
+  return finalizeNetworkPulse(locMap, locations, brandLookup);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1338,6 +1383,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // OB-229: network_pulse reads pre-computed summary_artifacts in O(1) — eliminating the bulk-cheque
+    // 97s/164MB aggregation path. Only entities (≈tens of rows) are fetched, not 263K cheques. Falls
+    // back to the raw path when the tenant has no summaries yet (idempotent, safe transition).
+    if (mode === 'network_pulse') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const np = await aggregateNetworkPulseFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
+      if (np) return NextResponse.json({ data: np });
+      // no summaries → fall through to the raw path
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
