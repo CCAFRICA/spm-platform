@@ -1,0 +1,180 @@
+// OB-233 (DS-030 §4.1) — comprehension generator. Reads row_data samples for EVERY field (C4) and the
+// LLM (temperature 0, C5) RECOGNIZES a FREE-FORM comprehension artifact per field; deterministic code
+// idempotent-upserts it to comprehension_artifacts on (tenant_id, field_name). Comprehension is a
+// property of the DATA, not a plan: this runs for every import, every tenant, regardless of whether any
+// rule_set exists (C0b), and NEVER writes input_bindings (C6/C0b). The calc-time convergeBindings path
+// is separate and untouched. KOREAN TEST: zero hardcoded field->meaning mapping and no fixed vocabulary;
+// the artifact is free-form text in the data's own language (no structuralType/contextualIdentity, C0).
+// Evolved from HF-336's batched classifyFields (one LLM call per data_type — never per field; HALT-2).
+
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'claude-sonnet-4-6';
+
+export interface ComprehensionArtifact {
+  field_name: string;
+  characterization: string;
+  data_nature: string | null;
+  relationships: string | null;
+  aggregation_behavior: string | null;
+  identifies: string | null;
+}
+
+interface SampledField { field: string; samples: unknown[]; types: string[] }
+
+/** Sample distinct fields + example values from the tenant's committed_data row_data for one data_type. */
+async function sampleFields(sb: SupabaseClient, tenantId: string, dataType: string): Promise<SampledField[]> {
+  const { data } = await sb.from('committed_data').select('row_data')
+    .eq('tenant_id', tenantId).eq('data_type', dataType).limit(50);
+  const acc = new Map<string, { samples: unknown[]; types: Set<string> }>();
+  for (const r of (data ?? []) as any[]) {
+    const rd = r.row_data || {};
+    for (const k in rd) {
+      let e = acc.get(k);
+      if (!e) { e = { samples: [], types: new Set() }; acc.set(k, e); }
+      if (e.samples.length < 3) e.samples.push(rd[k]);
+      e.types.add(typeof rd[k]);
+    }
+  }
+  return Array.from(acc.entries()).map(([field, e]) => ({ field, samples: e.samples, types: Array.from(e.types) }));
+}
+
+/** Distinct data_types for the tenant (each sheet/content unit classifies to one structural class). */
+async function distinctDataTypes(sb: SupabaseClient, tenantId: string): Promise<string[]> {
+  const { data } = await sb.from('committed_data').select('data_type').eq('tenant_id', tenantId).limit(5000);
+  const s = new Set<string>();
+  for (const r of (data ?? []) as any[]) if (r.data_type) s.add(r.data_type);
+  return Array.from(s);
+}
+
+/** LLM (temp 0) produces the FREE-FORM comprehension artifact per field (recognition, C1). One batched
+ *  call for all fields of a data_type. `hints` carries any prior free-form note (read-only, never rewritten). */
+async function comprehendFields(
+  fields: SampledField[], dataType: string, hints: Record<string, string>,
+): Promise<Record<string, Omit<ComprehensionArtifact, 'field_name'>>> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  const system = [
+    'You comprehend data fields for a domain-agnostic intelligence platform. You are given the fields of',
+    `one data set (data_type="${dataType}") with sample values. For EACH field, describe IN YOUR OWN WORDS`,
+    "(free-form — there is no fixed list to choose from; use the data's own language):",
+    '- characterization: what this field MEANS (what it measures / identifies / represents).',
+    '- data_nature: the nature of the value (units, whether it accumulates, its granularity) — or null.',
+    '- relationships: how it relates to other fields (comparisons, ratios, groupings) — or null.',
+    '- aggregation_behavior: how this field should be aggregated across rows and WHY (e.g. summed across',
+    '  entities, averaged, a point-in-time last value, a count) — describe the behavior, do not pick a code.',
+    '- identifies: if this field IDENTIFIES an entity (a person, a location, an account, ...), describe what',
+    '  kind of entity it identifies; otherwise null.',
+    'Return ONLY a JSON object: { "<field>": { "characterization","data_nature","relationships",',
+    '"aggregation_behavior","identifies" }, ... }. No prose, no code fences. Any field may be null except characterization.',
+  ].join('\n');
+  const payload = fields.map((f) => ({ field: f.field, samples: f.samples, prior_note: hints[f.field] ?? null }));
+  const res = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: MODEL, max_tokens: 4000, temperature: 0, system, messages: [{ role: 'user', content: JSON.stringify(payload) }] }),
+  });
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json = await res.json() as any;
+  const text: string = json?.content?.[0]?.text ?? '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
+  const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
+  const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const out: Record<string, Omit<ComprehensionArtifact, 'field_name'>> = {};
+  for (const k in parsed) {
+    const v = parsed[k] || {};
+    out[k] = {
+      characterization: str(v.characterization) ?? k, // NOT NULL column; fall back to the field name itself
+      data_nature: str(v.data_nature),
+      relationships: str(v.relationships),
+      aggregation_behavior: str(v.aggregation_behavior),
+      identifies: str(v.identifies),
+    };
+  }
+  return out;
+}
+
+/** Read prior free-form characterizations as HINTS only (never rewritten — C0/Obj 3). HF-336 stored a
+ *  contextualIdentity per column inside input_bindings; OB-231 made that slot free-form. We pass it to the
+ *  LLM as a prior note. This is a READ of input_bindings for a hint; it is never written back. */
+async function readHints(sb: SupabaseClient, tenantId: string): Promise<Record<string, string>> {
+  const hints: Record<string, string> = {};
+  try {
+    const { data } = await sb.from('rule_sets').select('input_bindings').eq('tenant_id', tenantId).eq('status', 'active');
+    for (const rs of (data ?? []) as any[]) {
+      const cb = rs?.input_bindings?.convergence_bindings;
+      if (!cb || typeof cb !== 'object') continue;
+      for (const comp of Object.values(cb)) {
+        if (!comp || typeof comp !== 'object') continue;
+        for (const b of Object.values(comp as Record<string, any>)) {
+          const col = b?.column; const ci = b?.field_identity?.contextualIdentity;
+          if (typeof col === 'string' && typeof ci === 'string' && ci.trim()) hints[col] = ci.trim();
+        }
+      }
+    }
+  } catch { /* hints are best-effort */ }
+  return hints;
+}
+
+export interface ComprehensionGenResult {
+  tenantId: string;
+  fieldsComprehended: number;
+  dataTypes: number;
+  sample: ComprehensionArtifact[];
+}
+
+/** Generate + persist comprehension for EVERY field of EVERY data_type (C4), idempotent on
+ *  (tenant_id, field_name). Plan-independent (C0b). NEVER writes input_bindings (C6). The upsert omits
+ *  display_label/aggregation_method so a previously-cached label/method is preserved, never blanked
+ *  without replacement (DS-030 §4.2). */
+export async function generateComprehension(
+  sb: SupabaseClient,
+  tenantId: string,
+  opts: { sourceImportBatchId?: string | null } = {},
+): Promise<ComprehensionGenResult> {
+  const dataTypes = await distinctDataTypes(sb, tenantId);
+  if (dataTypes.length === 0) return { tenantId, fieldsComprehended: 0, dataTypes: 0, sample: [] };
+  const hints = await readHints(sb, tenantId);
+
+  // One batched LLM call PER data_type, run concurrently (HALT-2: never per-field; parallel not serial).
+  const perType = await Promise.all(dataTypes.map(async (dt) => {
+    const fields = await sampleFields(sb, tenantId, dt);
+    if (fields.length === 0) return [] as ComprehensionArtifact[];
+    const comp = await comprehendFields(fields, dt, hints);
+    return fields.map((f) => ({
+      field_name: f.field,
+      ...(comp[f.field] ?? { characterization: f.field, data_nature: null, relationships: null, aggregation_behavior: null, identifies: null }),
+    }));
+  }));
+
+  // dedupe by field_name across data_types (the (tenant_id, field_name) key — Residual 5: a field name
+  // assumed to mean one thing per tenant). First occurrence wins.
+  const byField = new Map<string, ComprehensionArtifact>();
+  for (const arts of perType) for (const a of arts) if (!byField.has(a.field_name)) byField.set(a.field_name, a);
+  const artifacts = Array.from(byField.values());
+  if (artifacts.length === 0) return { tenantId, fieldsComprehended: 0, dataTypes: dataTypes.length, sample: [] };
+
+  const now = new Date().toISOString();
+  const rows = artifacts.map((a) => ({
+    tenant_id: tenantId,
+    field_name: a.field_name,
+    characterization: a.characterization,
+    data_nature: a.data_nature,
+    relationships: a.relationships,
+    aggregation_behavior: a.aggregation_behavior,
+    identifies: a.identifies,
+    source_import_batch_id: opts.sourceImportBatchId ?? null,
+    updated_at: now,
+  }));
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await sb.from('comprehension_artifacts')
+      .upsert(rows.slice(i, i + 500), { onConflict: 'tenant_id,field_name' });
+    if (error) throw new Error(`comprehension_artifacts upsert: ${error.message}`);
+  }
+  return { tenantId, fieldsComprehended: artifacts.length, dataTypes: dataTypes.length, sample: artifacts.slice(0, 5) };
+}

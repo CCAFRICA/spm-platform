@@ -229,20 +229,31 @@ export async function generateInsights(
     if (samples.length < 8) samples.push({ insight_characterization: ins.insight_characterization, insight_severity: ins.insight_severity, title: ins.title, narrative: ins.narrative, data_references: ins.data_references, shape });
     if (opts.dryRun) continue; // validation + shape proven; skip persistence
     const entityId = ins.entity_id && entMeta.has(ins.entity_id) ? ins.entity_id : null; // never store an unknown FK
+    // OB-233 §8.5 — writer reconciled to the LIVE intelligence_artifacts schema (the live table is
+    // OB-233-aligned: separate shape_description + structural_fingerprint_hash, source, context). The
+    // date range is already validated in-memory by validateInsight (structural-coherence) above; only the
+    // storage mapping changes. period_id=null (Decision 92). recommended_action/generated_by/period_*
+    // are folded into context (jsonb) so no insight data is lost — recommended_action lives in context
+    // for now (PC-4: zero consumers; promote to a first-class column when the Performance tier consumes it).
     const { error } = await sb.from('intelligence_artifacts').insert({
       tenant_id: tenantId,
       artifact_type: ins.insight_characterization, // free-form (TEXT column unchanged; no enum)
       severity: ins.insight_severity,              // free-form (TEXT column unchanged; no enum)
       entity_id: entityId,
       entity_type: ins.entity_type ?? (entityId ? entMeta.get(entityId)?.type ?? null : 'network'),
-      period_start: ins.period_start || null,
-      period_end: ins.period_end || null,
+      period_id: null,
       title: ins.title,
       narrative: ins.narrative,
       data_references: ins.data_references ?? [],
-      insight_shape: shape,
-      recommended_action: ins.recommended_action ?? null,
-      generated_by: model,
+      shape_description: shape.shape_description,
+      structural_fingerprint_hash: shape.structural_fingerprint_hash,
+      source: 'insight-engine',
+      context: {
+        recommended_action: ins.recommended_action ?? null,
+        generated_by: model,
+        period_start: ins.period_start || null,
+        period_end: ins.period_end || null,
+      },
     });
     if (error) { failed++; failures.push(error.message); continue; }
     stored++;

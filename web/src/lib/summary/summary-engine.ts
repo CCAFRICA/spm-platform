@@ -1,11 +1,19 @@
-// OB-229 — Summary Engine (write side).
-// Production aggregation runs in Postgres via the compute_summary_artifacts RPC (Constraint 5).
-// A JS bootstrap/fallback (backfillSummariesJs) populates artifacts when the RPC is not yet applied.
-// KOREAN TEST: fields are discovered from row_data (typeof number); zero field-name literals.
+// OB-229 / OB-233 — Summary Engine (write side).
+// Production aggregation runs in Postgres via the compute_summary_artifacts RPC (Constraint 5) for
+// tenants with NO comprehension yet. Once a tenant has comprehension (OB-233), aggregation runs in JS so
+// it can apply (a) semantic display LABELS and (b) per-field aggregation METHODS — both read from
+// comprehension_artifacts (NOT input_bindings — C6/C0b). KOREAN TEST: fields are discovered from row_data
+// (typeof number); labels/methods are LLM-recognized free-form text, never field-name literals in code.
+// C2 (fail-loud): the aggregation executor maps a RECOGNIZED method to a deterministic operation; an
+// unrecognized method raises a structured error + a novel-method signal and HALTS — it NEVER silently
+// defaults to SUM. C3: no substring inference on the method string (exact normalized match only).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'claude-sonnet-4-6';
 
 export interface CommittedRow {
   entity_id: string | null;
@@ -22,65 +30,162 @@ export interface AggregatedArtifact {
   row_count: number;
 }
 
+export interface SemanticMaps {
+  labelMap: Record<string, string>;  // field_name -> display_label (semantic relabel)
+  methodMap: Record<string, string>; // field_name -> aggregation_method (LLM-recognized)
+}
+
 const keyOf = (entityId: string, date: string, dataType: string | null) => `${entityId}|${date}|${dataType ?? ''}`;
 
+/** Raised when a RECOGNIZED aggregation method has no deterministic operation (C2 fail-loud — the engine
+ *  records a novel-method signal and HALTS rather than silently summing). */
+export class NovelAggregationMethodError extends Error {
+  constructor(public readonly method: string, public readonly field: string) {
+    super(`OB-233 C2: novel aggregation method "${method}" for field "${field}" — no deterministic operation; HALT (never silent SUM)`);
+    this.name = 'NovelAggregationMethodError';
+  }
+}
+
+interface MetricAcc { sum: number; count: number; first: number; last: number; min: number; max: number; distinct: Set<number> }
+
 /**
- * Pure aggregation: SUM every numeric row_data field per (entity, day, data_type). Field names come
- * ONLY from the data — never the code (Korean Test). T1-E902: aggregates ALL numeric fields.
+ * Execute one field's aggregation from its accumulator per the RECOGNIZED method (C2 fail-loud dispatch).
+ * - No method (field not yet comprehended): carry-everything baseline = SUM (C4). This is NOT the
+ *   C2-prohibited "silent default on a recognized value" — there is no recognized value to dispatch on.
+ * - Recognized method: exact normalized match to a deterministic operation (C3: no substring inference).
+ * - Recognized-but-unexecutable method: THROW (caller logs a novel-method signal + HALTs).
  */
-export function aggregateCommittedRows(rows: CommittedRow[], keyMap?: Record<string, string>): AggregatedArtifact[] {
-  const acc = new Map<string, AggregatedArtifact>();
+function finalizeMetric(method: string | undefined, acc: MetricAcc, field: string): number {
+  if (!method) return acc.sum;
+  const m = method.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  switch (m) {
+    case 'sum': case 'total': case 'summation': case 'cumulative': return acc.sum;
+    case 'average': case 'mean': case 'avg': return acc.count ? acc.sum / acc.count : 0;
+    case 'last': case 'latest': case 'closing': case 'ending': case 'last_value': case 'point_in_time': return acc.last;
+    case 'first': case 'earliest': case 'opening': case 'beginning': case 'first_value': return acc.first;
+    case 'min': case 'minimum': case 'lowest': return acc.min;
+    case 'max': case 'maximum': case 'highest': case 'peak': return acc.max;
+    case 'count': return acc.count;
+    case 'distinct_count': case 'unique_count': case 'distinct': return acc.distinct.size;
+    default:
+      throw new NovelAggregationMethodError(method, field); // C2: fail loud, never silent SUM
+  }
+}
+
+/**
+ * Method-aware aggregation per (entity, day, data_type). Field names come ONLY from the data (Korean
+ * Test). T1-E902: every numeric field is aggregated (C4). `labelMap` relabels the metric key to its
+ * semantic display label; `methodMap` selects each field's aggregation operation (fail-loud, C2).
+ */
+export function aggregateCommittedRows(
+  rows: CommittedRow[],
+  labelMap?: Record<string, string>,
+  methodMap?: Record<string, string>,
+): AggregatedArtifact[] {
+  const groups = new Map<string, { meta: { entity_id: string; summary_date: string; data_type: string | null }; rowCount: number; fields: Map<string, MetricAcc> }>();
   for (const r of rows) {
     if (!r.entity_id || !r.source_date) continue; // HALT-2 / Residual-4: cannot place per-entity/day
     const k = keyOf(r.entity_id, r.source_date, r.data_type ?? null);
-    let a = acc.get(k);
-    if (!a) {
-      a = { entity_id: r.entity_id, summary_date: r.source_date, data_type: r.data_type ?? null, metrics: {}, row_count: 0 };
-      acc.set(k, a);
-    }
-    a.row_count += 1;
+    let g = groups.get(k);
+    if (!g) { g = { meta: { entity_id: r.entity_id, summary_date: r.source_date, data_type: r.data_type ?? null }, rowCount: 0, fields: new Map() }; groups.set(k, g); }
+    g.rowCount += 1;
     const rd = r.row_data || {};
     for (const field in rd) {
       const v = rd[field];
       if (typeof v === 'number' && Number.isFinite(v)) {
-        // HF-336: convergence enrichment — when a semantic key map exists, the metric key is the
-        // field's contextualIdentity (revenue, tips, …) instead of the raw field name (total, propina).
-        const metricKey = keyMap?.[field] ?? field;
-        a.metrics[metricKey] = (a.metrics[metricKey] ?? 0) + v;
+        let a = g.fields.get(field);
+        if (!a) { a = { sum: 0, count: 0, first: v, last: v, min: v, max: v, distinct: new Set() }; g.fields.set(field, a); }
+        a.sum += v; a.count += 1; a.last = v; if (v < a.min) a.min = v; if (v > a.max) a.max = v; a.distinct.add(v);
+        // a.first stays the first row's value (set at accumulator creation)
       }
     }
   }
-  return Array.from(acc.values());
+  const out: AggregatedArtifact[] = [];
+  for (const g of Array.from(groups.values())) {
+    const metrics: Record<string, number> = {};
+    for (const [field, acc] of Array.from(g.fields)) {
+      const value = finalizeMetric(methodMap?.[field], acc, field); // throws on novel method (C2)
+      const key = labelMap?.[field] ?? field;                       // semantic relabel (or raw key)
+      metrics[key] = (metrics[key] ?? 0) + value;                  // same-label fields combine (HF-336)
+    }
+    out.push({ entity_id: g.meta.entity_id, summary_date: g.meta.summary_date, data_type: g.meta.data_type, metrics, row_count: g.rowCount });
+  }
+  return out;
 }
 
 /**
- * HF-336 — build the semantic key map {raw_column -> contextualIdentity} from a tenant's convergence
- * bindings (rule_sets.input_bindings.convergence_bindings). Empty map when no bindings exist (the
- * engine then stores raw field keys, unchanged). Domain-agnostic: keys/labels come from the data.
+ * OB-233 Obj 4 — read the tenant's comprehension into {field -> display_label} + {field -> method}.
+ * Reads comprehension_artifacts (NOT input_bindings — C6/C0b). Empty maps when no comprehension exists
+ * (the engine then takes the raw-key SQL RPC path, unchanged from OB-229).
  */
-export async function buildSemanticKeyMap(sb: SupabaseClient, tenantId: string): Promise<Record<string, string>> {
-  const map: Record<string, string> = {};
-  const { data } = await sb.from('rule_sets').select('input_bindings').eq('tenant_id', tenantId).eq('status', 'active');
-  for (const rs of (data ?? []) as any[]) {
-    const cb = rs?.input_bindings?.convergence_bindings;
-    if (!cb || typeof cb !== 'object') continue;
-    for (const compKey of Object.keys(cb)) {
-      const comp = cb[compKey];
-      if (!comp || typeof comp !== 'object') continue;
-      for (const bindKey of Object.keys(comp)) {
-        const b = comp[bindKey];
-        const col = b?.column;
-        const ci = b?.field_identity?.contextualIdentity;
-        if (typeof col === 'string' && typeof ci === 'string' && ci) map[col] = ci;
-      }
-    }
+export async function buildSemanticMaps(sb: SupabaseClient, tenantId: string): Promise<SemanticMaps> {
+  const labelMap: Record<string, string> = {};
+  const methodMap: Record<string, string> = {};
+  const { data } = await sb.from('comprehension_artifacts')
+    .select('field_name, display_label, aggregation_method').eq('tenant_id', tenantId);
+  for (const r of (data ?? []) as any[]) {
+    if (typeof r.display_label === 'string' && r.display_label.trim()) labelMap[r.field_name] = r.display_label.trim();
+    if (typeof r.aggregation_method === 'string' && r.aggregation_method.trim()) methodMap[r.field_name] = r.aggregation_method.trim();
   }
-  return map;
+  return { labelMap, methodMap };
 }
 
 /**
- * Production path: the SQL aggregation RPC (architect-applied migration). Returns null if the RPC is
- * not present yet (caller can fall back to JS backfill).
+ * OB-233 Obj 4 — ONE batched LLM call (temp 0, cached; C1) that recognizes a concise display_label + an
+ * aggregation_method per field FROM its free-form characterization/aggregation_behavior, and writes them
+ * back onto the comprehension row. Idempotent: only fields missing a label or method are sent. The
+ * RECOGNIZED method is dispatched fail-loud at aggregation time (C2) — recognition here is free-form (C0).
+ */
+export async function recognizeLabelsAndMethods(sb: SupabaseClient, tenantId: string): Promise<number> {
+  const { data } = await sb.from('comprehension_artifacts')
+    .select('field_name, characterization, aggregation_behavior, display_label, aggregation_method')
+    .eq('tenant_id', tenantId);
+  const rows = (data ?? []) as any[];
+  const pending = rows.filter((r) => !r.display_label || !r.aggregation_method);
+  if (pending.length === 0) return 0;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+  const system = [
+    'You are given comprehended data fields, each with a free-form characterization and an',
+    'aggregation_behavior description. For EACH field produce:',
+    "- display_label: a concise human-readable label (a few words) in the data's own language.",
+    '- aggregation_method: a single concise word for HOW to aggregate the field across rows, taken from',
+    '  what its aggregation_behavior describes (for example: sum, average, last, first, min, max, count).',
+    '  If the behavior is additive, use "sum". Choose the word that best fits the described behavior.',
+    'Return ONLY a JSON object { "<field>": { "display_label","aggregation_method" }, ... }. No prose, no code fences.',
+  ].join('\n');
+  const payload = pending.map((r) => ({ field: r.field_name, characterization: r.characterization, aggregation_behavior: r.aggregation_behavior }));
+  const res = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: MODEL, max_tokens: 4000, temperature: 0, system, messages: [{ role: 'user', content: JSON.stringify(payload) }] }),
+  });
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json = await res.json() as any;
+  const text: string = json?.content?.[0]?.text ?? '';
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const s = cleaned.indexOf('{'); const e = cleaned.lastIndexOf('}');
+  const parsed = JSON.parse(cleaned.slice(s, e + 1)) as Record<string, any>;
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const r of pending) {
+    const v = parsed[r.field_name];
+    const label = typeof v?.display_label === 'string' && v.display_label.trim() ? v.display_label.trim() : null;
+    const method = typeof v?.aggregation_method === 'string' && v.aggregation_method.trim() ? v.aggregation_method.trim() : null;
+    if (!label && !method) continue;
+    const patch: Record<string, unknown> = { updated_at: now };
+    if (label) patch.display_label = label;
+    if (method) patch.aggregation_method = method;
+    const { error } = await sb.from('comprehension_artifacts').update(patch).eq('tenant_id', tenantId).eq('field_name', r.field_name);
+    if (!error) updated += 1;
+  }
+  return updated;
+}
+
+/**
+ * Production path: the SQL aggregation RPC (architect-applied migration). Sums ALL numeric fields under
+ * raw keys. Used only when the tenant has NO comprehension. Returns null if the RPC is not present.
  */
 export async function runSummaryEngineRpc(
   sb: SupabaseClient,
@@ -96,12 +201,15 @@ export async function runSummaryEngineRpc(
 }
 
 /**
- * Bootstrap/fallback: JS aggregation + idempotent upsert. One-time data population (off the render
- * path) used until the SQL RPC is applied. Pages committed_data to respect the PostgREST 1000-row cap.
+ * JS aggregation + idempotent upsert (the comprehension-aware path). Applies labelMap + methodMap.
+ * On a novel aggregation method it records a signal and re-throws (C2 HALT) — never writes a wrong summary.
+ * Pages committed_data to respect the PostgREST 1000-row cap.
  */
 export async function backfillSummariesJs(
   sb: SupabaseClient,
   tenantId: string,
+  labelMap: Record<string, string>,
+  methodMap: Record<string, string>,
   log: (m: string) => void = () => {},
 ): Promise<{ written: number; skipped: number; scanned: number }> {
   const PAGE = 1000;
@@ -124,8 +232,23 @@ export async function backfillSummariesJs(
     offset += PAGE;
   }
 
-  const keyMap = await buildSemanticKeyMap(sb, tenantId); // HF-336 convergence enrichment
-  const artifacts = aggregateCommittedRows(rows, keyMap);
+  let artifacts: AggregatedArtifact[];
+  try {
+    artifacts = aggregateCommittedRows(rows, labelMap, methodMap);
+  } catch (err) {
+    if (err instanceof NovelAggregationMethodError) {
+      // C2 fail-loud: record a novel-method signal on the open-vocabulary surface, then HALT.
+      try {
+        await sb.from('classification_signals').insert({
+          tenant_id: tenantId, entity_id: null,
+          signal_type: 'summary.novel_aggregation_method',
+          signal_value: { method: err.method, field: err.field },
+          source: 'summary-engine', context: { halt: true },
+        });
+      } catch { /* signal logging is best-effort; the HALT below is the contract */ }
+    }
+    throw err;
+  }
   const skipped = rows.filter((r) => !r.entity_id || !r.source_date).length;
 
   // idempotent replace (Constraint 6)
@@ -155,21 +278,26 @@ export async function backfillSummariesJs(
 }
 
 /**
- * Engine entry point used by the import-trigger + admin API: prefer the SQL RPC; fall back to JS.
+ * Engine entry point (import-trigger + admin API). OB-233: recognize labels+methods (cached), then read
+ * the comprehension maps. A tenant WITH comprehension takes the JS path (semantic keys + method-aware,
+ * fail-loud). A tenant WITHOUT comprehension keeps the fast raw-key SQL RPC (unchanged from OB-229).
  */
 export async function runSummaryEngine(
   sb: SupabaseClient,
   tenantId: string,
   log: (m: string) => void = () => {},
 ): Promise<{ written: number; skipped: number; via: 'rpc' | 'js' }> {
-  // HF-336: if the tenant has convergence bindings, metric keys must be semantic (contextualIdentity).
-  // The SQL RPC stores raw keys only, so an enriched tenant takes the JS path (which applies the key
-  // map). Tenants without bindings keep the fast RPC path (raw keys, unchanged from OB-229).
-  const keyMap = await buildSemanticKeyMap(sb, tenantId);
-  if (Object.keys(keyMap).length === 0) {
+  try {
+    const n = await recognizeLabelsAndMethods(sb, tenantId);
+    if (n > 0) log(`recognized label+method for ${n} fields`);
+  } catch (err) {
+    log(`label/method recognition failed (continuing): ${err instanceof Error ? err.message : err}`);
+  }
+  const { labelMap, methodMap } = await buildSemanticMaps(sb, tenantId);
+  if (Object.keys(labelMap).length === 0 && Object.keys(methodMap).length === 0) {
     const rpc = await runSummaryEngineRpc(sb, tenantId);
     if (rpc) return { ...rpc, via: 'rpc' };
   }
-  const js = await backfillSummariesJs(sb, tenantId, log);
+  const js = await backfillSummariesJs(sb, tenantId, labelMap, methodMap, log);
   return { written: js.written, skipped: js.skipped, via: 'js' };
 }

@@ -20,6 +20,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
+import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
 import { runSummaryEngine } from '@/lib/summary/summary-engine'; // OB-229
 import { generateInsights } from '@/lib/insight/insight-engine'; // OB-232
 
@@ -53,13 +54,26 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Finalize] post-commit-construction failed:', err instanceof Error ? err.message : err);
     }
 
-    // 2. Invalidate stale input_bindings so calc convergence re-derives (HF-269 — scoped to this tenant).
+    // 2. OB-233 (HALT-4 Option A): TARGETED invalidation of the calc-time convergence reuse cache.
+    //    HF-269 blanked input_bindings WHOLESALE (`= {}`), which both destroyed HF-336 comprehension
+    //    (now stored in comprehension_artifacts, untouched here) AND wiped any non-derived key. We now
+    //    clear ONLY the three derived cache keys (convergence_bindings + metric_derivations +
+    //    convergence_version) so the calc engine re-derives convergence on the next run (the blank's
+    //    only remaining function — convergeBindings is calc-time, unchanged), while PRESERVING every
+    //    other key in input_bindings (C6). Per-rule_set read-modify-write.
     try {
-      await supabase.from('rule_sets').update({ input_bindings: {} })
-        .eq('tenant_id', tenantId).in('status', ['active', 'draft']);
-      trace('binding-clear-done');
+      const { data: ruleSets } = await supabase.from('rule_sets')
+        .select('id, input_bindings').eq('tenant_id', tenantId).in('status', ['active', 'draft']);
+      for (const rs of (ruleSets ?? []) as Array<{ id: string; input_bindings: Record<string, unknown> | null }>) {
+        const ib: Record<string, unknown> = (rs.input_bindings && typeof rs.input_bindings === 'object') ? { ...rs.input_bindings } : {};
+        delete ib.convergence_bindings;
+        delete ib.metric_derivations;
+        delete ib.convergence_version;
+        await supabase.from('rule_sets').update({ input_bindings: ib }).eq('id', rs.id);
+      }
+      trace(`binding-cache-invalidated ruleSets=${(ruleSets ?? []).length}`);
     } catch (err) {
-      console.error('[SCI Finalize] input_bindings invalidation failed:', err instanceof Error ? err.message : err);
+      console.error('[SCI Finalize] targeted input_bindings invalidation failed:', err instanceof Error ? err.message : err);
     }
 
     // 3. Create rule_set_assignments for every ACTIVE rule_set × entity (idempotent per pair).
@@ -69,6 +83,19 @@ export async function POST(req: NextRequest) {
       trace(`assignments-done created=${assignments.newlyCreatedPairs} ruleSets=${assignments.ruleSetCount} entities=${assignments.entityCount}`);
     } catch (err) {
       console.error('[SCI Finalize] createMissingAssignments failed:', err instanceof Error ? err.message : err);
+    }
+
+    // 3.5 OB-233: generate comprehension for EVERY field -> comprehension_artifacts (DS-030). Runs for
+    //     every import, every tenant, regardless of any rule_set (C0b); NEVER writes input_bindings (C6).
+    //     MUST precede the Summary Engine (step 4 reads comprehension for semantic labels + aggregation
+    //     methods). Batched LLM, one call per data_type run concurrently (HALT-2: never per-field).
+    let comprehension: { fieldsComprehended: number; dataTypes: number } | null = null;
+    try {
+      const c = await generateComprehension(supabase, tenantId);
+      comprehension = { fieldsComprehended: c.fieldsComprehended, dataTypes: c.dataTypes };
+      trace(`comprehension-done fields=${c.fieldsComprehended} dataTypes=${c.dataTypes}`);
+    } catch (err) {
+      console.error('[SCI Finalize] comprehension generation failed:', err instanceof Error ? err.message : err);
     }
 
     // 4. OB-229: pre-compute summary_artifacts now that committed_data is written AND entity resolution
@@ -94,7 +121,7 @@ export async function POST(req: NextRequest) {
     }
 
     trace('done');
-    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, summary, insights, durationMs: Date.now() - t0 });
+    return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, comprehension, summary, insights, durationMs: Date.now() - t0 });
   } catch (err) {
     console.error('[SCI Finalize] Error:', err);
     return NextResponse.json({ error: 'Finalize failed', details: String(err) }, { status: 500 });
