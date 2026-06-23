@@ -109,14 +109,78 @@ Architect actions required to unblock:
 
 ---
 
-## 3. Eradication log
-*(filled by the eradication wave — Obj 5/6/7/8/10)*
+## 3. Eradication log (pre-gate wave — Obj 5/6/7/8/10)
+
+Every fixed set removed, with file + what replaced it. tsc EXIT=0, `next build` EXIT=0, korean-test gate PASS.
+
+| Obj | File | Removed (registry) | Replaced with |
+|---|---|---|---|
+| 5 | `lib/insight/insight-types.ts` | `ARTIFACT_TYPES=['anomaly','trend','coaching','benchmark']`, `ArtifactType`, `SEVERITIES=['critical','warning','info','positive']`, `Severity` | `GeneratedInsight.insight_characterization` + `.insight_severity` (free-form `string`) + `.shape_description` |
+| 5 | `lib/insight/insight-engine.ts` | SYSTEM prompt enumeration of the 4 artifact_types + 4 severities; `for (const t of ARTIFACT_TYPES)` coverage loop; `ARTIFACT_TYPES` import | Free-form prompt ("no fixed list to choose from"); `byType`/`samples` keyed by free-form characterization; storage maps `insight_characterization -> artifact_type`, `insight_severity -> severity` (TEXT columns unchanged); **`temperature: 0` added (C5 fix — was defaulting to 1.0)** |
+| 6 | `lib/insight/insight-validator.ts` | `ARTIFACT_TYPES.includes(...)` + `SEVERITIES.includes(...)` allowable-form checks + the import | Structural-coherence (non-empty characterization/title/narrative, >=1 data_ref, entity_id existence, date-range validity) + data-contract (retained) + data-driven `novelCharacterization` flag (never rejects on type — C2) |
+| 7 | `lib/signals/ui-signal.ts` | `UI_SIGNAL_TYPES=['selection','dwell','drill','dismissal']`, `UiSignalType` | `signalType: string` (open-vocabulary, AP-26); structural-property check only (non-empty); `ui.` namespace prefix retained (writer-authored, not validated) |
+| 7 | `app/api/signals/ui/route.ts` | `UI_SIGNAL_TYPES.includes(...)` reject gate + imports | Structural non-empty `signalType` + `surface` check |
+| 7 | `hooks/use-ui-signal.ts` | `UiSignalType` param type | `signalType: string` |
+| 8 | `lib/insight/insight-shape.ts` | `{pattern, metric_class, entity_type, severity, delta_direction}` + the `ins.artifact_type === 'anomaly'/'trend'/'coaching'` dispatch | `{shape_description (free-form, LLM temp 0), structural_fingerprint_hash (sha256)}`; structural numeric/scope fallback uses no label set |
+| 10 (entity_type) | `lib/insight/insight-engine.ts` + `insight-types.ts` | implied set `'location'\|'individual'\|'organization'\|'network'` (type comment) | `entity_type` written from the LLM's free-form value; null-entity fallback `'network'` is a structural label, not a set |
+| 10 (data_type) | `lib/sci/*` | — (verification, see §3.1) | No offending registry exists to remove |
+
+### 3.1 Obj-10 data_type — premise correction (B6)
+
+DS-030 §4.6 wants a free-form data characterization; the directive scopes this to: *"`summary_artifacts.data_type` may persist as a partition value only if no code validates it against a set — if any code checks `data_type === 'pos_cheque'/'transaction'`, remove it."*
+
+- **No `data_type` set-validation or dispatch exists anywhere** — PG-3 pass-1 `pos_cheque...transaction...entity...target` = CLEAN; pass-2 `data_type === '...'` / `.includes(data_type)` = CLEAN. `committed_data`/`summary_artifacts.data_type` persists as a partition value (directive-permitted).
+- The only `data_type` finite set is the SCI **structural-classification** union `SemanticDataType = 'entity'|'transaction'|'target'|'reference'|'plan'` in `lib/sci/data-type-resolver.ts` — the platform's foundational SCI class (D154/D155; HF-195 Rule 28 sanctions its `_exhaustive: never` switch under upstream constraint), identity-mapped (`data_type === classification`), and **read by the calc/summary pipeline (C6/HALT-3 if changed)**. It is a structural classification, not a domain registry, and not a `committed_data.data_type` validation.
+- **The free-form data characterization (DS-030 §4.6) is the comprehension generator's output -> `comprehension_artifacts` (spine Obj 2/3, gated on migration)**, supplementing — not ripping out — the calc-coupled SCI class. **B6 is satisfied by verification; converting the SCI structural taxonomy itself is a SCI/calc-layer change deferred to the spine with architect direction (not a blind removal).**
 
 ## 4. ULTRACODE fan-out record
-*(filled as subagents/workflows run)*
+
+- **Execution model deviation (justified):** the directive's parallel-wave map treats B1 (engine), B2 (validator), B4 (shape) as file-disjoint worktree subagents — but `insight-types.ts` is **shared** by all three (the registry home). Fanning them to separate worktrees would have conflicted on that file. The eradication wave was executed **inline by the orchestrator** with one coherent type model + a single build, because these are surgical correctness-critical registry removals where one miss reintroduces a registry. Worktree isolation was unnecessary (no parallel file mutation).
+- **Investigation** used parallel `Explore` agents (file mapping / blast-radius). **Verification** used the directive's own PG-3 greps (multiline registry + dispatch) and a runtime proof script (`web/scripts/_ob233-eradication-proof.ts`) exercising the **real** functions against live `classification_signals`. Effort: xhigh.
 
 ## 5. Proof Gates
-*(PG-1..PG-8 + PG-3b — filled after architect application)*
+
+### PG-3 — No registry (pre-gate surfaces) — both passes CLEAN
+
+PG-3 pass-1 (multiline registry declarations), after eradication:
+```
+[anomaly...trend...coaching...benchmark]  => CLEAN
+[critical...warning...info...positive]    => CLEAN
+[selection...dwell...drill...dismissal]   => CLEAN
+[location...individual...organization...network] => CLEAN
+[pos_cheque...transaction...entity...target]     => CLEAN
+```
+PG-3 pass-2 (dispatch/validation in `lib/insight`, `lib/signals`, `api/signals`): **no dispatch — CLEAN**.
+
+*Scope note (Pattern-15 honest):* PG-3's literal patterns also match pre-existing, unrelated enums elsewhere (alert/warning/flag `severity` UIs; `entities.entity_type` for financial filtering; the SCI structural `SemanticDataType`). Those are **not** the six DS-030 taxonomies and are out of OB-233 scope (C8). The registry **eradicated** is exactly the insight/signal taxonomy; PG-7 source-read is the authoritative compliance proof. The `input_bindings` rule_set-coupling pass (PG-3 §3) is deferred to the spine — `input_bindings` is still calc-engine-only I/O (no comprehension I/O exists yet).
+
+### PG-4 — Validator accepts novel type, rejects bad data-contract (live, real function)
+```
+PG-4a novel "seasonal cycle...": ok=true  novel="a seasonal cycle in the measure..."  failures=[]
+PG-4b fabricated value 999999.99: ok=false failures=["data-contract: value 999999.99 (metric \"revenue\") does not trace to the summary data"]
+PG-4c empty title:                ok=false failures=["structural: empty title"]
+PG-4d novel-type signal -> classification_signals { signal_type:'insight.characterization',
+        signal_value:{ characterization:'a seasonal cycle...', severity:'...', shape:'...' }, source:'insight-engine', context:{novel:true} }
+```
+Validator accepts the unseen characterization (structural ok) + flags it novel; rejects the fabricated number (data-contract); the engine logs the novel-type signal on the open-vocabulary surface.
+
+### PG-6 — Signal capture accepts a novel interaction (live, real function)
+`recordUiSignal({ signalType:'data_filter_applied', ... }) -> true`; row written:
+```json
+{ "signal_type": "ui.data_filter_applied",
+  "signal_value": { "metricKey": "revenue", "interaction": "data_filter_applied" },
+  "source": "ui", "context": { "surface": "ob233.proof", ... } }
+```
+A brand-new interaction class (outside selection/dwell/drill/dismissal) flows with no code change, no rejection.
+
+### PG-7 — Korean Test (pre-gate surfaces)
+`npm run korean-test` -> `PASS: zero hardcoded legacy primitive-name string literals outside registry`. The insight prompt, validator, shape function, and signal writer contain zero fixed vocabulary and no substring-inference on free-form output. *(Full PG-7 incl. comprehension generator + Summary Engine aggregation dispatch = spine, gated.)*
+
+### Obj-8 shape
+`computeInsightShape` -> `{ shape_description:"network-level, oscillating, growing amplitude, quarterly timeframe, revenue-class measure", structural_fingerprint_hash:"42cec5f9...d1d1" }` — free-form prose + deterministic hash, no fixed field set.
+
+### Gated on architect migration application (+ intelligence_artifacts live)
+- **PG-1** (Sabor clean-slate -> intelligence), **PG-2** (BCL domain-agnostic + calc integrity + read-path immutability diff), **PG-3b** (MIR comprehension-plan decoupling), **PG-5** (domain-agnostic import surface, two domains), **PG-8** (end-to-end timing), and the spine portions of **PG-3/PG-7** (comprehension generator, Summary Engine repoint). These require `comprehension_artifacts` (architect-applied) and `intelligence_artifacts` (OB-232 residual, see §2.1).
 
 ## 6. HALT outcomes
 - **HALT-SEQ:** not triggered (no sequence collision).
