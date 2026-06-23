@@ -107,8 +107,38 @@ PG-FOUNDATION green on HEAD; P0 consumer inventory unchanged by 1a–1d (foundat
 - **BOARD:** HF-337 P0+P1 complete on HEAD; P2 gated on G-MIGRATION + G-MIR.
 - **SUBSTRATE:** new `surface_bindings` (architect-pending); calc substrate untouched (C6).
 
-## 8. Forward-Validation for OB-235
-*(written at RG2, after P2 — the binding store shape + the expression-layer binding-recognition signal kind for OB-235's learner-core.)*
+## 8. PG-PATHA — Surface Binding Recognition (P2)
+
+**Step 0 (gate):** `surface_bindings` live with the designed shape — keyed columns confirmed; `is_monetary`/`is_additive`/`metric_role`/`intent_signature` all **ABSENT** (no HALT-REGISTRY); cross-tenant index `(structural_fingerprint_hash, surface_id)` in the applied migration.
+
+**P2a recognizer** (`web/src/lib/comprehension/surface-binding-recognition.ts`): `recognize(sb, tenantId, surfaceId, purposeText)` — read-path first (comprehension fingerprint → `surface_bindings` lookup → deterministic return, no LLM), miss → one temp-0 recognition (free-form purpose × free-form characterization; the LLM matches by meaning; code never substring-matches), construct (upsert binding + emit `surface_binding_recognition` signal — both mandatory), fail-loud structured-unresolved on no match. No-registry self-check: the only grep hits are `new Set(field_names)` (the tenant's own known-field validation) + a `ResolvedField[]` type annotation — both non-gating (DD-5); no permitted-value gate, no property schema.
+
+**P2b repoint** (the breaks set is one file — `api/financial/data/route.ts` `aggregateNetworkPulseFromSummaries`; the raw path + all other modes are `row_data`-based and unaffected, so inline, not a manufactured worktree fan-out): the 6 hardcoded summary-key lookups (`m.revenue`/`m.tips`/`m.food_revenue`/…) → `recognize()` per measure (each authoring its own free-form `purposeText`), reading `m[summaryKeyFor[key]]` where `summaryKeyFor` is recognized. No measure resolves → `return null` → caller renders the raw aggregation (comprehension-driven salience over `row_data`, never blank).
+
+**P2c proof (live, real `recognize()`, Sabor — MIR empty, substrate-substitution per architect grant):**
+```
+(i)  recognize(revenue purpose): status=resolved fromCache=false  -> field=total label="Total" conf=0.97
+(ii) recognize again:            status=resolved fromCache=true    (read-path hit, NO second LLM call)
+(iii)recognize(no-field purpose):status=unresolved reason="no field satisfies the purpose" (structured, not blank)
+(iv-a) surface_bindings row: { surface_id:'financial.network_pulse.revenue',
+       structural_fingerprint_hash:'4cef04d0…', resolved_fields:[{field:total,label:Total,conf:0.97},{field:pagado,…0.72}],
+       confidence:0.97, purpose_text:'the primary monetary amount…', recognized_by:'claude-sonnet-4-6' }
+(iv-b) classification_signals row: { signal_type:'surface_binding_recognition',
+       signal_value:{ surface_id, structural_fingerprint_hash:'4cef04d0…', resolved_fields, purpose }, source:'surface-binding-recognition' }
+(v)  repoint read: summary_artifacts.metrics["Total"] summed = 40,013,055.26  (the network_pulse revenue the route now reads;
+     was $0 under the broken m.revenue — matches PG-1's sum(Total))
+```
+- **Dual-write gate PASS:** both the binding row and the signal row written (the signal is OB-235's expression-layer flywheel seed).
+- **Korean-Test grep:** recognizer = **zero** domain vocab; the route's RESOLUTION lookup is `m[summaryKeyFor[key]]` (recognized, zero hardcoded summary key) — the residual `revenue`/`tips` are the financial consumer's output-shape field names (`agg.revenue`) + measure-purpose keys (the consumer's own domain vocabulary, §3.2 P0), not a summary lookup.
+
+## 6b. RE-SYNC GATE 1 (post-P2)
+PG-FOUNDATION still green on HEAD (build re-run after P2 — §3). P0 consumer inventory unchanged (the one break — the financial summary-backed path — is now repointed; no new consumer of an eradicated key introduced). `comprehension_artifacts` carries the recognition inputs for the repointed tenant (Sabor, 27 rows). `structural_fingerprint_hash` emission unchanged (recognizer computes the comprehension fingerprint deterministically; the insight path's emission is untouched). Premises hold → **not HALT-RG1**.
+
+## 8b. Forward-Validation for OB-235 (RE-SYNC GATE 2)
+- **(i) HALT-233 holds:** `comprehension_artifacts` + `intelligence_artifacts.structural_fingerprint_hash` still live after HF-337 (P0.4 + Step 0). Not HALT-RG2.
+- **(ii) Path deltas for OB-235's P0** (every file HF-337 changed on the comprehension / import / calc / signal paths): `web/src/lib/ai/anthropic-stream.ts` (inStr fix + salvage logging + `parseJsonObjectTolerant`); `web/src/lib/insight/insight-engine.ts` (salvage log); `web/src/lib/summary/comprehension-generator.ts` (coverage retry); `web/src/lib/comprehension/surface-binding-recognition.ts` (**new** — the recognizer); `web/src/app/api/financial/data/route.ts` (network_pulse repoint). **Calc path: zero changes** (C6 diff empty).
+- **(iii) `surface_bindings` as a cross-tenant OB-235 scope:** table `surface_bindings`, shape `(tenant_id, structural_fingerprint_hash, surface_id) → resolved_fields jsonb, confidence`; the index `(structural_fingerprint_hash, surface_id)` (tenant_id dropped) is the **exact** key OB-235's learner-core matches on to inherit a binding at a new tenant's cold-start. OB-235 **subsumes** this store (same-tenant read-back is here; cross-tenant transfer is OB-235) — it does not duplicate it. Module: `surface-binding-recognition.ts` (`recognize()` is the producer).
+- **(iv) New signal kind for OB-235's signal sources:** `classification_signals.signal_type = 'surface_binding_recognition'` (source `surface-binding-recognition`), emitted at the **expression layer** on every recognition (resolved or unresolved), carrying `{ surface_id, structural_fingerprint_hash, resolved_fields, purpose }`. This is the expression-layer flywheel seed OB-235's learner-core reads.
 
 ## 9. PR
-PR #593 (open on this branch); body updated in P3.
+PR #593 (open on this branch, base main); HF-337 commits land on it; body updated in P3. Do not merge (SR-44).
