@@ -27,7 +27,7 @@ export async function streamAnthropicText(opts: {
     system: opts.system,
     messages: [{ role: 'user', content: opts.user }],
   });
-  const retries = opts.retries ?? 4;
+  const retries = opts.retries ?? 6;
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     let text = '';
@@ -64,7 +64,8 @@ export async function streamAnthropicText(opts: {
       lastErr = e;
       const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
       console.warn(`[OB-233] anthropic stream${opts.label ? ` (${opts.label})` : ''} attempt ${attempt + 1} failed: ${e instanceof Error ? e.message : e}${cause ? ` (cause: ${cause.code ?? cause.message})` : ''}`);
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      // Exponential backoff (capped) — patient enough for transient API overload (HTTP 529 "Overloaded").
+      await new Promise((r) => setTimeout(r, Math.min(30000, 1500 * Math.pow(2, attempt))));
     }
   }
   const cause = (lastErr as { cause?: { code?: string; message?: string } })?.cause;
