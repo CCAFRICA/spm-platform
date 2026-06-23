@@ -122,6 +122,7 @@ export interface WriteResult {
   success: boolean;
   observabilitySignalEmitted: boolean;
   error?: string;
+  id?: string | null; // OB-235 P1: the inserted row id (callers that need it, e.g. ingest, read it; others ignore)
 }
 
 export interface BatchWriteResult {
@@ -294,8 +295,9 @@ export async function writeSignalWithClient(
   const confidenceToPersist = outcome.kind === 'in_range' ? outcome.confidence : null;
   const row = buildInsertRow(signal, confidenceToPersist);
 
+  let insertedId: string | null = null;
   try {
-    const { error } = await supabase.from('classification_signals').insert(row);
+    const { data: inserted, error } = await supabase.from('classification_signals').insert(row).select('id').single();
     if (error) {
       throw new CanonicalWriteError(
         'insert_failed',
@@ -303,6 +305,7 @@ export async function writeSignalWithClient(
         `[CanonicalWriter] insert failed for signal_type='${signal.signalType}' tenant='${signal.tenantId}': ${error.message}`,
       );
     }
+    insertedId = (inserted as { id?: string } | null)?.id ?? null;
   } catch (err) {
     if (err instanceof CanonicalWriteError) throw err;
     throw new CanonicalWriteError(
@@ -332,16 +335,16 @@ export async function writeSignalWithClient(
           `[CanonicalWriter] observability:write_failure emission failed (original row persisted) ` +
           `for source_signal_type='${signal.signalType}': ${obsError.message}`,
         );
-        return { success: true, observabilitySignalEmitted: false };
+        return { success: true, observabilitySignalEmitted: false, id: insertedId };
       }
     } catch (err) {
       console.error(
         `[CanonicalWriter] observability:write_failure emission threw (original row persisted) ` +
         `for source_signal_type='${signal.signalType}': ${err instanceof Error ? err.message : String(err)}`,
       );
-      return { success: true, observabilitySignalEmitted: false };
+      return { success: true, observabilitySignalEmitted: false, id: insertedId };
     }
-    return { success: true, observabilitySignalEmitted: true };
+    return { success: true, observabilitySignalEmitted: true, id: insertedId };
   }
 
   return { success: true, observabilitySignalEmitted: false };

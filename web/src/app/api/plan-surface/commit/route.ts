@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getServerAuthState } from '@/lib/auth/server-auth';
 import { personaFromIdentity } from '@/lib/plan-surface';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 const PLATFORM_ROLES = new Set(['platform', 'vl_admin']);
 
@@ -67,15 +68,20 @@ export async function POST(request: NextRequest) {
   if (upErr) return NextResponse.json({ error: `write failed: ${upErr.message}` }, { status: 500 });
 
   // Three-Scope Flywheel: emit a tenant-scoped learning signal (open-vocabulary signal_type).
-  const { error: sigErr } = await sb.from('classification_signals').insert({
-    tenant_id: tenantId,
-    signal_type: 'plan.component.edited',
-    signal_value: { ruleSetId, variantId: variantId ?? null, componentId, edits: edits ?? null },
-    source: 'plan-surface',
-    scope: 'tenant',
-    context: { actorProfileId: identity.id, surface: 'living-plan-canvas', ob: 'OB-228' },
-  });
-  if (sigErr) console.warn('[plan-surface/commit] signal emit failed (non-blocking):', sigErr.message);
+  let signalEmitted = true;
+  try {
+    await writeSignalWithClient({
+      tenantId,
+      signalType: 'plan.component.edited',
+      signalValue: { ruleSetId, variantId: variantId ?? null, componentId, edits: edits ?? null },
+      source: 'plan-surface',
+      scope: 'tenant',
+      context: { actorProfileId: identity.id, surface: 'living-plan-canvas', ob: 'OB-228' },
+    }, sb);
+  } catch (e) {
+    signalEmitted = false;
+    console.warn('[plan-surface/commit] signal emit failed (non-blocking):', e instanceof Error ? e.message : e);
+  }
 
-  return NextResponse.json({ ok: true, ruleSetId, componentId, signalEmitted: !sigErr });
+  return NextResponse.json({ ok: true, ruleSetId, componentId, signalEmitted });
 }

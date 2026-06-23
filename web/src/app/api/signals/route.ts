@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { writeSignalBatchWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 export async function GET(request: NextRequest) {
   try {
@@ -114,26 +115,25 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createServerSupabaseClient();
 
-    const rows = signals.map(s => ({
-      tenant_id: s.tenant_id,
-      signal_type: s.signal_type,
-      signal_value: s.signal_value as unknown as undefined,
-      confidence: s.confidence,
+    const inputs = signals.map(s => ({
+      tenantId: s.tenant_id,
+      signalType: s.signal_type,
+      signalValue: s.signal_value as Record<string, unknown> | undefined,
+      confidence: s.confidence ?? null,
       source: s.source,
-      context: s.context as unknown as undefined,
+      context: s.context as Record<string, unknown> | undefined,
     }));
 
-    const { data, error } = await supabase
-      .from('classification_signals')
-      .insert(rows)
-      .select('id');
-
-    if (error) {
-      console.error('[Signals API] Insert failed:', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    let count = 0;
+    try {
+      await writeSignalBatchWithClient(inputs, supabase);
+      count = inputs.length; // batch is atomic (all-or-throw) through the canonical writer
+    } catch (error) {
+      console.error('[Signals API] Insert failed:', error instanceof Error ? error.message : String(error));
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'write failed' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, count: data?.length || 0 });
+    return NextResponse.json({ success: true, count });
   } catch (error) {
     console.error('[Signals API] POST exception:', error);
     return NextResponse.json(

@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,12 +42,12 @@ export async function POST(request: NextRequest) {
 
     const wasCorrected = was_corrected ?? (ai_prediction !== user_decision);
 
-    const { data, error } = await supabase
-      .from('classification_signals')
-      .insert({
-        tenant_id: profile.tenant_id,
-        signal_type: 'classification:outcome',
-        signal_value: {
+    let signalId: string | null = null;
+    try {
+      const result = await writeSignalWithClient({
+        tenantId: profile.tenant_id,
+        signalType: 'classification:outcome',
+        signalValue: {
           event_id,
           ai_prediction,
           ai_confidence,
@@ -55,19 +56,17 @@ export async function POST(request: NextRequest) {
         },
         confidence: ai_confidence,
         source: wasCorrected ? 'user_corrected' : 'user_confirmed',
-        decision_source: wasCorrected ? 'human_override' : 'human_confirmation',
+        decisionSource: wasCorrected ? 'human_override' : 'human_confirmation',
         context: {},
-        calculation_run_id: calculation_run_id ?? null,
-      })
-      .select('id')
-      .single();
-
-    if (error) {
+        calculationRunId: calculation_run_id ?? null,
+      }, supabase);
+      signalId = result.id ?? null;
+    } catch (error) {
       console.error('[Classification API] Insert error:', error);
-      return NextResponse.json({ error: `Failed to record signal: ${error.message}` }, { status: 500 });
+      return NextResponse.json({ error: `Failed to record signal: ${error instanceof Error ? error.message : String(error)}` }, { status: 500 });
     }
 
-    return NextResponse.json({ signal_id: data.id });
+    return NextResponse.json({ signal_id: signalId });
   } catch (err) {
     console.error('[Classification API] Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

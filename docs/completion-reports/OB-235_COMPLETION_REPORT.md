@@ -51,4 +51,32 @@ The directive's "calculation runs cold every time; the stores need closing, not 
 ---
 
 ## P0 Re-Map Addendum (extend-in-place; zero-new-surfaces; HOLD)
-See `docs/vp-prompts/OB-235_P0_REMAP_ADDENDUM_20260623.md` — corrected phase implementation, file-ownership classification, the four-point zero-new-surfaces attestation, the re-tiered Tier-1 topology, adjusted PG-1/4/5, and the **P1 HALT-FORK** (DS-022 registry gate vs HF-219/AP-26 open-vocabulary). Tier-1 HELD pending architect ratification.
+See `docs/vp-prompts/OB-235_P0_REMAP_ADDENDUM_20260623.md` — corrected phase implementation, file-ownership classification, the four-point zero-new-surfaces attestation, the re-tiered Tier-1 topology, adjusted PG-1/4/5, and the P1 fork. **Ratified by architect 2026-06-23:** EXTEND, full functionality, no reduction; the standing **NO-REGISTRY rule** installed; topology accepted.
+
+---
+
+## 2. PG-1 — Canonical Signal-Write Surface (DS-022 Phase-1 surviving objectives; NO REGISTRY)
+
+**Governance note (per the standing NO-REGISTRY rule):** DS-022 Phase 1's signal-kind registration-and-structured-fail-on-unregistered clause is **registry-advocacy and is FALSE on its own merits** per the standing no-registry rule — not "superseded by HF-219." P1 implements DS-022's **surviving objectives** (single canonical surface + producer-side single-site normalization) and **omits the registration gate as a prohibited registry**. This is not a locked-vs-locked yield; the registration clause carried no force. HF-219 Disposition 5 / AP-26 happen to agree, but the principle is the authority.
+
+**What P1 did:** routed all **10 direct-insert bypass sites** (P0.5 inventory) through the one live `lib/intelligence/canonical-signal-writer.ts`. No second writer created (the directive's `lib/signals/canonical-signal-writer.ts` would be a 2nd surface — not built, G7). The writer was extended additively (`WriteResult.id`, via `.select('id')`) so the one caller that returns the inserted id (ingest) preserves its semantics (DD-7).
+
+Per-site classification (DD-3 — all **retire→canonical-write**):
+| Site | signal_type | error semantics preserved |
+|---|---|---|
+| `comprehension/surface-binding-recognition.ts` | surface_binding_recognition | best-effort (try/catch warn) |
+| `signals/ui-signal.ts` | ui.* | non-blocking → false on throw |
+| `signals/comprehension-correction.ts` | comprehension_correction | non-blocking → false on throw |
+| `summary/summary-engine.ts` | summary.novel_aggregation_method | best-effort (then HALT rethrow) |
+| `insight/insight-engine.ts` | insight.characterization | best-effort |
+| `plan-surface/acknowledge/route.ts` | plan.confidence.acknowledged | 500 on throw |
+| `plan-surface/commit/route.ts` | plan.component.edited | non-blocking → signalEmitted=false |
+| `ingest/classification/route.ts` | classification:outcome | 500 on throw; returns signal_id (writer.id) |
+| `signals/route.ts` (POST) | caller-supplied (open-vocab, batched via `writeSignalBatchWithClient`) | 500 on throw; atomic batch |
+| `supabase/data-service.ts` (`persistClassificationSignal`) | caller-supplied | throws on failure (same contract) |
+
+**Evidence:**
+- **Bypass grep = 0** — `from('classification_signals')` + `insert` outside the canonical writer returns only **comments** (test fixture comment + a service comment); zero actual bypass inserts remain.
+- **tsc = 0.** Build green on HEAD (§build).
+- **Structural validation preserved (NOT a registry):** the writer's out-of-range-confidence structured failure (`CanonicalWriteError` cause `out_of_range`) is kept — a confidence outside [0,1] fails loud. This is structural-property validation (range), never set-membership. signal_type remains **open vocabulary**; `surface_binding_recognition` and every other kind flow freely with no registration.
+- **Single-site normalization:** confidence is normalized/validated only at the one writer (`validateSignal`).

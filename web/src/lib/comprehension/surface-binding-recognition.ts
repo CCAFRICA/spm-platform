@@ -19,6 +19,7 @@ import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { streamAnthropicText, stripFences, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
 import { defaultModel } from '@/lib/ai/model-policy';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -111,12 +112,12 @@ export async function recognize(
     }, { onConflict: 'tenant_id,structural_fingerprint_hash,surface_id' });
   } catch (e) { console.warn('[HF-337] surface_bindings upsert failed:', e instanceof Error ? e.message : e); }
   try {
-    await sb.from('classification_signals').insert({
-      tenant_id: tenantId, entity_id: null,
-      signal_type: 'surface_binding_recognition', // expression-layer flywheel seed (OB-235 signal source)
-      signal_value: { surface_id: surfaceId, structural_fingerprint_hash: fingerprint, resolved_fields: resolved, purpose: purposeText },
+    await writeSignalWithClient({
+      tenantId, entityId: null,
+      signalType: 'surface_binding_recognition', // expression-layer flywheel seed (OB-235 signal source)
+      signalValue: { surface_id: surfaceId, structural_fingerprint_hash: fingerprint, resolved_fields: resolved, purpose: purposeText },
       source: 'surface-binding-recognition', context: { confidence, unresolved: resolved.length === 0 },
-    });
+    }, sb);
   } catch (e) { console.warn('[HF-337] binding-recognition signal failed:', e instanceof Error ? e.message : e); }
 
   return resolved.length > 0

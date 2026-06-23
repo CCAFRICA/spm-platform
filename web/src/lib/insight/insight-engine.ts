@@ -12,6 +12,7 @@ import { validateInsight } from './insight-validator';
 import { computeInsightShape } from './insight-shape';
 import type { GeneratedInsight } from './insight-types';
 import { streamAnthropicText, stripFences } from '@/lib/ai/anthropic-stream';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -213,14 +214,14 @@ export async function generateInsights(
     if (v.novelCharacterization && !opts.dryRun) {
       seenCharacterizations.add(v.novelCharacterization);
       try {
-        await sb.from('classification_signals').insert({
-          tenant_id: tenantId,
-          entity_id: null, // a pattern-type signal is tenant-scoped, not entity-scoped
-          signal_type: 'insight.characterization', // structural namespace (open-vocabulary; never set-validated)
-          signal_value: { characterization: v.novelCharacterization, severity: ins.insight_severity, shape: ins.shape_description ?? null },
+        await writeSignalWithClient({
+          tenantId,
+          entityId: null, // a pattern-type signal is tenant-scoped, not entity-scoped
+          signalType: 'insight.characterization', // open-vocabulary; never set-validated
+          signalValue: { characterization: v.novelCharacterization, severity: ins.insight_severity, shape: ins.shape_description ?? null },
           source: 'insight-engine',
           context: { novel: true },
-        });
+        }, sb);
       } catch { /* signal logging is best-effort */ }
     }
 
