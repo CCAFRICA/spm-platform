@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useUiSignal } from '@/hooks/use-ui-signal'; // OB-232 EP-1
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -79,9 +80,12 @@ export default function OperationalPatternsPage() {
     loadData();
   }, [tenantId, loadData]);
 
+  const captureSignal = useUiSignal('financial.patterns'); // OB-232 EP-1
   const handleLocationChange = (value: string) => {
     setLocationFilter(value);
     loadData(value);
+    // OB-232 EP-1: capture the selection to the canonical signal surface (classification_signals).
+    captureSignal('selection', { entityId: /^[0-9a-f-]{36}$/i.test(value) ? value : null });
   };
 
   // Compute heatmap max for color scaling

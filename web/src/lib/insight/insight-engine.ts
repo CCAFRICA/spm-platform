@@ -61,19 +61,16 @@ function buildDigest(arts: SummaryArtifact[], entMeta: Map<string, EntityMeta>) 
     const recentR = round2obj(recent);
     const priorR = round2obj(prior);
     addObj(total); addObj(recentR); addObj(priorR); add(roll.row_count);
-    const delta_pct: Record<string, number | null> = {};
-    for (const k in recentR) {
-      const p = priorR[k] ?? 0;
-      delta_pct[k] = p !== 0 ? round2(((recentR[k] - p) / Math.abs(p)) * 100) : null;
-    }
+    // recent + prior carry the trend signal (LLM derives direction); the per-field delta object is
+    // omitted to keep the request compact (a 42KB digest dropped the Anthropic socket).
     return {
       entity_id: eid,
       name: meta?.name ?? eid.slice(0, 8),
       entity_type: meta?.type ?? 'entity',
-      row_count: roll.row_count, days: roll.days,
-      total, recent: recentR, prior: priorR, recent_vs_prior_delta_pct: delta_pct,
+      row_count: roll.row_count,
+      total, recent: recentR, prior: priorR,
     };
-  }).sort((a, b) => b.row_count - a.row_count).slice(0, 60); // bound prompt size
+  }).sort((a, b) => b.row_count - a.row_count).slice(0, 25); // bound prompt size
 
   return {
     digest: {
@@ -93,7 +90,7 @@ const SYSTEM = [
   'MUST be copied EXACTLY from the provided data. Use entity_id values verbatim from the data (or null',
   'for network-level insights, with entity_type "network").',
   '',
-  'Generate 10-16 insights covering ALL of: "anomaly" (entity far from the network norm or a sharp',
+  'Generate 8-10 CONCISE insights (≤2-sentence narratives) covering ALL of: "anomaly" (entity far from the network norm or a sharp',
   'recent change), "trend" (sustained recent-vs-prior direction), "coaching" (an underperformer that',
   'could improve — include recommended_action), "benchmark" (top/bottom vs perEntityAvg).',
   'severity is one of: critical, warning, info, positive.',
@@ -107,16 +104,29 @@ const SYSTEM = [
 async function callInsightLLM(digest: unknown, model: string): Promise<GeneratedInsight[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      max_tokens: 6000,
-      system: SYSTEM,
-      messages: [{ role: 'user', content: `DATA:\n${JSON.stringify(digest)}` }],
-    }),
+  const body = JSON.stringify({
+    model,
+    max_tokens: 3500,
+    system: SYSTEM,
+    messages: [{ role: 'user', content: `DATA:\n${JSON.stringify(digest)}` }],
   });
+  // OB-155: fetch() can drop transiently (UND_ERR_SOCKET) — retry with backoff.
+  let res: Response | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(ANTHROPIC_API_URL, {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body,
+      });
+      break;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  if (!res) throw new Error(`Anthropic fetch failed after retries: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const json = await res.json() as any;
   const text: string = json?.content?.[0]?.text ?? '';
