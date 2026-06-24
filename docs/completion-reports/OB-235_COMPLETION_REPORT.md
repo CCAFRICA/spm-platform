@@ -228,3 +228,10 @@ A single Level-2 comprehension correction now fans into **five** measurable upda
   ```
   One injected correction touched the tenant comprehension, foundational + domain confidence (both 0.95→0.875), the convergence read-path (P7), and the expression binding (invalidated) — **the Multiplier-of-five, end to end.**
 - **HALT-CROSSFLOW:** the foundational/domain deltas carry only the structural signature + a `{corrected:true}` structural behavior; `tenantId` is used only for counting (P5 firewall). **289/289. tsc = 0.** Build green. NO REGISTRY / Korean-clean.
+
+## 10. PG-8 — The Visible Recognition Curve (Prove Don't Describe)
+
+A read-only Observatory surface renders non-amnesiac behaviour per tenant. New files: `app/api/observatory/recognition-curve/route.ts` (VL-admin gated, service-role, read-only) + `components/platform/RecognitionCurvePanel.tsx`, registered as the **"Recognition Curve"** tab in `PlatformObservatory.tsx`. **Path note:** the directive named `components/observatory/`, but the live Observatory tabs all live in `components/platform/` — placed there for correct lazy-import registration (G7: register where the surface lives).
+
+- **The curve, across all four layers:** comprehension **recall-skip rate** (fields with display_label+aggregation_method ÷ total) + fingerprint count; calculation **execution-mode distribution** (cold-amber `full_trace` → warming-blue `light_trace` → learned-green `silent`) + per-pattern density bars; expression **cold-start inheritance rate** (`recognized_by='inherited'` ÷ total bindings); and the cross-tenant **flywheel scope** (foundational/domain pattern counts). No fixed vocabulary — it renders whatever structural patterns exist (Korean Test).
+- **localhost confirmation (CC's half; SR-44 — architect performs the browser screenshot):** `tsc = 0`, build green, and the route compiled into the build manifest at `.next/server/app/api/observatory/recognition-curve/route.js`. The panel is a registered tab; the API gates non-platform callers (401/403) and returns the per-tenant aggregation for platform admins.
