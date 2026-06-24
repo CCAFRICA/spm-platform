@@ -1,7 +1,7 @@
 # OB-235 (R2.1) — The Learning Loop — Completion Report
 
 **Directive:** `docs/vp-prompts/OB-235_DIRECTIVE_R2.1_20260623.md` · **Branch:** `ob-235-learning-loop` (from main @ `57d9148d`, #593 merged).
-**Status:** COMPLETE — P0–P9 + P-EXP. Sequential foundation (P1, P2) → Tier-1a (P3 ∥ P7 ∥ P-EXP) → Tier-1b (P4 → P5) → Tier-2 (P6) → integration (P8) → live wiring + end-to-end proof (P9). Role 4 (Learn) materialized at four layers; G11 read-path closed; the Multiplier-of-five proven. Each PG cites a runnable proof with pasted numbers. tsc 0 / build green / 289 tests throughout.
+**Status:** COMPLETE — P0–P9 + P-EXP. **PR [#594](https://github.com/CCAFRICA/spm-platform/pull/594)** (`ob-235-learning-loop` → `main`, not merged — architect merges). Sequential foundation (P1, P2) → Tier-1a (P3 ∥ P7 ∥ P-EXP) → Tier-1b (P4 → P5) → Tier-2 (P6) → integration (P8) → live wiring + end-to-end proof (P9). Role 4 (Learn) materialized at four layers; G11 read-path closed; the Multiplier-of-five proven. Each PG cites a runnable proof with pasted numbers. tsc 0 / build green / 289 tests throughout.
 
 Self-attestation rejected — every PG pastes live evidence. Reconciliation figures architect-channel; CC asserts internal consistency (run-2 == run-1), never external correctness.
 
