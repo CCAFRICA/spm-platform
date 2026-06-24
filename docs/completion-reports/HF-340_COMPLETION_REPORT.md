@@ -69,6 +69,54 @@ Global (not Bliss-scoped) → already covers the Vialuce render path. `layout.ts
 
 ---
 
-## 3. G1-G6 evidence — *filled after implementation*
-## 4. Commit table (SHAs) — *filled at close*
-## 5. Anti-Pattern Registry confirmation — *filled at close*
+## 3. G1-G6 evidence
+
+### G1 — Font parity (Bliss vs edited Vialuce, side by side; families match)
+| token | `[data-theme="bliss"]` (ref, `:229-232`) | `[data-theme="vialuce"]` (edited, `:611-616`) |
+|---|---|---|
+| display (headings) | `"Urbanist", system-ui, sans-serif` | `--font-display:"Urbanist",system-ui,sans-serif` |
+| sans/body | `--font-sans:"Inter"…`; `--font-body:var(--font-sans)` | `--font-sans:"Inter",system-ui,sans-serif`; `--font-body:var(--font-sans)`; `--vl-font-sans:"Inter",system-ui,sans-serif` |
+| mono (labels) | `--font-mono:"DM Mono", ui-monospace, monospace` | `--font-mono:var(--font-dm-mono),monospace`; `--vl-font-mono:var(--font-dm-mono),'DM Mono',ui-monospace,monospace` → **DM Mono** (unchanged; already parity) |
+Application: Vialuce `body → var(--vl-font-sans)` [Inter]; new `h1..h6 → var(--font-display)` [Urbanist] (mirrors Bliss `:314-320`); labels `→ var(--vl-font-mono)` [DM Mono]. **Families: Urbanist / Inter / DM Mono — match Bliss.**
+
+### G2 — Fonts loaded on the Vialuce render path (no silent system fallback)
+`globals.css:4` (unchanged, global — not Bliss-scoped):
+```css
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;700&family=Inter:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+```
+All three families (Urbanist, Inter, DM Mono) are fetched app-wide; the woff2 binaries load lazily when an element renders in them — now triggered under Vialuce by the aligned tokens. No new `@import`/`@font-face` required (HALT-3 N/A per the directive lineage).
+
+### G3 — Logo parity (vialuce branch renders the diamond; no new component file)
+`VialuceSidebar.tsx` brand now renders the diamond mark — geometry byte-identical to the Bliss branch (`ChromeSidebar.tsx:279-283`): `viewBox="0 0 40 40"`, two `rect`s `transform="rotate(45 20 20)"` (outline `strokeWidth="1.25"` + inner fill) and a `circle cx=20 cy=20 r=1.6` center — `stroke/fill` themed to `var(--vialuce-indigo)` / `var(--vialuce-gold)`. **Asset = inline SVG (no file path; reused markup).** `git diff --stat`: `globals.css | 18`, `VialuceSidebar.tsx | 10`, **2 files changed, 0 new files** → no new/duplicate component file.
+
+### G4 — Bliss untouched
+`git diff` shows zero change to any `[data-theme="bliss"]` token or the Bliss logo branch. The only occurrence of "bliss" in the diff is a *comment* inside the Vialuce block (`Families mirror [data-theme="bliss"] (globals.css:229-232)`); `ChromeSidebar.tsx` is not in the changeset (`git diff --stat` lists only `globals.css` + `VialuceSidebar.tsx`). `--color-indigo`/`--color-gold` and `isBliss` appear nowhere in the `+`/`-` lines.
+
+### G5 — Dark/current untouched
+Same `git diff`: zero change to `[data-theme="current"]`/`[data-theme="dark"]`. No edits outside the `html[data-theme="vialuce"]` block (CSS) and the Vialuce-only rail (`VialuceSidebar`). The Dark/current `V`-glyph branch in `ChromeSidebar.tsx` is untouched.
+
+### G6 — Build + dev
+- `npx tsc --noEmit` → exit **0** (clean).
+- `rm -rf .next && npm run build` → exit **0** (full route table emitted).
+- `npm run dev` → `curl localhost:3000` → **HTTP 307** (app responds; auth/tenant redirect). Dev log: `✓ Ready in 1042ms`.
+
+### Architect-gated (SR-44 — NOT self-attested): browser confirmation under Vialuce that headings render Urbanist, body Inter, labels DM Mono (not fallback), and the diamond renders; with Bliss + Dark visually unchanged. PR opened; **CC stops here for architect verification + merge.**
+
+## 4. Commit table
+| SHA | Description |
+|---|---|
+| `026875bc` | HF-340 ADR + G0 diagnostic (before code; pre-change code SHA) |
+| `59db4ea8` | HF-340 implementation — font tokens + heading rule + diamond logo |
+| _(this)_ | HF-340 completion report |
+
+## 5. Anti-Pattern Registry confirmation
+- **No duplicate component / no new file:** the diamond is inline SVG reused in the existing `VialuceSidebar.tsx`; `git diff --stat` shows 0 new files. Extraction was precluded by G3 (no new file) + G4 (would edit the immutable Bliss branch), so inline-in-place is the only constraint-satisfying reuse.
+- **No `!important`:** none added (the lone pre-existing `[data-nav-section]…!important` at `:445` is Bliss-scoped and untouched).
+- **No per-component font override:** font parity is by token-value alignment + the element-level `h1..h6` rule Bliss already carries — no component-targeted font hacks.
+- **No parallel/duplicate font system:** the existing three-layer Vialuce token chain was aligned (subtraction/alignment), not duplicated; `--font-mono` left as-is.
+- **AI-First / scale / transport / atomicity:** N/A (experience-only CSS + one TSX logo swap; no data path).
+
+## 6. HALT outcomes
+None fired. §4A checks: no-delta (false — clear deltas), constraint-collision (false — vialuce-scoped tokens; `--color-*` Bliss-scoped & unused under Vialuce), scope-collision (false — experience-only), missing-reference (false — diamond + Bliss tokens located). Accidental Bliss/Dark regression: none (G4/G5).
+
+## 7. PR — _(filled at close)_
