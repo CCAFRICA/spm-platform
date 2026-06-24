@@ -181,9 +181,13 @@ export function consolidateSurface(surface: SynapticSurface): {
 
     const anomalyRate = anomalyCount / entityCount;
 
-    // Exponential moving average: 70% new, 30% existing
+    // OB-235 P4 — EMA→spec alignment. The Synaptic State Specification's consolidation formula (DD-5
+    // structural constants): newConfidence = 0.7·prev + 0.2·runConfidenceMean + 0.1·(1 − runAnomalyRate).
+    // (Was 0.3·prev + 0.7·run − 0.1·anomaly — a non-spec weighting that summed to <1 and double-penalised
+    // anomalies.) This is reconciliation-PRESERVING: density/confidence drives only the execution MODE
+    // (tracing verbosity), never a computed value — the entity-outcome math takes no density input.
     const newConfidence = Math.max(0, Math.min(1,
-      existing.confidence * 0.3 + runConfidence * 0.7 - anomalyRate * 0.1
+      existing.confidence * 0.7 + runConfidence * 0.2 + (1 - anomalyRate) * 0.1
     ));
 
     const newMode: ExecutionMode =

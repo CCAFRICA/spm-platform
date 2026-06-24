@@ -158,3 +158,27 @@ HF-337 built the **same-tenant** read-back (recognize once, read forever); no ne
 - **Persist + consolidate.** On a verified inherit, the receiving tenant's **own** discounted row is upserted (`recognized_by='inherited'`) and a `surface_binding_recognition` signal is emitted via the canonical writer (`source='binding-inheritance'`, `inherited_from`=donor, `verification_score`) — re-encounter is then a pure cache hit, and the consolidation feeds the flywheel further.
 - **Merge-order:** P-EXP touches `surface-binding-recognition.ts`, which **P9 also touches** — P-EXP merges before P9 (declared); no other Tier-1 phase touches that file.
 - **NO REGISTRY (grep clean):** keys strictly on `(structural_fingerprint_hash, surface_id)`; no intent/role/property vocabulary; no enum/allowed-value gate (the only "registry" hit is HF-337's "registry bright line" comment); no domain literals. **tsc = 0.** Build green (§build).
+
+## 7. PG-4 — Calculation-layer Tenant loop (Tier-1b · MAX-EFFORT · RECONNECT)
+
+**Disposition: RECONNECT, not rebuild** (ratified P0). The density loop's load (a) / consolidate (c) / flywheel (d) are already live in `run/route.ts`; only execution-mode SELECTION (b) never gated the loop. P4 builds the read-path + mode-selector modules and aligns the consolidation formula to spec; **P4 does not edit the live calc route** (P9 inserts the one-line gate — directive §3.4 / §3.9).
+
+- **New modules (reuse, no new store):** `lib/learning/stores/synaptic-density-store.ts` (a `LearnStore<TenantPatternDensity>` over the EXISTING `synaptic_density` table — migration 015, keyed `(tenant_id, signature)`); `lib/learning/density-recall.ts` (`recallDensity` loads via the live `loadDensity`, exposes `modeFor`/`modeDistribution` via the live `getExecutionMode` — reused verbatim so the read-path and the live loop can never drift). **`pattern-signature.ts` already exists** (`generatePatternSignature`) → no new file (directive's "if none reusable" → reusable).
+- **EMA→spec alignment (the one edit to `synaptic-surface.ts`, reconciliation-preserving).** `consolidateSurface` now uses the Synaptic-Spec formula `newConfidence = 0.7·prev + 0.2·runConfidenceMean + 0.1·(1 − runAnomalyRate)` (DD-5). The prior `0.3·prev + 0.7·run − 0.1·anomaly` summed to <1 and double-penalised anomalies. **This drives only density → execution MODE (tracing verbosity); it never enters the entity-outcome math** (HALT-CALC honoured).
+- **Reconciliation is ABSOLUTE — proven, not asserted.** The execution mode gates TRACING ONLY; the per-entity outcome takes no density/mode input. Proof (`scripts/_ob235-p4-proof.ts`, Sabor, real modules + real `synaptic_density`, synthetic signatures; 8 identical runs):
+  ```
+  run  full light silent   ms      checksum        traceWrites
+   1    12     0      0     29.9    18000000.0      36000
+   2    12     0      0      8.8    18000000.0      36000
+   3     0    12      0      2.8    18000000.0         12
+   …
+   8     0     0     12      3.5    18000000.0          0
+  [mode shift toward silent]   run1 full=12/silent=0 → run8 full=0/silent=12  PASS
+  [Tₙ < T₁ (silent skips trace)] T₁=29.9ms T₈=3.5ms  PASS
+  [reconciliation absolute]    distinct checksums across 8 runs = 1 (expect 1)  PASS
+  [converges to silent]        run8 silent=12/12  PASS
+  PG-4: PASS
+  ```
+  Across 8 identical runs the mode swept **full_trace → light_trace → silent** as the spec formula climbed density 0.5 → ≥0.95, wall-clock fell **29.9ms → 3.5ms** (silent does 0 trace writes), and the outcome checksum stayed **18000000.0 — byte-identical on every run while the mode varied.** That invariance IS the reconciliation guarantee.
+- **Spec-formula dynamics are honest:** with `0.7·prev` the climb is deliberately stable — one cold consolidation reaches only ~0.648 (still full_trace); silent (≥0.95) is reached at ~run 8. The proof shows the full curve rather than a bare two-run (which the stable formula could not cross to silent from cold). The entity loop is a faithful stand-in for `run/route.ts`'s loop (gated identically by `recall.modeFor` in P9); the **live double-run byte-identical proof on `entity_period_outcomes` is PG-9.**
+- **289/289 tests** (formula change broke no test — no test pinned the prior weighting). **tsc = 0.** Build green (§build). **NO REGISTRY / Korean-clean:** signatures are structural pattern hashes; no field names; no allowed-value gate.
