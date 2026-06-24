@@ -200,4 +200,4 @@ A comparison whose unit-nature the OLD closed set would not have contained (`bas
 - **G-CLEAN-MIR / G-MIR-CALC:** apply MIR clean-slate SQL + reimport the 5 plan PDFs through `finalize-import`; report the January 2025 calc total verbatim for reconciliation against the sealed figure (CC holds no MIR ground truth). Re-run `hf339-mir-validator-proof.ts` to confirm zero warnings on the reconstructed plans.
 - **G-BCL:** authenticated BCL reimport+recalc reconciled against the sealed figure (auth-gated; pre-existing from HF-337). Movement → HALT-CALC.
 - **Ratify** the HF-338→HF-339 reassignment and the ARTIFACT SYNC delta (§9).
-- **PR:** _(filled at close)_
+- **PR:** #596 — https://github.com/CCAFRICA/spm-platform/pull/596 (base `main`, head `hf-339-validator-premise`). Per SR-44 the architect merges after the gates above clear.
