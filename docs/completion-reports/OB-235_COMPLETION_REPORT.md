@@ -207,3 +207,24 @@ Three gaps built + one bug fixed:
   Two tenants contribute the same structural pattern → mean 0.986, **variance 0.000160** (now written), behaviors **merged** ({shape_depth, fanout}), tenant_count 2. The cold-start prior (0.5916) reaches `light_trace` at encounter 2 while true-cold (0.5) is still `full_trace` → **strictly fewer full_trace ops** (1 vs 2). The cold-start win requires a well-established prior (≥~0.967 → discounted ≥0.58) to cross the 0.70 threshold a run early — honest with the spec discount/thresholds (DD-5 constants unchanged).
 - **HALT-CROSSFLOW (privacy firewall, ABSOLUTE) — grep clean.** On the cross-tenant write path (`foundational_patterns`/`domain_patterns` insert+update) there is **zero** `tenant_id`/`entity_id`/`source_file`/`display_name`/`raw_value`; `tenantId` is a function parameter used only for `tenant_count` and is never written to a row (the tables have no tenant_id column by schema). `tenant_count` is a permitted structural aggregate (directive §3.5), not an identity.
 - **289/289 tests. tsc = 0.** Build green (§build). NO REGISTRY / Korean-clean.
+
+## 9. PG-6 — Signal-level feedback: the Multiplier-of-five (Tier-2)
+
+A single Level-2 comprehension correction now fans into **five** measurable updates. New module: `lib/learning/correction-consumer.ts` (`consumeComprehensionCorrection`). It reads the `comprehension_correction` signal from the canonical surface and:
+
+1. **Tenant comprehension** — updates the `comprehension_artifacts` row's characterization to the human's correction (authoritative).
+2. **Foundational pattern** — emits a confidence-lowering structural delta (`CORRECTION_CONFIDENCE=0.2`) via the P5 flywheel, keyed on a **name-blind comprehension-shape signature** (`comprehensionPatternSignature` — presence flags + length bucket, never the field name or correction text).
+3. **Domain pattern** — same delta, scoped by domain.
+4. **Next convergence outcome** — no action here: P7's `convergence-recall` reads the now-corrected comprehension + the `comprehension_correction` overlay before its next AI call.
+5. **Expression bindings** — invalidates every `surface_bindings` row whose `resolved_fields` reference the corrected field (JS-side match on `resolved_fields[].field_name`), so the next recognition re-resolves against the corrected comprehension — no confidently-stale binding survives.
+- **Proof (`scripts/_ob235-p6-proof.ts`, Sabor, synthetic field/surface/domain/signature):**
+  ```
+  (1) tenant comprehension updated:   "…assigned quota measured per period, not a running balance"  PASS
+  (2) foundational confidence shifted: 0.9500 → 0.8750  PASS
+  (3) domain confidence shifted:       0.9500 → 0.8750  PASS
+  (4) next convergence recall reflects: corrected=true correctionOverlay=true  PASS
+  (5) surface_bindings invalidated:    count=1 gone=true  PASS
+  PG-6 (Multiplier-of-five): PASS
+  ```
+  One injected correction touched the tenant comprehension, foundational + domain confidence (both 0.95→0.875), the convergence read-path (P7), and the expression binding (invalidated) — **the Multiplier-of-five, end to end.**
+- **HALT-CROSSFLOW:** the foundational/domain deltas carry only the structural signature + a `{corrected:true}` structural behavior; `tenantId` is used only for counting (P5 firewall). **289/289. tsc = 0.** Build green. NO REGISTRY / Korean-clean.
