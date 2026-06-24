@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { recordComprehensionCorrection } from '@/lib/signals/comprehension-correction';
+import { consumeComprehensionCorrection } from '@/lib/learning/correction-consumer'; // OB-235 P6/P9: act on it
 
 export const runtime = 'nodejs';
 
@@ -38,5 +39,19 @@ export async function POST(req: NextRequest) {
     correction: body.correction,
     actorId: user.id,
   });
-  return NextResponse.json({ ok });
+
+  // OB-235 P6/P9 — ACT on the correction: the Multiplier-of-five (tenant comprehension + foundational +
+  // domain + the next convergence read-path + surface_bindings invalidation). Best-effort: a propagation
+  // failure never voids the capture (the canonical signal is already recorded).
+  let multiplier: unknown = null;
+  if (ok) {
+    try {
+      multiplier = await consumeComprehensionCorrection(svc, {
+        tenantId, fieldName: body.fieldName!, correction: body.correction!, domainId: 'icm',
+      });
+    } catch (e) {
+      console.warn('[OB-235 P6] correction propagation failed (capture preserved):', e instanceof Error ? e.message : e);
+    }
+  }
+  return NextResponse.json({ ok, multiplier });
 }

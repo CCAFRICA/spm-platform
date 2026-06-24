@@ -3046,6 +3046,13 @@ export async function POST(request: NextRequest) {
 
     // ── SYNAPTIC: Write per-component confidence synapses ──
     for (let ci = 0; ci < componentIntents.length; ci++) {
+      // OB-235 P9 — density-driven trace gating (RECONNECT of execution-mode action (b)). This is
+      // RECONCILIATION-PRESERVING: the payout math (componentResults / entityTotal / grandTotal) is already
+      // computed ABOVE; this confidence synapse is observability the consolidation reads. A pattern that has
+      // learned to `silent` (density ≥ 0.95, Synaptic-Spec) skips its per-entity trace — silent skips
+      // TRACING, never MATH. full_trace / light_trace still record it so the pattern keeps consolidating.
+      // Mode is a pure function of recalled density; it cannot alter a value (HALT-CALC honoured).
+      if (getExecutionMode(surface, patternSignatures[ci]) === 'silent') continue;
       // Dual-path payout concordance: two independently-computed Decimal payouts are "the same" within a cent.
       const compMatch = componentResults[ci] && Math.abs(componentResults[ci].payout - (priorResults[ci] ?? 0)) < 0.01; // RATIFIED: numerical-precision epsilon for payout equality, not an authority threshold (Decision 110)
       writeSynapse(surface, {
