@@ -659,35 +659,47 @@ function buildConstantWithScale(
     return { prime: 'constant', value };
   }
   // HF-279 DAG-divide band coherence (generalizes HF-277; retires HF-274's
-  // convergence-side attach for divides). meta.scale attaches at exactly ONE site —
-  // a single PRE-COMPUTED `reference` operand scaled on the EVALUATOR side (DD-7):
+  // convergence-side attach for divides). The NUMERIC RESCALE (meta.scale) is
+  // applied by the evaluator at exactly ONE site — a single PRE-COMPUTED
+  // `reference` operand scaled on the EVALUATOR side (DD-7):
   //  - scale.side === 'evaluator', NON-ratio operand (an already-percent column read
-  //    as a `metric` reference): ATTACH — the plan-side comparison constant carries
-  //    the meta; the evaluator scales the data-native column onto plan units. KEPT.
-  //  - scale.side === 'evaluator', DAG-DIVIDE operand: OMIT (HF-277). The quotient
-  //    defines its own 0–N space and its breaks are declared in that space; there is
-  //    nothing to scale. (For scale.value === 1 this is identical to the prior ×1
-  //    no-op.)
-  //  - scale.side === 'convergence', NON-ratio operand: OMIT — the convergence
-  //    binding's scale_factor normalizes the single bound column; attaching meta here
-  //    too would DOUBLE-scale (run-calculation.ts:188). KEPT.
-  //  - scale.side === 'convergence', DAG-DIVIDE operand: OMIT (HF-279, NEW). A
-  //    DAG-divide band's breaks are in the quotient's own space; the convergence
-  //    scale is incoherent for it. This RETIRES HF-274's convergence-ratio attach —
-  //    with recognition emitting coherent quotient-space breaks (HF-279 §2.1) there
-  //    is no scaled break space to meet, so nothing to scale up.
+  //    as a `metric` reference): the evaluator scales the data-native column onto
+  //    plan units → carry the real scale.value.
+  //  - scale.side === 'evaluator', DAG-DIVIDE operand (HF-277): the quotient defines
+  //    its own 0–N space; nothing to rescale → scale:1.
+  //  - scale.side === 'convergence', NON-ratio operand: the convergence binding's
+  //    scale_factor already normalized the single bound column; a second evaluator
+  //    rescale would DOUBLE-scale (run-calculation.ts:188) → scale:1.
+  //  - scale.side === 'convergence', DAG-DIVIDE operand (HF-279): breaks are in the
+  //    quotient's own space; the convergence scale is incoherent for it → scale:1.
   // Korean Test: structural checks only (scale.side + DAG-divide operand); no field
   // name, breakpoint, component name, or magnitude constant.
+  //
+  // HF-339 (Validator Premise Correction) — CARRY-NOT-STRIP, where the nature is
+  // COHERENT with the constructed value. The prior code returned a BARE
+  // { prime:'constant', value } on every non-evaluator branch, discarding the
+  // nature the model expressed (the "strip"). We now carry the model's
+  // self-describing nature (scale.unit, free-form) so the compare node is
+  // self-description-sufficient (Decision 158 guarantee). The NUMERIC rescale is
+  // unchanged from HF-279: the evaluator multiplies the opposing operand by
+  // meta.scale at exactly one site; off it we carry scale:1 (identity — a no-op
+  // multiply → byte-identical calc; HF-279 no-double-scale preserved).
+  // Construction emits compare(reference, constant), never constant-vs-constant,
+  // so an identity-scale constant never alters branching.
   const attach = scale.side === 'evaluator' && !otherSideIsDagDivide;
-  if (!attach) {
-    return { prime: 'constant', value };
-  }
-  if (scale.reference_field && scale.reference_field !== fieldOnOtherSide) {
+  const fieldMismatch = !!scale.reference_field && scale.reference_field !== fieldOnOtherSide;
+  if (otherSideIsDagDivide || fieldMismatch) {
+    // DAG-divide operand: the value lives in the quotient's OWN 0–N space — a raw
+    // quotient is self-describing, no scale nature is coherent (HF-277/279).
+    // Field-mismatched scale: the ScaleSpec describes a DIFFERENT field, not this
+    // value. Either way stay bare — the validator's self-description check
+    // correctly does NOT flag a bare constant (the model's valid "needs no
+    // normalization" declaration).
     return { prime: 'constant', value };
   }
   const meta: ConstantScaleMeta = {
     unit: scale.unit,
-    scale: scale.value,
+    scale: attach ? scale.value : 1,
     confidence: scale.confidence,
   };
   return { prime: 'constant', value, meta };
