@@ -23,7 +23,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
-import { DollarSign, ArrowLeftRight, Command, ChevronDown, ChevronUp, Palette } from 'lucide-react';
+import { ArrowLeftRight, Command, ChevronDown, ChevronUp, Palette } from 'lucide-react';
 import { THEME_LABELS, THEME_ORDER } from '@/lib/theme/theme-labels';
 import type { AppTheme } from '@/lib/theme/active-theme';
 import { cn } from '@/lib/utils';
@@ -124,7 +124,13 @@ export function VialuceSidebar() {
     <aside className="sb" style={{ width: '100%', height: '100vh' }}>
       {/* Brand */}
       <div className="sb-brand" onClick={isVLAdmin ? () => router.push('/select-tenant') : undefined} style={isVLAdmin ? { cursor: 'pointer' } : undefined}>
-        <div className="sb-logo"><DollarSign className="h-4 w-4" /></div>
+        {/* HF-340: the Bliss diamond mark (geometry identical to ChromeSidebar's bliss branch),
+            themed to Vialuce's own indigo/gold tokens. Same asset, reused; no new/duplicate file. */}
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" className="shrink-0">
+          <rect x="11" y="11" width="18" height="18" rx="1" transform="rotate(45 20 20)" stroke="var(--vialuce-indigo)" strokeWidth="1.25" />
+          <rect x="15.5" y="15.5" width="9" height="9" rx="0.5" transform="rotate(45 20 20)" fill="var(--vialuce-indigo)" />
+          <circle cx="20" cy="20" r="1.6" fill="var(--vialuce-gold)" />
+        </svg>
         <div className="min-w-0">
           <b>Vialuce</b>
           <div className="sb-tenant">
