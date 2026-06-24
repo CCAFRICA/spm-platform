@@ -1,23 +1,20 @@
-"use client";
+'use client';
+
+/**
+ * OB-234 T2-3 — Intelligence · Overview (/insights). Glanceable state: the authoritative period total,
+ * composition, and standings. End-State A: every value reads getCalculatedPeriods / getEntityResults /
+ * getComponentTotals (calculation_results / entity_period_outcomes) — zero committed_data.
+ *
+ * DS-003 composition: HeroMetric (Identification, dominant) + StackedBar (part-of-whole) + HorizontalBar
+ * (ranked comparison) + DistributionPosition (population ranking) = 4 component types (Diversity Minimum).
+ * Every viz carries a reference frame. Persona density filters which elements render (Rule 4).
+ *
+ * This is the REFERENCE surface for the OB-234 redesign — the other 7 surfaces mirror its structure.
+ */
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  TrendingUp,
-  DollarSign,
-  Target,
-  Award,
-  BarChart3,
-} from "lucide-react";
+import { Award, BarChart3, DollarSign, Target, Users } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import {
   getCalculatedPeriods,
@@ -27,19 +24,35 @@ import {
   type ComponentTotal,
 } from '@/lib/insights';
 import { getEntityResults, type EntityResult } from '@/lib/drill-through';
-import { PeriodCards, ComponentBars } from '@/components/insights';
+import { PeriodCards } from '@/components/insights';
+import {
+  PersonaAmbient,
+  DensityGate,
+  usePersonaTheme,
+  HeroMetric,
+  StackedBar,
+  HorizontalBar,
+  DistributionPosition,
+  Panel,
+  TEXT,
+} from '@/components/insights/ds003';
 
-// OB-322: Overview is now period-aware. Previously it loaded only batches[0] (often an empty
-// PREVIEW batch → "Total Period Outcome $0") and built the component chart from the top
-// performer's `outputValue` — a field that does not exist on the components JSONB (the real key
-// is `payout`), so "Earnings by Component" was always a flat zero line. It now selects a period
-// (PeriodCards) and renders Earnings by Component from getComponentTotals (aggregated across all
-// entities, proven to conserve to the period total). See OB-322 dimension-proof.
+function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
+  return (
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+      <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
+      <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
+    </div>
+  );
+}
 
 export default function InsightsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  const theme = usePersonaTheme();
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
@@ -48,7 +61,7 @@ export default function InsightsPage() {
   const [periodsLoaded, setPeriodsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load the calculated periods once (canonical getCalculatedPeriods, start_date DESC).
+  // Periods (canonical getCalculatedPeriods, start_date DESC).
   useEffect(() => {
     if (!currentTenant) return;
     let cancelled = false;
@@ -64,7 +77,7 @@ export default function InsightsPage() {
     return () => { cancelled = true; };
   }, [currentTenant]);
 
-  // Load the selected period's outcomes + component totals.
+  // Selected period outcomes + component totals.
   useEffect(() => {
     if (!currentTenant || !selectedPeriodId) return;
     let cancelled = false;
@@ -78,247 +91,134 @@ export default function InsightsPage() {
     return () => { cancelled = true; };
   }, [currentTenant, selectedPeriodId]);
 
+  const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
+
   const insights = useMemo(() => {
     if (rows.length === 0) return null;
-    const totalPayout = rows.reduce((sum, r) => sum + (r.totalPayout || 0), 0);
+    const totalPayout = rows.reduce((s, r) => s + (r.totalPayout || 0), 0);
     const avgPayout = totalPayout / rows.length;
-    const topPerformers = [...rows].sort((a, b) => (b.totalPayout || 0) - (a.totalPayout || 0)).slice(0, 5);
-    return { totalPayout, avgPayout, entityCount: rows.length, topPerformers };
-  }, [rows]);
+    const sorted = [...rows].sort((a, b) => (b.totalPayout || 0) - (a.totalPayout || 0));
+    const prior = selectedIdx >= 0 ? periods[selectedIdx + 1] : undefined;
+    const priorTotal = prior?.total_payout ?? null;
+    const delta = priorTotal != null && priorTotal > 0 ? (totalPayout - priorTotal) / priorTotal : null;
+    return {
+      totalPayout,
+      avgPayout,
+      entityCount: rows.length,
+      top: sorted[0] ?? null,
+      topFive: sorted.slice(0, 5),
+      values: rows.map((r) => r.totalPayout || 0),
+      delta,
+      priorLabel: prior?.label ?? null,
+    };
+  }, [rows, periods, selectedIdx]);
 
+  // Loading shell.
   if (isLoading && !periodsLoaded) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading insights...</p>
+      <PersonaAmbient>
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+            <p className={TEXT.body}>Loading intelligence…</p>
+          </div>
         </div>
-      </div>
+      </PersonaAmbient>
     );
   }
 
-  // No calculated periods at all → onboarding empty state.
+  // No calculated periods → honest onboarding.
   if (periodsLoaded && periods.length === 0) {
-    if (isVialuce) {
-      return (
-        <div className="page">
-          <div className="phead">
-            <div>
-              <h1>Overview</h1>
-              <div className="sub">Earnings analytics</div>
-            </div>
-          </div>
-          <div className="empty">
-            <div className="ic"><BarChart3 className="h-7 w-7" /></div>
-            <b>No Calculation Data Available</b>
-            <p>
-              Insights will appear here once calculations have been run.
-              Run a calculation to see performance metrics, top performers, and trends.
-            </p>
-            <Link
-              href="/admin/launch/calculate"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mt-2"
-            >
-              <Target className="h-4 w-4" />
-              Run Calculation
-            </Link>
-          </div>
-        </div>
-      );
-    }
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <div className="container mx-auto px-6 py-8">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Overview</h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">Earnings analytics</p>
-          </div>
-          <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
-            <CardContent className="py-12">
-              <div className="text-center">
-                <BarChart3 className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">No Calculation Data Available</h3>
-                <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto mb-6">
-                  Insights will appear here once calculations have been run.
-                  Run a calculation to see performance metrics, top performers, and trends.
-                </p>
-                <Link
-                  href="/admin/launch/calculate"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Target className="h-4 w-4" />
-                  Run Calculation
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
+      <PersonaAmbient>
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <BarChart3 className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>No calculation data yet</h1>
+          <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>
+            Intelligence appears once a compensation run completes — totals, standings, composition, and trends.
+          </p>
+          <Link href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+            <Target className="h-4 w-4" /> Go to Compensation
+          </Link>
         </div>
-      </div>
+      </PersonaAmbient>
     );
   }
 
-  // Shared content body (period strip + cards), wrapped per-theme below.
-  const body = (
-    <>
-      {/* Period selector — horizontal cards (OB-322) */}
-      {periods.length > 0 && (
-        <PeriodCards periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} className="mb-2" />
-      )}
-
-      {isLoading || !insights ? (
-        <Card className="border-0 shadow-md">
-          <CardContent className="py-16 text-center text-muted-foreground">
-            {isLoading ? 'Loading period…' : 'No outcomes for this period.'}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Total Period Outcome */}
-          <Card className="lg:col-span-1 border-0 shadow-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-            <CardHeader className="pb-2">
-              <CardDescription className="text-indigo-100">Total Period Outcome</CardDescription>
-              <CardTitle className="text-4xl font-bold">{format(insights.totalPayout)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2 mb-6">
-                <TrendingUp className="h-4 w-4 text-emerald-300" />
-                <span className="text-sm text-indigo-100">Based on {insights.entityCount} entities</span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Average Outcome</span>
-                  <span className="font-medium">{format(insights.avgPayout)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-indigo-200">Top Performer</span>
-                  <span className="font-medium">{format(insights.topPerformers[0]?.totalPayout || 0)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Summary Metrics */}
-          <div className="lg:col-span-2 grid gap-4 sm:grid-cols-2">
-            <Card className="border-0 shadow-md">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Entities Paid</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">{insights.entityCount}</p>
-                  </div>
-                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
-                    <Target className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-0 shadow-md">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Average Earnings</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">{format(insights.avgPayout)}</p>
-                  </div>
-                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-full">
-                    <DollarSign className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Earnings by Component — aggregated across all entities (OB-322: real, non-zero) */}
-          {componentTotals.length > 0 && (
-            <Card className="lg:col-span-2 border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-lg font-semibold">Earnings by Component</CardTitle>
-                <CardDescription>Total payout per plan component, this period</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ComponentBars components={componentTotals} />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Top Performers Leaderboard */}
-          <Card className="lg:col-span-1 border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Award className="h-5 w-5 text-amber-500" />
-                Top Performers
-              </CardTitle>
-              <CardDescription>By total incentive earnings</CardDescription>
-            </CardHeader>
-            <CardContent className="px-2">
-              <div className="space-y-1">
-                {insights.topPerformers.map((performer, idx) => {
-                  const initials = (performer.displayName || 'EMP')
-                    .split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
-                  return (
-                    <div
-                      key={performer.entityId}
-                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                        idx < 3 ? "bg-gradient-to-r from-amber-500/10 to-transparent" : "hover:bg-muted/50"
-                      }`}
-                    >
-                      <div
-                        className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
-                          idx === 0 ? "bg-amber-400 text-amber-950"
-                            : idx === 1 ? "bg-slate-300 text-slate-700"
-                            : idx === 2 ? "bg-amber-600 text-amber-50"
-                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <Avatar className="h-9 w-9">
-                        <AvatarFallback className="text-xs bg-slate-200 dark:bg-slate-700">{initials}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
-                          {performer.displayName || performer.entityId}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{performer.externalId}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{format(performer.totalPayout || 0)}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </>
-  );
-
-  if (isVialuce) {
-    return (
-      <div className="page">
-        <div className="phead">
-          <div>
-            <h1>Overview</h1>
-            <div className="sub">Earnings analytics{insights ? ` • ${insights.entityCount} entities` : ''}</div>
-          </div>
-        </div>
-        <div className="space-y-6">{body}</div>
-      </div>
-    );
-  }
+  const selectedLabel = periods[selectedIdx]?.label ?? '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Overview</h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Earnings analytics{insights ? ` • ${insights.entityCount} entities` : ''}
+    <PersonaAmbient>
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <header>
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Overview</h1>
+          <p className={`mt-1 text-sm ${TEXT.body}`}>
+            Earnings analytics{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
           </p>
-        </div>
-        <div className="space-y-6">{body}</div>
+        </header>
+
+        {periods.length > 0 && (
+          <PeriodCards
+            periods={periods}
+            selectedPeriodId={selectedPeriodId}
+            onPeriodChange={setSelectedPeriodId}
+            accentColor={theme.accent}
+            accentSoft={theme.accentSoft}
+          />
+        )}
+
+        {isLoading || !insights ? (
+          <Panel><div className={`py-16 text-center text-sm ${TEXT.muted}`}>{isLoading ? 'Loading period…' : 'No outcomes for this period.'}</div></Panel>
+        ) : (
+          <>
+            {/* Dominant: authoritative period total + supporting tiles */}
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="lg:col-span-1">
+                <HeroMetric
+                  label="Period Total"
+                  value={insights.totalPayout}
+                  format={format}
+                  icon={DollarSign}
+                  context={{
+                    direction: insights.delta == null ? 'flat' : insights.delta > 0 ? 'up' : insights.delta < 0 ? 'down' : 'flat',
+                    label: insights.delta == null ? 'no prior period' : `${insights.delta >= 0 ? '+' : ''}${(insights.delta * 100).toFixed(1)}% vs ${insights.priorLabel}`,
+                  }}
+                  subtitle={`${insights.entityCount} entities · avg ${format(insights.avgPayout)}`}
+                />
+              </div>
+              <Stat label="Entities Paid" value={String(insights.entityCount)} hint="with outcomes this period" icon={Users} />
+              <Stat label="Average Payout" value={format(insights.avgPayout)} hint="per entity" icon={Target} />
+              <Stat label="Top Performer" value={insights.top ? format(insights.top.totalPayout || 0) : '—'} hint={insights.top?.displayName ?? '—'} icon={Award} />
+            </div>
+
+            {/* Composition + standings */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Earnings by Component" description="Where the period's payout is allocated">
+                <StackedBar
+                  segments={componentTotals.map((c) => ({ label: c.component_name, value: c.total_amount }))}
+                  total={insights.totalPayout}
+                  format={format}
+                />
+              </Panel>
+
+              <Panel title="Top Performers" description="By total earnings, vs the population average">
+                <HorizontalBar
+                  items={insights.topFive.map((e) => ({ label: e.displayName || e.externalId, value: e.totalPayout || 0 }))}
+                  referenceLine={{ value: insights.avgPayout, label: 'Avg' }}
+                  format={format}
+                />
+              </Panel>
+            </div>
+
+            {/* Population shape — admin/manager density */}
+            <DensityGate min="medium">
+              <Panel title="Payout Distribution" description="Population shape with quartile + mean reference">
+                <DistributionPosition data={insights.values} markers={{ quartiles: true, mean: true }} format={format} />
+              </Panel>
+            </DensityGate>
+          </>
+        )}
       </div>
-    </div>
+    </PersonaAmbient>
   );
 }
