@@ -72,7 +72,7 @@ import type { Cheque, Franquicia, Mesero } from '@/types/cheques';
 // Compact supporting stat tile (DS-003 §2: supporting metrics use compact forms; not a DS-003 type).
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
@@ -383,7 +383,7 @@ export default function CompensationPage() {
 
     return (
       <PersonaAmbient>
-        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="space-y-6">
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{t.heading}</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>

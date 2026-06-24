@@ -107,7 +107,7 @@ interface ExecutiveData {
 // Compact supporting stat tile (mirrors the reference Stat helper — carries data, not a DS-003 type).
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
@@ -382,7 +382,7 @@ export default function InsightsPerformancePage() {
 
     return (
       <PersonaAmbient>
-        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="space-y-6">
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Attainment</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>
@@ -467,15 +467,15 @@ export default function InsightsPerformancePage() {
                       Pacing needs at least two calculated periods.
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-800/70">
+                    <div className="divide-y divide-border">
                       {pacing.map((p) => {
-                        const tone = p.direction === 'up' ? SEMANTIC.green : p.direction === 'down' ? SEMANTIC.red : '#94a3b8';
+                        const tone = p.direction === 'up' ? SEMANTIC.green : p.direction === 'down' ? SEMANTIC.red : 'var(--vl-text-soft, #8A90A6)';
                         const arrow = p.direction === 'up' ? '▲' : p.direction === 'down' ? '▼' : '▪';
                         return (
                           <Link
                             key={p.id}
                             href={`/investigate/trace/${p.id}`}
-                            className="flex items-center gap-4 py-2.5 transition-colors hover:bg-slate-800/40"
+                            className="flex items-center gap-4 py-2.5 transition-colors hover:bg-muted"
                           >
                             <div className="min-w-0 flex-1">
                               <div className={`truncate text-sm font-medium ${TEXT.headline}`}>{p.name}</div>

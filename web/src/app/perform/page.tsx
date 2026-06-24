@@ -74,7 +74,7 @@ interface FinancialSummary {
 
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
@@ -279,7 +279,7 @@ export default function PerformPage() {
   if (noModules) {
     return (
       <PersonaAmbient>
-        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="space-y-6">
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>{currentTenant.name}</p>
@@ -313,7 +313,7 @@ export default function PerformPage() {
   if (!hasICM && hasFinancial) {
     return (
       <PersonaAmbient>
-        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="space-y-6">
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>{currentTenant.name}</p>
@@ -334,7 +334,7 @@ export default function PerformPage() {
   if (hasICM && periodsLoaded && periods.length === 0) {
     return (
       <PersonaAmbient>
-        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="space-y-6">
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>{currentTenant.name}</p>
@@ -379,7 +379,7 @@ export default function PerformPage() {
   // ── Branch 4: ICM with results — DS-003 compensation dashboard ──
   return (
     <PersonaAmbient>
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="space-y-6">
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
@@ -582,10 +582,10 @@ function FinancialPerformanceBanner({ data, persona, isSpanish, formatCurrency, 
         <div className="flex items-center gap-3">
           <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#eab308' }} />
           <div>
-            <span className="text-xs font-medium text-slate-300">
+            <span className="text-xs font-medium text-foreground">
               {isSpanish ? 'Finanzas' : 'Financial'}
             </span>
-            <span className="ml-2 text-xs text-slate-500">{summaryText}</span>
+            <span className="ml-2 text-xs text-muted-foreground">{summaryText}</span>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -650,16 +650,16 @@ function FinancialOnlyPerformance({ data, isVialuce, isSpanish, formatCurrency, 
               border: stat.alert ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(30, 41, 59, 0.8)',
             }}
           >
-            <p className="text-[11px] uppercase tracking-wider text-slate-500">{stat.label}</p>
-            <p className={`mt-1 text-lg font-semibold ${stat.alert ? 'text-amber-300' : 'text-slate-100'}`}>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+            <p className={`mt-1 text-lg font-semibold ${stat.alert ? 'text-amber-300' : 'text-foreground'}`}>
               {stat.value}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-5 py-4">
-        <p className="mb-3 text-[11px] uppercase tracking-wider text-slate-500">
+      <div className="rounded-lg border border-border bg-card px-5 py-4">
+        <p className="mb-3 text-[11px] uppercase tracking-wider text-muted-foreground">
           {isSpanish ? 'Acciones Rápidas' : 'Quick Actions'}
         </p>
         <div className="flex flex-wrap gap-3">

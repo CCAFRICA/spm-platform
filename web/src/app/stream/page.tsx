@@ -235,8 +235,8 @@ export default function StreamPage() {
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="flex items-center justify-center py-32">
-          <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
-          <span className="ml-2 text-sm text-zinc-500">Loading intelligence stream...</span>
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading intelligence stream...</span>
         </div>
       </div>
     );
@@ -267,12 +267,12 @@ export default function StreamPage() {
                 <Zap className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-                <p className="text-sm text-zinc-500">Account setup</p>
+                <h1 className="text-xl font-bold text-foreground">Intelligence</h1>
+                <p className="text-sm text-muted-foreground">Account setup</p>
               </div>
             </div>
-            <div className="rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] border-emerald-500">
-              <p className="text-sm text-slate-300">Your entity record is not yet linked. Contact your administrator.</p>
+            <div className="rounded-lg p-5 bg-card border border-border border-l-[3px] border-emerald-500">
+              <p className="text-sm text-foreground">Your entity record is not yet linked. Contact your administrator.</p>
             </div>
           </div>
         </div>
@@ -284,8 +284,8 @@ export default function StreamPage() {
       return (
         <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
           <div className="flex items-center justify-center py-32">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
-            <span className="ml-2 text-sm text-zinc-500">Loading intelligence stream...</span>
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading intelligence stream...</span>
           </div>
         </div>
       );
@@ -310,13 +310,13 @@ export default function StreamPage() {
                 <Zap className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-                <p className="text-sm text-zinc-500">{subtitle}</p>
+                <h1 className="text-xl font-bold text-foreground">Intelligence</h1>
+                <p className="text-sm text-muted-foreground">{subtitle}</p>
               </div>
             </div>
             {isAdmin ? carrierAdminStack : (
-              <div className={`rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] ${accentColor}`}>
-                <p className="text-sm text-slate-300">{waitingCopy}</p>
+              <div className={`rounded-lg p-5 bg-card border border-border border-l-[3px] ${accentColor}`}>
+                <p className="text-sm text-foreground">{waitingCopy}</p>
               </div>
             )}
           </div>
@@ -342,18 +342,18 @@ export default function StreamPage() {
           </div>
           <div className="max-w-sm mx-auto mt-6 space-y-6">
             {tenantCtx && !error && (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+              <div className="rounded-lg border border-border bg-card p-4 text-left space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Plan</span>
-                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
+                  <span className="text-muted-foreground">Plan</span>
+                  <span className={hasPlan ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Entities</span>
-                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
+                  <span className="text-muted-foreground">Entities</span>
+                  <span className={hasEntities ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Periods</span>
-                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
+                  <span className="text-muted-foreground">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-foreground' : 'text-muted-foreground/50'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
                 </div>
                 {hasUncalculated && (
                   <p className="text-xs text-indigo-400 pt-1">
@@ -382,22 +382,22 @@ export default function StreamPage() {
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="max-w-4xl mx-auto px-6 py-16">
           <div className="text-center py-12">
-            <Zap className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">{error ? 'Intelligence Unavailable' : 'No Intelligence Available'}</h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto mb-8">{error || 'Import data and run a calculation to see your intelligence stream.'}</p>
+            <Zap className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-lg font-semibold text-foreground mb-2">{error ? 'Intelligence Unavailable' : 'No Intelligence Available'}</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-8">{error || 'Import data and run a calculation to see your intelligence stream.'}</p>
             {tenantCtx && !error && (
-              <div className="max-w-sm mx-auto mb-8 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+              <div className="max-w-sm mx-auto mb-8 rounded-lg border border-border bg-card p-4 text-left space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Plan</span>
-                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
+                  <span className="text-muted-foreground">Plan</span>
+                  <span className={hasPlan ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Entities</span>
-                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
+                  <span className="text-muted-foreground">Entities</span>
+                  <span className={hasEntities ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Periods</span>
-                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
+                  <span className="text-muted-foreground">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-foreground' : 'text-muted-foreground/50'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
                 </div>
                 {hasUncalculated && (
                   <p className="text-xs text-indigo-400 pt-1">
@@ -738,7 +738,7 @@ function IcmStream({
 
   return (
     <PersonaAmbient>
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="space-y-6">
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Intelligence Stream</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
@@ -748,7 +748,7 @@ function IcmStream({
 
         {/* OB-211 WS-2 / B2: the Insight Agent narrative leads the surface (preserved). */}
         {streamNarrative && (
-          <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-1">
+          <div className="rounded-xl border border-border bg-card p-1">
             <InsightNarrative narrative={streamNarrative} />
           </div>
         )}
@@ -831,7 +831,7 @@ function IcmStream({
                   <Panel title="Component Trajectories" description="Per-component payout across calculated periods">
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {componentSeries.map((c) => (
-                        <div key={c.name} className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-3">
+                        <div key={c.name} className="rounded-lg border border-border bg-card p-3">
                           <div className={`mb-1 flex items-baseline justify-between gap-2`}>
                             <span className={`truncate text-xs font-semibold uppercase tracking-wide ${TEXT.body}`} title={c.name}>{c.name}</span>
                             <span className={`shrink-0 text-sm font-bold tabular-nums ${TEXT.headline}`}>{format(c.points[c.points.length - 1] || 0)}</span>
@@ -866,7 +866,7 @@ function IcmStream({
                     <div className={`py-8 text-center text-sm ${TEXT.muted}`}>Loading learning state…</div>
                   ) : learnCold || learnStats.total === 0 ? (
                     <div className={`flex flex-col items-center gap-2 py-8 text-sm ${TEXT.muted}`}>
-                      <Activity className="h-7 w-7 text-slate-600" />
+                      <Activity className="h-7 w-7 text-muted-foreground" />
                       <span>Cold start — no learned patterns yet. Confidence builds as calculations run.</span>
                     </div>
                   ) : (
@@ -909,8 +909,8 @@ function StreamDrillRegion({ isVialuce, onClose, children }: { isVialuce: boolea
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className={isVialuce ? 'text-[10px] uppercase tracking-wider text-zinc-500' : `text-[10px] uppercase tracking-wider ${TEXT.muted}`}>Entity detail</p>
-        <button onClick={onClose} className={`text-xs ${TEXT.muted} hover:text-slate-300`}>Hide</button>
+        <p className={isVialuce ? 'text-[10px] uppercase tracking-wider text-muted-foreground' : `text-[10px] uppercase tracking-wider ${TEXT.muted}`}>Entity detail</p>
+        <button onClick={onClose} className={`text-xs ${TEXT.muted} hover:text-foreground`}>Hide</button>
       </div>
       {children}
     </div>
@@ -919,9 +919,9 @@ function StreamDrillRegion({ isVialuce, onClose, children }: { isVialuce: boolea
 
 function StatLine({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
+    <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
       <span className={`text-xs ${TEXT.muted}`}>{label}</span>
-      <span className="text-sm font-semibold tabular-nums" style={{ color: accent ?? '#e2e8f0' }}>{value}</span>
+      <span className="text-sm font-semibold tabular-nums" style={{ color: accent ?? 'var(--vl-text, currentColor)' }}>{value}</span>
     </div>
   );
 }

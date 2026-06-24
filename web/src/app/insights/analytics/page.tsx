@@ -48,7 +48,7 @@ import {
 
 function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
         <Icon className="h-3.5 w-3.5" /> {label}
       </div>
@@ -206,7 +206,7 @@ export default function AnalyticsExplorePage() {
 
   return (
     <PersonaAmbient>
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Explore</h1>
@@ -262,7 +262,7 @@ export default function AnalyticsExplorePage() {
                       value={activeDimensionKey}
                       onChange={(e) => setActiveDimensionKey(e.target.value)}
                       aria-label="Pivot dimension"
-                      className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-200"
+                      className="rounded-md border border-border bg-card px-2 py-1 text-sm text-foreground"
                     >
                       {dimensions.map((d) => (
                         <option key={d.key} value={d.key}>{d.label}</option>

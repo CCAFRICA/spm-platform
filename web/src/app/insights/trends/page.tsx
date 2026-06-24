@@ -47,7 +47,7 @@ type ComponentSeries = { name: string; series: { label: string; value: number }[
 /** Compact supporting stat tile (mirrors the reference Stat helper). */
 function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className={`text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>{label}</div>
       <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
       <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
@@ -227,7 +227,7 @@ export default function TrendsPage() {
 
   return (
     <PersonaAmbient>
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="space-y-6">
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Trends</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
@@ -319,7 +319,7 @@ export default function TrendsPage() {
                 <Panel title="Component Trends" description="Total per component across periods, each with its own trajectory">
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                     {componentTrends.map((c) => (
-                      <div key={c.name} className="rounded-lg border border-slate-800/80 bg-slate-900/40 p-3">
+                      <div key={c.name} className="rounded-lg border border-border bg-card p-3">
                         <SparkTrend
                           title={c.name}
                           data={c.series}
@@ -337,9 +337,9 @@ export default function TrendsPage() {
             {/* Entity trajectory table — top movers, each row carrying an embedded Sparkline. Admin depth. */}
             <DensityGate min="high">
               <Panel title="Entity Trajectory" description="Top 25 by velocity — direction, latest Δ, velocity, and the per-entity trend shape">
-                <div className="max-h-[460px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-800/80">
+                <div className="max-h-[460px] overflow-x-auto overflow-y-auto rounded-lg border border-border">
                   <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-sm">
+                    <thead className="sticky top-0 bg-card backdrop-blur-sm">
                       <tr className={`text-left ${TEXT.body}`}>
                         <th className="px-3 py-2 font-medium">Entity</th>
                         <th className="px-3 py-2 font-medium">Trend</th>
@@ -351,10 +351,10 @@ export default function TrendsPage() {
                     </thead>
                     <tbody>
                       {tableRows.map((r, i) => {
-                        const tone = r.direction === 'up' ? '#10B981' : r.direction === 'down' ? '#EF4444' : '#94A3B8';
+                        const tone = r.direction === 'up' ? '#10B981' : r.direction === 'down' ? '#EF4444' : 'var(--vl-text-soft, #8A90A6)';
                         const DirIcon = r.direction === 'up' ? ArrowUp : r.direction === 'down' ? ArrowDown : Minus;
                         return (
-                          <tr key={r.id} className="border-t border-slate-800/60">
+                          <tr key={r.id} className="border-t border-border">
                             <td className={`px-3 py-2 font-medium ${TEXT.headline}`}>{r.name}</td>
                             <td className="px-3 py-2">
                               <Sparkline data={r.seriesNums} color={paletteColor(i)} />
