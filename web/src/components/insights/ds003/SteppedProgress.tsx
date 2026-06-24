@@ -44,12 +44,12 @@ export function SteppedProgress({ title, tiers, currentValue, format }: SteppedP
               key={tier.label}
               className="flex-1 rounded-lg border p-2.5 text-center"
               style={{
-                borderColor: isCurrent ? theme.accent : reached ? theme.accentBorder : 'rgba(51,65,85,0.7)',
+                borderColor: isCurrent ? theme.accent : reached ? theme.accentBorder : 'var(--vl-line, #E8EAF3)',
                 backgroundColor: isCurrent ? theme.accentSoft : 'transparent',
                 boxShadow: isCurrent ? `0 0 0 3px ${theme.accentSoft}` : undefined,
               }}
             >
-              <div className={`text-xs font-semibold ${reached ? 'text-slate-200' : TEXT.disabled}`}>{tier.label}</div>
+              <div className={`text-xs font-semibold ${reached ? 'text-foreground' : TEXT.disabled}`}>{tier.label}</div>
               {tier.note && <div className={`text-[10px] ${reached ? TEXT.body : TEXT.disabled}`}>{tier.note}</div>}
               <div className={`mt-1 text-[10px] tabular-nums ${TEXT.muted}`}>{fmt(tier.threshold)}</div>
               {isCurrent && <div className="mt-0.5 text-[10px] font-medium" style={{ color: theme.accent }}>You</div>}
@@ -60,7 +60,7 @@ export function SteppedProgress({ title, tiers, currentValue, format }: SteppedP
       <div className="mt-2.5 text-sm">
         {next ? (
           <span className={TEXT.body}>
-            <span className="font-semibold text-slate-200">{fmt(gap)}</span> more to <span style={{ color: theme.accent }}>{next.label}</span>
+            <span className="font-semibold text-foreground">{fmt(gap)}</span> more to <span style={{ color: theme.accent }}>{next.label}</span>
           </span>
         ) : (
           <span style={{ color: theme.accent }} className="font-medium">Top tier reached.</span>

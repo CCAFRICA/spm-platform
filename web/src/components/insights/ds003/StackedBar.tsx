@@ -48,7 +48,7 @@ export function StackedBar({
           <span className={`text-sm font-semibold tabular-nums ${TEXT.headline}`}>{fmt(whole)}</span>
         </div>
       )}
-      <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-800/70">
+      <div className="flex h-4 w-full overflow-hidden rounded-full bg-muted">
         {sorted.map((seg, i) => {
           const pct = (seg.value / whole) * 100;
           const color = seg.color ?? paletteColor(i);

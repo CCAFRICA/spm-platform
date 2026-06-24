@@ -71,13 +71,13 @@ export function NeighborhoodLeaderboard({
               <span className={`w-6 shrink-0 text-sm font-bold tabular-nums ${isSelf ? '' : TEXT.muted}`} style={isSelf ? { color: theme.accent } : undefined}>
                 {e.rank}
               </span>
-              <span className={`min-w-0 flex-1 truncate text-sm ${isSelf ? 'font-semibold text-slate-100' : TEXT.body}`}>
+              <span className={`min-w-0 flex-1 truncate text-sm ${isSelf ? 'font-semibold text-foreground' : TEXT.body}`}>
                 {e.name}{isSelf && <span className="ml-1.5 text-[10px] uppercase" style={{ color: theme.accent }}>You</span>}
               </span>
-              <span className={`shrink-0 text-sm font-semibold tabular-nums ${isSelf ? 'text-slate-100' : 'text-slate-300'}`}>{fmt(e.value)}</span>
+              <span className={`shrink-0 text-sm font-semibold tabular-nums ${isSelf ? 'text-foreground' : 'text-foreground'}`}>{fmt(e.value)}</span>
               <span className="flex w-9 shrink-0 items-center justify-end gap-0.5 text-xs tabular-nums" style={{ color: moveColor }}>
                 {move !== 0 && <MoveIcon className="h-3 w-3" />}
-                {move !== 0 ? Math.abs(move) : <Minus className="h-3 w-3 text-slate-600" />}
+                {move !== 0 ? Math.abs(move) : <Minus className="h-3 w-3 text-muted-foreground" />}
               </span>
             </div>
           );

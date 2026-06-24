@@ -52,9 +52,9 @@ export function ConfigurablePipeline({ title, stages, action, slaNote }: Configu
                 <div
                   className="flex h-7 w-7 items-center justify-center rounded-full border-2 text-[11px] font-bold"
                   style={{
-                    borderColor: done || current ? theme.accent : 'rgba(71,85,105,0.7)',
+                    borderColor: done || current ? theme.accent : 'var(--vl-line, #E8EAF3)',
                     backgroundColor: done ? theme.accent : current ? theme.accentSoft : 'transparent',
-                    color: done ? '#0f172a' : current ? theme.accent : '#64748b',
+                    color: done ? '#ffffff' : current ? theme.accent : 'var(--vl-text-soft, #8A90A6)',
                     boxShadow: current ? `0 0 0 4px ${theme.accentSoft}` : undefined,
                   }}
                 >
@@ -62,7 +62,7 @@ export function ConfigurablePipeline({ title, stages, action, slaNote }: Configu
                 </div>
                 <span
                   className={`max-w-[72px] truncate text-center text-[10px] uppercase tracking-wide ${
-                    current ? 'text-slate-200' : done ? TEXT.body : TEXT.disabled
+                    current ? 'text-foreground' : done ? TEXT.body : TEXT.disabled
                   }`}
                   title={stage.label}
                 >
@@ -72,7 +72,7 @@ export function ConfigurablePipeline({ title, stages, action, slaNote }: Configu
               {!isLast && (
                 <div
                   className="mx-1 h-0.5 flex-1"
-                  style={{ backgroundColor: done ? theme.accent : 'rgba(71,85,105,0.5)' }}
+                  style={{ backgroundColor: done ? theme.accent : 'var(--vl-line, #E8EAF3)' }}
                 />
               )}
             </div>
@@ -81,10 +81,10 @@ export function ConfigurablePipeline({ title, stages, action, slaNote }: Configu
       </div>
       {(currentLabel || action || slaNote) && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          {currentLabel && <span className={TEXT.body}>You are here: <span className="font-medium text-slate-200">{currentLabel}</span></span>}
+          {currentLabel && <span className={TEXT.body}>You are here: <span className="font-medium text-foreground">{currentLabel}</span></span>}
           {action &&
             (action.disabled ? (
-              <span className={`rounded-md border border-slate-700/60 px-2.5 py-1 text-xs ${TEXT.disabled}`} title="Coming soon">
+              <span className={`rounded-md border border-border px-2.5 py-1 text-xs ${TEXT.disabled}`} title="Coming soon">
                 Next: {action.label}
               </span>
             ) : action.href ? (

@@ -30,7 +30,7 @@ export function Sparkline({ data, color, width = 88, height = 26, baseline }: Sp
     <div style={{ width, height }} className="inline-block align-middle">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={series} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
-          <ReferenceLine y={ref} stroke="rgba(100,116,139,0.4)" strokeDasharray="2 2" />
+          <ReferenceLine y={ref} stroke="var(--vl-line, #E8EAF3)" strokeDasharray="2 2" />
           <Line type="monotone" dataKey="value" stroke={stroke} strokeWidth={1.75} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>

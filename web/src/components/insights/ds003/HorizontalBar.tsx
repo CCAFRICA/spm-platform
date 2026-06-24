@@ -3,7 +3,7 @@
 /**
  * DS-003 §1.2 — HorizontalBar. Decision task: COMPARISON (ranked). Sorted highest-first so ranking is
  * instant; a REQUIRED vertical reference line (average / target / budget) answers "is that good or
- * bad?". Bar fill = persona accent (environment); the reference marker is neutral slate.
+ * bad?". Bar fill = persona accent (environment); the reference marker is a neutral theme line.
  */
 
 import { usePersonaTheme } from './persona-theme';
@@ -52,7 +52,7 @@ export function HorizontalBar({
         {/* reference line spanning the bar column */}
         <div
           aria-hidden
-          className="pointer-events-none absolute bottom-0 top-0 border-l border-dashed border-slate-500/60"
+          className="pointer-events-none absolute bottom-0 top-0 border-l border-dashed border-border"
           style={{ left: `${refPct}%` }}
         />
         {sorted.map((item, i) => {
@@ -66,10 +66,10 @@ export function HorizontalBar({
               className={`group block w-full text-left ${onBarClick ? 'cursor-pointer' : ''}`}
             >
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className={`truncate text-sm ${TEXT.body} group-hover:text-slate-200`}>{item.label}</span>
+                <span className={`truncate text-sm ${TEXT.body} group-hover:text-foreground`}>{item.label}</span>
                 <span className={`shrink-0 text-sm font-semibold tabular-nums ${TEXT.headline}`}>{fmt(item.value)}</span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800/70">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{ width: `${pct}%`, backgroundColor: item.color ?? theme.accent }}
@@ -80,7 +80,7 @@ export function HorizontalBar({
         })}
       </div>
       <div className={`mt-2 text-[11px] ${TEXT.muted}`}>
-        <span className="border-l border-dashed border-slate-500/60 pl-1.5">
+        <span className="border-l border-dashed border-border pl-1.5">
           {referenceLine.label}: {fmt(referenceLine.value)}
         </span>
       </div>

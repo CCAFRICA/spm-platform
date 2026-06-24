@@ -70,7 +70,7 @@ export function ThresholdArea({ title, data, band, referenceLine, format, height
                 y={referenceLine.value}
                 stroke={SEMANTIC.amber}
                 strokeDasharray="4 4"
-                label={{ value: referenceLine.label, position: 'insideTopRight', fill: '#94a3b8', fontSize: 11 }}
+                label={{ value: referenceLine.label, position: 'insideTopRight', fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 11 }}
               />
             )}
             <Area

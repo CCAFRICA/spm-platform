@@ -15,7 +15,7 @@ const STYLE: Record<ValiditySeverity, { color: string; bg: string; border: strin
   clean: { color: SEMANTIC.green, bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.4)', icon: CheckCircle2, word: 'Verified' },
   warning: { color: SEMANTIC.amber, bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.4)', icon: AlertTriangle, word: 'Review needed' },
   critical: { color: SEMANTIC.red, bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.4)', icon: ShieldAlert, word: 'Action required' },
-  none: { color: '#64748b', bg: 'rgba(100,116,139,0.06)', border: 'rgba(100,116,139,0.35)', icon: HelpCircle, word: 'No batch' },
+  none: { color: 'var(--vl-text-soft, #8A90A6)', bg: 'var(--vl-line, #E8EAF3)', border: 'var(--vl-line, #E8EAF3)', icon: HelpCircle, word: 'No batch' },
 };
 
 export interface ValidityVerdictProps {

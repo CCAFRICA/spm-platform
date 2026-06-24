@@ -72,7 +72,7 @@ export function IntelligenceElement({
       {/* 4. action (thermostat) */}
       <div className="mt-3">
         {action.disabled ? (
-          <span className={`inline-flex items-center gap-1 rounded-md border border-dashed border-slate-700/70 px-2.5 py-1 text-xs ${TEXT.disabled}`} title="Coming soon">
+          <span className={`inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1 text-xs ${TEXT.disabled}`} title="Coming soon">
             {action.label} · soon
           </span>
         ) : action.href ? (

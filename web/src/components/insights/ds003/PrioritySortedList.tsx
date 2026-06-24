@@ -45,7 +45,7 @@ function Row({ item }: { item: PriorityItem }) {
     >
       <Icon className="h-4 w-4 shrink-0" style={{ color: s.color }} />
       <div className="min-w-0 flex-1">
-        <div className={`truncate text-sm font-medium text-slate-200`}>{item.label}</div>
+        <div className={`truncate text-sm font-medium text-foreground`}>{item.label}</div>
         {item.detail && <div className={`truncate text-xs ${TEXT.muted}`}>{item.detail}</div>}
       </div>
       {item.value && <span className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: s.color }}>{item.value}</span>}
@@ -58,20 +58,20 @@ function ActionButton({ action }: { action: PriorityAction }) {
   const base = 'shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors';
   if (action.disabled) {
     return (
-      <span className={`${base} ${TEXT.disabled} cursor-not-allowed border border-slate-700/60`} title="Coming soon">
+      <span className={`${base} ${TEXT.disabled} cursor-not-allowed border border-border`} title="Coming soon">
         {action.label}
       </span>
     );
   }
   if (action.href) {
     return (
-      <a href={action.href} className={`${base} border border-slate-600 text-slate-300 hover:bg-slate-700/50`}>
+      <a href={action.href} className={`${base} border border-border text-foreground hover:bg-muted`}>
         {action.label} <ArrowRight className="h-3 w-3" />
       </a>
     );
   }
   return (
-    <button type="button" onClick={action.onClick} className={`${base} border border-slate-600 text-slate-300 hover:bg-slate-700/50`}>
+    <button type="button" onClick={action.onClick} className={`${base} border border-border text-foreground hover:bg-muted`}>
       {action.label} <ArrowRight className="h-3 w-3" />
     </button>
   );
@@ -89,7 +89,7 @@ export function PrioritySortedList({ items, splitView, emptyLabel = 'Nothing nee
   if (items.length === 0) {
     return (
       <div className={`flex flex-col items-center gap-2 py-8 text-sm ${TEXT.muted}`}>
-        {emptyIcon ?? <CheckCircle2 className="h-8 w-8 text-slate-600" />}
+        {emptyIcon ?? <CheckCircle2 className="h-8 w-8 text-muted-foreground" />}
         <span>{emptyLabel}</span>
       </div>
     );

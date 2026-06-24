@@ -1,11 +1,14 @@
 /**
- * OB-234 T1-C — DS-003 shared tokens. The single source of truth for the visualization vocabulary's
- * color encoding (DS-003 §3) and text hierarchy, so every component in this library renders the same
- * dark-background language. Semantic colors are RESERVED for state; persona accent (from
- * usePersonaTheme) is RESERVED for environment.
+ * OB-234 T1-C — DS-003 shared tokens. THEME-AWARE (corrective): structure/text use shadcn semantic
+ * Tailwind tokens (bg-card, text-foreground, text-muted-foreground, border-border, bg-muted) which the
+ * app re-tunes per theme (Vialuce light, Dark, Bliss) — so DS-003 surfaces PARTICIPATE in the production
+ * theme, never override it. Chart internals (recharts raw color props) use the production Vialuce theme
+ * vars (--vl-*) with hex fallbacks, exactly like the OB-227 production charts. Semantic STATE colors
+ * (green/amber/red/blue) are theme-agnostic indicators and stay constant. Persona accent (environment)
+ * comes from usePersonaTheme, not here.
  */
 
-// ── Semantic state colors (DS-003 §3 — never used for brand/decoration) ───────────────────────────
+// ── Semantic state colors (state indicators — legible on light AND dark; never theme bg) ──────────
 export const SEMANTIC = {
   green: '#10B981', // healthy / on-track / positive
   amber: '#F59E0B', // warning / attention / approaching limit
@@ -24,7 +27,7 @@ export function toneColor(tone: SemanticTone | undefined): string {
     case 'warning':
       return SEMANTIC.amber;
     default:
-      return '#94A3B8'; // slate-400 neutral
+      return 'var(--vl-text-muted, #5B637C)'; // theme muted, not a fixed slate
   }
 }
 
@@ -32,15 +35,15 @@ export function toneColor(tone: SemanticTone | undefined): string {
 export function directionColor(dir: 'up' | 'down' | 'flat' | 'stable' | null | undefined): string {
   if (dir === 'up') return SEMANTIC.green;
   if (dir === 'down') return SEMANTIC.red;
-  return '#94A3B8';
+  return 'var(--vl-text-muted, #5B637C)';
 }
 
-// ── Severity (PrioritySortedList, validity verdict) ───────────────────────────────────────────────
+// ── Severity (PrioritySortedList, validity verdict) — state tints, faint over any surface ──────────
 export type Severity = 'critical' | 'warning' | 'info' | 'opportunity';
 
 export const SEVERITY: Record<Severity, { color: string; border: string; bg: string; label: string }> = {
   critical: { color: SEMANTIC.red, border: 'rgba(239,68,68,0.45)', bg: 'rgba(239,68,68,0.08)', label: 'Critical' },
-  warning: { color: SEMANTIC.amber, border: 'rgba(245,158,11,0.45)', bg: 'rgba(245,158,11,0.08)', label: 'Attention' },
+  warning: { color: SEMANTIC.amber, border: 'rgba(245,158,11,0.45)', bg: 'rgba(245,158,11,0.10)', label: 'Attention' },
   info: { color: SEMANTIC.blue, border: 'rgba(59,130,246,0.45)', bg: 'rgba(59,130,246,0.08)', label: 'Info' },
   opportunity: { color: SEMANTIC.green, border: 'rgba(16,185,129,0.45)', bg: 'rgba(16,185,129,0.08)', label: 'Opportunity' },
 };
@@ -50,30 +53,32 @@ export function bySeverity(a: { severity: Severity }, b: { severity: Severity })
   return SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
 }
 
-// ── Text hierarchy (DS-003 §3 — never pure #FFFFFF body) ──────────────────────────────────────────
+// ── Text hierarchy — shadcn semantic Tailwind classes (auto-adapt per theme) ──────────────────────
 export const TEXT = {
-  headline: 'text-slate-100', // page titles, hero values
-  sectionLabel: 'text-slate-300', // section headers (uppercase, tracking-wide)
-  body: 'text-slate-400', // descriptions, labels
-  muted: 'text-slate-500', // timestamps, metadata
-  disabled: 'text-slate-600', // truly inactive / placeholder
+  headline: 'text-foreground', // page titles, hero values
+  sectionLabel: 'text-muted-foreground', // section eyebrows (uppercase, tracking-wide)
+  body: 'text-muted-foreground', // descriptions, labels
+  muted: 'text-muted-foreground/80', // timestamps, metadata
+  disabled: 'text-muted-foreground/50', // truly inactive / placeholder
 } as const;
 
 /** A section-header className (uppercase tracking) used by every component title. */
 export const SECTION_LABEL_CLASS = `text-xs font-semibold uppercase tracking-wide ${TEXT.sectionLabel}`;
 
-// ── Surface (card) — dark, sits on the persona ambient gradient ───────────────────────────────────
-export const CARD = 'rounded-xl border border-slate-800/80 bg-slate-900/50 backdrop-blur-sm';
+// ── Surface (card) — shadcn semantic card surface; adapts to the active theme ──────────────────────
+export const CARD = 'rounded-xl border border-border bg-card shadow-sm';
 export const CARD_PAD = 'p-4 sm:p-5';
+/** Translucent "track"/well behind bars — theme muted, never a fixed slate. */
+export const TRACK = 'bg-muted';
 
-// ── Data-encoding palette (categorical, dark-safe) — DS-003 §3 ────────────────────────────────────
+// ── Data-encoding palette (categorical) — saturated tones legible on light AND dark ────────────────
 export const DATA_PALETTE = [
-  '#818cf8', // indigo-400
-  '#6ee7b7', // emerald-300
-  '#fbbf24', // amber-400
-  '#60a5fa', // blue-400
-  '#f472b6', // pink-400
-  '#a78bfa', // violet-400
+  '#4446B8', // indigo (vialuce brand)
+  '#E8A838', // gold (vialuce signal)
+  '#15936A', // emerald
+  '#3B82F6', // blue
+  '#7C3AED', // violet
+  '#DB2777', // pink
 ] as const;
 
 export function paletteColor(i: number): string {
@@ -101,14 +106,16 @@ export function signedPct(fraction: number): string {
   return `${sign}${Math.abs(pct).toFixed(1)}%`;
 }
 
-/** Recharts tooltip surface style (dark). */
+// ── recharts chrome — production Vialuce theme vars (--vl-*) with hex fallbacks (OB-227 pattern) ───
 export const TOOLTIP_STYLE = {
-  background: '#0f172a',
-  border: '1px solid rgba(51,65,85,0.8)',
+  background: 'var(--vl-surface, #FFFFFF)',
+  border: '1px solid var(--vl-line, #E8EAF3)',
   borderRadius: 8,
-  color: '#e2e8f0',
+  color: 'var(--vl-text, #1A1A2E)',
   fontSize: 12,
 } as const;
 
-export const GRID_STROKE = 'rgba(51,65,85,0.4)'; // slate-700/40
-export const AXIS_TICK = { fill: '#64748b', fontSize: 11 }; // slate-500
+export const GRID_STROKE = 'var(--vl-line, #E8EAF3)';
+export const AXIS_TICK = { fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 11 };
+/** Neutral chart accent when no persona/series color applies (vialuce indigo brand). */
+export const CHART_NEUTRAL = 'var(--vl-kpi-accent, #4446B8)';

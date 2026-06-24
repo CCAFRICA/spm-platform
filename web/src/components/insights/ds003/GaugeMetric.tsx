@@ -66,7 +66,7 @@ export function GaugeMetric({
             barSize={14}
           >
             <PolarAngleAxis type="number" domain={[min, max]} angleAxisId={0} tick={false} />
-            <RadialBar background={{ fill: 'rgba(51,65,85,0.4)' }} dataKey="value" cornerRadius={8} />
+            <RadialBar background={{ fill: 'var(--vl-line, #E8EAF3)' }} dataKey="value" cornerRadius={8} />
           </RadialBarChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">

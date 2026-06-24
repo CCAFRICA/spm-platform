@@ -27,7 +27,7 @@ export function StubAction({ label, description, icon: Icon, variant = 'card', c
       <span
         aria-disabled
         title={description ?? 'Coming soon'}
-        className={`inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-dashed border-slate-700/70 px-2.5 py-1 text-xs ${TEXT.disabled} ${className ?? ''}`}
+        className={`inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1 text-xs ${TEXT.disabled} ${className ?? ''}`}
       >
         {Icon ? <Icon className="h-3.5 w-3.5" /> : <Lock className="h-3 w-3" />}
         {label}
@@ -38,12 +38,12 @@ export function StubAction({ label, description, icon: Icon, variant = 'card', c
   return (
     <div
       aria-disabled
-      className={`flex cursor-not-allowed flex-col items-start gap-1 rounded-lg border border-dashed border-slate-700/70 bg-slate-900/30 p-3 ${className ?? ''}`}
+      className={`flex cursor-not-allowed flex-col items-start gap-1 rounded-lg border border-dashed border-border bg-card p-3 ${className ?? ''}`}
     >
       <div className={`flex items-center gap-2 text-sm font-medium ${TEXT.body}`}>
         {Icon ? <Icon className="h-4 w-4" /> : <Lock className="h-3.5 w-3.5" />}
         {label}
-        <span className="rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Coming soon
         </span>
       </div>

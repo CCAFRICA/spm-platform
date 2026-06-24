@@ -93,18 +93,18 @@ export function DistributionPosition({
               formatter={(v: number) => [`${v} entities`, 'count']}
               labelFormatter={(x: number) => fmt(x)}
             />
-            {markers.mean && <ReferenceLine x={mean} stroke={SEMANTIC.amber} strokeDasharray="3 3" label={{ value: 'avg', position: 'top', fill: '#94a3b8', fontSize: 10 }} />}
+            {markers.mean && <ReferenceLine x={mean} stroke={SEMANTIC.amber} strokeDasharray="3 3" label={{ value: 'avg', position: 'top', fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 10 }} />}
             {markers.quartiles && (
               <>
-                <ReferenceLine x={p25} stroke="rgba(148,163,184,0.5)" strokeDasharray="2 2" label={{ value: 'P25', position: 'top', fill: '#64748b', fontSize: 10 }} />
-                <ReferenceLine x={p50} stroke="rgba(148,163,184,0.7)" label={{ value: 'P50', position: 'top', fill: '#94a3b8', fontSize: 10 }} />
-                <ReferenceLine x={p75} stroke="rgba(148,163,184,0.5)" strokeDasharray="2 2" label={{ value: 'P75', position: 'top', fill: '#64748b', fontSize: 10 }} />
+                <ReferenceLine x={p25} stroke="var(--vl-line, #E8EAF3)" strokeDasharray="2 2" label={{ value: 'P25', position: 'top', fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 10 }} />
+                <ReferenceLine x={p50} stroke="var(--vl-line, #E8EAF3)" label={{ value: 'P50', position: 'top', fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 10 }} />
+                <ReferenceLine x={p75} stroke="var(--vl-line, #E8EAF3)" strokeDasharray="2 2" label={{ value: 'P75', position: 'top', fill: 'var(--vl-text-soft, #8A90A6)', fontSize: 10 }} />
               </>
             )}
             {self && <ReferenceLine x={self.value} stroke={theme.accent} strokeWidth={2} label={{ value: self.label ?? 'You', position: 'insideTopRight', fill: theme.accent, fontSize: 11 }} />}
             <Bar dataKey="count" radius={[3, 3, 0, 0]}>
               {bins.map((_, i) => (
-                <Cell key={i} fill={i === selfBin ? theme.accent : 'rgba(99,102,241,0.45)'} />
+                <Cell key={i} fill={i === selfBin ? theme.accent : theme.accentBorder} />
               ))}
             </Bar>
           </BarChart>
