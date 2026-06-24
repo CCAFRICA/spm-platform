@@ -136,3 +136,25 @@ Convergence wrote signals it never read (TMR-C93: "convergence writes but never 
   The warm candidate line carries `learned: …; aggregation: …; human correction: …`; the cold line is the bare `"col" (type=…, identity=…) [range]`. PG-7's "cheaper outcome versus a cold run with signals absent" is met: the convergence call now reads learned comprehension + canonical-surface corrections the cold run lacked. The one independent LLM call remains (token→column matching is its job) — P7 makes that call *informed*, not redundant.
 - **P1 follow-up (test mocks).** P1's `.select('id').single()` on the single-write path broke two hand-rolled test mocks (`canonical-signal-writer.test.ts`, `adaptive-emergence.test.ts`) whose `insert()` wasn't chainable. Both mocks now return a thenable that also exposes `.select().single()`. **Full suite 289/289.**
 - **NO REGISTRY (grep clean):** the only `new Set(...)` is a column-name dedup; no enum/allowed-value gate; no field-name literals in the module. **tsc = 0.** Build green (§build).
+
+## 6. PG-EXP — Cross-tenant expression-binding inheritance (Tier-1 · the guarded layer)
+
+HF-337 built the **same-tenant** read-back (recognize once, read forever); no new tenant benefited from another's `surface_bindings`. P-EXP adds the **cross-tenant** flywheel: a fresh tenant whose comprehension fingerprint matches an established binding **inherits it at cold-start — as a discounted, verified prior, never an assertion.** New module `lib/learning/expression/binding-inheritance.ts`; **one additive miss-path edit** to `lib/comprehension/surface-binding-recognition.ts` (the step-2 read-back, the step-4 persist, and the graceful-degradation path are untouched).
+
+- **(B)-layer, additive.** The new step 2b sits **between** the same-tenant cache miss and the cold LLM: on a miss, `findCrossTenantPrior` queries `surface_bindings` by `(structural_fingerprint_hash, surface_id)` with **`tenant_id` dropped** (HF-337's cross-tenant index; self excluded), preferring the most-confident donor with a non-empty `resolved_fields`.
+- **The "recognized, not reconciled" guard (load-bearing).** A binding is a DONOR-tenant LLM judgement; structural-fingerprint similarity is not semantic identity. Before adopting, `verifyInheritedBinding` scores the **lexical overlap between the binding's purpose and the RECEIVING tenant's own characterization** of each inherited field (token-set Jaccard ∪ char-trigram Jaccard — language-agnostic, no fixed vocabulary, never a domain-dictionary substring-match). **Pass (≥ 0.12) → adopt as a ×0.6 discounted prior, skip the LLM.** **Fail → discard, fall through to the receiving tenant's own LLM recognition.** Conservative by design: low/zero overlap (incl. a cross-language pair) → FAIL → the LLM runs (never wrong; only the perf win is forgone).
+- **Proof (`scripts/_ob235-pexp-proof.ts`, donor=Sabor, receiver=BCL, synthetic surface — no real binding touched):**
+  ```
+  receiver=BCL comprehension fields=21 fingerprint=bd420220b2f76621…
+  PASS field="Region"      sim=1.000 (≥ 0.12)
+  FAIL field="Nivel_Cargo" sim=0.065 (< 0.12)
+  (i)   inherit cold-start: status=resolved inherited=true llmCalls=0 conf=0.54 (0.9 ×0.6) → PASS
+  (iii) PG-PATHA read-back: fromCache=true llmCalls=0 → PASS (additive edit did not regress the cache path)
+  (ii)  guard fires:        inherited=false llmCalls=1 (own recognition ran) → PASS  [prior discarded score=0.080]
+  PG-EXP: PASS
+  ```
+  (i) A fresh receiver inherits at cold-start with **0 recognition LLM calls** at **discounted** confidence 0.54. (ii) When the donor binds a field whose receiving characterization fails the guard, the prior is **discarded** and BCL's own recognition runs (1 LLM call) — the guard proven firing. (iii) PG-PATHA holds (`fromCache=true`, 0 LLM).
+- **HF-337 PG-PATHA fully re-proven** (`scripts/_hf337-p2c-proof.ts`, with the additive edit live): (i) recognition miss→LLM `resolved`; (ii) memoization `fromCache=true` no LLM; (iii) graceful degradation `unresolved` for a no-satisfying-field purpose. The producer did not regress (Sabor's fingerprint is unique → `findCrossTenantPrior` returns null → falls through exactly as before). **Full suite 289/289.**
+- **Persist + consolidate.** On a verified inherit, the receiving tenant's **own** discounted row is upserted (`recognized_by='inherited'`) and a `surface_binding_recognition` signal is emitted via the canonical writer (`source='binding-inheritance'`, `inherited_from`=donor, `verification_score`) — re-encounter is then a pure cache hit, and the consolidation feeds the flywheel further.
+- **Merge-order:** P-EXP touches `surface-binding-recognition.ts`, which **P9 also touches** — P-EXP merges before P9 (declared); no other Tier-1 phase touches that file.
+- **NO REGISTRY (grep clean):** keys strictly on `(structural_fingerprint_hash, surface_id)`; no intent/role/property vocabulary; no enum/allowed-value gate (the only "registry" hit is HF-337's "registry bright line" comment); no domain literals. **tsc = 0.** Build green (§build).

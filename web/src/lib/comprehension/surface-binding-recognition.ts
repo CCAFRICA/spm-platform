@@ -20,6 +20,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { streamAnthropicText, stripFences, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
 import { defaultModel } from '@/lib/ai/model-policy';
 import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
+// OB-235 P-EXP: cross-tenant binding inheritance — a discounted, receiving-comprehension-verified prior.
+import { findCrossTenantPrior, verifyInheritedBinding, discountConfidence } from '@/lib/learning/expression/binding-inheritance';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -30,7 +32,8 @@ export interface ResolvedField {
 }
 
 export type RecognitionResult =
-  | { status: 'resolved'; fields: ResolvedField[]; confidence: number; fingerprint: string; fromCache: boolean }
+  // OB-235 P-EXP: `inherited` flags a binding adopted from a verified cross-tenant prior (discounted, no LLM).
+  | { status: 'resolved'; fields: ResolvedField[]; confidence: number; fingerprint: string; fromCache: boolean; inherited?: boolean }
   | { status: 'unresolved'; reason: string; fingerprint: string; fromCache: boolean };
 
 const SEP = '␟'; // unit separator — Korean-clean join (no language content)
@@ -83,6 +86,47 @@ export async function recognize(
     return fields.length > 0
       ? { status: 'resolved', fields, confidence: (cached as any).confidence ?? 0, fingerprint, fromCache: true }
       : { status: 'unresolved', reason: 'cached: no satisfying field', fingerprint, fromCache: true };
+  }
+
+  // 2b. OB-235 P-EXP (ADDITIVE miss-path step; the read-back at step 2 is untouched): before the cold LLM
+  //     recognition, look for an ESTABLISHED cross-tenant binding for this comprehension fingerprint + surface
+  //     (tenant_id DROPPED). A binding is a DONOR-tenant LLM judgement, so it is never asserted: VERIFY the
+  //     inherited field's characterization in THIS (receiving) tenant's comprehension against the surface's
+  //     purpose. PASS → adopt as a ×0.6 discounted prior, skip the LLM (persist our OWN row + emit the
+  //     signal — the consolidation feeds the flywheel). FAIL/none → discard and fall through to the LLM below.
+  const prior = await findCrossTenantPrior(sb, tenantId, fingerprint, surfaceId);
+  if (prior) {
+    const charByField = new Map<string, string>(rows.map((r) => [r.field_name,
+      [r.characterization, r.data_nature, r.relationships, r.aggregation_behavior, r.identifies].filter(Boolean).join(' ')]));
+    const v = verifyInheritedBinding(prior, charByField);
+    if (v.verified) {
+      const inheritedFields: ResolvedField[] = prior.resolvedFields
+        .filter((f) => labelOf.has(f.field_name)) // only fields THIS tenant actually comprehends
+        .map((f) => ({ field_name: f.field_name, display_label: labelOf.get(f.field_name) ?? null, confidence: discountConfidence(f.confidence) }));
+      if (inheritedFields.length > 0) {
+        const confidence = Math.max(...inheritedFields.map((f) => f.confidence));
+        const now0 = new Date().toISOString();
+        // persist the RECEIVING tenant's own row (discounted, recognized_by='inherited') so re-encounter is a
+        // pure cache hit (PG-PATHA holds) — additive to, not a mutation of, the step-4 self-recognition persist.
+        try {
+          await sb.from('surface_bindings').upsert({
+            tenant_id: tenantId, structural_fingerprint_hash: fingerprint, surface_id: surfaceId,
+            purpose_text: purposeText, resolved_fields: inheritedFields, confidence, recognized_by: 'inherited', updated_at: now0,
+          }, { onConflict: 'tenant_id,structural_fingerprint_hash,surface_id' });
+        } catch (e) { console.warn('[OB-235 P-EXP] inherited surface_bindings upsert failed:', e instanceof Error ? e.message : e); }
+        try {
+          await writeSignalWithClient({
+            tenantId, entityId: null,
+            signalType: 'surface_binding_recognition',
+            signalValue: { surface_id: surfaceId, structural_fingerprint_hash: fingerprint, resolved_fields: inheritedFields, purpose: purposeText, inherited_from: prior.donorTenantId, verification_score: v.score },
+            source: 'binding-inheritance', context: { confidence, inherited: true, discounted: true },
+          }, sb);
+        } catch (e) { console.warn('[OB-235 P-EXP] inherited binding signal failed:', e instanceof Error ? e.message : e); }
+        console.log(`[OB-235 P-EXP] inherited cross-tenant binding for surface=${surfaceId} from donor=${prior.donorTenantId.slice(0, 8)} (verified score=${v.score.toFixed(3)}; discounted conf=${confidence}) — LLM skipped`);
+        return { status: 'resolved', fields: inheritedFields, confidence, fingerprint, fromCache: false, inherited: true };
+      }
+    }
+    console.log(`[OB-235 P-EXP] cross-tenant prior DISCARDED for surface=${surfaceId} (receiving-comprehension verification ${v.verified ? 'matched no comprehended field' : `failed: score=${v.score.toFixed(3)}`}) — falling through to own LLM recognition`);
   }
 
   // 3. miss -> ONE temp-0 LLM recognition (free-form purpose x free-form characterization; no property boxes)
