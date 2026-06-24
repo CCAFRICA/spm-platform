@@ -1,52 +1,106 @@
 'use client';
 
 /**
- * Insights → Trends. OB-227 Phase 5: rebuilt from 100% mock constants to REAL cross-period
- * trajectory (DS-015 §6) over calculation_results. Population trend, per-entity direction/velocity,
- * and per-component trend lines — all from lib/insights (deterministic, Korean Test). Shows ALL
- * calculated periods (no single-period selector).
+ * OB-234 T2 — Intelligence · Trends (/insights/trends). The TEMPORAL axis. Cross-period trajectory
+ * across ALL calculated periods — there is no single-period selector here (honest: this surface spans
+ * every period), so PeriodCards is intentionally OMITTED. End-State A: every value reads
+ * getPopulationTrend / getEntityTrajectory / getComponentTotals / getCalculatedPeriods from
+ * @/lib/insights (calculation_results) — zero committed_data, zero raw createClient queries.
+ *
+ * DS-003 composition (Diversity Minimum ≥3): ThresholdArea (temporal w/ expected band, DOMINANT) +
+ * SparkTrend (trend + velocity + projection) + PrioritySortedList (splitView gainers/decliners) +
+ * Sparkline (embedded per-entity series) = 4 component types. Every viz carries a reference frame:
+ * ThresholdArea band = mean±std, SparkTrend velocity/projection, PrioritySortedList severity sort,
+ * Sparkline baseline. Persona density filters which depth renders (Rule 4). PersonaAmbient wraps body.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowUp, ArrowDown, Minus, TrendingUp } from 'lucide-react';
-import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useIsVialuce } from '@/hooks/use-is-vialuce';
-import { InsightsLayout, SummaryHero, TrendLine, type HeroCard } from '@/components/insights';
-import {
-  getCalculatedPeriods, getPopulationTrend, getEntityTrajectory, getComponentTotals,
-  type PeriodSummary, type PopulationTrendPoint, type EntityTrajectory,
-} from '@/lib/insights';
 
-const DIR_ICON = { up: ArrowUp, down: ArrowDown, stable: Minus } as const;
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { ArrowDown, ArrowUp, Minus, Target, TrendingUp } from 'lucide-react';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import {
+  getCalculatedPeriods,
+  getPopulationTrend,
+  getEntityTrajectory,
+  getComponentTotals,
+  type PeriodSummary,
+  type PopulationTrendPoint,
+  type EntityTrajectory,
+} from '@/lib/insights';
+import {
+  PersonaAmbient,
+  DensityGate,
+  usePersonaTheme,
+  HeroMetric,
+  ThresholdArea,
+  SparkTrend,
+  Sparkline,
+  PrioritySortedList,
+  Panel,
+  TEXT,
+  paletteColor,
+  type PriorityItem,
+} from '@/components/insights/ds003';
+
+type ComponentSeries = { name: string; series: { label: string; value: number }[] };
+
+/** Compact supporting stat tile (mirrors the reference Stat helper). */
+function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+      <div className={`text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>{label}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
+      <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
+    </div>
+  );
+}
+
+/** Linear extrapolation of the next period from ≥3 chronological totals (least-squares slope). */
+function projectNext(values: number[]): number | null {
+  if (values.length < 3) return null;
+  const n = values.length;
+  const xMean = (n - 1) / 2;
+  const yMean = values.reduce((s, v) => s + v, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (i - xMean) * (values[i] - yMean);
+    den += (i - xMean) * (i - xMean);
+  }
+  if (den === 0) return null;
+  const slope = num / den;
+  const intercept = yMean - slope * xMean;
+  return Math.max(0, intercept + slope * n);
+}
 
 export default function TrendsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const isVialuce = useIsVialuce();
-  const tenantId = currentTenant?.id ?? '';
+  const theme = usePersonaTheme();
 
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [trend, setTrend] = useState<PopulationTrendPoint[]>([]);
   const [trajectory, setTrajectory] = useState<EntityTrajectory[]>([]);
-  const [componentTrends, setComponentTrends] = useState<Array<{ name: string; series: { label: string; value: number }[] }>>([]);
+  const [componentTrends, setComponentTrends] = useState<ComponentSeries[]>([]);
 
+  // ALL-periods cross-period read — the clean End-State A path (no committed_data, no raw query).
   useEffect(() => {
-    if (!tenantId) return;
+    if (!currentTenant) return;
     let cancelled = false;
     setLoading(true);
     (async () => {
       const [cp, pt, tj] = await Promise.all([
-        getCalculatedPeriods(tenantId),
-        getPopulationTrend(tenantId),
-        getEntityTrajectory(tenantId),
+        getCalculatedPeriods(currentTenant.id),
+        getPopulationTrend(currentTenant.id),
+        getEntityTrajectory(currentTenant.id),
       ]);
-      // per-component totals per period → trend series (chronological)
+      // per-component totals per period → chronological trend series.
       const periodsAsc = [...cp].sort((a, b) => a.start_date.localeCompare(b.start_date));
       const byComponent = new Map<string, { label: string; value: number }[]>();
       for (const p of periodsAsc) {
-        const comps = await getComponentTotals(tenantId, p.period_id);
+        const comps = await getComponentTotals(currentTenant.id, p.period_id);
         for (const c of comps) {
           const arr = byComponent.get(c.component_name) ?? [];
           arr.push({ label: p.label, value: c.total_amount });
@@ -58,108 +112,274 @@ export default function TrendsPage() {
       setTrend(pt);
       setTrajectory(tj);
       setComponentTrends(Array.from(byComponent.entries()).map(([name, series]) => ({ name, series })));
+      setLoaded(true);
       setLoading(false);
-    })().catch(() => { if (!cancelled) setLoading(false); });
+    })().catch((err) => {
+      console.warn('[Trends] load failed:', err);
+      if (!cancelled) { setLoaded(true); setLoading(false); }
+    });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [currentTenant]);
 
-  const hero = useMemo<HeroCard[]>(() => {
-    if (trend.length === 0) return [];
-    const first = trend[0].total, last = trend[trend.length - 1].total;
-    const popDir = last > first * 1.005 ? 'up' : last < first * 0.995 ? 'down' : 'stable';
-    const velocities = trajectory.map(t => t.velocity).filter((v): v is number => v !== null);
-    const avgVel = velocities.length ? velocities.reduce((s, v) => s + v, 0) / velocities.length : 0;
-    const sortedByVel = [...trajectory].filter(t => t.velocity !== null).sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0));
-    const fastestUp = sortedByVel[0];
-    const fastestDown = sortedByVel[sortedByVel.length - 1];
+  // Derived temporal frame: population band (mean±std), velocity, projection.
+  const pop = useMemo(() => {
+    if (trend.length === 0) return null;
+    const totals = trend.map((t) => t.total);
+    const mean = totals.reduce((s, v) => s + v, 0) / totals.length;
+    const variance = totals.reduce((s, v) => s + (v - mean) ** 2, 0) / totals.length;
+    const std = Math.sqrt(variance);
+    const first = totals[0];
+    const last = totals[totals.length - 1];
+    const dir: 'up' | 'down' | 'flat' = last > first * 1.005 ? 'up' : last < first * 0.995 ? 'down' : 'flat';
+    const overallDelta = first > 0 ? (last - first) / first : null;
+    // avg period-over-period change rate (currency / period).
+    const steps = totals.slice(1).map((v, i) => v - totals[i]);
+    const avgChange = steps.length ? steps.reduce((s, v) => s + v, 0) / steps.length : 0;
+    const projection = projectNext(totals); // null if <3 periods (honest)
+    return {
+      mean, std, dir, overallDelta, avgChange, projection,
+      series: trend.map((t) => ({ label: t.label, value: t.total })),
+      band: { low: Math.max(0, mean - std), high: mean + std, label: 'Expected (mean ± σ)' },
+      latest: last,
+    };
+  }, [trend]);
+
+  // Avg velocity across entities (DS-015: velocity needs ≥3 periods → null otherwise).
+  const avgVelocity = useMemo(() => {
+    const vs = trajectory.map((t) => t.velocity).filter((v): v is number => v !== null);
+    return vs.length ? vs.reduce((s, v) => s + v, 0) / vs.length : null;
+  }, [trajectory]);
+
+  // Movers split: opportunities (up) vs warnings (down) — the triage reference frame.
+  const movers = useMemo<PriorityItem[]>(() => {
+    const withVel = trajectory.filter((t) => t.velocity !== null);
+    const sorted = [...withVel].sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0));
+    const gaining = sorted.filter((t) => t.direction === 'up').slice(0, 5);
+    const declining = sorted.filter((t) => t.direction === 'down').slice(-5).reverse();
+    const fmtVel = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${format(v)}/period`);
     return [
-      { label: 'Periods calculated', value: periods.length, format: 'number' },
-      { label: 'Population direction', value: popDir === 'up' ? '↑ Rising' : popDir === 'down' ? '↓ Falling' : '→ Stable', format: 'text', tone: popDir === 'up' ? 'up' : popDir === 'down' ? 'down' : 'neutral', emphasis: true },
-      { label: 'Avg velocity', value: avgVel, format: 'currency', detail: 'per period' },
-      { label: 'Fastest growing', value: fastestUp?.display_name ?? '—', format: 'text', detail: fastestUp?.velocity != null ? format(fastestUp.velocity) + '/period' : undefined, tone: 'up' },
-      { label: 'Fastest declining', value: fastestDown && fastestDown !== fastestUp ? fastestDown.display_name : '—', format: 'text', detail: fastestDown?.velocity != null ? format(fastestDown.velocity) + '/period' : undefined, tone: 'down' },
+      ...gaining.map((t): PriorityItem => ({
+        id: `up-${t.entity_id}`,
+        severity: 'opportunity',
+        label: t.display_name,
+        detail: t.delta != null ? `Δ latest ${t.delta >= 0 ? '+' : ''}${format(t.delta)}` : 'rising',
+        value: fmtVel(t.velocity),
+      })),
+      ...declining.map((t): PriorityItem => ({
+        id: `down-${t.entity_id}`,
+        severity: 'warning',
+        label: t.display_name,
+        detail: t.delta != null ? `Δ latest ${t.delta >= 0 ? '+' : ''}${format(t.delta)}` : 'declining',
+        value: fmtVel(t.velocity),
+      })),
     ];
-  }, [trend, trajectory, periods, format]);
+  }, [trajectory, format]);
 
-  const trendData = useMemo(() => trend.map(t => ({ label: t.label, value: t.total, secondary: t.avg })), [trend]);
-  const trajectorySorted = useMemo(() => [...trajectory].sort((a, b) => (b.velocity ?? -Infinity) - (a.velocity ?? -Infinity)), [trajectory]);
+  // Entity trajectory table rows (top-N by velocity), each with its own Sparkline series.
+  const tableRows = useMemo(() => {
+    const sorted = [...trajectory].sort((a, b) => (b.velocity ?? -Infinity) - (a.velocity ?? -Infinity));
+    return sorted.slice(0, 25).map((t) => ({
+      id: t.entity_id,
+      name: t.display_name,
+      direction: t.direction,
+      delta: t.delta,
+      velocity: t.velocity,
+      latest: t.periods[t.periods.length - 1]?.total_payout ?? 0,
+      seriesNums: t.periods.map((p) => p.total_payout),
+    }));
+  }, [trajectory]);
+
+  // ── Loading shell (mirror reference) ──
+  if (loading && !loaded) {
+    return (
+      <PersonaAmbient>
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+            <p className={TEXT.body}>Loading trends…</p>
+          </div>
+        </div>
+      </PersonaAmbient>
+    );
+  }
+
+  // ── No calculated periods → honest onboarding (mirror reference) ──
+  if (loaded && periods.length === 0) {
+    return (
+      <PersonaAmbient>
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <TrendingUp className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>No trend data yet</h1>
+          <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>
+            Cross-period trends appear once two or more compensation runs complete — population trajectory,
+            per-entity velocity, and component movement over time.
+          </p>
+          <Link href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+            <Target className="h-4 w-4" /> Go to Compensation
+          </Link>
+        </div>
+      </PersonaAmbient>
+    );
+  }
+
+  const periodCount = periods.length;
+  const singlePeriod = trend.length < 2; // can't show direction/velocity honestly
 
   return (
-    <div className={isVialuce ? 'page space-y-6' : 'min-h-screen bg-background p-6 space-y-6'}>
-      <InsightsLayout
-        title="Trends"
-        description="Cross-period trajectory across all calculated periods."
-        periods={periods}
-        selectedPeriodId=""
-        onPeriodChange={() => {}}
-        hidePeriodSelector
-      >
-        {loading ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>
-        ) : periods.length === 0 ? (
-          <Card><CardContent className="py-16 text-center text-sm text-muted-foreground">
-            No calculated periods yet. Run a calculation to see cross-period trends.
-          </CardContent></Card>
+    <PersonaAmbient>
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <header>
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Trends</h1>
+          <p className={`mt-1 text-sm ${TEXT.body}`}>
+            Cross-period trajectory across all {periodCount} calculated period{periodCount === 1 ? '' : 's'}
+            {pop ? ` · latest ${format(pop.latest)}` : ''}
+          </p>
+        </header>
+
+        {singlePeriod || !pop ? (
+          <Panel>
+            <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+              {singlePeriod
+                ? 'Only one calculated period — trends need at least two periods to show direction and velocity.'
+                : 'No trend outcomes available.'}
+            </div>
+          </Panel>
         ) : (
-          <div className="space-y-6">
-            <SummaryHero cards={hero} />
+          <>
+            {/* DOMINANT: population trajectory with the expected band + supporting stat tiles. */}
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="lg:col-span-1">
+                <HeroMetric
+                  label="Population Direction"
+                  value={pop.dir === 'up' ? 'Rising' : pop.dir === 'down' ? 'Falling' : 'Stable'}
+                  icon={pop.dir === 'up' ? ArrowUp : pop.dir === 'down' ? ArrowDown : Minus}
+                  context={{
+                    direction: pop.dir,
+                    label: pop.overallDelta == null
+                      ? `${format(pop.latest)} latest`
+                      : `${pop.overallDelta >= 0 ? '+' : ''}${(pop.overallDelta * 100).toFixed(1)}% over ${periodCount} periods`,
+                  }}
+                  subtitle={`avg change ${pop.avgChange >= 0 ? '+' : ''}${format(pop.avgChange)} / period`}
+                />
+              </div>
+              <Stat
+                label="Avg Velocity"
+                value={avgVelocity == null ? '—' : `${avgVelocity >= 0 ? '+' : ''}${format(avgVelocity)}`}
+                hint={avgVelocity == null ? 'needs 3+ periods' : 'per entity / period'}
+              />
+              <Stat
+                label="Population Mean"
+                value={format(pop.mean)}
+                hint={`±${format(pop.std)} σ band`}
+              />
+              <Stat
+                label="Projected Next"
+                value={pop.projection == null ? '—' : format(pop.projection)}
+                hint={pop.projection == null ? 'needs 3+ periods' : 'linear extrapolation'}
+              />
+            </div>
 
-            <Card>
-              <CardHeader><CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" />Population trend</CardTitle>
-                <CardDescription>Total payout and average per entity, by period.</CardDescription></CardHeader>
-              <CardContent><TrendLine data={trendData} primaryName="Total payout" secondaryName="Avg per entity" height={300} /></CardContent>
-            </Card>
+            {/* DOMINANT viz: temporal area with mean±std band = the expected range reference frame. */}
+            <Panel title="Population Trend" description="Total payout by period, against the expected mean ± σ band">
+              <ThresholdArea
+                data={pop.series}
+                band={pop.band}
+                referenceLine={{ value: pop.mean, label: 'Mean' }}
+                format={format}
+                height={300}
+              />
+            </Panel>
 
-            <Card>
-              <CardHeader><CardTitle className="text-base">Entity trajectory</CardTitle>
-                <CardDescription>Direction, latest delta and velocity ($/period) per entity (DS-015: delta needs 2 periods, velocity 3).</CardDescription></CardHeader>
-              <CardContent>
-                <div className="rounded-md border overflow-x-auto max-h-[420px]">
-                  <Table>
-                    <TableHeader><TableRow>
-                      <TableHead>Entity</TableHead><TableHead>Direction</TableHead>
-                      <TableHead className="text-right">Δ Latest</TableHead><TableHead className="text-right">Velocity</TableHead><TableHead className="text-right">Latest</TableHead>
-                    </TableRow></TableHeader>
-                    <TableBody>
-                      {trajectorySorted.map(t => {
-                        const Icon = t.direction ? DIR_ICON[t.direction] : Minus;
-                        const tone = t.direction === 'up' ? 'text-[color:var(--vl-success,#15936A)]' : t.direction === 'down' ? 'text-[color:var(--vl-danger,#DC5454)]' : 'text-muted-foreground';
-                        const latest = t.periods[t.periods.length - 1]?.total_payout ?? 0;
-                        return (
-                          <TableRow key={t.entity_id}>
-                            <TableCell className="font-medium">{t.display_name}</TableCell>
-                            <TableCell><span className={`inline-flex items-center gap-1 text-sm ${tone}`}><Icon className="h-3.5 w-3.5" />{t.direction ?? '—'}</span></TableCell>
-                            <TableCell className={`text-right tabular-nums text-sm ${tone}`}>{t.delta == null ? '—' : `${t.delta > 0 ? '+' : ''}${format(t.delta)}`}</TableCell>
-                            <TableCell className={`text-right tabular-nums text-sm ${tone}`}>{t.velocity == null ? '—' : `${t.velocity > 0 ? '+' : ''}${format(t.velocity)}`}</TableCell>
-                            <TableCell className="text-right tabular-nums font-semibold">{format(latest)}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Trend + velocity + projection (dotted projected point). */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Trajectory & Projection" description="Period totals with velocity and the projected next period">
+                <SparkTrend
+                  data={pop.series}
+                  direction={pop.dir}
+                  velocity={`${pop.avgChange >= 0 ? '+' : ''}${format(pop.avgChange)} / period`}
+                  projection={pop.projection}
+                  format={format}
+                  height={160}
+                />
+              </Panel>
 
-            {componentTrends.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="text-base">Component trends</CardTitle>
-                  <CardDescription>Total per component across periods.</CardDescription></CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                    {componentTrends.map(c => (
-                      <div key={c.name}>
-                        <div className="text-sm font-medium mb-1">{c.name}</div>
-                        <TrendLine data={c.series} primaryName={c.name} height={180} />
+              {/* Triage: gainers (opportunity) vs decliners (warning) — severity-sorted. */}
+              <Panel title="Movers" description="Fastest growing and declining entities by velocity ($/period)">
+                <PrioritySortedList
+                  items={movers}
+                  splitView
+                  emptyLabel="No directional movers yet (needs 3+ periods for velocity)."
+                />
+              </Panel>
+            </div>
+
+            {/* Per-component movement across periods — admin/manager depth. */}
+            <DensityGate min="medium">
+              {componentTrends.length > 0 && (
+                <Panel title="Component Trends" description="Total per component across periods, each with its own trajectory">
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                    {componentTrends.map((c) => (
+                      <div key={c.name} className="rounded-lg border border-slate-800/80 bg-slate-900/40 p-3">
+                        <SparkTrend
+                          title={c.name}
+                          data={c.series}
+                          projection={projectNext(c.series.map((s) => s.value))}
+                          format={format}
+                          height={110}
+                        />
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                </Panel>
+              )}
+            </DensityGate>
+
+            {/* Entity trajectory table — top movers, each row carrying an embedded Sparkline. Admin depth. */}
+            <DensityGate min="high">
+              <Panel title="Entity Trajectory" description="Top 25 by velocity — direction, latest Δ, velocity, and the per-entity trend shape">
+                <div className="max-h-[460px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-800/80">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-900/90 backdrop-blur-sm">
+                      <tr className={`text-left ${TEXT.body}`}>
+                        <th className="px-3 py-2 font-medium">Entity</th>
+                        <th className="px-3 py-2 font-medium">Trend</th>
+                        <th className="px-3 py-2 text-center font-medium">Dir</th>
+                        <th className="px-3 py-2 text-right font-medium">Δ Latest</th>
+                        <th className="px-3 py-2 text-right font-medium">Velocity</th>
+                        <th className="px-3 py-2 text-right font-medium">Latest</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableRows.map((r, i) => {
+                        const tone = r.direction === 'up' ? '#10B981' : r.direction === 'down' ? '#EF4444' : '#94A3B8';
+                        const DirIcon = r.direction === 'up' ? ArrowUp : r.direction === 'down' ? ArrowDown : Minus;
+                        return (
+                          <tr key={r.id} className="border-t border-slate-800/60">
+                            <td className={`px-3 py-2 font-medium ${TEXT.headline}`}>{r.name}</td>
+                            <td className="px-3 py-2">
+                              <Sparkline data={r.seriesNums} color={paletteColor(i)} />
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <DirIcon className="inline h-3.5 w-3.5" style={{ color: tone }} />
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums" style={{ color: tone }}>
+                              {r.delta == null ? '—' : `${r.delta >= 0 ? '+' : ''}${format(r.delta)}`}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums" style={{ color: tone }}>
+                              {r.velocity == null ? '—' : `${r.velocity >= 0 ? '+' : ''}${format(r.velocity)}`}
+                            </td>
+                            <td className={`px-3 py-2 text-right font-semibold tabular-nums ${TEXT.headline}`}>{format(r.latest)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            </DensityGate>
+          </>
         )}
-      </InsightsLayout>
-    </div>
+      </div>
+    </PersonaAmbient>
   );
 }
