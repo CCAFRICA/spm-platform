@@ -352,7 +352,10 @@ async function aggregateNetworkPulseFromSummaries(
   const summaryKeyFor: Record<string, string> = {};
   for (const meas of MEASURES) {
     const r = await recognize(sb, tenantId, meas.surface, meas.purpose);
-    if (r.status === 'resolved' && r.fields[0]) summaryKeyFor[meas.key] = r.fields[0].display_label ?? r.fields[0].field_name;
+    // OB-237 T1: resolve to field_name (the actual committed_data / summary_artifacts.metrics key —
+    // lowercase, domain-agnostic) NOT display_label (a human label that may diverge, e.g. propina ->
+    // "Propinas"). summary_artifacts is now keyed by raw field name (the OB-229 jsonb_each key).
+    if (r.status === 'resolved' && r.fields[0]) summaryKeyFor[meas.key] = r.fields[0].field_name ?? r.fields[0].display_label;
   }
   // Graceful degradation (C2 / strict-2): no measure resolved -> the opinionated financial lens has
   // nothing to bind; return null so the caller renders the raw aggregation (comprehension-driven
@@ -670,52 +673,23 @@ function aggregateStaff(raw: { cheques: ChequeRecord[]; entities: EntityRecord[]
   });
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Timeline
-// ═══════════════════════════════════════════════════════════════════
-
-function aggregateTimeline(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, granularity: 'day' | 'week' | 'month') {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
-  const locBrandMap = new Map<string, string>();
-  const brandColorMap = new Map<string, string>();
-  for (const loc of locations) {
-    const brand = getLocationBrand(loc, brandLookup);
-    locBrandMap.set(loc.id, brand?.name || 'Unknown');
-    if (brand) brandColorMap.set(brand.name, brand.color);
-  }
-
-  interface DateAgg { revenue: number; checks: number; tips: number; }
-  const dateAll = new Map<string, DateAgg>();
-  const dateBrand = new Map<string, Map<string, DateAgg>>();
-
-  for (const c of raw.cheques) {
-    const rd = c.row_data;
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (!dt) continue;
-    const rev = n(rd.total);
-    const tip = n(rd.propina);
-    const brand = locBrandMap.get(c.entity_id) || 'Unknown';
-
-    const allAgg = dateAll.get(dt) || { revenue: 0, checks: 0, tips: 0 };
-    allAgg.revenue += rev; allAgg.checks++; allAgg.tips += tip;
-    dateAll.set(dt, allAgg);
-
-    if (!dateBrand.has(dt)) dateBrand.set(dt, new Map());
-    const bm = dateBrand.get(dt)!;
-    const ba = bm.get(brand) || { revenue: 0, checks: 0, tips: 0 };
-    ba.revenue += rev; ba.checks++; ba.tips += tip;
-    bm.set(brand, ba);
-  }
-
+// OB-237 T1: shared timeline finalizer — groups (date -> revenue/checks/tips) maps into periods and
+// builds the {data, brandData, brandNames, brandColors} response. Identical logic to the raw
+// aggregateTimeline tail so the wired output is shape-identical.
+interface TlDateAgg { revenue: number; checks: number; tips: number; }
+function buildTimelineResponse(
+  dateAll: Map<string, TlDateAgg>,
+  dateBrand: Map<string, Map<string, TlDateAgg>>,
+  brandColorMap: Map<string, string>,
+  granularity: 'day' | 'week' | 'month',
+) {
   const sortedDates = Array.from(dateAll.keys()).sort();
   if (sortedDates.length === 0) return null;
 
-  interface PeriodAgg { label: string; revenue: number; checks: number; tips: number; brands: Map<string, DateAgg>; }
+  interface PeriodAgg { label: string; revenue: number; checks: number; tips: number; brands: Map<string, TlDateAgg>; }
 
   function groupIntoPeriods(): PeriodAgg[] {
     const periods: PeriodAgg[] = [];
-
     if (granularity === 'day') {
       for (const dt of sortedDates) {
         const d = new Date(dt);
@@ -768,12 +742,10 @@ function aggregateTimeline(raw: { cheques: ChequeRecord[]; entities: EntityRecor
       }
       for (const p of Array.from(monthMap.values())) periods.push(p);
     }
-
     return periods;
   }
 
   const periods = groupIntoPeriods();
-
   const data = periods.map(p => ({
     label: p.label,
     revenue: round2(p.revenue),
@@ -781,7 +753,6 @@ function aggregateTimeline(raw: { cheques: ChequeRecord[]; entities: EntityRecor
     avgCheck: p.checks > 0 ? round2(p.revenue / p.checks) : 0,
     tips: round2(p.tips),
   }));
-
   const allBrands = Array.from(new Set(Array.from(brandColorMap.keys())));
   const brandData = periods.map(p => {
     const row: Record<string, number | string> = { label: p.label };
@@ -791,11 +762,68 @@ function aggregateTimeline(raw: { cheques: ChequeRecord[]; entities: EntityRecor
     }
     return row;
   });
-
   const brandColors: Record<string, string> = {};
   for (const [name, color] of Array.from(brandColorMap.entries())) brandColors[name] = color;
-
   return { data, brandData, brandNames: allBrands, brandColors };
+}
+
+// OB-237 T1: timeline from summary_artifacts (entity, day) — reads pre-computed daily metrics instead
+// of 263K base cheques. revenue/tips resolved via HF-337 recognition to the field_name (raw metric key);
+// checks = the materialized row_count. Grouped by summary_date (== committed_data.source_date), the
+// deterministic truth date — the raw path's cheque.fecha grouping (+ its no-ORDER-BY pagination) is the
+// buggy one being retired.
+async function aggregateTimelineFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  granularity: 'day' | 'week' | 'month',
+  scopeEntityIds?: string[],
+): Promise<ReturnType<typeof buildTimelineResponse> | null> {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
+
+  const keyFor = async (surface: string, purpose: string): Promise<string | null> => {
+    const r = await recognize(sb, tenantId, surface, purpose);
+    return r.status === 'resolved' && r.fields[0] ? (r.fields[0].field_name ?? r.fields[0].display_label) : null;
+  };
+  const revKey = await keyFor('financial.network_pulse.revenue', 'the primary monetary amount of money earned or charged as the gross outcome of each transaction or sale');
+  const tipKey = await keyFor('financial.network_pulse.tips', 'the gratuity or tip amount the customer adds on top of the charge');
+  if (!revKey) return null; // no revenue binding resolvable -> caller renders null (never a silent blank)
+  const mv = (m: Record<string, number>, key: string | null) => (key ? (m[key] ?? 0) : 0);
+
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
+  const locBrandMap = new Map<string, string>();
+  const brandColorMap = new Map<string, string>();
+  for (const loc of locations) {
+    const brand = getLocationBrand(loc, brandLookup);
+    locBrandMap.set(loc.id, brand?.name || 'Unknown');
+    if (brand) brandColorMap.set(brand.name, brand.color);
+  }
+
+  const dateAll = new Map<string, TlDateAgg>();
+  const dateBrand = new Map<string, Map<string, TlDateAgg>>();
+  for (const a of arts) {
+    const dt = a.summary_date;
+    if (!dt) continue;
+    const m = a.metrics || {};
+    const rev = mv(m, revKey);
+    const tip = mv(m, tipKey);
+    const checks = a.row_count;
+    const brand = locBrandMap.get(a.entity_id) || 'Unknown';
+
+    const allAgg = dateAll.get(dt) || { revenue: 0, checks: 0, tips: 0 };
+    allAgg.revenue += rev; allAgg.checks += checks; allAgg.tips += tip;
+    dateAll.set(dt, allAgg);
+
+    if (!dateBrand.has(dt)) dateBrand.set(dt, new Map());
+    const bm = dateBrand.get(dt)!;
+    const ba = bm.get(brand) || { revenue: 0, checks: 0, tips: 0 };
+    ba.revenue += rev; ba.checks += checks; ba.tips += tip;
+    bm.set(brand, ba);
+  }
+  return buildTimelineResponse(dateAll, dateBrand, brandColorMap, granularity);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1423,6 +1451,19 @@ export async function POST(request: NextRequest) {
       // no summaries → fall through to the raw path
     }
 
+    // OB-237 T1: timeline served from summary_artifacts (single path — the raw aggregateTimeline path is
+    // retired; AP-17). Returns null data when no summaries exist (the materialization is the source).
+    // Value-matched against the deterministic committed_data truth on Sabor before retirement.
+    if (mode === 'timeline') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const tl = await aggregateTimelineFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], granularity || 'week', scopeEntityIds);
+      return NextResponse.json({ data: tl });
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
@@ -1461,9 +1502,6 @@ export async function POST(request: NextRequest) {
         break;
       case 'staff':
         data = aggregateStaff(scopedRaw);
-        break;
-      case 'timeline':
-        data = aggregateTimeline(scopedRaw, granularity || 'week');
         break;
       case 'patterns':
         data = aggregatePatterns(scopedRaw, locationFilter);
