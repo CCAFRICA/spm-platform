@@ -145,7 +145,6 @@ export default function StreamPage() {
   const { persona, scope, entityId: personaEntityId } = usePersona();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
-  const theme = usePersonaTheme();
 
   // HF-327 O5: financial detection (pos_cheque) — null pulse ⇒ ICM tenant.
   const [financialPulse, setFinancialPulse] = useState<NetworkPulseData | null>(null);
@@ -464,7 +463,6 @@ function IcmStream({
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [rows, setRows] = useState<EntityResult[]>([]);
   const [priorRows, setPriorRows] = useState<EntityResult[]>([]);
-  const [componentTotals, setComponentTotals] = useState<ComponentTotal[]>([]);
   const [trend, setTrend] = useState<PopulationTrendPoint[]>([]);
   const [componentSeries, setComponentSeries] = useState<{ name: string; points: number[] }[]>([]);
   const [learnedPct, setLearnedPct] = useState<number | null>(null);
@@ -549,15 +547,13 @@ function IcmStream({
       priorPeriod
         ? getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: priorPeriod.period_id })
         : Promise.resolve([] as EntityResult[]),
-      getComponentTotals(tenantId, selectedPeriodId),
     ])
-      .then(([tot, val, rs, prs, cts]) => {
+      .then(([tot, val, rs, prs]) => {
         if (cancelled) return;
         setPeriodTotal(tot);
         setVerdict(val);
         setRows(rs);
         setPriorRows(prs);
-        setComponentTotals(cts);
         setPeriodLoading(false);
       })
       .catch((err) => { console.warn('[Stream] period data load failed:', err); if (!cancelled) setPeriodLoading(false); });

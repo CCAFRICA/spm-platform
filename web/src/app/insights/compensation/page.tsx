@@ -15,7 +15,7 @@
  * query and the "Active Plans" tile that consumed it.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   DollarSign,
