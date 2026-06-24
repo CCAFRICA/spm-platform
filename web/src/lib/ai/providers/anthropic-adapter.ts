@@ -552,7 +552,7 @@ ReferenceSource types:
   { "type": "prior_component", "component_index": <n> }
 
 Scale specification — name which side scales (HF-244 mutual exclusion):
-  scale: { "side": "evaluator|convergence", "unit": "percent|ratio|currency|count", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
+  scale: { "side": "evaluator|convergence", "unit": "<the value's native nature in your own terms; e.g. percent, ratio, currency, count, or any descriptor that fits — there is no fixed set>", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
   Or scale: null when no scale normalization is needed.
 
 RATIO-SOURCE BANDS — quotient-space breaks, NO scale (HF-279, binding):

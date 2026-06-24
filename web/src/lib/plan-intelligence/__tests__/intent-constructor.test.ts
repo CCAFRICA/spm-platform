@@ -470,7 +470,7 @@ test('HF-279: construction backstop — ratio band WITH a convergence scale stil
   }
 });
 
-test('HF-279: convergence-side NON-ratio band omits meta (scale_factor lives on the binding) — preserved', () => {
+test('HF-339/HF-279: convergence-side NON-ratio band carries nature with identity scale (no evaluator rescale -> no double-scale)', () => {
   const intent: CompositionalIntent = {
     component_id: 'c-conv',
     component_name: 'Convergence Metric Band',
@@ -486,10 +486,16 @@ test('HF-279: convergence-side NON-ratio band omits meta (scale_factor lives on 
   };
   const tree = constructTree(intent);
   const constants = findAllConstants(tree);
-  // breaks 80/120 appear ONLY as thresholds; none may carry meta (binding scales the column)
+  // HF-339 carry-not-strip: the breaks carry the model's self-describing nature so
+  // the compare node is self-description-sufficient (no more bare-scalar strip).
+  // HF-279 no-double-scale PRESERVED: scale === 1 (identity) — the convergence
+  // binding's scale_factor normalizes the column, the evaluator must NOT rescale,
+  // and x1 is a no-op so the calc stays byte-identical to the prior bare emission.
   for (const v of [80, 120]) {
-    const found = constants.find(c => c.value === v);
-    assert.ok(found && !found.meta, `convergence-side break ${v} carries NO meta`);
+    const found = constants.find(c => c.value === v) as { value: number; meta?: { unit: string; scale: number } } | undefined;
+    assert.ok(found?.meta, `convergence-side break ${v} carries the model's nature (HF-339)`);
+    assert.equal(found!.meta!.scale, 1, `convergence-side break ${v} carries identity scale (no evaluator rescale)`);
+    assert.equal(found!.meta!.unit, 'percent', `convergence-side break ${v} carries the model's nature verbatim`);
   }
 });
 

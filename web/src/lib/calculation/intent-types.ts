@@ -369,9 +369,22 @@ export interface PrimePredicate {
  * meta:{unit:'percent',scale:100}). The convergence layer reads this to
  * reconcile against data-native values without inference; the engine
  * evaluator applies the scale to the compared reference at evaluate() time.
+ *
+ * HF-339 (Validator Premise Correction): `unit` is the value's SELF-DESCRIBING
+ * NATURE in the model's own free-form terms (any language) — NOT a closed,
+ * developer-maintained enum. The prior `'percent'|'ratio'|'currency'|'count'`
+ * set was a registry (AP-26 / No-Fixed-Taxonomy): a developer extended the
+ * recognizer's valid vocabulary by editing a list. It is now open-vocabulary;
+ * the deterministic evaluator reads ONLY the numeric `scale` (never `unit`),
+ * so freeing the nature is calc-neutral. `scale` is the evaluator-side
+ * normalization multiplier; `scale: 1` is identity (the nature is carried for
+ * self-description/trace, but no evaluator rescale is applied — used when the
+ * convergence binding's scale_factor already normalized the data, HF-279).
  */
 export interface ConstantScaleMeta {
-  unit: 'percent' | 'ratio' | 'currency' | 'count';
+  /** Self-describing nature, free-form, the model's own terms (no enumerated set). */
+  unit: string;
+  /** Evaluator-side normalization multiplier (1 = identity, nature-carried-only). */
   scale: number;
   confidence: number;
 }

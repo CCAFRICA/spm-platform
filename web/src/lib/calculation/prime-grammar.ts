@@ -199,7 +199,13 @@ export function isLegalCutPoint(parentPrime: PrimeType, fieldName: string): bool
 // Scale metadata (Phase 2 — consumed by convergence + evaluator)
 // ──────────────────────────────────────────────
 
-export type ScaleUnit = 'percent' | 'ratio' | 'currency' | 'count';
+// HF-339: the value's self-describing nature, free-form, the model's own terms
+// (any language). NOT a closed developer-maintained enum — the prior
+// `'percent'|'ratio'|'currency'|'count'` set was a registry (AP-26 /
+// No-Fixed-Taxonomy): a developer extended the recognizer's valid vocabulary by
+// editing this list. Open-vocabulary now; the evaluator reads only the numeric
+// scale, never the nature, so freeing it is calc-neutral.
+export type ScaleUnit = string;
 
 export interface ScaleMetadata {
   unit: ScaleUnit;
@@ -346,18 +352,32 @@ export function validatePrimeTree(
       }
     }
 
-    // Scale annotation check: a constant used as the second input of a compare
-    // and not referenced against another constant should carry meta. The check
-    // fires for the constant node when its parent is a compare.
+    // HF-339 (Validator Premise Correction): self-description-sufficiency, NOT
+    // set-membership. The prior check warned whenever a compare-constant lacked
+    // meta — a false positive on every correct-but-stripped value, whose
+    // reflexive remedy re-laundered the strip (and on convergence-side
+    // constants re-introduced HF-274 double-scaling). It validated against a
+    // frozen developer expectation (the closed ScaleUnit set), not carried
+    // reality. The fix carries the model's self-describing nature at
+    // construction (intent-constructor.buildConstantWithScale); the bare case
+    // is the model's VALID declaration that the value needs no normalization
+    // (it is in the data's native space) — that is correct, not a defect, so we
+    // do NOT warn on it. We assert only that a carried nature is well-formed:
+    // open-vocabulary (any non-empty descriptor, any language), loud-fail on a
+    // MALFORMED structure (meta present but no self-describing nature), never a
+    // match against an enumerated unit set.
     if (prime === 'constant' && parentPrime === 'compare') {
-      const meta = obj.meta;
-      if (meta === undefined || meta === null) {
-        violations.push({
-          check: 'scale_annotation',
-          nodePath: path,
-          message: 'Constant in compare position lacks meta={unit,scale,confidence}. Convergence may need to infer scale.',
-          severity: 'warning',
-        });
+      const meta = obj.meta as Record<string, unknown> | null | undefined;
+      if (meta !== undefined && meta !== null) {
+        const nature = (meta as { unit?: unknown }).unit;
+        if (typeof nature !== 'string' || nature.trim() === '') {
+          violations.push({
+            check: 'scale_annotation',
+            nodePath: path,
+            message: 'Compare-constant carries scale metadata without a self-describing nature (meta.unit). Open-vocabulary nature required; no enumerated unit set.',
+            severity: 'warning',
+          });
+        }
       }
     }
 
@@ -520,7 +540,7 @@ SCALE METADATA (CRITICAL):
 For every constant used in a compare against a reference, annotate the constant with meta describing its native scale on the plan side:
   { "prime":"constant", "value":120, "meta":{"unit":"percent","scale":100,"confidence":0.95} }
   { "prime":"constant", "value":1.2, "meta":{"unit":"ratio","scale":1,    "confidence":0.95} }
-The convergence layer reads this metadata to reconcile plan-native values against data-native values without inference. Units: "percent" | "ratio" | "currency" | "count". scale is the multiplier that converts a ratio-stored data value to the constant's units (e.g., data=1.1354 × scale=100 = 113.54, comparable to constant=120).
+The convergence layer reads this metadata to reconcile plan-native values against data-native values without inference. "unit" is the value's NATIVE NATURE in your own terms — describe it freely (e.g. percent, ratio, currency, count, basis points, or whatever fits); there is no fixed set of allowed units. "scale" is the numeric multiplier that converts a ratio-stored data value to the constant's nature (e.g., data=1.1354 × scale=100 = 113.54, comparable to constant=120); use scale=1 when the value needs no conversion.
 
 DECISION 127 — half-open intervals:
 Tier-selection conditionals use [min, max). For each non-final tier use compare(gte, input, min) AND compare(lt, input, max), joined by logical(and). For the final tier (open-ended ceiling) use compare(gte, input, min) only. Do NOT use .999 or decimal-truncation patterns. Every conditional else chain must terminate in an explicit constant.

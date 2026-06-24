@@ -9,9 +9,12 @@
  *   1. Type correctness — every node's inputs match arity and type constraints.
  *   2. Exhaustive emission — when an expected cell count is supplied, count
  *      constant leaves and warn if fewer than expected (warning, not critical).
- *   3. Scale annotation presence — every constant used in a compare carries
- *      meta={unit,scale,confidence} (warning — convergence has a deterministic
- *      fallback that infers scale from distribution).
+ *   3. Scale self-description (HF-339) — a compare-constant that carries scale
+ *      metadata must carry a well-formed, free-form self-describing nature
+ *      (meta.unit, open-vocabulary). A bare constant is the model's valid
+ *      declaration that the value needs no normalization and is NOT flagged.
+ *      (Replaces the prior set-membership presence check, which warned on every
+ *      correct-but-stripped value against the closed ScaleUnit registry.)
  *   4. Decision 127 compliance — band-selection conditionals use gte+lt
  *      (half-open). lte upper bounds are flagged as violations.
  *   5. Terminal completeness — else chains terminate in an explicit constant.
