@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getServerAuthState } from '@/lib/auth/server-auth';
 import { personaFromIdentity } from '@/lib/plan-surface';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 const PLATFORM_ROLES = new Set(['platform', 'vl_admin']);
 
@@ -35,14 +36,17 @@ export async function POST(request: NextRequest) {
   if (!scope.canEdit) return NextResponse.json({ error: 'Not permitted' }, { status: 403 });
   if (!isPlatform && tenantId !== identity.tenantId) return NextResponse.json({ error: 'Tenant not in scope' }, { status: 403 });
 
-  const { error } = await sb.from('classification_signals').insert({
-    tenant_id: tenantId,
-    signal_type: 'plan.confidence.acknowledged',
-    signal_value: { ruleSetId, componentId, severity: severity ?? null, reason: reason ?? null },
-    source: 'plan-surface',
-    scope: 'tenant',
-    context: { actorProfileId: identity.id, surface: 'living-plan-canvas', ob: 'OB-228' },
-  });
-  if (error) return NextResponse.json({ error: `signal failed: ${error.message}` }, { status: 500 });
+  try {
+    await writeSignalWithClient({
+      tenantId,
+      signalType: 'plan.confidence.acknowledged',
+      signalValue: { ruleSetId, componentId, severity: severity ?? null, reason: reason ?? null },
+      source: 'plan-surface',
+      scope: 'tenant',
+      context: { actorProfileId: identity.id, surface: 'living-plan-canvas', ob: 'OB-228' },
+    }, sb);
+  } catch (e) {
+    return NextResponse.json({ error: `signal failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

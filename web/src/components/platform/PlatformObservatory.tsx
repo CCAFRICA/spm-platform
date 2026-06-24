@@ -25,6 +25,7 @@ import {
   Cpu,
   DollarSign,
   Users,
+  Brain,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -37,13 +38,16 @@ const ModelConfigTab = lazy(() => import('./ModelConfigTab').then(m => ({ defaul
 const AIMetricsTab = lazy(() => import('./AIMetricsTab').then(m => ({ default: m.AIMetricsTab })));
 // OB-230: User Operations Console — per-user observability + remediation (platform.system_config).
 const UsersTab = lazy(() => import('./UsersTab').then(m => ({ default: m.UsersTab })));
+// OB-235 P8: the visible recognition curve (non-amnesiac behaviour per tenant).
+const RecognitionCurvePanel = lazy(() => import('./RecognitionCurvePanel').then(m => ({ default: m.RecognitionCurvePanel })));
 
-type TabId = 'command-center' | 'users' | 'intelligence' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
+type TabId = 'command-center' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
+  { id: 'recognition', label: 'Recognition Curve', icon: Brain },
   { id: 'ai-models', label: 'Model Config', icon: Cpu },
   { id: 'ai-cost', label: 'AI Cost', icon: DollarSign },
   { id: 'revenue', label: 'Revenue', icon: Receipt },
@@ -165,6 +169,7 @@ export function PlatformObservatory() {
           {activeTab === 'command-center' && <ObservatoryTab />}
           {activeTab === 'users' && <UsersTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
+          {activeTab === 'recognition' && <RecognitionCurvePanel />}
           {activeTab === 'ai-models' && <ModelConfigTab />}
           {activeTab === 'ai-cost' && <AIMetricsTab />}
           {activeTab === 'revenue' && <BillingUsageTab />}

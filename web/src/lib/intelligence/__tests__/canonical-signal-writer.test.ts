@@ -38,10 +38,18 @@ function makeMockClient(opts: { errorOnNthCall?: number; errorMessage?: string }
         insert(payload: unknown) {
           calls.push({ table, payload });
           const thisCall = callIdx++;
-          if (opts.errorOnNthCall !== undefined && thisCall === opts.errorOnNthCall) {
-            return Promise.resolve({ error: { message: opts.errorMessage ?? 'mock insert error' } });
-          }
-          return Promise.resolve({ error: null });
+          const error = (opts.errorOnNthCall !== undefined && thisCall === opts.errorOnNthCall)
+            ? { message: opts.errorMessage ?? 'mock insert error' } : null;
+          // OB-235 P1: writeSignalWithClient's single-write path now chains .select('id').single() to read
+          // the inserted id; the batch path awaits insert() directly. The mock supports BOTH: it is a
+          // thenable resolving to { error } (batch) and exposes .select().single() → { data:{id}, error }.
+          const result = { data: error ? null : { id: 'mock-id' }, error };
+          return {
+            select() { return { single() { return Promise.resolve(result); } }; },
+            then(onF: (v: { error: unknown }) => unknown, onR?: (e: unknown) => unknown) {
+              return Promise.resolve({ error }).then(onF, onR);
+            },
+          };
         },
       };
     },

@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { streamAnthropicText, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -228,12 +229,12 @@ export async function backfillSummariesJs(
     if (err instanceof NovelAggregationMethodError) {
       // C2 fail-loud: record a novel-method signal on the open-vocabulary surface, then HALT.
       try {
-        await sb.from('classification_signals').insert({
-          tenant_id: tenantId, entity_id: null,
-          signal_type: 'summary.novel_aggregation_method',
-          signal_value: { method: err.method, field: err.field },
+        await writeSignalWithClient({
+          tenantId, entityId: null,
+          signalType: 'summary.novel_aggregation_method',
+          signalValue: { method: err.method, field: err.field },
           source: 'summary-engine', context: { halt: true },
-        });
+        }, sb);
       } catch { /* signal logging is best-effort; the HALT below is the contract */ }
     }
     throw err;

@@ -10,6 +10,7 @@
 // the write path. Modelled exactly on web/src/lib/signals/ui-signal.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 export interface ComprehensionCorrectionParams {
   tenantId: string;            // classification_signals.tenant_id is NOT NULL — corrections are tenant-scoped
@@ -25,15 +26,14 @@ export async function recordComprehensionCorrection(
   // structural-property check only (non-empty) — NO set-membership gate (open-vocabulary)
   if (!p.tenantId || !p.fieldName?.trim() || !p.correction?.trim()) return false;
   try {
-    const { error } = await sb.from('classification_signals').insert({
-      tenant_id: p.tenantId,
-      entity_id: null,
-      signal_type: 'comprehension_correction',
-      signal_value: { field_name: p.fieldName, correction: p.correction },
+    await writeSignalWithClient({
+      tenantId: p.tenantId,
+      entityId: null,
+      signalType: 'comprehension_correction',
+      signalValue: { field_name: p.fieldName, correction: p.correction },
       source: 'comprehension-correction',
       context: { actorId: p.actorId ?? null },
-    });
-    if (error) { console.warn('[OB-233] comprehension correction write failed:', error.message); return false; }
+    }, sb);
     return true;
   } catch (e) {
     console.warn('[OB-233] comprehension correction threw:', e instanceof Error ? e.message : e);

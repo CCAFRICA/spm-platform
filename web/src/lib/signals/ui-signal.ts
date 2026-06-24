@@ -7,6 +7,7 @@
 // carries structural references (surface id, entity_id, metric key) — never a domain string.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 export interface UiSignalParams {
   tenantId: string;            // classification_signals.tenant_id is NOT NULL — UI signals are tenant-scoped
@@ -21,15 +22,14 @@ export interface UiSignalParams {
 export async function recordUiSignal(sb: SupabaseClient, p: UiSignalParams): Promise<boolean> {
   if (!p.tenantId || !p.signalType?.trim()) return false; // structural-property check only (non-empty)
   try {
-    const { error } = await sb.from('classification_signals').insert({
-      tenant_id: p.tenantId,
-      entity_id: p.entityId ?? null,
-      signal_type: `ui.${p.signalType}`, // ui.* namespace on the canonical surface (open-vocabulary)
-      signal_value: { interaction: p.signalType, metricKey: p.metricKey ?? null },
+    await writeSignalWithClient({
+      tenantId: p.tenantId,
+      entityId: p.entityId ?? null,
+      signalType: `ui.${p.signalType}`, // ui.* namespace on the one canonical surface (open-vocabulary)
+      signalValue: { interaction: p.signalType, metricKey: p.metricKey ?? null },
       source: 'ui',
       context: { surface: p.surface, sessionId: p.sessionId ?? null, actorId: p.actorId ?? null },
-    });
-    if (error) { console.warn('[OB-233] ui signal write failed:', error.message); return false; }
+    }, sb);
     return true;
   } catch (e) {
     console.warn('[OB-233] ui signal threw:', e instanceof Error ? e.message : e);

@@ -8,6 +8,7 @@ import { createClient, requireTenantId } from './client';
 import type { Database, Json } from './database.types';
 import { findOrCreateEntity, materializePeriodEntityState } from './entity-service';
 import { hiddenBatchIdsForTenant, applyCommittedDataVisibility } from '@/lib/sci/committed-data-visibility';
+import { writeSignalWithClient } from '@/lib/intelligence/canonical-signal-writer'; // OB-235 P1: one canonical surface
 
 // ──────────────────────────────────────────────
 // Type aliases
@@ -17,7 +18,6 @@ type ImportBatchInsert = Database['public']['Tables']['import_batches']['Insert'
 type ImportBatchUpdate = Database['public']['Tables']['import_batches']['Update'];
 type CommittedDataRow = Database['public']['Tables']['committed_data']['Row'];
 type CommittedDataInsert = Database['public']['Tables']['committed_data']['Insert'];
-type ClassificationSignalInsert = Database['public']['Tables']['classification_signals']['Insert'];
 
 // ──────────────────────────────────────────────
 // Entity auto-creation result
@@ -410,19 +410,15 @@ export async function recordClassificationSignal(
 ): Promise<void> {
   requireTenantId(tenantId);
   const supabase = createClient();
-  const insertRow: ClassificationSignalInsert = {
-    tenant_id: tenantId,
-    entity_id: signal.entityId || null,
-    signal_type: signal.signalType,
-    signal_value: signal.signalValue || ({} as Json),
+  await writeSignalWithClient({
+    tenantId,
+    entityId: signal.entityId || null,
+    signalType: signal.signalType,
+    signalValue: (signal.signalValue || {}) as Record<string, unknown>,
     confidence: signal.confidence ?? null,
-    source: signal.source || null,
-    context: signal.context || ({} as Json),
-  };
-  const { error } = await supabase
-    .from('classification_signals')
-    .insert(insertRow);
-  if (error) throw error;
+    source: signal.source || undefined,
+    context: (signal.context || {}) as Record<string, unknown>,
+  }, supabase);
 }
 
 /**
