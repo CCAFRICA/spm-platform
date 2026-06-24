@@ -86,6 +86,34 @@ function ema(existing: number, newValue: number, weight: number = 0.1): number {
 }
 
 // ──────────────────────────────────────────────
+// OB-235 P5 — structural learned_behaviors merge (gap 2)
+// ──────────────────────────────────────────────
+
+/**
+ * Merge accumulated cross-tenant learned_behaviors with this run's, so the learner-core reads the
+ * accumulated STRUCTURAL behaviors (they were previously written on INSERT only and dropped on UPDATE).
+ * Shallow structural merge, new observation wins per key. PRIVACY FIREWALL: learnedBehaviors carry only
+ * structural keys (Korean Test — synaptic-types.PatternDensity.learnedBehaviors); this never introduces a
+ * tenant_id / entity_id / raw value, and we defensively drop any such key if one ever appears.
+ */
+// tenant_count is a permitted structural aggregate (directive §3.5); the firewall bars tenant_IDENTITY only.
+const TENANT_IDENTIFYING_KEYS = /tenant_id|entity_id|source_file|display_name|raw_value/i;
+export function mergeStructuralBehaviors(
+  existing: Record<string, unknown> | null,
+  incoming: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const src of [existing, incoming]) {
+    if (!src || typeof src !== 'object') continue;
+    for (const k of Object.keys(src)) {
+      if (TENANT_IDENTIFYING_KEYS.test(k)) continue; // firewall: never carry a tenant-identifying key
+      out[k] = (src as Record<string, unknown>)[k];
+    }
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────
 // Flywheel 2: Foundational Aggregation
 // ──────────────────────────────────────────────
 
@@ -114,14 +142,23 @@ export async function aggregateFoundational(input: FlywheelAggregationInput): Pr
         // Update with EMA
         const newConfidence = ema(row.confidence_mean, update.confidence);
         const newAnomalyRate = ema(row.anomaly_rate_mean, update.anomalyRate);
+        // OB-235 P5 gap 1 — running confidence_variance (directive §3.5 "confidence_mean/variance"). The
+        // column existed (migration 016) but was never written. EMA estimate of the squared deviation from
+        // the prior cross-tenant mean — a structural spread, no tenant identity.
+        const newVariance = ema(row.confidence_variance ?? 0, Math.pow(update.confidence - row.confidence_mean, 2));
+        // OB-235 P5 gap 2 — learned_behaviors was written only on INSERT and DROPPED on UPDATE; the
+        // learner-core reads accumulated STRUCTURAL behaviors, so merge them (structural-only; privacy firewall).
+        const mergedBehaviors = mergeStructuralBehaviors(row.learned_behaviors, update.learnedBehaviors);
 
         await supabase
           .from('foundational_patterns')
           .update({
             confidence_mean: newConfidence,
+            confidence_variance: newVariance,
             anomaly_rate_mean: newAnomalyRate,
             total_executions: row.total_executions + update.executionCount,
             tenant_count: row.tenant_count + 1, // simplified — see note below
+            learned_behaviors: mergedBehaviors,
             updated_at: new Date().toISOString(),
           })
           .eq('pattern_signature', update.patternSignature);
@@ -132,6 +169,7 @@ export async function aggregateFoundational(input: FlywheelAggregationInput): Pr
           .insert({
             pattern_signature: update.patternSignature,
             confidence_mean: update.confidence,
+            confidence_variance: 0, // single observation — zero spread until a second tenant contributes
             total_executions: update.executionCount,
             tenant_count: 1,
             anomaly_rate_mean: update.anomalyRate,
@@ -159,18 +197,26 @@ export async function aggregateDomain(input: FlywheelAggregationInput): Promise<
     const supabase = await getClient();
 
     for (const update of input.densityUpdates) {
-      const { data: existing } = await supabase
+      // OB-235 P5 — vertical_hint null-consistency fix. The INSERT below writes `verticalHint ?? null`, but
+      // this lookup compared against `?? ''`, so a returning tenant never matched the existing NULL-vertical
+      // row → it INSERTED a duplicate (NULLs are distinct in the unique index) instead of UPDATING. Match the
+      // insert: filter IS NULL when no hint, else equality.
+      let existingQuery = supabase
         .from('domain_patterns')
         .select('*')
         .eq('pattern_signature', update.patternSignature)
-        .eq('domain_id', input.domainId)
-        .eq('vertical_hint', input.verticalHint ?? '')
-        .maybeSingle();
+        .eq('domain_id', input.domainId);
+      existingQuery = input.verticalHint
+        ? existingQuery.eq('vertical_hint', input.verticalHint)
+        : existingQuery.is('vertical_hint', null);
+      const { data: existing } = await existingQuery.maybeSingle();
 
       const row = existing as DomainPatternRow | null;
 
       if (row) {
         const newConfidence = ema(row.confidence_mean, update.confidence);
+        // OB-235 P5 gap 2 — merge structural learned_behaviors on UPDATE (was dropped) for the learner-core.
+        const mergedBehaviors = mergeStructuralBehaviors(row.learned_behaviors, update.learnedBehaviors);
 
         await supabase
           .from('domain_patterns')
@@ -178,6 +224,7 @@ export async function aggregateDomain(input: FlywheelAggregationInput): Promise<
             confidence_mean: newConfidence,
             total_executions: row.total_executions + update.executionCount,
             tenant_count: row.tenant_count + 1,
+            learned_behaviors: mergedBehaviors,
             updated_at: new Date().toISOString(),
           })
           .eq('id', row.id);

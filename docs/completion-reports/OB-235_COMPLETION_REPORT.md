@@ -182,3 +182,28 @@ HF-337 built the **same-tenant** read-back (recognize once, read forever); no ne
   Across 8 identical runs the mode swept **full_trace → light_trace → silent** as the spec formula climbed density 0.5 → ≥0.95, wall-clock fell **29.9ms → 3.5ms** (silent does 0 trace writes), and the outcome checksum stayed **18000000.0 — byte-identical on every run while the mode varied.** That invariance IS the reconciliation guarantee.
 - **Spec-formula dynamics are honest:** with `0.7·prev` the climb is deliberately stable — one cold consolidation reaches only ~0.648 (still full_trace); silent (≥0.95) is reached at ~run 8. The proof shows the full curve rather than a bare two-run (which the stable formula could not cross to silent from cold). The entity loop is a faithful stand-in for `run/route.ts`'s loop (gated identically by `recall.modeFor` in P9); the **live double-run byte-identical proof on `entity_period_outcomes` is PG-9.**
 - **289/289 tests** (formula change broke no test — no test pinned the prior weighting). **tsc = 0.** Build green (§build). **NO REGISTRY / Korean-clean:** signatures are structural pattern hashes; no field names; no allowed-value gate.
+
+## 8. PG-5 — Cross-tenant DATA flywheel (Tier-1b · VERIFY-AND-EXTEND)
+
+**Disposition: EXTEND-in-place, not new files.** `flywheel-pipeline.ts` already implements `aggregateFoundational` / `aggregateDomain` / `loadColdStartPriors` / `applyPriorsToEmptyDensity` (×0.6) / `postConsolidationFlywheel` with the privacy firewall. Per the ratified P0 disposition (EXTEND, never duplicate — G7/AP-17, ZERO-NEW-SURFACES), I extended that canonical surface rather than create the directive's `foundational-aggregation.ts` / `domain-aggregation.ts` / `cold-start-priors.ts` — which would duplicate it. **ADR note:** the directive's new-file list yields to extend-in-place per the standing disposition; recorded here, not silently.
+
+Three gaps built + one bug fixed:
+- **Gap 1 — `confidence_variance` (foundational).** The column existed (migration 016) but was never written. Now a running EMA estimate of the squared deviation from the prior cross-tenant mean — a structural spread.
+- **Gap 2 — `learned_behaviors` on UPDATE.** Was written on INSERT only and **dropped on UPDATE**; the learner-core reads accumulated structural behaviors. New `mergeStructuralBehaviors` shallow-merges them (structural keys only; defensively drops any tenant-identifying key).
+- **Gap 3 — cold-start proof (PG-5 ⒸC).** A fresh pattern loads a discounted prior and reaches `light_trace` **sooner** than a true-cold baseline.
+- **Bug fix — `aggregateDomain` vertical_hint null-consistency.** The lookup compared `vertical_hint ?? ''` while the insert wrote `?? null`, so a returning tenant never matched the existing NULL row and **inserted a duplicate** (NULLs are distinct in the unique index) instead of updating. Lookup now filters `IS NULL` when no hint — so the UPDATE path (and `tenant_count`, variance, behavior-merge) actually fires.
+- **Proof (`scripts/_ob235-p5-proof.ts`, real flywheel + real tables, synthetic signatures):**
+  ```
+  (A) foundational: tenant_count=2 mean=0.9860 variance=0.000160 behaviors={"fanout":4,"shape_depth":3}
+      domain:       tenant_count=2 behaviors={"fanout":4,"shape_depth":3}
+      [aggregation writes structural mean+variance+merged behaviors] PASS
+  (B) tenant-identifying columns on cross-tenant rows: foundational=[] domain=[]  [firewall] PASS
+  (C) prior 0.9860 → discounted ×0.6=0.5916 (>0.5)
+      cold-start: [0.592:full, 0.708:light, 0.790:light] → full_trace=1
+      true-cold:  [0.500:full, 0.644:full,  0.745:light] → full_trace=2
+      [cold-start: conf>0.5 AND fewer full_trace ops] PASS
+  PG-5: PASS
+  ```
+  Two tenants contribute the same structural pattern → mean 0.986, **variance 0.000160** (now written), behaviors **merged** ({shape_depth, fanout}), tenant_count 2. The cold-start prior (0.5916) reaches `light_trace` at encounter 2 while true-cold (0.5) is still `full_trace` → **strictly fewer full_trace ops** (1 vs 2). The cold-start win requires a well-established prior (≥~0.967 → discounted ≥0.58) to cross the 0.70 threshold a run early — honest with the spec discount/thresholds (DD-5 constants unchanged).
+- **HALT-CROSSFLOW (privacy firewall, ABSOLUTE) — grep clean.** On the cross-tenant write path (`foundational_patterns`/`domain_patterns` insert+update) there is **zero** `tenant_id`/`entity_id`/`source_file`/`display_name`/`raw_value`; `tenantId` is a function parameter used only for `tenant_count` and is never written to a row (the tables have no tenant_id column by schema). `tenant_count` is a permitted structural aggregate (directive §3.5), not an identity.
+- **289/289 tests. tsc = 0.** Build green (§build). NO REGISTRY / Korean-clean.
