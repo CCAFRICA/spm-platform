@@ -119,4 +119,5 @@ Same `git diff`: zero change to `[data-theme="current"]`/`[data-theme="dark"]`. 
 ## 6. HALT outcomes
 None fired. §4A checks: no-delta (false — clear deltas), constraint-collision (false — vialuce-scoped tokens; `--color-*` Bliss-scoped & unused under Vialuce), scope-collision (false — experience-only), missing-reference (false — diamond + Bliss tokens located). Accidental Bliss/Dark regression: none (G4/G5).
 
-## 7. PR — _(filled at close)_
+## 7. PR
+#597 — https://github.com/CCAFRICA/spm-platform/pull/597 (base `main`, head `hf-340-vialuce-font-logo-parity`). **CC stops here — architect browser-verifies the Vialuce render (Urbanist/Inter/DM Mono + diamond; Bliss/Dark unchanged) and merges (SR-44).**
