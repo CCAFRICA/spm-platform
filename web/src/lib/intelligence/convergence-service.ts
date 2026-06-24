@@ -21,6 +21,8 @@ import type { FieldIdentity } from '@/lib/sci/sci-types';
 import { getAIService } from '@/lib/ai';
 // OB-199 Phase 4: canonical writer migration — bypass writer at line 363 removed.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
+// OB-235 P7: convergence as a signal CONSUMER — recall prior Level-2 comprehension before the LLM call.
+import { recallComprehensionForColumns, enrichCandidateIdentity, type PriorComprehension } from '@/lib/learning/convergence-recall';
 
 // ──────────────────────────────────────────────
 // Types
@@ -1823,6 +1825,7 @@ async function recognizeBindingsViaAI(
   allRequirements: Array<{ compIndex: number; compName: string; req: ComponentInputRequirement }>,
   labeledCandidates: LabeledCandidate[],
   metricComprehension: MetricComprehensionSignal[] = [],
+  priorComprehension: Map<string, PriorComprehension> = new Map(), // OB-235 P7: recalled Level-2 comprehension
 ): Promise<Record<string, BindingProposal>> {
   const metricFields = Array.from(new Set(allRequirements.map(r => r.req.metricField).filter(f => f !== 'unknown')));
   if (metricFields.length === 0 || labeledCandidates.length === 0) return {};
@@ -1865,14 +1868,25 @@ async function recognizeBindingsViaAI(
     if (!bySheet.has(lbl)) bySheet.set(lbl, []);
     bySheet.get(lbl)!.push(c);
   }
+  // OB-235 P7: enrich each candidate's identity line with RECALLED Level-2 comprehension (characterization,
+  // aggregation behaviour, any human correction) so the LLM consults learned comprehension instead of
+  // re-deriving column meaning. The comprehension text is appended verbatim (Korean Test — the LLM, not a
+  // local regex, interprets it). When no prior comprehension exists, the line is byte-identical to pre-P7.
+  let enrichedCount = 0;
   const candidateList = Array.from(bySheet.entries()).map(([lbl, cols]) => {
     const lines = cols.map(c => {
       const s = c.stats;
       const range = s ? ` [min=${s.min}, max=${s.max}, mean=${s.mean.toFixed(2)}]` : '';
-      return `    - "${c.column}" (type=${c.structuralType}, identity=${c.contextualIdentity})${range}`;
+      const base = `    - "${c.column}" (type=${c.structuralType}, identity=${c.contextualIdentity})${range}`;
+      const prior = priorComprehension.get(c.column);
+      if (prior) enrichedCount++;
+      return enrichCandidateIdentity(base, prior);
     });
     return `  SHEET ${lbl}:\n${lines.join('\n')}`;
   }).join('\n');
+  if (priorComprehension.size > 0) {
+    console.log(`[Convergence] OB-235 P7: consumed prior Level-2 comprehension for ${enrichedCount}/${labeledCandidates.length} candidate column(s) (canonical surface read before independent AI call)`);
+  }
 
   const userPrompt = `REQUIRED FIELDS:
 ${fieldList}
@@ -2803,6 +2817,17 @@ async function generateAllComponentBindings(
   const isAttributeNature = (s: string) => /\b(attribute|categor|property|tag|flag|status|class|grouping|descript|label|atributo)\b/i.test(s || '');
   console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => isAttributeNature(c.structuralType)).map(c => c.column).join(', ') || 'none'}]`);
 
+  // OB-235 P7 (TMR-C93): RECALL prior Level-2 comprehension for the candidate columns from the canonical
+  // surface BEFORE the independent LLM binding call. One batched read, reused across all variant groups
+  // (SR-2). Graceful empty map when no comprehension exists (cold run == pre-P7 behaviour).
+  const priorComprehension = (supabase && tenantId)
+    ? await recallComprehensionForColumns(supabase, tenantId, labeledCandidates.map(c => c.column))
+    : new Map<string, PriorComprehension>();
+  if (priorComprehension.size > 0) {
+    const corrected = Array.from(priorComprehension.values()).filter(p => p.correction).length;
+    console.log(`[Convergence] OB-235 P7: recalled Level-2 comprehension for ${priorComprehension.size} column(s) (${corrected} carrying a human correction) from the canonical surface`);
+  }
+
   // OB-216 §2-S5: the §2-S3 measure-only shim and the HF-275 null-rate scoring are removed — the
   // binding loop below consumes `labeledCandidates` directly via LLM recognition (§2-S4) +
   // structural validation (§D). Candidate selection is the LLM's; the guarantee is existence +
@@ -2846,6 +2871,7 @@ async function generateAllComponentBindings(
       allRequirements,
       labeledCandidates,
       metricComprehension,
+      priorComprehension, // OB-235 P7: prior Level-2 comprehension enriches the candidate identities
     );
     console.log(`[Convergence] OB-216 §2-S5 ${Object.keys(proposals).length} proposals for variant group ${variantLabel}`);
 

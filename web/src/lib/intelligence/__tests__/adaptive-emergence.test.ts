@@ -30,7 +30,15 @@ function makeMockClient() {
       return {
         insert(payload: unknown) {
           calls.push({ table, payload });
-          return Promise.resolve({ error: null });
+          // OB-235 P1: writeSignalWithClient's single-write path chains .select('id').single(); the mock is
+          // a thenable ({ error }) that also exposes .select().single() → { data:{id}, error }.
+          const result = { data: { id: 'mock-id' }, error: null };
+          return {
+            select() { return { single() { return Promise.resolve(result); } }; },
+            then(onF: (v: { error: unknown }) => unknown, onR?: (e: unknown) => unknown) {
+              return Promise.resolve({ error: null }).then(onF, onR);
+            },
+          };
         },
       };
     },

@@ -116,3 +116,23 @@ The comprehension generator (`lib/summary/comprehension-generator.ts`) now **rec
   Cold counts the comprehension call **and** the label/method call (2); warm counts **0** of either. Non-amnesiac at the comprehension layer.
 - **NO REGISTRY:** recall keys on the structural fingerprint hash, never a field name or allowed-value set. The fingerprint row reuses `structural_fingerprints` with the values its `di10` CHECK constraint permits (`scope='tenant'`, `granularity='sheet'`, `confidence=0.9`) and is marked comprehension-kind via `classification_result.kind`; recall keys on `(tenant_id, fingerprint_hash)` + that marker (the structural hash is unique to comprehension fingerprints — no SCI collision). **The `di10` CHECK is itself a schema-layer allowed-value set on `scope`/`granularity`** — per the standing NO-REGISTRY rule it is registry-advocacy and false on that point; it is **noted for the record here** and worked around with a permitted value (not altered via migration in this phase, honoring SR-44).
 - **tsc = 0.** Build green (§build).
+
+## 5. PG-7 — Convergence as a signal CONSUMER (Tier-1; TMR-C93)
+
+Convergence wrote signals it never read (TMR-C93: "convergence writes but never reads"). It now **recalls prior Level-2 comprehension before its independent LLM binding call**. New module (NEW-BEHAVIOR, no new store): `lib/learning/convergence-recall.ts`; one additive read-path edit to `lib/intelligence/convergence-service.ts`.
+
+- **Read-path (the canonical surface).** Before `recognizeBindingsViaAI`, `convergeBindings` recalls comprehension for the labeled candidate columns: the Level-2 comprehension CONTENT from `comprehension_artifacts` (the OB-233 store, generated every import) **overlaid** with `comprehension_correction` signals from `classification_signals` (the canonical write surface — human corrections). One batched read, reused across all variant groups (SR-2). The recall **enriches each candidate's identity line** the binding LLM reads — so the LLM consults learned comprehension instead of re-deriving column meaning.
+- **Korean Test (load-bearing here).** The comprehended `aggregation_behavior` is free-form **in the data's own language**; P7 does **not** regex English behavior-cues onto it (that would silently fail non-English comprehension). The comprehension text is appended **verbatim** and the LLM — not a local dictionary — interprets it. Proof seeds a Hangul-named column with a Hangul characterization and recalls it identically (recall keys on the column name, a structural reference).
+- **Cold == pre-P7 (graceful).** A candidate with no prior comprehension yields a byte-identical un-enriched line; a missing comprehension is an absent map entry, never an error. Proof (`scripts/_ob235-p7-proof.ts`, deterministic, no LLM):
+  ```
+  recalled Level-2 comprehension content (3 cols): PASS
+  human correction overlaid from canonical surface : PASS — "…assigned quota, NOT a balance — snapshot, never summed"
+  Korean Test (Hangul col + Hangul desc recalled)  : PASS
+  graceful miss (no comprehension → absent, no err) : PASS
+  cold candidate line byte-identical to pre-P7     : PASS
+  warm candidate line strictly richer than cold    : PASS
+  PG-7: PASS
+  ```
+  The warm candidate line carries `learned: …; aggregation: …; human correction: …`; the cold line is the bare `"col" (type=…, identity=…) [range]`. PG-7's "cheaper outcome versus a cold run with signals absent" is met: the convergence call now reads learned comprehension + canonical-surface corrections the cold run lacked. The one independent LLM call remains (token→column matching is its job) — P7 makes that call *informed*, not redundant.
+- **P1 follow-up (test mocks).** P1's `.select('id').single()` on the single-write path broke two hand-rolled test mocks (`canonical-signal-writer.test.ts`, `adaptive-emergence.test.ts`) whose `insert()` wasn't chainable. Both mocks now return a thenable that also exposes `.select().single()`. **Full suite 289/289.**
+- **NO REGISTRY (grep clean):** the only `new Set(...)` is a column-name dedup; no enum/allowed-value gate; no field-name literals in the module. **tsc = 0.** Build green (§build).
