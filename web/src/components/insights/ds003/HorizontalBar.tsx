@@ -55,12 +55,12 @@ export function HorizontalBar({
           className="pointer-events-none absolute bottom-0 top-0 border-l border-dashed border-slate-500/60"
           style={{ left: `${refPct}%` }}
         />
-        {sorted.map((item) => {
+        {sorted.map((item, i) => {
           const pct = (item.value / max) * 100;
           const Row = onBarClick ? 'button' : 'div';
           return (
             <Row
-              key={item.label}
+              key={`${item.label}-${i}`}
               type={onBarClick ? 'button' : undefined}
               onClick={onBarClick ? () => onBarClick(item) : undefined}
               className={`group block w-full text-left ${onBarClick ? 'cursor-pointer' : ''}`}

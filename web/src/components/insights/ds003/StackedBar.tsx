@@ -55,7 +55,7 @@ export function StackedBar({
           const Seg = onSegmentClick ? 'button' : 'div';
           return (
             <Seg
-              key={seg.label}
+              key={`${seg.label}-${i}`}
               type={onSegmentClick ? 'button' : undefined}
               title={`${seg.label}: ${fmt(seg.value)} (${pct.toFixed(0)}%)`}
               onClick={onSegmentClick ? () => onSegmentClick(seg) : undefined}
@@ -75,7 +75,7 @@ export function StackedBar({
         {sorted.map((seg, i) => {
           const pct = (seg.value / whole) * 100;
           return (
-            <div key={seg.label} className="flex items-center gap-1.5 text-xs">
+            <div key={`${seg.label}-${i}`} className="flex items-center gap-1.5 text-xs">
               <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: seg.color ?? paletteColor(i) }} />
               <span className={`truncate ${TEXT.body}`}>{seg.label}</span>
               <span className={`ml-auto shrink-0 tabular-nums ${TEXT.muted}`}>{pct.toFixed(0)}%</span>
