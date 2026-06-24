@@ -194,5 +194,55 @@ cb007436 OB-234 T1-B: End-State A data layer — the one clean read-path
 
 ---
 
+---
+
+## § Theme Regression — Post-Merge Corrective
+
+**1. What failed.** OB-234 R3 hardcoded a dark-first color palette across all 8 Intelligence surfaces and
+the DS-003 component library (`slate-950`/`slate-900` backgrounds, `slate-100`/`slate-200` text, a full-page
+dark persona ambient gradient, and dark hex/rgba in every recharts prop), bypassing the production **Vialuce
+light** theme entirely. tsc, lint, build, and the 289-test suite all PASSED — so automated gates did not catch
+it; it was caught by architect browser verification before merge. The surfaces rendered as a foreign dark
+widget inside a light app.
+
+**2. Root cause.** The directive specified hardcoded dark-first values derived from DS-003 (a Feb-2026 design
+document). The production app's actual theme — observable on every existing surface (`/configure`, `/operate`,
+`/investigate`) and in every architect-channel screenshot — was not consulted. A historical document took
+precedence over observable production reality.
+
+**3. Failure class.** SOP violation — a frozen design-document expectation encoded over discoverable production
+state. The same structural class as the Korean Test prohibition: **validate against the actual state, never
+against a frozen developer expectation.**
+
+**4. Corrective principle.** OB-234 surfaces *participate in* the production theme system; no surface hardcodes
+color. Structure/text use shadcn semantic tokens (`bg-card`, `bg-background`, `text-foreground`,
+`text-muted-foreground`, `border-border`, `bg-muted`) that the app re-tunes per theme; chart internals use the
+production `--vl-*` theme vars with hex fallbacks (the OB-227 production-chart pattern); semantic STATE colors
+(green/amber/red/blue) and persona ACCENT (indigo/amber/emerald, applied subtly to card borders/icon
+tints/active states) are the only constants, because they are state/identity, not theme background. The
+persona ambient no longer overrides the page background — the background comes from the app theme/shell, matching
+how production suppresses the per-persona gradient under Vialuce.
+
+**5. Files changed in the corrective.**
+- Foundation: `components/insights/ds003/ds003-tokens.ts` (P2), `components/insights/ds003/persona-theme.tsx` (P3, `PersonaAmbient`).
+- DS-003 components (P2): GaugeMetric, StackedBar, HorizontalBar, DistributionPosition, Sparkline, ThresholdArea, PrioritySortedList, ConfigurablePipeline, SteppedProgress, NeighborhoodLeaderboard, StubAction, ValidityVerdict, IntelligenceElement. (HeroMetric, Panel, SparkTrend were already token-only — unchanged.)
+- Surfaces (P4): `app/stream`, `app/perform`, `app/insights`, `app/insights/analytics`, `app/insights/performance`, `app/insights/compensation`, `app/insights/trends`, `app/acceleration`.
+
+**6. Verification.**
+- `grep` over all 16 ds003 files and all 8 surfaces: **0** `slate-`/`zinc-` Tailwind classes and **0** hardcoded
+  slate hex/rgba in authored code. The only remaining dark inline values live in the preserved financial branch
+  (`FinancialOnlyPerformance`) and are correctly `isVialuce`-gated (light under Vialuce, dark fallback otherwise)
+  — the proper production dual-branch pattern.
+- Structural proof of theme observance: surfaces now render through the exact same semantic tokens (`bg-card`,
+  `text-foreground`, `--vl-*`) the production `/configure`/`/operate` surfaces use, which the theme re-points to
+  light under `html[data-theme="vialuce"]` — so the surfaces inherit the active theme by construction.
+- `tsc` 0 · `next build` ✓ · 289 tests pass (rerun post-corrective).
+
+**This addendum supplements — does not replace — the gate evidence (G1–G8) above, which remains valid: the
+architecture (data bindings, component selection, density filtering, thermostat classification, single validity
+verdict, agent rename, learning-loop consumption) is unchanged; only the styling was corrected.**
+
+---
+
 *OB-234 R3 — Intelligence. Acceleration. Performance. · vialuce.ai*
-*Data contract tight. Visual expression autonomous. End-State A bound.*
+*Data contract tight. Visual expression autonomous. End-State A bound. Theme observed.*
