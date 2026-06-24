@@ -25,11 +25,13 @@ import { hasCapability } from '@/lib/auth/permissions';
 // =============================================================================
 
 export const WORKSPACES: Record<WorkspaceId, Workspace> = {
-  // ── PERFORMANCE (decide) — performance intelligence (HOME for every persona) ──
+  // ── INTELLIGENCE (decide) — performance intelligence (HOME for every persona) ──
+  // OB-234 T1-A: agent rename Performance → Intelligence (experiential only; route paths,
+  // `calculation_results`, and /api/calculation/* are unchanged — SR-34 minimal blast radius).
   decide: {
     id: 'decide',
-    label: 'Performance',
-    labelEs: 'Rendimiento',
+    label: 'Intelligence',
+    labelEs: 'Inteligencia',
     icon: 'Zap',
     description: 'Performance intelligence — see, benchmark, act',
     descriptionEs: 'Inteligencia de rendimiento — ver, comparar, actuar',
@@ -73,11 +75,13 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     ],
   },
 
-  // ── CALCULATION (calculate) — run the engine; reconcile; sign off; results; export ──
+  // ── COMPENSATION (calculate) — run the engine; reconcile; sign off; results; export ──
+  // OB-234 T1-A: agent rename Calculation → Compensation (experiential only; the `calculate`
+  // workspace id, route paths, and /api/calculation/* are unchanged — SR-34 minimal blast radius).
   calculate: {
     id: 'calculate',
-    label: 'Calculation',
-    labelEs: 'Cálculo',
+    label: 'Compensation',
+    labelEs: 'Compensación',
     icon: 'Calculator',
     description: 'Run the engine, reconcile, sign off, and export results',
     descriptionEs: 'Ejecutar el motor, conciliar, aprobar y exportar resultados',
