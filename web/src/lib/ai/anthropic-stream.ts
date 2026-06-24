@@ -8,6 +8,17 @@ const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// OB-235 P3 instrumentation — a single TOTAL Anthropic-call counter. ALL comprehension-path call types
+// flow through here (the comprehension call, the HF-337 coverage-retry, AND recognizeLabelsAndMethods),
+// so a warm fingerprint hit must drive this to 0 INCLUDING the label/method call. Counting only the
+// comprehension call would be a prohibited measurement-narrowing. Counts one per successful (billed)
+// return, tagged by opts.label.
+let _anthropicCalls = 0;
+const _anthropicCallsByLabel: Record<string, number> = {};
+export function resetAnthropicCallCount(): void { _anthropicCalls = 0; for (const k in _anthropicCallsByLabel) delete _anthropicCallsByLabel[k]; }
+export function getAnthropicCallCount(): number { return _anthropicCalls; }
+export function getAnthropicCallCountsByLabel(): Record<string, number> { return { ..._anthropicCallsByLabel }; }
+
 export async function streamAnthropicText(opts: {
   model: string;
   system: string;
@@ -59,6 +70,8 @@ export async function streamAnthropicText(opts: {
           else if (ev?.type === 'error') throw new Error(`Anthropic stream error: ${ev.error?.message ?? 'unknown'}`);
         }
       }
+      _anthropicCalls += 1; // OB-235 P3: count every billed call (incl. coverage-retry + label/method)
+      if (opts.label) _anthropicCallsByLabel[opts.label] = (_anthropicCallsByLabel[opts.label] ?? 0) + 1;
       return text;
     } catch (e) {
       lastErr = e;

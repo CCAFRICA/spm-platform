@@ -99,3 +99,20 @@ New modules (NEW-BEHAVIOR, no new stores): `lib/learning/structural-fingerprint-
 - **Match scope parameterized:** `RecallQuery.scope` ∈ tenant | foundational | domain | expression; `tenantId` present for same-tenant reads, **dropped** for the cross-tenant reads keyed on `(structural_fingerprint_hash[, surface_id])` — the index HF-337 built.
 - **NO REGISTRY (grep-verified, DD-5):** the only `new Set(...)` hits are a per-column distinct-value cardinality counter and a key-union for the similarity overlap — both non-gating computation, not permitted-value gates. No enum/allowed-set gates any artifact. The bucket edges (magnitude/cardinality) are histogram bins (Residual 1), not a gate — every value maps to a bucket.
 - **tsc = 0.** Build green (§build).
+
+## 4. PG-3 — Comprehension recall (the comprehension-layer Tenant loop)
+
+The comprehension generator (`lib/summary/comprehension-generator.ts`) now **recalls before it comprehends**. New modules (NEW-BEHAVIOR, no new stores): `lib/learning/comprehension-recall.ts`, `lib/learning/stores/comprehension-store.ts` (a `LearnStore<ComprehensionFingerprint>` adapter over the EXISTING `structural_fingerprints` + `comprehension_artifacts`).
+
+- **Seam (additive, in the existing `Promise.all` per-data_type mapper):** compute the import's structural fingerprint → `recallComprehension`. A **warm hit** (matching fingerprint present **AND** every current field already carries `display_label` + `aggregation_method`) reuses the stored comprehension and returns — skipping `comprehendFields`. The **cold path** comprehends, then persists the fingerprint so the next structurally-similar import is warm.
+- **Warm = 0 INCLUDING the label/method call (the locked spec).** A single total Anthropic-call counter in `streamAnthropicText` counts **all three** comprehension-path call types — the comprehension call, the HF-337 coverage-retry, and `recognizeLabelsAndMethods` — so measurement-narrowing is structurally impossible. The hit predicate requires labels+methods already present, so `recognizeLabelsAndMethods` also finds nothing pending. Proof (`scripts/_ob235-p3-proof.ts`, Sabor, cold forced by dropping the fingerprint + nulling labels/methods):
+  ```
+  RUN 1 (cold):  total Anthropic calls = 2  byLabel={"comprehend:pos_cheque":1,"label+method":1}  (+74661ms)
+  RUN 2 (warm):  total Anthropic calls = 0  byLabel={}                                            (+1052ms)
+  [warm == 0 INCLUDING label/method]  PASS  (cold counted 2, incl. 1 label/method call)
+  [byte-identical comprehension reuse] PASS
+  [latency drop] cold 74661ms -> warm 1052ms : PASS   (71×)
+  ```
+  Cold counts the comprehension call **and** the label/method call (2); warm counts **0** of either. Non-amnesiac at the comprehension layer.
+- **NO REGISTRY:** recall keys on the structural fingerprint hash, never a field name or allowed-value set. The fingerprint row reuses `structural_fingerprints` with the values its `di10` CHECK constraint permits (`scope='tenant'`, `granularity='sheet'`, `confidence=0.9`) and is marked comprehension-kind via `classification_result.kind`; recall keys on `(tenant_id, fingerprint_hash)` + that marker (the structural hash is unique to comprehension fingerprints — no SCI collision). **The `di10` CHECK is itself a schema-layer allowed-value set on `scope`/`granularity`** — per the standing NO-REGISTRY rule it is registry-advocacy and false on that point; it is **noted for the record here** and worked around with a permitted value (not altered via migration in this phase, honoring SR-44).
+- **tsc = 0.** Build green (§build).

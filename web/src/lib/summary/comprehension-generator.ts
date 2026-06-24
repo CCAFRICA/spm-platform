@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { streamAnthropicText, stripFences, parseJsonObjectTolerant } from '@/lib/ai/anthropic-stream';
+import { recallComprehension, persistComprehensionFingerprint } from '@/lib/learning/comprehension-recall'; // OB-235 P3
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -154,7 +155,19 @@ export async function generateComprehension(
   const perType = await Promise.all(dataTypes.map(async (dt) => {
     const fields = await sampleFields(sb, tenantId, dt);
     if (fields.length === 0) return [] as ComprehensionArtifact[];
+    // OB-235 P3: recall before the LLM. A warm fingerprint hit reuses the stored comprehension and skips
+    // comprehendFields entirely (the comprehension call AND its coverage-retry); because the hit requires
+    // display_label + aggregation_method to be present, recognizeLabelsAndMethods also fires 0 — warm total = 0.
+    const recalled = await recallComprehension(sb, tenantId, fields);
+    if (recalled.hit) {
+      return recalled.stored.map((s) => ({
+        field_name: s.field_name, characterization: s.characterization, data_nature: s.data_nature,
+        relationships: s.relationships, aggregation_behavior: s.aggregation_behavior, identifies: s.identifies,
+      }));
+    }
     const comp = await comprehendFields(fields, dt, hints);
+    // cold path: record the structural fingerprint so the next structurally-similar import is warm.
+    await persistComprehensionFingerprint(sb, tenantId, recalled.fingerprintHash, recalled.features);
     return fields.map((f) => ({
       field_name: f.field,
       ...(comp[f.field] ?? { characterization: f.field, data_nature: null, relationships: null, aggregation_behavior: null, identifies: null }),
