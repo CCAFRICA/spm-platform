@@ -1,46 +1,85 @@
 'use client';
 
+/**
+ * OB-234 T2 — Intelligence · Compensation (/insights/compensation). The money lens: the authoritative
+ * period total (dominant), composition, dimension pivot, payout distribution, and entity drill. End-State A:
+ * every ICM value reads getPeriodTotal / getComponentTotals / getDimensions / aggregateByDimension /
+ * getEntityResults / getPopulationTrend — zero committed_data, zero inline createClient calc query.
+ *
+ * DS-003 composition (ICM branch): HeroMetric (Identification, dominant) + StackedBar (part-of-whole) +
+ * HorizontalBar (ranked dimension pivot) + DistributionPosition (population ranking) = 4 component types
+ * (Diversity Minimum) + StubAction (honest disabled AI plan-health). Every viz carries a reference frame.
+ *
+ * PRESERVED branches: hospitality (restaurant views), loading, empty/onboarding, drill-through (EntityTable).
+ * REMOVED (OB-234 dirty-path fix): the inline createClient().from('calculation_results') loadPlanDistribution
+ * query and the "Active Plans" tile that consumed it.
+ */
+
 import { useState, useEffect } from 'react';
-import { DollarSign, TrendingUp, Target, Trophy, Utensils, Wine, Coins } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import Link from 'next/link';
+import {
+  DollarSign,
+  TrendingUp,
+  Target,
+  Trophy,
+  Utensils,
+  Wine,
+  Coins,
+  Users,
+  BarChart3,
+  ShieldCheck,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale , isSpanishLocale} from '@/contexts/locale-context'; // OB-226 Korean Test
+import { useLocale, isSpanishLocale } from '@/contexts/locale-context'; // OB-226 Korean Test
 import { useAuth } from '@/contexts/auth-context'; // OB-226 isSpanish ternary
 import { isVLAdmin } from '@/types/auth'; // OB-226 isSpanish ternary
-import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getMeseros, getFranquicias } from '@/lib/restaurant-service';
 import {
-  getEntityResults,
-  type EntityResult,
-  type EntityScope,
-} from '@/lib/drill-through'; // OB-226 real data
-import { createClient } from '@/lib/supabase/client'; // OB-226 plan-distribution aggregation
+  getCalculatedPeriods,
+  getPeriodTotal,
+  getComponentTotals,
+  getDimensions,
+  aggregateByDimension,
+  getPopulationTrend,
+  ALL_INSIGHTS_SCOPE,
+  type PeriodSummary,
+  type ComponentTotal,
+  type EnrichedDimension,
+  type DimensionSlice,
+  type PopulationTrendPoint,
+} from '@/lib/insights';
+import { getEntityResults, type EntityResult } from '@/lib/drill-through';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
 import { Leaderboard } from '@/components/charts/leaderboard';
-import { PeriodCards, EntityTable, DimensionBreakdown } from '@/components/insights'; // OB-227 / OB-322
-import { getCalculatedPeriods, type PeriodSummary } from '@/lib/insights'; // OB-227
-import { Users, PieChart, ArrowUpRight } from 'lucide-react';
+import { PeriodCards, EntityTable } from '@/components/insights'; // OB-227 / OB-322
+import {
+  PersonaAmbient,
+  DensityGate,
+  usePersonaTheme,
+  HeroMetric,
+  StackedBar,
+  HorizontalBar,
+  DistributionPosition,
+  StubAction,
+  Panel,
+  TEXT,
+} from '@/components/insights/ds003';
 import type { Cheque, Franquicia, Mesero } from '@/types/cheques';
 
-// OB-226: TechCorp mock removed — non-hospitality branch now reads real calculation_results.
-
-// OB-226: scope for "all entities" (admin default; profile_scope is unpopulated — substrate §3.1).
-const ALL_SCOPE: EntityScope = {
-  visibleEntityIds: [],
-  visibleRuleSetIds: [],
-  visiblePeriodIds: [],
-  scopeType: 'all',
-};
-
-// Single, deterministic palette for the plan-distribution pie (slices come from rule_sets, not mock).
-const PLAN_COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f59e0b', '#10b981'];
-
-interface PlanSlice {
-  name: string;
-  value: number;
-  color: string;
+// Compact supporting stat tile (DS-003 §2: supporting metrics use compact forms; not a DS-003 type).
+function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
+      <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
+    </div>
+  );
 }
 
 interface HospitalityData {
@@ -64,9 +103,10 @@ export default function CompensationPage() {
   const { format } = useCurrency();
   const { locale } = useLocale(); // OB-226 Korean Test
   const { user } = useAuth(); // OB-226 isSpanish ternary
+  const theme = usePersonaTheme();
+
   const [data, setData] = useState<HospitalityData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
 
   // OB-226: VL admins always see English; tenant users localize (codebase isSpanish standard).
   const isSpanish = user && isVLAdmin(user) ? false : isSpanishLocale(locale);
@@ -78,14 +118,19 @@ export default function CompensationPage() {
   const currentMeseroId = 5001;
   const currentFranquiciaId = 'MX-CDMX-001';
 
-  // OB-226: real per-entity outcomes + plan distribution for the non-hospitality branch.
-  const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
-  const [latestPeriodLabel, setLatestPeriodLabel] = useState<string | null>(null);
-  const [periods, setPeriods] = useState<PeriodSummary[]>([]); // OB-227 period selector
+  // ── ICM (non-hospitality) state — End-State A clean reads only ──────────────────────────────────
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
-  const [planDistribution, setPlanDistribution] = useState<PlanSlice[]>([]);
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
+  const [periodTotal, setPeriodTotal] = useState(0);
+  const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
+  const [componentTotals, setComponentTotals] = useState<ComponentTotal[]>([]);
+  const [dimensionSlices, setDimensionSlices] = useState<DimensionSlice[]>([]);
+  const [dimensionLabel, setDimensionLabel] = useState<string | null>(null);
+  const [trend, setTrend] = useState<PopulationTrendPoint[]>([]);
   const [compLoading, setCompLoading] = useState(true);
 
+  // Hospitality data (PRESERVED branch).
   useEffect(() => {
     if (isHospitality) {
       loadHospitalityData();
@@ -99,83 +144,69 @@ export default function CompensationPage() {
     if (isHospitality || !tenantId) return;
     let cancelled = false;
     getCalculatedPeriods(tenantId)
-      .then(ps => { if (cancelled) return; setPeriods(ps); setSelectedPeriodId(prev => prev || ps[0]?.period_id || ''); })
-      .catch(() => { /* honest empty state below */ });
+      .then((ps) => {
+        if (cancelled) return;
+        setPeriods(ps);
+        setSelectedPeriodId((prev) => prev || ps[0]?.period_id || '');
+        setPeriodsLoaded(true);
+        if (ps.length === 0) setCompLoading(false);
+      })
+      .catch((err) => {
+        console.warn('[Compensation] periods load failed:', err);
+        if (!cancelled) { setPeriodsLoaded(true); setCompLoading(false); }
+      });
     return () => { cancelled = true; };
   }, [isHospitality, tenantId]);
 
-  // OB-226/OB-227: load real calculation_results-derived comp data for the SELECTED period.
+  // OB-234: cumulative comp trend (cross-period) — loaded once for the cumulative stat tile.
   useEffect(() => {
-    if (isHospitality || !tenantId) {
-      setCompLoading(false);
-      return;
-    }
+    if (isHospitality || !tenantId) return;
     let cancelled = false;
+    getPopulationTrend(tenantId)
+      .then((t) => { if (!cancelled) setTrend(t); })
+      .catch((err) => console.warn('[Compensation] trend load failed:', err));
+    return () => { cancelled = true; };
+  }, [isHospitality, tenantId]);
+
+  // OB-234: SELECTED-period money lens — total, per-entity outcomes, composition, dimension pivot.
+  // ALL clean reads (getPeriodTotal / getEntityResults / getComponentTotals / getDimensions). No raw query.
+  useEffect(() => {
+    if (isHospitality || !tenantId || !selectedPeriodId) return;
+    let cancelled = false;
+    setCompLoading(true);
     (async () => {
-      setCompLoading(true);
       try {
-        const periodId = selectedPeriodId || undefined;
-        const [results, distribution] = await Promise.all([
-          getEntityResults(tenantId, ALL_SCOPE, periodId ? { periodId } : undefined),
-          loadPlanDistribution(tenantId, periodId),
+        const [total, results, components, dims] = await Promise.all([
+          getPeriodTotal(tenantId, selectedPeriodId),
+          getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+          getComponentTotals(tenantId, selectedPeriodId),
+          getDimensions(tenantId, selectedPeriodId),
         ]);
         if (cancelled) return;
-        setLatestPeriodLabel(periods.find(p => p.period_id === selectedPeriodId)?.label ?? null);
+        setPeriodTotal(total);
         setEntityResults(results);
-        setPlanDistribution(distribution);
+        setComponentTotals(components);
+
+        // Dimension pivot — prefer the first attribute dimension (variant/level/region), else component.
+        const pivot: EnrichedDimension | undefined =
+          dims.find((d) => d.source === 'attribute') ?? dims[0];
+        if (pivot) {
+          const slices = await aggregateByDimension(tenantId, selectedPeriodId, pivot);
+          if (cancelled) return;
+          setDimensionSlices(slices);
+          setDimensionLabel(pivot.label);
+        } else {
+          setDimensionSlices([]);
+          setDimensionLabel(null);
+        }
       } catch (error) {
-        console.error('Error loading compensation data:', error);
+        console.error('[Compensation] period data load failed:', error);
       } finally {
         if (!cancelled) setCompLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isHospitality, tenantId, selectedPeriodId, periods]);
-
-  // OB-226: plan distribution = sum(total_payout) grouped by rule_set_id, joined to rule_sets.name.
-  // For BCL this is a single plan ("Plan de Comisiones — Banca Minorista 2025-2026") → one honest slice.
-  const loadPlanDistribution = async (
-    tid: string,
-    periodId?: string,
-  ): Promise<PlanSlice[]> => {
-    const sb = createClient();
-    let q = sb
-      .from('calculation_results')
-      .select('rule_set_id, total_payout')
-      .eq('tenant_id', tid);
-    if (periodId) q = q.eq('period_id', periodId);
-    const { data: rows } = await q;
-    if (!rows || rows.length === 0) return [];
-
-    const sumByRuleSet = new Map<string, number>();
-    for (const r of rows) {
-      const ruleSetId = (r.rule_set_id as string | null) ?? 'unassigned';
-      const payout = typeof r.total_payout === 'number' ? r.total_payout : Number(r.total_payout) || 0;
-      sumByRuleSet.set(ruleSetId, (sumByRuleSet.get(ruleSetId) ?? 0) + payout);
-    }
-
-    const ruleSetIds = Array.from(sumByRuleSet.keys()).filter(id => id !== 'unassigned');
-    const nameById = new Map<string, string>();
-    if (ruleSetIds.length) {
-      const { data: ruleSets } = await sb.from('rule_sets').select('id, name').in('id', ruleSetIds);
-      for (const rs of ruleSets ?? []) nameById.set(rs.id as string, (rs.name as string) ?? (rs.id as string));
-    }
-
-    return Array.from(sumByRuleSet.entries())
-      .map(([ruleSetId, value], i) => ({
-        name:
-          ruleSetId === 'unassigned'
-            ? isSpanish
-              ? 'Sin plan asignado'
-              : 'Unassigned'
-            : nameById.get(ruleSetId) ?? ruleSetId.slice(0, 8),
-        value,
-        color: PLAN_COLORS[i % PLAN_COLORS.length],
-      }))
-      .sort((a, b) => b.value - a.value);
-  };
+    return () => { cancelled = true; };
+  }, [isHospitality, tenantId, selectedPeriodId]);
 
   const loadHospitalityData = async () => {
     setIsLoading(true);
@@ -256,217 +287,216 @@ export default function CompensationPage() {
     }
   };
 
-  // OB-226: Non-hospitality view — REAL calculation_results-derived compensation.
+  // ── ICM (non-hospitality) branch — DS-003 redesign, End-State A clean path ──────────────────────
   if (!isHospitality) {
-    // Derived stats from real per-entity outcomes (the proof anchor: BCL March 2026 sum = $58,406).
-    const currentPeriodTotal = entityResults.reduce((sum, r) => sum + r.totalPayout, 0);
-    const activeEntities = entityResults.length;
-    const avgPerEntity = activeEntities > 0 ? currentPeriodTotal / activeEntities : 0;
-    const planCount = planDistribution.length;
+    const selectedIdx = periods.findIndex((p) => p.period_id === selectedPeriodId);
+    const selectedLabel = periods[selectedIdx]?.label ?? '—';
+    const hasResults = entityResults.length > 0;
 
     // i18n strings (codebase isSpanish standard; VL admins always English).
     const t = {
       heading: isSpanish ? 'Compensación' : 'Compensation',
-      sub: isSpanish
-        ? 'Pagos por entidad y composición del período'
-        : 'Per-entity payouts and period composition',
-      currentPeriod: isSpanish ? 'Periodo actual' : 'Current Period',
-      avgPerEntity: isSpanish ? 'Promedio por entidad' : 'Average per Entity',
-      activePlans: isSpanish ? 'Planes activos' : 'Active Plans',
-      entitiesPaid: isSpanish ? 'entidades pagadas' : 'entities paid',
-      planLabel: isSpanish ? 'plan' : 'plan',
-      plansLabel: isSpanish ? 'planes' : 'plans',
-      distTitle: isSpanish ? 'A Dónde Va el Dinero' : 'Where the Money Goes',
-      distDesc: isSpanish
-        ? 'Composición del pago por componente o dimensión, este período'
-        : 'Payout composition by component or dimension, this period',
-      payTitle: isSpanish ? 'Pagos por Entidad' : 'Payments by Entity',
-      payDesc: isSpanish
-        ? 'Pagos de comisiones calculados por entidad'
-        : 'Calculated commission payouts per entity',
-      colPeriod: isSpanish ? 'Periodo' : 'Period',
-      colEntity: isSpanish ? 'Entidad' : 'Entity',
-      colComponents: isSpanish ? 'Componentes' : 'Components',
-      colAmount: isSpanish ? 'Monto' : 'Amount',
+      sub: isSpanish ? 'El lente del dinero — costo, composición y pago por entidad' : 'The money lens — cost, composition, and per-entity payout',
+      periodTotal: isSpanish ? 'Costo total del período' : 'Total Compensation',
+      cumulative: isSpanish ? 'Costo acumulado' : 'Cumulative Cost',
+      cumulativeHint: isSpanish ? 'todos los períodos calculados' : 'across all calculated periods',
+      avgPerEntity: isSpanish ? 'Costo prom. por entidad' : 'Avg Cost / Entity',
+      avgHint: isSpanish ? 'por entidad pagada' : 'per entity paid',
+      entitiesPaid: isSpanish ? 'Entidades pagadas' : 'Entities Paid',
+      entitiesHint: isSpanish ? 'con resultados este período' : 'with outcomes this period',
+      noPriorPeriod: isSpanish ? 'sin período anterior' : 'no prior period',
+      costPctTitle: isSpanish ? 'Costo como % del resultado' : 'Cost as % of Outcome',
+      costPctEmpty: isSpanish ? 'Datos de ingresos no configurados' : 'Revenue data not configured',
+      costPctEmptyBody: isSpanish
+        ? 'El costo como porcentaje del resultado requiere datos de ingresos, que no están configurados para este inquilino.'
+        : 'Cost as a percentage of outcome requires revenue data, which is not configured for this tenant.',
+      compositionTitle: isSpanish ? 'Composición por Componente' : 'Compensation by Component',
+      compositionDesc: isSpanish ? 'Dónde se asigna el pago del período' : 'Where the period payout is allocated',
+      pivotDesc: isSpanish ? 'Costo por dimensión, vs. el promedio de los segmentos' : 'Cost by dimension, vs the average slice',
+      distTitle: isSpanish ? 'Distribución de Pagos' : 'Payout Distribution',
+      distDesc: isSpanish ? 'Forma de la población con referencia de cuartiles + media' : 'Population shape with quartile + mean reference',
+      planHealthTitle: isSpanish ? 'Salud del Plan' : 'Plan Health',
+      planHealthDesc: isSpanish ? 'Diagnósticos automáticos del plan de compensación' : 'Automated compensation-plan diagnostics',
+      planHealthStub: isSpanish ? 'Diagnósticos de salud del plan próximamente' : 'Plan health diagnostics coming soon',
+      planHealthStubDesc: isSpanish
+        ? 'Agrupación de umbrales, irrelevancia de componentes y saturación de topes — análisis impulsado por IA, en construcción.'
+        : 'Threshold clustering, component irrelevance, and cap saturation — AI-driven analysis, not yet built.',
+      entityTitle: isSpanish ? 'Pago por Entidad' : 'Payout by Entity',
+      entityDesc: isSpanish ? 'Detalle calculado por entidad (busca, ordena, desglosa)' : 'Calculated per-entity detail (search, sort, drill down)',
       noResults: isSpanish ? 'Sin resultados de cálculo' : 'No calculation results yet',
       noResultsBody: isSpanish
         ? 'Los pagos de comisiones aparecerán aquí una vez que se ejecuten los cálculos para este inquilino.'
         : 'Commission payouts will appear here once calculations have been run for this tenant.',
-      noDist: isSpanish ? 'Sin distribución por plan' : 'No plan distribution',
+      avgSlice: isSpanish ? 'Prom.' : 'Avg',
     };
 
-    const periodLabelDisplay = latestPeriodLabel ?? '—';
-    const hasResults = entityResults.length > 0;
+    // Derived ICM money-lens metrics — all from clean reads.
+    const entityCount = entityResults.length;
+    const avgPerEntity = entityCount > 0 ? periodTotal / entityCount : 0;
+    const cumulativeTotal = trend.reduce((s, p) => s + p.total, 0);
+    const distributionValues = entityResults.map((r) => r.totalPayout || 0);
 
-    // Honest empty state when this tenant has no calculation results at all.
-    const emptyState = isVialuce ? (
-      <div className="empty">
-        <div className="ic"><DollarSign className="h-7 w-7" /></div>
-        <b>{t.noResults}</b>
-        <p>{t.noResultsBody}</p>
-      </div>
-    ) : (
-      <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
-        <CardContent className="py-12">
-          <div className="text-center">
-            <DollarSign className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">{t.noResults}</h3>
-            <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">{t.noResultsBody}</p>
+    // HeroMetric reference frame: prior-period delta from the cross-period trend.
+    const trendIdx = trend.findIndex((p) => p.period_id === selectedPeriodId);
+    const priorPoint = trendIdx > 0 ? trend[trendIdx - 1] : undefined;
+    const delta = priorPoint && priorPoint.total > 0 ? (periodTotal - priorPoint.total) / priorPoint.total : null;
+    const heroContext = {
+      direction: (delta == null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat') as 'up' | 'down' | 'flat',
+      label: delta == null ? t.noPriorPeriod : `${delta >= 0 ? '+' : ''}${(delta * 100).toFixed(1)}% vs ${priorPoint?.label ?? ''}`,
+    };
+
+    // Dimension pivot bars + reference line = average slice.
+    const pivotBars = dimensionSlices.map((s) => ({ label: s.value, value: s.total_payout }));
+    const avgSliceValue = dimensionSlices.length > 0
+      ? dimensionSlices.reduce((acc, s) => acc + s.total_payout, 0) / dimensionSlices.length
+      : 0;
+
+    // Loading shell (PRESERVED pattern).
+    if (compLoading && !periodsLoaded) {
+      return (
+        <PersonaAmbient>
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+              <p className={TEXT.body}>Loading intelligence…</p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
-    );
+        </PersonaAmbient>
+      );
+    }
+
+    // No calculated periods → honest onboarding (PRESERVED empty branch).
+    if (periodsLoaded && periods.length === 0) {
+      return (
+        <PersonaAmbient>
+          <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+            <DollarSign className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+            <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{t.noResults}</h1>
+            <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>{t.noResultsBody}</p>
+            <Link href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+              <Target className="h-4 w-4" /> {isSpanish ? 'Ir a Compensación' : 'Go to Compensation'}
+            </Link>
+          </div>
+        </PersonaAmbient>
+      );
+    }
 
     return (
-      // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
-      <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
-        <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
-          {/* Header */}
-          {isVialuce ? (
-            <div className="phead">
-              <div>
-                <h1>{t.heading}</h1>
-                <div className="sub">
-                  {t.sub}
-                  {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
-                </div>
-              </div>
-            </div>
-          ) : (
-          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-50">
-                {t.heading}
-              </h1>
-              <p className="mt-2 text-slate-600 dark:text-slate-400">
-                {t.sub}
-                {latestPeriodLabel && <span className="ml-2">• {periodLabelDisplay}</span>}
-              </p>
-            </div>
-          </div>
-          )}
+      <PersonaAmbient>
+        <div className="space-y-6">
+          <header>
+            <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{t.heading}</h1>
+            <p className={`mt-1 text-sm ${TEXT.body}`}>
+              {t.sub}
+              {hasResults ? ` · ${entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ''}
+            </p>
+          </header>
 
-          {/* OB-322 O-2: shared period cards (canonical getCalculatedPeriods source) */}
           {periods.length > 0 && (
             <PeriodCards
               periods={periods}
               selectedPeriodId={selectedPeriodId}
               onPeriodChange={setSelectedPeriodId}
-              className="mb-6"
+              accentColor={theme.accent}
+              accentSoft={theme.accentSoft}
             />
           )}
 
-          {compLoading ? (
-            <div className="flex items-center justify-center min-h-[300px]">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-            </div>
-          ) : !hasResults ? (
-            emptyState
+          {compLoading || !hasResults ? (
+            <Panel>
+              <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+                {compLoading ? (isSpanish ? 'Cargando período…' : 'Loading period…') : t.noResultsBody}
+              </div>
+            </Panel>
           ) : (
-          <>
-          {/* Stats Cards — derived from real per-entity outcomes. Budget/YTD omitted: no budget
-              or multi-period rollup exists for these tenants (HALT-4: no fabricated numbers). */}
-          <div className="grid gap-4 md:grid-cols-3 mb-8">
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{t.currentPeriod}</p>
-                    <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {format(currentPeriodTotal)}
-                    </p>
-                    <div className="flex items-center gap-1 mt-2">
-                      <ArrowUpRight className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm text-slate-400">
-                        {activeEntities} {t.entitiesPaid}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-indigo-100 rounded-full dark:bg-indigo-900/30">
-                    <DollarSign className="h-5 w-5 text-indigo-600" />
-                  </div>
+            <>
+              {/* Dominant: Total Compensation (cost efficiency) + supporting cost tiles */}
+              <div className="grid gap-4 lg:grid-cols-4">
+                <div className="lg:col-span-1">
+                  <HeroMetric
+                    label={t.periodTotal}
+                    value={periodTotal}
+                    format={format}
+                    icon={DollarSign}
+                    context={heroContext}
+                    subtitle={`${entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${isSpanish ? 'prom.' : 'avg'} ${format(avgPerEntity)}`}
+                  />
                 </div>
-              </CardContent>
-            </Card>
+                <Stat label={t.cumulative} value={format(cumulativeTotal)} hint={t.cumulativeHint} icon={TrendingUp} />
+                <Stat label={t.avgPerEntity} value={format(avgPerEntity)} hint={t.avgHint} icon={Target} />
+                <Stat label={t.entitiesPaid} value={String(entityCount)} hint={t.entitiesHint} icon={Users} />
+              </div>
 
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{t.avgPerEntity}</p>
-                    <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {format(avgPerEntity)}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2">
-                      {activeEntities} {t.entitiesPaid}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-purple-100 rounded-full dark:bg-purple-900/30">
-                    <Users className="h-5 w-5 text-purple-600" />
-                  </div>
+              {/* Cost % of outcome — HONEST EMPTY (no revenue data for BCL). Never fabricate. */}
+              <Panel title={t.costPctTitle} description={t.costPctEmpty}>
+                <div className={`flex items-center gap-2 py-6 text-sm ${TEXT.muted}`}>
+                  <BarChart3 className="h-4 w-4 shrink-0" />
+                  <span>{t.costPctEmptyBody}</span>
                 </div>
-              </CardContent>
-            </Card>
+              </Panel>
 
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{t.activePlans}</p>
-                    <p className="text-2xl font-bold text-slate-50 mt-1">
-                      {planCount}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2">
-                      {planCount === 1 ? t.planLabel : t.plansLabel}
-                    </p>
+              {/* Composition + dimension pivot */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Panel title={t.compositionTitle} description={t.compositionDesc}>
+                  <StackedBar
+                    segments={componentTotals.map((c) => ({ label: c.component_name, value: c.total_amount }))}
+                    total={periodTotal}
+                    format={format}
+                  />
+                </Panel>
+
+                <Panel
+                  title={dimensionLabel ? `${isSpanish ? 'Costo por' : 'Cost by'} ${dimensionLabel}` : (isSpanish ? 'Costo por Dimensión' : 'Cost by Dimension')}
+                  description={t.pivotDesc}
+                >
+                  <HorizontalBar
+                    items={pivotBars}
+                    referenceLine={{ value: avgSliceValue, label: t.avgSlice }}
+                    format={format}
+                    maxRows={8}
+                    emptyLabel={isSpanish ? 'Sin dimensión pivotable.' : 'No pivotable dimension.'}
+                  />
+                </Panel>
+              </div>
+
+              {/* Population shape — admin/manager density (pay-for-performance lens) */}
+              <DensityGate min="medium">
+                <Panel title={t.distTitle} description={t.distDesc}>
+                  <DistributionPosition data={distributionValues} markers={{ quartiles: true, mean: true }} format={format} />
+                </Panel>
+              </DensityGate>
+
+              {/* Plan health — AI diagnostics NOT built (thermostat honesty: StubAction, disabled) */}
+              <DensityGate min="high">
+                <Panel title={t.planHealthTitle} description={t.planHealthDesc} action={<ShieldCheck className="h-4 w-4" style={{ color: theme.accent }} />}>
+                  <StubAction
+                    label={t.planHealthStub}
+                    description={t.planHealthStubDesc}
+                    icon={ShieldCheck}
+                  />
+                </Panel>
+              </DensityGate>
+
+              {/* Entity drill detail — reached by drill, not dominant (Interaction Reveals Depth) */}
+              <DensityGate min="medium">
+                <Panel title={t.entityTitle} description={t.entityDesc} flush>
+                  <div className="px-4 pb-4 sm:px-5">
+                    <EntityTable
+                      tenantId={tenantId}
+                      periodId={selectedPeriodId}
+                      periodLabel={selectedLabel !== '—' ? selectedLabel : undefined}
+                    />
                   </div>
-                  <div className="p-3 bg-amber-100 rounded-full dark:bg-amber-900/30">
-                    <PieChart className="h-5 w-5 text-amber-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* OB-322 O-6: "Where the money goes" — composition by DISCOVERED dimension
-              (component + entity-metadata attributes via lib/insights/dimension-discovery),
-              horizontal bars with a pivot. Replaces the single-slice plan donut, which was
-              uninformative for single-plan tenants (BCL). */}
-          <div className="mb-8">
-            <div className="mb-3">
-              <h2 className="text-lg font-semibold text-slate-50">{t.distTitle}</h2>
-              <p className="text-sm text-slate-400">{t.distDesc}</p>
-            </div>
-            {selectedPeriodId ? (
-              <DimensionBreakdown tenantId={tenantId} periodId={selectedPeriodId} />
-            ) : (
-              <Card className="border-0 shadow-lg">
-                <CardContent className="text-center py-12 text-slate-400">{t.noDist}</CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Payments by Entity — real entity displayName + totalPayout (the per-entity comp). */}
-          <Card className="border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle>{t.payTitle}</CardTitle>
-              <CardDescription>{t.payDesc}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* OB-227: replaces the flat unsearchable table (with the useless "Components: N"
-                  column) with search / sort / Δ-prior / top-component / pagination + inline
-                  OB-224 drill-through. */}
-              <EntityTable tenantId={tenantId} periodId={selectedPeriodId} periodLabel={latestPeriodLabel ?? undefined} />
-            </CardContent>
-          </Card>
-          </>
+                </Panel>
+              </DensityGate>
+            </>
           )}
         </div>
-      </div>
+      </PersonaAmbient>
     );
   }
 
-  // Hospitality / RestaurantMX Rep View
+  // ── Hospitality / RestaurantMX Rep View (PRESERVED branch) ──────────────────────────────────────
   if (isLoading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
@@ -487,22 +517,8 @@ export default function CompensationPage() {
   }
 
   return (
-    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
-    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
+    <div className="p-6 space-y-6">
       {/* Header */}
-      {isVialuce ? (
-        <div className="phead">
-          <div>
-            <h1>Compensation - My Franchise</h1>
-            <div className="sub">
-              {data.currentFranquicia?.nombre || currentFranquiciaId}
-              {data.currentMesero && (
-                <span className="ml-2">• {data.currentMesero.nombre}</span>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <DollarSign className="h-6 w-6 text-primary" />
@@ -515,7 +531,6 @@ export default function CompensationPage() {
           )}
         </p>
       </div>
-      )}
 
       {/* Total Sales Hero Card */}
       <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">

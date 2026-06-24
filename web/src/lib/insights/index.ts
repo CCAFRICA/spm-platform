@@ -11,3 +11,7 @@ export { getEntityTableData } from './entity-table';
 export { getTenantOnboardingState } from './tenant-state';
 export { discoverDimensions, aggregateByDimension, COMPONENT_DIMENSION_KEY } from './dimension-discovery';
 export type { DiscoveredDimension, DimensionSlice } from './dimension-discovery';
+// OB-234 T1-B — End-State A data layer additions (the single clean read-path; zero committed_data).
+export { getEntityResults } from '@/lib/drill-through';
+export { getPeriodTotal, getBatchValidity, getDimensions } from './intelligence-data';
+export type { ValidityVerdict, ValiditySeverity, EnrichedDimension } from './intelligence-data';

@@ -1,92 +1,96 @@
 'use client';
 
 /**
- * Intelligence Stream — DS-013 Phase A
+ * OB-234 T2-1 — Intelligence · Stream (/stream). The canonical Intelligence landing (DS-015).
  *
- * The platform's primary experience. A single adaptive surface that
- * determines what matters most for THIS user in THIS context at THIS moment.
+ * BRANCH STRUCTURE (preserved per the T2 contract — do NOT collapse):
+ *   (a) Financial-tenant branch — FinancialStream via loadNetworkPulseData / pos_cheque (Sabor). KEPT.
+ *   (b) No-calculation carrier onboarding — useCarrierIntelligence / CarrierImportHealth /
+ *       CarrierPipelineReadiness, plus the rep entity-linking guard + tenant-context empty state. KEPT.
+ *   (c) Drill-through — useDrillThrough + DrillThroughPanel (inline five-layer entity drill). KEPT.
+ *   (d) Loading / error states. KEPT.
  *
- * Every rendered element contains all Five Elements:
- *   Value + Context + Comparison + Action + Impact
- *
- * Persona determines content ranking and density:
- *   Admin (indigo): SystemHealth → Bloodwork → Lifecycle → Optimization → Distribution
- *   Manager (amber): TeamHealth → CoachingPriority → Heatmap → Bloodwork
- *   Individual (emerald): Earnings → Allocation → Components → Leaderboard
- *
- * OB-165: Intelligence Stream Foundation
- * OB-170: Five Elements + Action Proximity + State Reader
+ * REDESIGNED: the ICM (calculated, non-financial) stream render. It no longer reads the legacy
+ * intelligence-stream-loader for its NUMBERS — it reads End-State A clean functions
+ * (getCalculatedPeriods / getPeriodTotal / getBatchValidity / getEntityResults / getPopulationTrend /
+ * getComponentTotals + recallDensity for learning) and composes DS-003 components on the persona theme.
+ * The legacy loader is still used only as the BRANCH ROUTER (financial vs carrier vs calculated) and
+ * for the InsightNarrative lead. Money via useCurrency().format. Thermostat honesty (directive §0.4):
+ * navigation/lifecycle links are real; AI plan-health / simulate affordances are honest StubActions.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
+import { Activity, ArrowRight, Loader2, TrendingUp, Zap } from 'lucide-react';
+import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313 (preserved branches use it)
 import { usePersona } from '@/contexts/persona-context';
-import { loadNetworkPulseData, type NetworkPulseData } from '@/lib/financial/financial-data-service'; // HF-327 O5
-import { FinancialStream } from './FinancialStream'; // HF-327 O5
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
+
+// PRESERVED branch sources
+import { loadNetworkPulseData, type NetworkPulseData } from '@/lib/financial/financial-data-service';
+import { FinancialStream } from './FinancialStream';
 import {
   loadIntelligenceStream,
   type IntelligenceStreamData,
 } from '@/lib/data/intelligence-stream-loader';
-import { getStateReader, loadTrajectoryData, type TenantContext } from '@/lib/intelligence/state-reader';
+import { getStateReader, type TenantContext } from '@/lib/intelligence/state-reader';
 import { InsightNarrative } from '@/components/results/InsightNarrative';
 import { buildInsightNarrative, type InsightNarrative as InsightNarrativeData } from '@/lib/results/insight-narrative';
-import { computePopulationTrajectory, type PopulationTrajectory } from '@/lib/intelligence/trajectory-service';
 import { captureStreamSignal, flushPendingStreamSignals } from '@/lib/signals/stream-signals';
-import {
-  SystemHealthCard,
-  LifecycleCard,
-  DistributionCard,
-  OptimizationCard,
-  TeamHealthCard,
-  CoachingPriorityCard,
-  TeamHeatmapCard,
-  AccelerationCards,
-  BloodworkCard,
-  PersonalEarningsCard,
-  AllocationCard,
-  ComponentBreakdownCard,
-  RelativePositionCard,
-  SelfSimulateCard,
-  ActionRequiredCard,
-  PipelineReadinessCard,
-  TrajectoryCard,
-} from '@/components/intelligence';
-import {
-  CarrierImportHealth,
-  CarrierPipelineReadiness,
-} from '@/components/stream';
+import { CarrierImportHealth, CarrierPipelineReadiness } from '@/components/stream';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
-// OB-224: inline drill-through — dead-end numbers gain click-through to entity→component→trace→source.
 import { useDrillThrough } from '@/hooks/useDrillThrough';
 import { DrillThroughPanel } from '@/components/drill-through';
 import type { EntityScope } from '@/lib/drill-through';
-import { Loader2, Zap } from 'lucide-react';
 
-// Admin sees the whole tenant; manager/individual panels are scoped to the entities already on-screen.
+// REDESIGN — End-State A clean data layer (the only calc-data reads on the ICM render)
+import {
+  getCalculatedPeriods,
+  getPeriodTotal,
+  getBatchValidity,
+  getComponentTotals,
+  getPopulationTrend,
+  ALL_INSIGHTS_SCOPE,
+  type PeriodSummary,
+  type ComponentTotal,
+  type PopulationTrendPoint,
+  type ValidityVerdict as Verdict,
+} from '@/lib/insights';
+import { getEntityResults, type EntityResult } from '@/lib/drill-through';
+import { recallDensity } from '@/lib/learning/density-recall';
+
+// REDESIGN — persona theme + DS-003 vocabulary
+import { PeriodCards } from '@/components/insights';
+import {
+  PersonaAmbient,
+  DensityGate,
+  useDensityAllows,
+  usePersonaTheme,
+  HeroMetric,
+  GaugeMetric,
+  SparkTrend,
+  Sparkline,
+  DistributionPosition,
+  PrioritySortedList,
+  ConfigurablePipeline,
+  StubAction,
+  Panel,
+  ValidityVerdict,
+  IntelligenceElement,
+  TEXT,
+  type PriorityItem,
+  type PipelineStage,
+} from '@/components/insights/ds003';
+
+// Admin sees the whole tenant; manager/individual drill panels are scoped to on-screen entities.
 const ALL_SCOPE: EntityScope = { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' };
 
-// ──────────────────────────────────────────────
-// Persona accent border classes
-// ──────────────────────────────────────────────
-const PERSONA_ACCENT: Record<string, string> = {
-  admin: 'border-indigo-500',
-  manager: 'border-amber-500',
-  rep: 'border-emerald-500',
-};
-
-// ──────────────────────────────────────────────
-// OB-211 WS-2 / B2: the Insight Agent narrative for /stream.
-// Maps the surface's ALREADY-LOADED, persona-shaped stream state into the same
-// deterministic builder that leads /operate/results (OB-210 Unit A) — leverage, not
-// rebuild. No LLM, no per-entity call (Synaptic scale litmus). Regime classification is
-// not loaded on the stream surface, so targetDrivenComponents is 0 here (the builder
-// degrades to a component-count note). Anomalies come from bloodworkItems (the stream's
-// attention list); a clean state affirms health quietly (Bloodwork tone).
-// ──────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
+// OB-211 WS-2 / B2: the lead Insight narrative for /stream (preserved — same deterministic builder
+// that leads /operate/results). No LLM, no per-entity call.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
 function buildStreamInsight(
   data: IntelligenceStreamData,
   formatCurrency: (n: number) => string,
@@ -137,41 +141,34 @@ function buildStreamInsight(
 
 export default function StreamPage() {
   const router = useRouter();
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  const isVialuce = useIsVialuce();
   const { persona, scope, entityId: personaEntityId } = usePersona();
   const { currentTenant } = useTenant();
-  // HF-327 O5: a Financial Agent tenant is detected by the presence of pos_cheque data — the only
-  // reliable signal (features.financial is true for ICM tenants too; useFinancialOnly requires
-  // ruleSetCount===0 which is false when financial plans are active). loadNetworkPulseData returns
-  // null for an ICM tenant (no cheques), so financialPulse?.checksServed>0 ⇒ financial context.
-  const [financialPulse, setFinancialPulse] = useState<NetworkPulseData | null>(null);
-  const [financialChecked, setFinancialChecked] = useState(false);
   const { format: formatCurrency } = useCurrency();
 
+  // HF-327 O5: financial detection (pos_cheque) — null pulse ⇒ ICM tenant.
+  const [financialPulse, setFinancialPulse] = useState<NetworkPulseData | null>(null);
+  const [financialChecked, setFinancialChecked] = useState(false);
+
+  // Legacy loader as BRANCH ROUTER + InsightNarrative lead (NOT the ICM numbers anymore).
   const [data, setData] = useState<IntelligenceStreamData | null>(null);
   const [tenantCtx, setTenantCtx] = useState<TenantContext | null>(null);
-  const [trajectoryData, setTrajectoryData] = useState<PopulationTrajectory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const tenantId = currentTenant?.id || '';
-  const accentColor = PERSONA_ACCENT[persona] || PERSONA_ACCENT.admin;
   const personaToken = PERSONA_TOKENS[persona];
+  const accentColor = persona === 'admin' ? 'border-indigo-500' : persona === 'manager' ? 'border-amber-500' : 'border-emerald-500';
 
-  // OB-205 / DS-029 Phase 1: carrier intelligence — reads the substrate carrier
-  // (committed_data, entities, …) with no calculation prerequisite. Non-blocking;
-  // renders the moment it resolves, in both the no-calculation and calculated views.
+  // OB-205 / DS-029 Phase 1: carrier intelligence (no calculation prerequisite).
   const { carrier, loading: carrierLoading } = useCarrierIntelligence(tenantId);
 
-  // Load intelligence stream data
+  // ── Branch router load (legacy loader + state reader) ──
   const loadData = useCallback(async () => {
     if (!tenantId || !currentTenant) return;
-
     setLoading(true);
     setError(null);
-
     try {
-      // OB-170: Load stream data and tenant context in parallel
       const [result, ctx] = await Promise.all([
         loadIntelligenceStream(
           tenantId,
@@ -183,23 +180,10 @@ export default function StreamPage() {
           scope.entityIds,
           scope.canSeeAll,
         ),
-        getStateReader(tenantId).catch(() => null), // graceful degradation
+        getStateReader(tenantId).catch(() => null),
       ]);
       setData(result);
       setTenantCtx(ctx);
-
-      // OB-172: Load trajectory data if 2+ calculated periods
-      if (ctx && ctx.calculatedPeriods.length >= 2) {
-        try {
-          const trajData = await loadTrajectoryData(tenantId);
-          if (trajData.snapshots.length >= 2) {
-            const trajectory = computePopulationTrajectory(trajData.snapshots, trajData.entityData);
-            setTrajectoryData(trajectory);
-          }
-        } catch (trajErr) {
-          console.warn('[IntelligenceStream] Trajectory load failed (non-blocking):', trajErr);
-        }
-      }
     } catch (err) {
       console.error('[IntelligenceStream] Load error:', err);
       setError(err instanceof Error ? err.message : 'Failed to load intelligence stream');
@@ -208,11 +192,9 @@ export default function StreamPage() {
     }
   }, [tenantId, currentTenant, persona, personaEntityId, scope.entityIds, scope.canSeeAll]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  // HF-327 O5: detect financial context (pos_cheque data) in parallel with the ICM load.
+  // HF-327 O5: detect financial context in parallel.
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
@@ -224,40 +206,17 @@ export default function StreamPage() {
     return () => { cancelled = true; };
   }, [tenantId]);
 
-  // Signal capture — view event on data load
+  // Signal capture — view event on data load.
   const hasEmittedView = useRef(false);
   useEffect(() => {
     if (loading || !data || hasEmittedView.current || !tenantId) return;
     hasEmittedView.current = true;
-    captureStreamSignal({
-      persona,
-      elementId: 'stream_page',
-      action: 'view',
-      tenantId,
-    });
+    captureStreamSignal({ persona, elementId: 'stream_page', action: 'view', tenantId });
   }, [loading, data, tenantId, persona]);
+  useEffect(() => { hasEmittedView.current = false; }, [persona]);
+  useEffect(() => () => { flushPendingStreamSignals(); }, []);
 
-  // Reset view signal on persona change
-  useEffect(() => {
-    hasEmittedView.current = false;
-  }, [persona]);
-
-  // Flush signals on unmount
-  useEffect(() => {
-    return () => { flushPendingStreamSignals(); };
-  }, []);
-
-  // Signal handler for child cards
-  const onCardInteract = useCallback((elementId: string, action: 'click' | 'expand' | 'act') => {
-    if (!tenantId) return;
-    captureStreamSignal({ persona, elementId, action, tenantId });
-  }, [persona, tenantId]);
-
-  // HF-291: carrier cards are ADMIN-ONLY governance surfaces (DS-029 §6 persona
-  // matrix). Manager/Rep never see import metrics. Data Health folds entity info in;
-  // Next Step renders only while the pipeline is not yet calculated (Bloodwork:
-  // passing checks are silent). Placement: supplementary, BELOW the intelligence
-  // elements (F-2) — defined here, rendered after the persona streams.
+  // ── HF-291: carrier admin stack (governance surface, Admin-only). ──
   const isAdmin = persona === 'admin';
   const carrierAdminStack = carrier && isAdmin ? (
     <div className="space-y-4">
@@ -268,28 +227,27 @@ export default function StreamPage() {
     </div>
   ) : null;
 
-  // ── Empty / Loading / Error states ──
+  // ════════════════════════════════════════════════════════════════════════════════════════════════
+  // PRESERVED BRANCHES — loading / financial / rep-link / carrier / empty
+  // ════════════════════════════════════════════════════════════════════════════════════════════════
 
   if (loading || !financialChecked) {
     return (
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="flex items-center justify-center py-32">
-          <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
-          <span className="ml-2 text-sm text-zinc-500">Loading intelligence stream...</span>
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading intelligence stream...</span>
         </div>
       </div>
     );
   }
 
-  // HF-327 O5: financial-tenant module context. When pos_cheque data exists (Sabor: 263K cheques),
-  // render financial intelligence instead of the ICM pipeline view (Calculate Now / "periods need
-  // data" / archived-rule-set "Total payout"), which is irrelevant and misleading. ICM tenants (BCL:
-  // 0 cheques → null pulse) never enter this branch — their ICM stream is byte-identical (PG-15).
+  // (a) Financial-tenant module context (pos_cheque data exists). PRESERVED.
   if (financialPulse?.networkMetrics && financialPulse.networkMetrics.checksServed > 0) {
     return <FinancialStream pulse={financialPulse} bgClass={personaToken.bg} />;
   }
 
-  // HF-125: Detect empty data — data object exists but has no meaningful content
+  // HF-125: empty-content detection (drives the no-calculation branch).
   const hasContent = data && (
     data.systemHealth || data.teamHealth || data.personalEarnings ||
     (data.bloodworkItems && data.bloodworkItems.length > 0) ||
@@ -297,11 +255,9 @@ export default function StreamPage() {
     (data.componentBreakdown && data.componentBreakdown.length > 0)
   );
 
+  // (b) No-calculation / error / carrier onboarding. PRESERVED.
   if (error || !data || !hasContent) {
-    // OB-206 §7.2: Rep entity-linking guard. A rep whose profile is not linked to an
-    // entity (no personaEntityId, not see-all) sees a SINGLE linking message — never a
-    // blank stream, never an error. Full Rep intelligence requires DS-027 entity↔user
-    // linking (R4); this degrades gracefully until then.
+    // OB-206 §7.2: rep entity-linking guard.
     if (persona === 'rep' && !personaEntityId && !scope.canSeeAll) {
       return (
         <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
@@ -311,38 +267,31 @@ export default function StreamPage() {
                 <Zap className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-                <p className="text-sm text-zinc-500">Account setup</p>
+                <h1 className="text-xl font-bold text-foreground">Intelligence</h1>
+                <p className="text-sm text-muted-foreground">Account setup</p>
               </div>
             </div>
-            <div className="rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] border-emerald-500">
-              <p className="text-sm text-slate-300">Your entity record is not yet linked. Contact your administrator.</p>
+            <div className="rounded-lg p-5 bg-card border border-border border-l-[3px] border-emerald-500">
+              <p className="text-sm text-foreground">Your entity record is not yet linked. Contact your administrator.</p>
             </div>
           </div>
         </div>
       );
     }
 
-    // OB-205 / DS-029 Phase 1: carrier intelligence is the primary surface when no
-    // calculation exists. Wait for the carrier, then render it (the upstream pipeline)
-    // instead of the bare "No Intelligence" state. PipelineReadiness renders even with
-    // zero data; ImportHealth/EntityLandscape appear once the carrier holds data.
+    // OB-205 / DS-029 Phase 1: carrier intelligence is the primary no-calculation surface.
     if (carrierLoading && !carrier) {
       return (
         <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
           <div className="flex items-center justify-center py-32">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
-            <span className="ml-2 text-sm text-zinc-500">Loading intelligence stream...</span>
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading intelligence stream...</span>
           </div>
         </div>
       );
     }
     if (carrier) {
       const hasData = carrier.pipelineReadiness.hasData;
-      // HF-291 §4.2: persona-scoped no-calculation surface. Admin gets the carrier
-      // (governance task). Manager/Rep get a SINGLE waiting message — never import
-      // metrics or pipeline state. (R1: static text until persona-scoped carrier
-      // queries exist; entity count is tenant-wide, not yet visible-scoped.)
       const waitingCopy = persona === 'manager'
         ? (hasData
             ? `Data imported for ${carrier.entities.total.toLocaleString()} team member${carrier.entities.total !== 1 ? 's' : ''}. Calculation pending — your team performance will appear here once the admin runs the calculation.`
@@ -361,13 +310,13 @@ export default function StreamPage() {
                 <Zap className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-                <p className="text-sm text-zinc-500">{subtitle}</p>
+                <h1 className="text-xl font-bold text-foreground">Intelligence</h1>
+                <p className="text-sm text-muted-foreground">{subtitle}</p>
               </div>
             </div>
             {isAdmin ? carrierAdminStack : (
-              <div className={`rounded-lg p-5 bg-zinc-900/50 border border-zinc-800/60 border-l-[3px] ${accentColor}`}>
-                <p className="text-sm text-slate-300">{waitingCopy}</p>
+              <div className={`rounded-lg p-5 bg-card border border-border border-l-[3px] ${accentColor}`}>
+                <p className="text-sm text-foreground">{waitingCopy}</p>
               </div>
             )}
           </div>
@@ -375,7 +324,7 @@ export default function StreamPage() {
       );
     }
 
-    // OB-175: Show tenant context in empty state — not bare "No Intelligence"
+    // OB-175: tenant-context empty state.
     const hasPlan = !!tenantCtx?.activeRuleSet;
     const hasEntities = (tenantCtx?.entityCount ?? 0) > 0;
     const hasUncalculated = (tenantCtx?.uncalculatedPeriodsWithData?.length ?? 0) > 0;
@@ -383,8 +332,6 @@ export default function StreamPage() {
       + (tenantCtx?.uncalculatedPeriodsWithData?.length ?? 0)
       + (tenantCtx?.emptyPeriods?.length ?? 0);
 
-    // HF-313: Vialuce renders the design-spec .empty state ("never a dead end") inside
-    // the .page frame; tenant-context card + action keep the same logic below it.
     if (isVialuce) {
       return (
         <div className="page">
@@ -395,24 +342,18 @@ export default function StreamPage() {
           </div>
           <div className="max-w-sm mx-auto mt-6 space-y-6">
             {tenantCtx && !error && (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+              <div className="rounded-lg border border-border bg-card p-4 text-left space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Plan</span>
-                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {tenantCtx.activeRuleSet?.name || 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Plan</span>
+                  <span className={hasPlan ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Entities</span>
-                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Entities</span>
+                  <span className={hasEntities ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Periods</span>
-                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {totalPeriods > 0 ? totalPeriods : 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-foreground' : 'text-muted-foreground/50'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
                 </div>
                 {hasUncalculated && (
                   <p className="text-xs text-indigo-400 pt-1">
@@ -423,20 +364,12 @@ export default function StreamPage() {
             )}
             <div className="flex items-center justify-center gap-3">
               {hasUncalculated ? (
-                <button
-                  onClick={() => router.push('/operate/calculate')}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-                >
-                  Go to Calculate
-                  <span aria-hidden="true">&rarr;</span>
+                <button onClick={() => router.push('/operate/calculate')} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">
+                  Go to Calculate <span aria-hidden="true">&rarr;</span>
                 </button>
               ) : (
-                <button
-                  onClick={() => router.push('/operate/import')}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-                >
-                  Import Data
-                  <span aria-hidden="true">&rarr;</span>
+                <button onClick={() => router.push('/operate/import')} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">
+                  Import Data <span aria-hidden="true">&rarr;</span>
                 </button>
               )}
             </div>
@@ -449,34 +382,22 @@ export default function StreamPage() {
       <div className={`min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
         <div className="max-w-4xl mx-auto px-6 py-16">
           <div className="text-center py-12">
-            <Zap className="h-8 w-8 text-zinc-600 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">
-              {error ? 'Intelligence Unavailable' : 'No Intelligence Available'}
-            </h2>
-            <p className="text-sm text-zinc-500 max-w-md mx-auto mb-8">
-              {error || 'Import data and run a calculation to see your intelligence stream.'}
-            </p>
-
-            {/* Tenant context — what exists, what's needed */}
+            <Zap className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-lg font-semibold text-foreground mb-2">{error ? 'Intelligence Unavailable' : 'No Intelligence Available'}</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-8">{error || 'Import data and run a calculation to see your intelligence stream.'}</p>
             {tenantCtx && !error && (
-              <div className="max-w-sm mx-auto mb-8 rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 text-left space-y-2">
+              <div className="max-w-sm mx-auto mb-8 rounded-lg border border-border bg-card p-4 text-left space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Plan</span>
-                  <span className={hasPlan ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {tenantCtx.activeRuleSet?.name || 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Plan</span>
+                  <span className={hasPlan ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.activeRuleSet?.name || 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Entities</span>
-                  <span className={hasEntities ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Entities</span>
+                  <span className={hasEntities ? 'text-foreground' : 'text-muted-foreground/50'}>{tenantCtx.entityCount > 0 ? tenantCtx.entityCount.toLocaleString() : 'None'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">Periods</span>
-                  <span className={totalPeriods > 0 ? 'text-zinc-200' : 'text-zinc-600'}>
-                    {totalPeriods > 0 ? totalPeriods : 'None'}
-                  </span>
+                  <span className="text-muted-foreground">Periods</span>
+                  <span className={totalPeriods > 0 ? 'text-foreground' : 'text-muted-foreground/50'}>{totalPeriods > 0 ? totalPeriods : 'None'}</span>
                 </div>
                 {hasUncalculated && (
                   <p className="text-xs text-indigo-400 pt-1">
@@ -485,23 +406,14 @@ export default function StreamPage() {
                 )}
               </div>
             )}
-
             <div className="flex items-center justify-center gap-3">
               {hasUncalculated ? (
-                <button
-                  onClick={() => router.push('/operate/calculate')}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-                >
-                  Go to Calculate
-                  <span aria-hidden="true">&rarr;</span>
+                <button onClick={() => router.push('/operate/calculate')} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">
+                  Go to Calculate <span aria-hidden="true">&rarr;</span>
                 </button>
               ) : (
-                <button
-                  onClick={() => router.push('/operate/import')}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors"
-                >
-                  Import Data
-                  <span aria-hidden="true">&rarr;</span>
+                <button onClick={() => router.push('/operate/import')} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-5 py-2.5 text-sm font-medium transition-colors">
+                  Import Data <span aria-hidden="true">&rarr;</span>
                 </button>
               )}
             </div>
@@ -511,491 +423,505 @@ export default function StreamPage() {
     );
   }
 
-  // ── Confidence tier badge ──
-  const confidenceBadge = data.confidenceTier === 'cold'
-    ? { label: 'Cold Start', color: 'text-blue-400 border-blue-500/30 bg-blue-500/10' }
-    : data.confidenceTier === 'warm'
-      ? { label: 'Warm', color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' }
-      : { label: 'Hot', color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' };
-
-  // OB-211 WS-2 / B2: build the lead Insight narrative from loaded stream state (data is
-  // guaranteed non-null past the empty/error guard above). Closes the B4 "AI-front absent
-  // on /stream" gap — the narrative becomes the first element, as on /operate/results.
+  // ════════════════════════════════════════════════════════════════════════════════════════════════
+  // (d) ICM CALCULATED STREAM — REDESIGNED on the End-State A data layer + DS-003 (PersonaAmbient).
+  // ════════════════════════════════════════════════════════════════════════════════════════════════
   const streamNarrative = buildStreamInsight(data, formatCurrency);
-
-  // HF-313: Vialuce page badges (confidence + persona) reused as .pactions chips.
-  const headerBadges = (
-    <>
-      <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${confidenceBadge.color}`}>
-        {confidenceBadge.label}
-      </span>
-      <span className={`text-[10px] uppercase tracking-wider font-medium px-2.5 py-1 rounded-full border ${
-        persona === 'admin'
-          ? 'text-indigo-400 border-indigo-500/30 bg-indigo-500/10'
-          : persona === 'manager'
-            ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-            : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-      }`}>
-        {persona === 'admin' ? 'Admin' : persona === 'manager' ? 'Manager' : 'Individual'}
-      </span>
-    </>
-  );
-  const headerSubtitle = `${data.currentPeriod?.name || 'No active period'}${data.periodCount > 0 ? ` · ${data.periodCount} period${data.periodCount !== 1 ? 's' : ''}` : ''}`;
-
   return (
-    <div className={isVialuce ? '' : `min-h-screen bg-gradient-to-br ${personaToken.bg}`}>
-      <div className={isVialuce ? 'page' : 'max-w-6xl mx-auto px-6 py-6 lg:py-8'}>
-        {/* Header */}
-        {isVialuce ? (
-          <div className="phead">
-            <div>
-              <h1>Intelligence</h1>
-              <div className="sub">{headerSubtitle}</div>
-            </div>
-            <div className="pactions">{headerBadges}</div>
-          </div>
-        ) : (
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg bg-gradient-to-br ${personaToken.heroGrad}`}>
-              <Zap className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-zinc-100">Intelligence</h1>
-              <p className="text-sm text-zinc-500">
-                {data.currentPeriod?.name || 'No active period'}
-                {data.periodCount > 0 && ` \u00b7 ${data.periodCount} period${data.periodCount !== 1 ? 's' : ''}`}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {headerBadges}
+    <IcmStream
+      tenantId={tenantId}
+      streamNarrative={streamNarrative}
+      carrierAdminStack={carrierAdminStack}
+    />
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
+// ICM stream — clean read-path. Hooks live here so they only run on the calculated branch (after the
+// preserved early returns), avoiding conditional-hook violations in the router component.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────
+function IcmStream({
+  tenantId,
+  streamNarrative,
+  carrierAdminStack,
+}: {
+  tenantId: string;
+  streamNarrative: InsightNarrativeData | null;
+  carrierAdminStack: ReactNode;
+}) {
+  const { format } = useCurrency();
+  const theme = usePersonaTheme();
+  const isVialuce = useIsVialuce();
+  const showHigh = useDensityAllows('high');
+  const isAdmin = theme.persona === 'admin';
+
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState('');
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
+
+  const [periodTotal, setPeriodTotal] = useState<number | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [rows, setRows] = useState<EntityResult[]>([]);
+  const [priorRows, setPriorRows] = useState<EntityResult[]>([]);
+  const [trend, setTrend] = useState<PopulationTrendPoint[]>([]);
+  const [componentSeries, setComponentSeries] = useState<{ name: string; points: number[] }[]>([]);
+  const [learnedPct, setLearnedPct] = useState<number | null>(null);
+  const [learnCold, setLearnCold] = useState(false);
+  const [learnStats, setLearnStats] = useState<{ learned: number; cold: number; total: number } | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(true);
+
+  // OB-224 (preserved): inline five-layer drill (entity → component → trace → source) for the period.
+  const drill = useDrillThrough<{ entityId?: string }>(selectedPeriodId || undefined);
+
+  // ── Periods (canonical getCalculatedPeriods, start_date DESC) + population trend. ──
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    Promise.all([getCalculatedPeriods(tenantId), getPopulationTrend(tenantId)])
+      .then(([ps, tr]) => {
+        if (cancelled) return;
+        setPeriods(ps);
+        setSelectedPeriodId(ps[0]?.period_id ?? '');
+        setTrend(tr);
+        setPeriodsLoaded(true);
+        if (ps.length === 0) setPeriodLoading(false);
+      })
+      .catch((err) => { console.warn('[Stream] periods load failed:', err); setPeriodsLoaded(true); setPeriodLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  // ── Component trajectories across ALL calculated periods (Admin depth). ──
+  useEffect(() => {
+    if (!tenantId || !showHigh || periods.length < 2) { setComponentSeries([]); return; }
+    let cancelled = false;
+    const asc = [...periods].sort((a, b) => a.start_date.localeCompare(b.start_date));
+    Promise.all(asc.map((p) => getComponentTotals(tenantId, p.period_id).catch(() => [] as ComponentTotal[])))
+      .then((perPeriod) => {
+        if (cancelled) return;
+        // union of component names, one series of per-period totals each (most recent period's top first)
+        const names = new Set<string>();
+        perPeriod.forEach((cts) => cts.forEach((c) => names.add(c.component_name)));
+        const series = Array.from(names).map((name) => ({
+          name,
+          points: perPeriod.map((cts) => cts.find((c) => c.component_name === name)?.total_amount ?? 0),
+        }));
+        // rank by latest-period magnitude, keep the most material few
+        series.sort((a, b) => (b.points[b.points.length - 1] || 0) - (a.points[a.points.length - 1] || 0));
+        setComponentSeries(series.slice(0, 6));
+      })
+      .catch(() => { if (!cancelled) setComponentSeries([]); });
+    return () => { cancelled = true; };
+  }, [tenantId, showHigh, periods]);
+
+  // ── Learning confidence (Admin only). ──
+  useEffect(() => {
+    if (!tenantId || !isAdmin) return;
+    let cancelled = false;
+    recallDensity(tenantId)
+      .then((dr) => {
+        if (cancelled) return;
+        const sigs = Array.from(dr.density.keys());
+        const dist = dr.modeDistribution(sigs);
+        const total = sigs.length;
+        const learned = dist.silent;
+        const cold = dist.full_trace;
+        setLearnedPct(total > 0 ? (learned / total) * 100 : 0);
+        setLearnCold(dr.coldStart);
+        setLearnStats({ learned, cold, total });
+      })
+      .catch(() => { if (!cancelled) { setLearnCold(true); setLearnedPct(0); setLearnStats({ learned: 0, cold: 0, total: 0 }); } });
+    return () => { cancelled = true; };
+  }, [tenantId, isAdmin]);
+
+  // ── Selected period: total, validity, entities (current + prior), component totals. ──
+  useEffect(() => {
+    if (!tenantId || !selectedPeriodId) return;
+    let cancelled = false;
+    setPeriodLoading(true);
+    const idx = periods.findIndex((p) => p.period_id === selectedPeriodId);
+    const priorPeriod = idx >= 0 ? periods[idx + 1] : undefined; // periods are DESC → next index is prior
+    Promise.all([
+      getPeriodTotal(tenantId, selectedPeriodId),
+      getBatchValidity(tenantId, selectedPeriodId),
+      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+      priorPeriod
+        ? getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: priorPeriod.period_id })
+        : Promise.resolve([] as EntityResult[]),
+    ])
+      .then(([tot, val, rs, prs]) => {
+        if (cancelled) return;
+        setPeriodTotal(tot);
+        setVerdict(val);
+        setRows(rs);
+        setPriorRows(prs);
+        setPeriodLoading(false);
+      })
+      .catch((err) => { console.warn('[Stream] period data load failed:', err); if (!cancelled) setPeriodLoading(false); });
+    return () => { cancelled = true; };
+  }, [tenantId, selectedPeriodId, periods]);
+
+  const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
+  const selected = periods[selectedIdx];
+  const priorPeriod = selectedIdx >= 0 ? periods[selectedIdx + 1] : undefined;
+
+  // ── Derived: deltas, accelerators/decliners, zero-payout cohort, trajectory series. ──
+  const derived = useMemo(() => {
+    if (rows.length === 0) return null;
+    const total = periodTotal ?? rows.reduce((s, r) => s + (r.totalPayout || 0), 0);
+    const entityCount = rows.length;
+    const avg = entityCount > 0 ? total / entityCount : 0;
+    const priorTotal = priorPeriod?.total_payout ?? null;
+    const delta = priorTotal != null && priorTotal > 0 ? (total - priorTotal) / priorTotal : null;
+
+    // per-entity delta vs prior period
+    const priorById = new Map(priorRows.map((r) => [r.entityId, r.totalPayout || 0]));
+    const withDelta = rows.map((r) => {
+      const prior = priorById.get(r.entityId);
+      const d = prior != null ? (r.totalPayout || 0) - prior : null;
+      return { ...r, delta: d };
+    });
+    const movers = withDelta.filter((r) => r.delta != null);
+    const sortedByDelta = [...movers].sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0));
+    const gainers = sortedByDelta.filter((r) => (r.delta ?? 0) > 0).slice(0, 5);
+    const decliners = [...movers].filter((r) => (r.delta ?? 0) < 0).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5);
+
+    // zero-payout cohort: entities whose total payout is 0 (optimization opportunity)
+    const zeroCohort = rows.filter((r) => (r.totalPayout || 0) === 0).slice(0, 8);
+
+    const values = rows.map((r) => r.totalPayout || 0);
+    const top = [...rows].sort((a, b) => (b.totalPayout || 0) - (a.totalPayout || 0))[0] ?? null;
+
+    return { total, entityCount, avg, delta, gainers, decliners, zeroCohort, values, top, hasPrior: priorRows.length > 0 };
+  }, [rows, priorRows, periodTotal, priorPeriod]);
+
+  // population trend → SparkTrend points (chronological)
+  const trendPoints = useMemo(() => trend.map((t) => ({ label: t.label, value: t.total })), [trend]);
+  const projection = useMemo(() => {
+    if (trend.length < 2) return null;
+    const a = trend[trend.length - 2].total;
+    const b = trend[trend.length - 1].total;
+    return b + (b - a);
+  }, [trend]);
+  const velocityText = useMemo(() => {
+    if (trend.length < 2) return undefined;
+    const a = trend[trend.length - 2].total;
+    const b = trend[trend.length - 1].total;
+    const d = b - a;
+    return `${d >= 0 ? '+' : ''}${format(d)} / period`;
+  }, [trend, format]);
+
+  // lifecycle stages from the selected period's lifecycle_state
+  const lifecycleStages = useMemo<PipelineStage[]>(() => {
+    const ORDER = ['DRAFT', 'PREVIEW', 'OFFICIAL', 'APPROVED', 'PAID'];
+    const state = (selected?.lifecycle_state || '').toUpperCase();
+    const idx = ORDER.indexOf(state);
+    return ORDER.map((label, i) => ({
+      label: label.charAt(0) + label.slice(1).toLowerCase(),
+      status: idx < 0 ? (i === 0 ? 'current' : 'future') : i < idx ? 'done' : i === idx ? 'current' : 'future',
+    }));
+  }, [selected]);
+
+  // ── Loading / empty (mirror reference) ──
+  if (periodLoading && !periodsLoaded) {
+    return (
+      <PersonaAmbient>
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+            <p className={TEXT.body}>Loading intelligence…</p>
           </div>
         </div>
-        )}
+      </PersonaAmbient>
+    );
+  }
 
-        {/* OB-211 WS-2 / B2: the Insight Agent narrative LEADS the surface (AI front-and-center,
-            DS-013 — the narrative is the first element). Bloodwork-toned via the shared component. */}
+  if (periodsLoaded && periods.length === 0) {
+    return (
+      <PersonaAmbient>
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <Activity className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>No calculation data yet</h1>
+          <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>
+            Your intelligence stream appears once a compensation run completes — totals, validity, trajectory, and standings.
+          </p>
+          <a href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+            <ArrowRight className="h-4 w-4" /> Go to Compensation
+          </a>
+        </div>
+      </PersonaAmbient>
+    );
+  }
+
+  const selectedLabel = selected?.label ?? '';
+
+  // ── Accelerators / decliners → PrioritySortedList (splitView) ──
+  const canDrill = !!tenantId && !!selectedPeriodId;
+  const moverItems: PriorityItem[] = derived
+    ? [
+        ...derived.gainers.map<PriorityItem>((r) => ({
+          id: `g-${r.entityId}`,
+          severity: 'opportunity',
+          label: r.displayName || r.externalId,
+          detail: `now ${format(r.totalPayout || 0)}`,
+          value: `+${format(r.delta ?? 0)}`,
+          action: canDrill ? { label: 'View', onClick: () => drill.open({ entityId: r.entityId }) } : undefined,
+        })),
+        ...derived.decliners.map<PriorityItem>((r) => ({
+          id: `d-${r.entityId}`,
+          severity: 'warning',
+          label: r.displayName || r.externalId,
+          detail: `now ${format(r.totalPayout || 0)}`,
+          value: format(r.delta ?? 0),
+          action: canDrill ? { label: 'View', onClick: () => drill.open({ entityId: r.entityId }) } : undefined,
+        })),
+      ]
+    : [];
+
+  // ── Zero-payout cohort → PrioritySortedList. Action is an honest StubAction (no plan-health backend). ──
+  const zeroItems: PriorityItem[] = derived
+    ? derived.zeroCohort.map<PriorityItem>((r) => ({
+        id: `z-${r.entityId}`,
+        severity: 'info',
+        label: r.displayName || r.externalId,
+        detail: 'no payout this period',
+        action: { label: 'Diagnose', disabled: true }, // STUB: plan-health diagnostics not built (§0.4)
+      }))
+    : [];
+
+  // ── ONE IntelligenceElement (G2): the single most important insight. Prefer the validity finding
+  //     when the batch is dirty; otherwise the top accelerator. ──
+  const dirty = verdict && (verdict.severity === 'warning' || verdict.severity === 'critical');
+  const topGainer = derived?.gainers[0];
+  const leadElement: ReactNode = (() => {
+    if (dirty && verdict) {
+      return (
+        <IntelligenceElement
+          icon={Activity}
+          label="Data Validity"
+          value={verdict.matchPercent != null ? `${verdict.matchPercent.toFixed(1)}% match` : `${verdict.exceptionCount} exceptions`}
+          context={verdict.recommendation}
+          comparison={`${verdict.exceptionCount} exception${verdict.exceptionCount === 1 ? '' : 's'} on this batch`}
+          comparisonTone={verdict.severity === 'critical' ? 'negative' : 'warning'}
+          impact="Resolving exceptions before publishing prevents disputed statements downstream."
+          action={{ label: 'Review in Compensation', href: '/operate' }}
+        />
+      );
+    }
+    if (topGainer && derived) {
+      return (
+        <IntelligenceElement
+          icon={TrendingUp}
+          label="Top Accelerator"
+          value={topGainer.displayName || topGainer.externalId}
+          context={`Largest period-over-period gain across ${derived.entityCount} entities — now earning ${format(topGainer.totalPayout || 0)}.`}
+          comparison={`+${format(topGainer.delta ?? 0)} vs ${priorPeriod?.label ?? 'prior period'}`}
+          comparisonTone="positive"
+          impact="Momentum like this often signals a repeatable play worth recognizing across the population."
+          action={{ label: 'View in Compensation', href: '/operate' }}
+        />
+      );
+    }
+    // honest neutral lead when there's no prior period to compare
+    return derived ? (
+      <IntelligenceElement
+        icon={Activity}
+        label="Period Standing"
+        value={format(derived.total)}
+        context={`${derived.entityCount} entities earned this period, averaging ${format(derived.avg)}.`}
+        comparison={derived.hasPrior ? 'compared to the prior period' : 'first calculated period — no prior comparison yet'}
+        comparisonTone="neutral"
+        impact="A second calculated period unlocks trajectory, velocity, and per-entity movement."
+        action={{ label: 'Open Compensation', href: '/operate' }}
+      />
+    ) : null;
+  })();
+
+  return (
+    <PersonaAmbient>
+      <div className="space-y-6">
+        <header>
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Intelligence Stream</h1>
+          <p className={`mt-1 text-sm ${TEXT.body}`}>
+            What matters most right now{derived ? ` · ${derived.entityCount} entities · ${selectedLabel}` : ''}
+          </p>
+        </header>
+
+        {/* OB-211 WS-2 / B2: the Insight Agent narrative leads the surface (preserved). */}
         {streamNarrative && (
-          <div className={isVialuce ? 'insight mb-4' : 'mb-4'}>
+          <div className="rounded-xl border border-border bg-card p-1">
             <InsightNarrative narrative={streamNarrative} />
           </div>
         )}
 
-        {/* Intelligence Stream — persona-specific rendering */}
-        {persona === 'admin' && (
-          <AdminStream data={data} tenantCtx={tenantCtx} trajectoryData={trajectoryData} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} tenantId={currentTenant?.id ?? ''} periodId={data.currentPeriod?.id} />
-        )}
-        {persona === 'manager' && (
-          <ManagerStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} tenantId={currentTenant?.id ?? ''} periodId={data.currentPeriod?.id} />
-        )}
-        {persona === 'rep' && (
-          <IndividualStream data={data} accentColor={accentColor} formatCurrency={formatCurrency} onInteract={onCardInteract} />
+        <PeriodCards
+          periods={periods}
+          selectedPeriodId={selectedPeriodId}
+          onPeriodChange={setSelectedPeriodId}
+          accentColor={theme.accent}
+          accentSoft={theme.accentSoft}
+        />
+
+        {periodLoading || !derived ? (
+          <Panel><div className={`py-16 text-center text-sm ${TEXT.muted}`}>{periodLoading ? 'Loading period…' : 'No outcomes for this period.'}</div></Panel>
+        ) : (
+          <>
+            {/* DOMINANT: System Health hero + validity verdict + supporting tiles */}
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="lg:col-span-1">
+                <HeroMetric
+                  label="System Health"
+                  value={derived.total}
+                  format={format}
+                  icon={Activity}
+                  context={{
+                    direction: derived.delta == null ? 'flat' : derived.delta > 0 ? 'up' : derived.delta < 0 ? 'down' : 'flat',
+                    label: derived.delta == null ? 'no prior period' : `${derived.delta >= 0 ? '+' : ''}${(derived.delta * 100).toFixed(1)}% vs ${priorPeriod?.label ?? 'prior'}`,
+                  }}
+                  subtitle={`${derived.entityCount} entities · avg ${format(derived.avg)}`}
+                />
+              </div>
+
+              {/* G4: the single ValidityVerdict (same component + getBatchValidity source as /perform). */}
+              <div className="lg:col-span-2 space-y-4">
+                {verdict && <ValidityVerdict verdict={verdict} variant="card" />}
+                {/* The single most important insight — IntelligenceElement (G2). */}
+                {leadElement}
+              </div>
+            </div>
+
+            {/* Lifecycle pipeline (real action → Compensation). All personas. */}
+            <Panel title="Lifecycle" description="Where this period sits in the compensation pipeline">
+              <ConfigurablePipeline
+                stages={lifecycleStages}
+                action={{ label: 'Go to Compensation', href: '/operate' }}
+                slaNote={selected?.lifecycle_state ? undefined : 'Not yet advanced'}
+              />
+            </Panel>
+
+            {/* Trajectory + movers — Admin+Manager (medium). */}
+            <DensityGate min="medium">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Panel title="Population Trajectory" description="Total payout across calculated periods, with velocity + projection">
+                  {trendPoints.length >= 2 ? (
+                    <SparkTrend
+                      data={trendPoints}
+                      velocity={velocityText}
+                      projection={projection}
+                      format={format}
+                    />
+                  ) : (
+                    <div className={`py-8 text-center text-sm ${TEXT.muted}`}>A second calculated period unlocks trajectory.</div>
+                  )}
+                </Panel>
+
+                <Panel title="Accelerators & Attention" description={derived.hasPrior ? `Largest movers vs ${priorPeriod?.label ?? 'prior period'}` : 'Period-over-period movement'}>
+                  <PrioritySortedList
+                    items={moverItems}
+                    splitView
+                    emptyLabel={derived.hasPrior ? 'No material movement this period.' : 'No prior period to compare yet.'}
+                  />
+                </Panel>
+              </div>
+            </DensityGate>
+
+            {/* Admin depth (high): component trajectories, optimization cohort, distribution, learning. */}
+            <DensityGate min="high">
+              <div className="space-y-4">
+                {componentSeries.length > 0 && (
+                  <Panel title="Component Trajectories" description="Per-component payout across calculated periods">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {componentSeries.map((c) => (
+                        <div key={c.name} className="rounded-lg border border-border bg-card p-3">
+                          <div className={`mb-1 flex items-baseline justify-between gap-2`}>
+                            <span className={`truncate text-xs font-semibold uppercase tracking-wide ${TEXT.body}`} title={c.name}>{c.name}</span>
+                            <span className={`shrink-0 text-sm font-bold tabular-nums ${TEXT.headline}`}>{format(c.points[c.points.length - 1] || 0)}</span>
+                          </div>
+                          <Sparkline data={c.points} color={theme.accent} height={36} width={140} />
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                )}
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Panel
+                    title="Optimization Opportunities"
+                    description="Zero-payout cohort — entities with no payout this period"
+                    action={<StubAction label="AI plan-health scan" variant="chip" />}
+                  >
+                    <PrioritySortedList
+                      items={zeroItems}
+                      emptyLabel="No zero-payout entities — every entity earned this period."
+                    />
+                  </Panel>
+
+                  <Panel title="Population Distribution" description="Payout shape with quartile + mean reference">
+                    <DistributionPosition data={derived.values} markers={{ quartiles: true, mean: true }} format={format} />
+                  </Panel>
+                </div>
+
+                {/* Learning confidence — Admin only. Honest when cold/empty. */}
+                <Panel title="Learning Confidence" description="How much of the calculation graph the platform has learned to run silently">
+                  {learnStats == null ? (
+                    <div className={`py-8 text-center text-sm ${TEXT.muted}`}>Loading learning state…</div>
+                  ) : learnCold || learnStats.total === 0 ? (
+                    <div className={`flex flex-col items-center gap-2 py-8 text-sm ${TEXT.muted}`}>
+                      <Activity className="h-7 w-7 text-muted-foreground" />
+                      <span>Cold start — no learned patterns yet. Confidence builds as calculations run.</span>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2 sm:items-center">
+                      <GaugeMetric
+                        value={learnedPct ?? 0}
+                        label="Learned"
+                        invert
+                        thresholds={{ amber: 40, red: 70 }}
+                      />
+                      <div className="space-y-2">
+                        <StatLine label="Patterns learned" value={`${learnStats.learned} / ${learnStats.total}`} accent={theme.accent} />
+                        <StatLine label="Still cold (full trace)" value={String(learnStats.cold)} />
+                        <p className={`text-xs ${TEXT.muted}`}>Silent patterns run without per-step tracing — the math is byte-identical; only the trace is skipped.</p>
+                      </div>
+                    </div>
+                  )}
+                </Panel>
+              </div>
+            </DensityGate>
+          </>
         )}
 
-        {/* HF-291 F-2: carrier cards are supplementary context for Admin — rendered
-            BELOW the intelligence elements, not above. Manager/Rep never see them. */}
-        {carrierAdminStack && <div className="mt-4">{carrierAdminStack}</div>}
+        {/* OB-224 (preserved): inline five-layer drill for the clicked entity, scoped to this period. */}
+        {drill.isOpen && tenantId && selectedPeriodId && (
+          <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
+            <DrillThroughPanel tenantId={tenantId} scope={ALL_SCOPE} periodId={selectedPeriodId} initialEntityId={drill.target?.entityId} showExport />
+          </StreamDrillRegion>
+        )}
+
+        {/* HF-291 F-2: carrier admin governance cards (supplementary, below intelligence). */}
+        {carrierAdminStack && <div className="mt-2">{carrierAdminStack}</div>}
       </div>
-    </div>
+    </PersonaAmbient>
   );
 }
 
-// ──────────────────────────────────────────────
-// Admin Intelligence Stream
-// Density: Highest. 2-column grid for secondary cards.
-// ──────────────────────────────────────────────
-
-function AdminStream({
-  data,
-  tenantCtx,
-  trajectoryData,
-  accentColor,
-  formatCurrency,
-  onInteract,
-  tenantId,
-  periodId,
-}: {
-  data: IntelligenceStreamData;
-  tenantCtx: TenantContext | null;
-  trajectoryData: PopulationTrajectory | null;
-  accentColor: string;
-  formatCurrency: (n: number) => string;
-  onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
-  tenantId: string;
-  periodId?: string;
-}) {
-  const router = useRouter();
-  const isVialuce = useIsVialuce();
-  // OB-224: Distribution "view entities" now opens the five-layer drill inline (was a dead route push).
-  const drill = useDrillThrough<{ entityId?: string }>(periodId);
-
-  // OB-170: Derive reconciliation status from tenant context
-  const latestCalc = tenantCtx?.calculatedPeriods?.[tenantCtx.calculatedPeriods.length - 1];
-  const reconStatus = latestCalc?.hasReconciliation
-    ? latestCalc.reconciliationMatch != null && latestCalc.reconciliationMatch >= 0
-      ? `${latestCalc.reconciliationMatch.toFixed(2)}% match against ground truth`
-      : 'Reconciliation completed'
-    : 'No reconciliation run yet for this period';
-
-  // OB-170: Derive impact text from lifecycle state
-  const lifecycleState = data.lifecycle?.currentState;
-  const impactText = lifecycleState === 'DRAFT'
-    ? 'Advancing to Preview makes results visible for review.'
-    : lifecycleState === 'PREVIEW' && !latestCalc?.hasReconciliation
-      ? 'Running reconciliation verifies accuracy against external source.'
-      : lifecycleState === 'PREVIEW'
-        ? 'Advancing to Official freezes results for audit.'
-        : lifecycleState === 'OFFICIAL'
-          ? 'Submitting for approval starts the review workflow.'
-          : undefined;
-
-  return (
-    <div className="space-y-4">
-      {/* 1. System Health — hero, full width */}
-      {data.systemHealth && (
-        <SystemHealthCard
-          accentColor={accentColor}
-          totalPayout={data.systemHealth.totalPayout}
-          entityCount={data.systemHealth.entityCount}
-          componentCount={data.systemHealth.componentCount}
-          exceptionCount={data.systemHealth.exceptionCount}
-          priorPeriodTotal={data.systemHealth.priorPeriodTotal}
-          nextAction={data.lifecycle?.nextAction ?? null}
-          nextLifecycleState={data.lifecycle?.currentState ?? null}
-          formatCurrency={formatCurrency}
-          onAction={() => {
-            onInteract('system_health', 'act');
-            if (data.lifecycle?.nextAction?.route) {
-              router.push(data.lifecycle.nextAction.route);
-            }
-          }}
-          reconciliationStatus={reconStatus}
-          impactText={impactText}
-        />
-      )}
-
-      {/* OB-170: 2. Action Required — uncalculated periods with data */}
-      {tenantCtx && tenantCtx.uncalculatedPeriodsWithData.length > 0 && (
-        <ActionRequiredCard
-          accentColor={accentColor}
-          periods={tenantCtx.uncalculatedPeriodsWithData}
-          calculatedPeriodCount={tenantCtx.calculatedPeriods.length}
-          latestCalculatedLabel={latestCalc?.label}
-          latestCalculatedTotal={latestCalc?.totalPayout}
-          formatCurrency={formatCurrency}
-          onCalculate={(periodId) => {
-            onInteract('action_required', 'act');
-            router.push(`/operate/calculate?periodId=${periodId}`);
-          }}
-        />
-      )}
-
-      {/* OB-170: 3. Pipeline Readiness — empty periods needing import */}
-      {tenantCtx && tenantCtx.emptyPeriods.length > 0 && (
-        <PipelineReadinessCard
-          accentColor={accentColor}
-          periods={tenantCtx.emptyPeriods}
-          periodsWithDataCount={
-            tenantCtx.calculatedPeriods.length + tenantCtx.uncalculatedPeriodsWithData.length
-          }
-          onImport={() => {
-            onInteract('pipeline_readiness', 'act');
-            router.push('/operate/import');
-          }}
-        />
-      )}
-
-      {/* OB-172: 4. Trajectory Intelligence — 2+ calculated periods */}
-      {trajectoryData && trajectoryData.periods.length >= 2 && (
-        <TrajectoryCard
-          accentColor={accentColor}
-          trajectory={trajectoryData}
-          formatCurrency={formatCurrency}
-          onViewEntities={() => {
-            onInteract('trajectory', 'act');
-            router.push('/operate/lifecycle');
-          }}
-        />
-      )}
-
-      {/* 5. Bloodwork — only if items exist */}
-      {data.bloodworkItems && data.bloodworkItems.length > 0 && (
-        <BloodworkCard
-          accentColor={accentColor}
-          items={data.bloodworkItems}
-          onAction={() => onInteract('bloodwork', 'act')}
-        />
-      )}
-
-      {/* 5. Lifecycle — stepper */}
-      {data.lifecycle && (
-        <LifecycleCard
-          accentColor={accentColor}
-          stages={data.lifecycle.stages}
-          currentState={data.lifecycle.currentState}
-          nextAction={data.lifecycle.nextAction}
-          onAction={() => {
-            onInteract('lifecycle', 'act');
-            if (data.lifecycle?.nextAction?.route) {
-              router.push(data.lifecycle.nextAction.route);
-            }
-          }}
-        />
-      )}
-
-      {/* 6-7. Two-column grid: Optimization + Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
-          <OptimizationCard
-            accentColor={accentColor}
-            opportunities={data.optimizationOpportunities}
-            confidenceTier={data.confidenceTier}
-            formatCurrency={formatCurrency}
-            onSimulate={() => onInteract('optimization_simulate', 'act')}
-          />
-        )}
-
-        {data.distribution && (
-          <DistributionCard
-            accentColor={accentColor}
-            buckets={data.distribution.buckets}
-            mean={data.distribution.mean}
-            median={data.distribution.median}
-            stdDev={data.distribution.stdDev}
-            formatCurrency={formatCurrency}
-            isFirstPeriod={(tenantCtx?.calculatedPeriods.length ?? 0) <= 1}
-            entityCount={data.systemHealth?.entityCount}
-            onViewEntities={() => {
-              onInteract('distribution', 'expand');
-              if (!tenantId || !periodId) router.push('/operate/lifecycle');
-              else if (drill.isOpen) drill.close();
-              else drill.open({});
-            }}
-          />
-        )}
-      </div>
-
-      {/* OB-224: inline five-layer drill (entity → component → trace → source) for this period. */}
-      {drill.isOpen && tenantId && periodId && (
-        <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
-          <DrillThroughPanel tenantId={tenantId} scope={ALL_SCOPE} periodId={periodId} initialEntityId={drill.target?.entityId} showExport />
-        </StreamDrillRegion>
-      )}
-    </div>
-  );
-}
-
-// OB-224: a small theme-aware wrapper that frames an inline drill panel with a "Hide" control.
+// OB-224: a small theme-aware wrapper that frames the inline drill panel with a "Hide" control.
 function StreamDrillRegion({ isVialuce, onClose, children }: { isVialuce: boolean; onClose: () => void; children: ReactNode }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p style={isVialuce ? { fontFamily: 'var(--vl-font-mono)', fontSize: 10, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: 0 } : undefined} className={isVialuce ? undefined : 'text-[10px] uppercase tracking-wider text-zinc-500'}>Entity detail</p>
-        <button onClick={onClose} className={isVialuce ? 'gbtn' : 'text-xs text-zinc-500 hover:text-zinc-300'}>Hide</button>
+        <p className={isVialuce ? 'text-[10px] uppercase tracking-wider text-muted-foreground' : `text-[10px] uppercase tracking-wider ${TEXT.muted}`}>Entity detail</p>
+        <button onClick={onClose} className={`text-xs ${TEXT.muted} hover:text-foreground`}>Hide</button>
       </div>
       {children}
     </div>
   );
 }
 
-// ──────────────────────────────────────────────
-// Manager Intelligence Stream
-// Density: Medium. Single-column with full-width heatmap.
-// ──────────────────────────────────────────────
-
-function ManagerStream({
-  data,
-  accentColor,
-  formatCurrency,
-  onInteract,
-  tenantId,
-  periodId,
-}: {
-  data: IntelligenceStreamData;
-  accentColor: string;
-  formatCurrency: (n: number) => string;
-  onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
-  tenantId: string;
-  periodId?: string;
-}) {
-  const isVialuce = useIsVialuce();
-  // OB-224: clicking a team member opens their five-layer drill inline. The panel grid is scoped to
-  // exactly the team entities already on this page — no over-disclosure of the rest of the tenant.
-  const drill = useDrillThrough<{ entityId?: string }>(periodId);
-  const teamScope: EntityScope = {
-    visibleEntityIds: (data.teamHeatmap ?? []).map(e => e.entityId),
-    visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'graph_derived',
-  };
+function StatLine({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="space-y-4">
-      {/* 1. Team Health — hero */}
-      {data.teamHealth && (
-        <TeamHealthCard
-          accentColor={accentColor}
-          teamTotal={data.teamHealth.teamTotal}
-          teamSize={data.teamHealth.teamSize}
-          onTrack={data.teamHealth.onTrack}
-          needsAttention={data.teamHealth.needsAttention}
-          exceeding={data.teamHealth.exceeding}
-          priorPeriodTeamTotal={data.teamHealth.priorPeriodTeamTotal}
-          formatCurrency={formatCurrency}
-          onCoachingAction={() => onInteract('team_health', 'act')}
-        />
-      )}
-
-      {/* 2. Coaching Priority */}
-      {data.coachingPriority && (
-        <CoachingPriorityCard
-          accentColor={accentColor}
-          entityName={data.coachingPriority.entityName}
-          componentName={data.coachingPriority.componentName}
-          currentAttainment={data.coachingPriority.currentAttainment}
-          gapToNextTier={data.coachingPriority.gapToNextTier}
-          projectedImpact={data.coachingPriority.projectedImpact}
-          trend={data.coachingPriority.trend}
-          confidenceTier={data.confidenceTier}
-          formatCurrency={formatCurrency}
-          onViewDetail={() => onInteract('coaching_priority', 'act')}
-        />
-      )}
-
-      {/* OB-206 §6.2: Acceleration Cards — actionable team triage above the grid. */}
-      {data.teamHeatmap && data.teamHeatmap.length > 0 && (
-        <AccelerationCards
-          entities={data.teamHeatmap}
-          triage={data.teamHealth ? { exceeding: data.teamHealth.exceeding, onTrack: data.teamHealth.onTrack, needsAttention: data.teamHealth.needsAttention } : undefined}
-          formatCurrency={formatCurrency}
-          onEntityClick={(entityId) => { onInteract('acceleration', 'expand'); if (tenantId && periodId) drill.open({ entityId }); }}
-        />
-      )}
-
-      {/* OB-206 §6.1: entity × component coaching grid (real per-component payout,
-          sorted by coaching priority — replaces the all-dashes flat grid). */}
-      {data.teamHeatmap && data.teamHeatmap.length > 0 && (
-        <TeamHeatmapCard
-          accentColor={accentColor}
-          entities={data.teamHeatmap}
-          formatCurrency={formatCurrency}
-          onEntityClick={(entityId) => { onInteract('team_heatmap', 'expand'); if (tenantId && periodId) drill.open({ entityId }); }}
-        />
-      )}
-
-      {/* OB-224: inline five-layer drill for the clicked team member (scoped to the team set). */}
-      {drill.isOpen && tenantId && periodId && (
-        <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
-          <DrillThroughPanel tenantId={tenantId} scope={teamScope} periodId={periodId} initialEntityId={drill.target?.entityId} compact />
-        </StreamDrillRegion>
-      )}
-
-      {/* OB-211 WS-2 inc-2: access-scoped Simulate — opportunities over the manager's TEAM only.
-          Recognize/Coach over the near-boundary team set; the slider never includes other teams. */}
-      {data.optimizationOpportunities && data.optimizationOpportunities.length > 0 && (
-        <OptimizationCard
-          accentColor={accentColor}
-          opportunities={data.optimizationOpportunities}
-          confidenceTier={data.confidenceTier}
-          formatCurrency={formatCurrency}
-          onSimulate={() => onInteract('optimization_simulate', 'act')}
-        />
-      )}
-
-      {/* 4. Bloodwork — only if items exist */}
-      {data.bloodworkItems && data.bloodworkItems.length > 0 && (
-        <BloodworkCard
-          accentColor={accentColor}
-          items={data.bloodworkItems}
-          onAction={() => onInteract('bloodwork', 'act')}
-        />
-      )}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────
-// Individual Intelligence Stream
-// Density: Lowest. Single-column. Hero dominant.
-// ──────────────────────────────────────────────
-
-function IndividualStream({
-  data,
-  accentColor,
-  formatCurrency,
-  onInteract,
-}: {
-  data: IntelligenceStreamData;
-  accentColor: string;
-  formatCurrency: (n: number) => string;
-  onInteract: (elementId: string, action: 'click' | 'expand' | 'act') => void;
-}) {
-  return (
-    <div className="space-y-4 max-w-3xl">
-      {/* 1. Personal Earnings — hero */}
-      {data.personalEarnings && (
-        <PersonalEarningsCard
-          accentColor={accentColor}
-          totalPayout={data.personalEarnings.totalPayout}
-          attainmentPct={data.personalEarnings.attainmentPct}
-          priorPeriodTotal={data.personalEarnings.priorPeriodTotal}
-          currentTier={data.personalEarnings.currentTier}
-          nextTier={data.personalEarnings.nextTier}
-          gapToNextTier={data.personalEarnings.gapToNextTier}
-          gapUnit={data.personalEarnings.gapUnit}
-          allocationRecommendation={data.allocationRecommendation?.componentName ?? null}
-          projectedIncrease={data.allocationRecommendation?.projectedImpact ?? null}
-          formatCurrency={formatCurrency}
-          onAllocationAction={() => onInteract('personal_earnings', 'act')}
-        />
-      )}
-
-      {/* 2. Allocation Recommendation */}
-      {data.allocationRecommendation && (
-        <AllocationCard
-          accentColor={accentColor}
-          componentName={data.allocationRecommendation.componentName}
-          rationale={data.allocationRecommendation.rationale}
-          projectedImpact={data.allocationRecommendation.projectedImpact}
-          confidence={data.allocationRecommendation.confidence}
-          actionLabel={data.allocationRecommendation.actionLabel}
-          formatCurrency={formatCurrency}
-          onFocus={() => onInteract('allocation', 'act')}
-        />
-      )}
-
-      {/* 3. Component Breakdown */}
-      {data.componentBreakdown && data.componentBreakdown.length > 0 && (
-        <ComponentBreakdownCard
-          accentColor={accentColor}
-          components={data.componentBreakdown}
-          formatCurrency={formatCurrency}
-        />
-      )}
-
-      {/* 4. Relative Position */}
-      {data.relativePosition && (
-        <RelativePositionCard
-          accentColor={accentColor}
-          rank={data.relativePosition.rank}
-          totalEntities={data.relativePosition.totalEntities}
-          aboveEntities={data.relativePosition.aboveEntities}
-          belowEntities={data.relativePosition.belowEntities}
-          viewerAmount={data.relativePosition.viewerAmount}
-          formatCurrency={formatCurrency}
-        />
-      )}
-
-      {/* HF-293 FIX-2: the rep's OWN simulate affordance — UNCONDITIONAL on tiered components,
-          independent of near-boundary populations (the population OptimizationCard, a "population
-          of one" for a rep, almost never rendered). Self-scoped (loader scopes to [myResult]),
-          dollar-anchored (#515 sf). HALT-REP-TIERS: renders nothing if no tiered component. */}
-      {data.selfSimulations && data.selfSimulations.length > 0 && (
-        <SelfSimulateCard
-          accentColor={accentColor}
-          simulations={data.selfSimulations}
-          formatCurrency={formatCurrency}
-          onView={() => onInteract('self_simulate', 'act')}
-        />
-      )}
+    <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+      <span className={`text-xs ${TEXT.muted}`}>{label}</span>
+      <span className="text-sm font-semibold tabular-nums" style={{ color: accent ?? 'var(--vl-text, currentColor)' }}>{value}</span>
     </div>
   );
 }

@@ -1,59 +1,76 @@
-"use client";
+'use client';
 
 /**
- * Acceleration — OB-322 O-7: HONEST STATE.
+ * OB-234 T2 — Intelligence · Acceleration (/acceleration). Coaching, recognition, actions.
  *
- * Every fabricated element was removed: the "Holiday Push SPIF" and other invented SPIF programs,
- * the fake earned/in-progress badges, the mock alerts list, the canned coaching tips, and the
- * hardcoded regional recommendations. The page now shows only what the tenant's real data
- * supports — Top Performers and Top Movers, derived from calculation_results via the insights
- * data layer — and honest "not configured" empty states for SPIFs, Alerts, Coaching, and Goals,
- * because no such configuration exists in tenant data. Korean-clean (names/values from data).
+ * End-State A: every value reads getCalculatedPeriods / getEntityResults / getComponentTotals
+ * (calculation_results / entity_period_outcomes) through @/lib/insights + @/lib/drill-through —
+ * zero committed_data, zero raw re-aggregation. The prior period total comes from getEntityResults
+ * on periods[selectedIdx+1] so movement is honest (no fabricated deltas).
+ *
+ * DS-003 composition: HorizontalBar (recognition / ranked comparison, dominant) + PrioritySortedList
+ * splitView (movers triage) + NeighborhoodLeaderboard (rep relative rank) = 3 distinct component types
+ * (Diversity Minimum). Every viz carries a reference frame. Coaching action is a StubAction (honest
+ * disabled — coaching backend not built). Tiers/Goals/SPIFs/Alerts have NO config for BCL → honest
+ * empty (never fabricated). Persona density filters which elements render.
+ *
+ * Mirrors the reference surface web/src/app/insights/page.tsx.
  */
 
-import { useState, useEffect, useMemo } from "react";
-import { useIsVialuce } from "@/hooks/use-is-vialuce";
-import { motion } from "framer-motion";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Rocket,
-  Bell,
-  Target,
-  Lightbulb,
-  TrendingUp,
-  TrendingDown,
-  Trophy,
-} from "lucide-react";
-import { useTenant, useCurrency } from "@/contexts/tenant-context";
-import { useLocale, isSpanishLocale } from "@/contexts/locale-context";
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { Rocket, Bell, Target, Lightbulb, Users, Award, MessageSquare } from 'lucide-react';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { usePersona } from '@/contexts/persona-context';
 import {
   getCalculatedPeriods,
-  getEntityTableData,
+  getComponentTotals,
+  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
-  type EntityTableRow,
-} from "@/lib/insights";
-import { PeriodCards } from "@/components/insights";
-import { pageVariants } from "@/lib/animations";
+  type ComponentTotal,
+} from '@/lib/insights';
+import { getEntityResults, type EntityResult } from '@/lib/drill-through';
+import { PeriodCards } from '@/components/insights';
+import {
+  PersonaAmbient,
+  DensityGate,
+  usePersonaTheme,
+  HorizontalBar,
+  PrioritySortedList,
+  NeighborhoodLeaderboard,
+  StubAction,
+  Panel,
+  TEXT,
+  type PriorityItem,
+} from '@/components/insights/ds003';
 
-function initialsOf(name: string): string {
-  return (name || "—").split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
+      <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
+    </div>
+  );
 }
 
 export default function AccelerationPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const { locale } = useLocale();
-  const isSpanish = isSpanishLocale(locale);
-  const isVialuce = useIsVialuce();
+  const theme = usePersonaTheme();
+  const { persona, entityId } = usePersona();
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
-  const [selectedPeriodId, setSelectedPeriodId] = useState("");
-  const [rows, setRows] = useState<EntityTableRow[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState('');
+  const [rows, setRows] = useState<EntityResult[]>([]);
+  const [priorRows, setPriorRows] = useState<EntityResult[]>([]);
+  const [componentTotals, setComponentTotals] = useState<ComponentTotal[]>([]);
   const [periodsLoaded, setPeriodsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Periods (canonical getCalculatedPeriods, start_date DESC).
   useEffect(() => {
     if (!currentTenant) return;
     let cancelled = false;
@@ -61,204 +78,274 @@ export default function AccelerationPage() {
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
-        setSelectedPeriodId(ps[0]?.period_id ?? "");
+        setSelectedPeriodId(ps[0]?.period_id ?? '');
         setPeriodsLoaded(true);
         if (ps.length === 0) setIsLoading(false);
       })
-      .catch(() => { setPeriodsLoaded(true); setIsLoading(false); });
+      .catch((err) => { console.warn('[Acceleration] periods load failed:', err); setPeriodsLoaded(true); setIsLoading(false); });
     return () => { cancelled = true; };
   }, [currentTenant]);
 
+  const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
+
+  // Selected-period outcomes + prior-period outcomes (movement) + component totals.
   useEffect(() => {
     if (!currentTenant || !selectedPeriodId) return;
     let cancelled = false;
     setIsLoading(true);
-    // Pull a generous page sorted by delta vs prior so we can read both gainers and decliners.
-    getEntityTableData(currentTenant.id, selectedPeriodId, { sortBy: "delta_prior", sortOrder: "desc", pageSize: 100 })
-      .then((res) => { if (!cancelled) { setRows(res.rows); setIsLoading(false); } })
-      .catch(() => { if (!cancelled) setIsLoading(false); });
+    const priorId = selectedIdx >= 0 ? periods[selectedIdx + 1]?.period_id : undefined;
+    Promise.all([
+      getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+      priorId ? getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: priorId }) : Promise.resolve([] as EntityResult[]),
+      getComponentTotals(currentTenant.id, selectedPeriodId),
+    ])
+      .then(([rs, prs, ct]) => {
+        if (cancelled) return;
+        setRows(rs);
+        setPriorRows(prs);
+        setComponentTotals(ct);
+        setIsLoading(false);
+      })
+      .catch((err) => { console.warn('[Acceleration] period data load failed:', err); if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant, selectedPeriodId]);
+  }, [currentTenant, selectedPeriodId, selectedIdx, periods]);
 
-  const topPerformers = useMemo(
-    () => [...rows].sort((a, b) => b.total_payout - a.total_payout).slice(0, 5),
-    [rows],
-  );
-  const gainers = useMemo(
-    () => rows.filter((r) => r.delta_prior != null && r.delta_prior > 0).slice(0, 5),
-    [rows],
-  );
-  const decliners = useMemo(
-    () => rows.filter((r) => r.delta_prior != null && r.delta_prior < 0).sort((a, b) => (a.delta_prior ?? 0) - (b.delta_prior ?? 0)).slice(0, 5),
-    [rows],
-  );
-  const hasPriorDeltas = gainers.length > 0 || decliners.length > 0;
+  const priorLabel = selectedIdx >= 0 ? periods[selectedIdx + 1]?.label ?? null : null;
 
-  const t = {
-    heading: isSpanish ? "Aceleración" : "Acceleration",
-    sub: isSpanish ? "Rendimiento real y programas de incentivos" : "Real performance and incentive programs",
-    topPerformers: isSpanish ? "Mejores Resultados" : "Top Performers",
-    topPerformersDesc: isSpanish ? "Por pago total este período" : "By total payout this period",
-    movers: isSpanish ? "Mayores Cambios" : "Top Movers",
-    moversDesc: isSpanish ? "Cambio frente al período anterior" : "Change versus the prior period",
-    gainers: isSpanish ? "Suben" : "Gainers",
-    decliners: isSpanish ? "Bajan" : "Decliners",
-    noMovers: isSpanish ? "Se necesitan al menos dos períodos calculados para mostrar cambios." : "At least two calculated periods are required to show movement.",
-    tabSpifs: isSpanish ? "Incentivos" : "SPIFs",
-    tabAlerts: isSpanish ? "Alertas" : "Alerts",
-    tabCoaching: isSpanish ? "Asesoría" : "Coaching",
-    tabGoals: isSpanish ? "Metas" : "Goals",
-    noSpifs: isSpanish ? "No hay programas de incentivos configurados." : "No incentive programs configured.",
-    noSpifsBody: isSpanish ? "Los programas SPIF / incentivos aparecerán aquí cuando se configuren para este inquilino." : "SPIF / incentive programs will appear here when configured for this tenant.",
-    noAlerts: isSpanish ? "Sin alertas." : "No alerts.",
-    noAlertsBody: isSpanish ? "Las alertas aparecerán aquí cuando se configure el monitoreo basado en umbrales." : "Alerts will appear here when threshold-based monitoring is configured.",
-    noCoaching: isSpanish ? "Sin contenido de asesoría." : "No coaching content.",
-    noCoachingBody: isSpanish ? "La guía de asesoría aparecerá aquí cuando se configure." : "Coaching guidance will appear here when configured.",
-    noGoals: isSpanish ? "Sin metas configuradas." : "No goals configured.",
-    noGoalsBody: isSpanish ? "Las metas y el ritmo aparecerán aquí cuando se configuren objetivos para este inquilino." : "Goals and pacing will appear here when targets are configured for this tenant.",
-    noData: isSpanish ? "No hay datos de cálculo" : "No Calculation Data",
-    noDataBody: isSpanish ? "Los resultados aparecerán aquí una vez que se ejecuten cálculos." : "Results will appear here once calculations have been run.",
-  };
+  const insights = useMemo(() => {
+    if (rows.length === 0) return null;
+    const totalPayout = rows.reduce((s, r) => s + (r.totalPayout || 0), 0);
+    const avgPayout = totalPayout / rows.length;
+    const sorted = [...rows].sort((a, b) => (b.totalPayout || 0) - (a.totalPayout || 0));
 
-  const EmptyTab = ({ icon: Icon, title, body }: { icon: typeof Bell; title: string; body: string }) => (
-    <Card>
-      <CardContent className="py-12 text-center">
-        <Icon className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-        <p className="font-medium mb-1">{title}</p>
-        <p className="text-sm text-muted-foreground max-w-sm mx-auto">{body}</p>
-      </CardContent>
-    </Card>
-  );
+    // Movement vs prior period (honest: only where we have both periods' outcomes).
+    const priorById = new Map(priorRows.map((r) => [r.entityId, r.totalPayout || 0]));
+    const movers = rows
+      .map((r) => {
+        const prev = priorById.get(r.entityId);
+        if (prev == null) return null;
+        const delta = (r.totalPayout || 0) - prev;
+        return { entity: r, delta };
+      })
+      .filter((m): m is { entity: EntityResult; delta: number } => m != null && m.delta !== 0);
+    const gainers = movers.filter((m) => m.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5);
+    const decliners = movers.filter((m) => m.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5);
 
-  const PerfRow = ({ r, idx, showDelta }: { r: EntityTableRow; idx?: number; showDelta?: boolean }) => (
-    <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-      {typeof idx === "number" && (
-        <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
-          idx === 0 ? "bg-amber-400 text-amber-950" : idx === 1 ? "bg-slate-300 text-slate-700" : idx === 2 ? "bg-amber-600 text-amber-50" : "bg-muted text-muted-foreground"
-        }`}>{idx + 1}</div>
-      )}
-      <Avatar className="h-9 w-9"><AvatarFallback className="text-xs">{initialsOf(r.display_name)}</AvatarFallback></Avatar>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{r.display_name}</p>
-        {r.variant && <p className="text-xs text-muted-foreground truncate">{r.variant}</p>}
-      </div>
-      <div className="text-right">
-        <p className="text-sm font-semibold tabular-nums">{format(r.total_payout)}</p>
-        {showDelta && r.delta_prior != null && (
-          <p className={`text-xs tabular-nums flex items-center justify-end gap-0.5 ${r.delta_prior >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-            {r.delta_prior >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {format(Math.abs(r.delta_prior))}
-          </p>
-        )}
-      </div>
-    </div>
+    return {
+      totalPayout,
+      avgPayout,
+      entityCount: rows.length,
+      top: sorted[0] ?? null,
+      topFive: sorted.slice(0, 5),
+      leaderboard: sorted.map((r) => ({ id: r.entityId, name: r.displayName || r.externalId, value: r.totalPayout || 0 })),
+      gainers,
+      decliners,
+      hasPrior: priorRows.length > 0,
+    };
+  }, [rows, priorRows]);
+
+  // Top Movers → PrioritySortedList (gainers = opportunity, decliners = warning). Triage.
+  const moverItems = useMemo<PriorityItem[]>(() => {
+    if (!insights) return [];
+    const gainItems: PriorityItem[] = insights.gainers.map((m) => ({
+      id: `gain-${m.entity.entityId}`,
+      severity: 'opportunity',
+      label: m.entity.displayName || m.entity.externalId,
+      detail: `${format(m.entity.totalPayout || 0)} this period`,
+      value: `+${format(Math.abs(m.delta))}`,
+    }));
+    const declineItems: PriorityItem[] = insights.decliners.map((m) => ({
+      id: `decline-${m.entity.entityId}`,
+      severity: 'warning',
+      label: m.entity.displayName || m.entity.externalId,
+      detail: `${format(m.entity.totalPayout || 0)} this period`,
+      value: `-${format(Math.abs(m.delta))}`,
+    }));
+    return [...gainItems, ...declineItems];
+  }, [insights, format]);
+
+  // Component coaching: each component's avg per participating entity vs the population. The coaching
+  // ACTION is a StubAction (workflow backend not built). getComponentTotals is the clean source.
+  const coachingComponents = useMemo(
+    () =>
+      componentTotals
+        .filter((c) => c.entity_count > 0)
+        .map((c) => ({
+          name: c.component_name,
+          avgPerEntity: c.total_amount / c.entity_count,
+          entityCount: c.entity_count,
+          share: c.percentage_of_total,
+        }))
+        .sort((a, b) => b.avgPerEntity - a.avgPerEntity)
+        .slice(0, 6),
+    [componentTotals],
   );
 
-  const header = isVialuce ? (
-    <div className="phead">
-      <div>
-        <h1>{t.heading}</h1>
-        <div className="sub">{t.sub}</div>
-      </div>
-    </div>
-  ) : (
-    <div className="mb-6">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{t.heading}</h1>
-      <p className="mt-2 text-slate-600 dark:text-slate-400">{t.sub}</p>
-    </div>
-  );
+  const showMyRank = persona === 'rep' && !!entityId && !!insights;
 
-  const body =
-    periodsLoaded && periods.length === 0 ? (
-      <Card>
-        <CardContent className="py-16 text-center">
-          <Rocket className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">{t.noData}</h3>
-          <p className="text-muted-foreground max-w-md mx-auto">{t.noDataBody}</p>
-        </CardContent>
-      </Card>
-    ) : (
-      <div className="space-y-6">
-        {periods.length > 0 && (
-          <PeriodCards periods={periods} selectedPeriodId={selectedPeriodId} onPeriodChange={setSelectedPeriodId} />
-        )}
-
-        {/* Real performance — top performers + movers from calculation_results */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-500" />{t.topPerformers}</CardTitle>
-              <CardDescription>{t.topPerformersDesc}</CardDescription>
-            </CardHeader>
-            <CardContent className="px-2">
-              {isLoading ? (
-                <p className="text-center py-8 text-muted-foreground text-sm">…</p>
-              ) : topPerformers.length === 0 ? (
-                <p className="text-center py-8 text-muted-foreground text-sm">{t.noDataBody}</p>
-              ) : (
-                <div className="space-y-1">{topPerformers.map((r, i) => <PerfRow key={r.entity_id} r={r} idx={i} />)}</div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-emerald-500" />{t.movers}</CardTitle>
-              <CardDescription>{t.moversDesc}</CardDescription>
-            </CardHeader>
-            <CardContent className="px-2">
-              {isLoading ? (
-                <p className="text-center py-8 text-muted-foreground text-sm">…</p>
-              ) : !hasPriorDeltas ? (
-                <p className="text-center py-8 text-muted-foreground text-sm max-w-xs mx-auto">{t.noMovers}</p>
-              ) : (
-                <div className="space-y-3">
-                  {gainers.length > 0 && (
-                    <div>
-                      <p className="px-3 text-xs font-medium uppercase text-muted-foreground mb-1">{t.gainers}</p>
-                      <div className="space-y-1">{gainers.map((r) => <PerfRow key={r.entity_id} r={r} showDelta />)}</div>
-                    </div>
-                  )}
-                  {decliners.length > 0 && (
-                    <div>
-                      <p className="px-3 text-xs font-medium uppercase text-muted-foreground mb-1">{t.decliners}</p>
-                      <div className="space-y-1">{decliners.map((r) => <PerfRow key={r.entity_id} r={r} showDelta />)}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+  // Loading shell.
+  if (isLoading && !periodsLoaded) {
+    return (
+      <PersonaAmbient>
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+            <p className={TEXT.body}>Loading acceleration…</p>
+          </div>
         </div>
-
-        {/* Configuration-backed surfaces — honest empty states (no fabricated programs) */}
-        <Tabs defaultValue="spifs" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="spifs"><Rocket className="h-4 w-4 mr-2" />{t.tabSpifs}</TabsTrigger>
-            <TabsTrigger value="alerts"><Bell className="h-4 w-4 mr-2" />{t.tabAlerts}</TabsTrigger>
-            <TabsTrigger value="coaching"><Lightbulb className="h-4 w-4 mr-2" />{t.tabCoaching}</TabsTrigger>
-            <TabsTrigger value="goals"><Target className="h-4 w-4 mr-2" />{t.tabGoals}</TabsTrigger>
-          </TabsList>
-          <TabsContent value="spifs"><EmptyTab icon={Rocket} title={t.noSpifs} body={t.noSpifsBody} /></TabsContent>
-          <TabsContent value="alerts"><EmptyTab icon={Bell} title={t.noAlerts} body={t.noAlertsBody} /></TabsContent>
-          <TabsContent value="coaching"><EmptyTab icon={Lightbulb} title={t.noCoaching} body={t.noCoachingBody} /></TabsContent>
-          <TabsContent value="goals"><EmptyTab icon={Target} title={t.noGoals} body={t.noGoalsBody} /></TabsContent>
-        </Tabs>
-      </div>
+      </PersonaAmbient>
     );
+  }
+
+  // No calculated periods → honest onboarding.
+  if (periodsLoaded && periods.length === 0) {
+    return (
+      <PersonaAmbient>
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <Rocket className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>No calculation data yet</h1>
+          <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>
+            Recognition, movement, and coaching appear once a compensation run completes — top performers, movers, and component standings.
+          </p>
+          <Link href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+            <Target className="h-4 w-4" /> Go to Compensation
+          </Link>
+        </div>
+      </PersonaAmbient>
+    );
+  }
+
+  const selectedLabel = periods[selectedIdx]?.label ?? '';
+
+  // Honest-empty config card (SPIFs / Alerts / Tiers / Goals — no config in tenant data).
+  const EmptyConfig = ({ icon: Icon, title, body }: { icon: typeof Bell; title: string; body: string }) => (
+    <div className="flex flex-col items-center gap-2 py-10 text-center">
+      <Icon className="h-9 w-9 text-muted-foreground/50" />
+      <p className={`text-sm font-medium ${TEXT.body}`}>{title}</p>
+      <p className={`max-w-sm text-xs ${TEXT.muted}`}>{body}</p>
+    </div>
+  );
 
   return (
-    <motion.div
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900"
-    >
-      <div className={isVialuce ? "page" : "container mx-auto px-4 md:px-6 py-8"}>
-        {header}
-        {body}
+    <PersonaAmbient>
+      <div className="space-y-6">
+        <header>
+          <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Acceleration</h1>
+          <p className={`mt-1 text-sm ${TEXT.body}`}>
+            Recognition, movement &amp; coaching{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
+          </p>
+        </header>
+
+        {periods.length > 0 && (
+          <PeriodCards
+            periods={periods}
+            selectedPeriodId={selectedPeriodId}
+            onPeriodChange={setSelectedPeriodId}
+            accentColor={theme.accent}
+            accentSoft={theme.accentSoft}
+          />
+        )}
+
+        {isLoading || !insights ? (
+          <Panel><div className={`py-16 text-center text-sm ${TEXT.muted}`}>{isLoading ? 'Loading period…' : 'No outcomes for this period.'}</div></Panel>
+        ) : (
+          <>
+            {/* Supporting tiles */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Stat label="Entities Paid" value={String(insights.entityCount)} hint="with outcomes this period" icon={Users} />
+              <Stat label="Average Payout" value={format(insights.avgPayout)} hint="per entity" icon={Target} />
+              <Stat label="Top Performer" value={insights.top ? format(insights.top.totalPayout || 0) : '—'} hint={insights.top?.displayName ?? '—'} icon={Award} />
+            </div>
+
+            {/* Rep relative rank — only when persona is rep and we know their entity (honest). */}
+            {showMyRank && (
+              <DensityGate min="low">
+                <Panel title="My Rank" description="Your neighbourhood by total earnings this period">
+                  <NeighborhoodLeaderboard
+                    entities={insights.leaderboard}
+                    selfId={entityId!}
+                    format={format}
+                    emptyLabel="Your standing appears once you have an outcome this period."
+                  />
+                </Panel>
+              </DensityGate>
+            )}
+
+            {/* Dominant: recognition (ranked vs population average). */}
+            <Panel title="Top Performers" description="By total earnings this period, vs the population average">
+              <HorizontalBar
+                items={insights.topFive.map((e) => ({ label: e.displayName || e.externalId, value: e.totalPayout || 0 }))}
+                referenceLine={{ value: insights.avgPayout, label: 'Avg' }}
+                format={format}
+              />
+            </Panel>
+
+            {/* Movement triage — split gainers / decliners (needs a prior calculated period). */}
+            <Panel title="Top Movers" description={priorLabel ? `Change versus ${priorLabel}` : 'Change versus the prior period'}>
+              {!insights.hasPrior ? (
+                <div className={`py-8 text-center text-sm ${TEXT.muted}`}>
+                  At least two calculated periods are required to show movement.
+                </div>
+              ) : (
+                <PrioritySortedList
+                  items={moverItems}
+                  splitView
+                  emptyLabel="No measurable movement versus the prior period."
+                />
+              )}
+            </Panel>
+
+            {/* Component coaching — admin/manager density. Coaching action is an honest stub. */}
+            <DensityGate min="medium">
+              <Panel
+                title="Component Coaching"
+                description="Average per participating entity, by earnings component — coaching targets"
+              >
+                {coachingComponents.length === 0 ? (
+                  <div className={`py-8 text-center text-sm ${TEXT.muted}`}>No component breakdown for this period.</div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      {coachingComponents.map((c) => (
+                        <div key={c.name} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5">
+                          <Lightbulb className="h-4 w-4 shrink-0" style={{ color: theme.accent }} />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground">{c.name}</div>
+                            <div className={`truncate text-xs ${TEXT.muted}`}>{c.entityCount} entities · {c.share.toFixed(1)}% of payout</div>
+                          </div>
+                          <span className={`shrink-0 text-sm font-semibold tabular-nums ${TEXT.headline}`}>{format(c.avgPerEntity)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <StubAction
+                      label="Start coaching workflow"
+                      description="Coaching workflow coming soon — assign focus components and track follow-up."
+                      icon={MessageSquare}
+                    />
+                  </div>
+                )}
+              </Panel>
+            </DensityGate>
+
+            {/* Config-backed surfaces — honest empty (no SPIF / alert / tier / goal config in tenant data). */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Incentive Programs (SPIFs)" description="Configured incentive programs">
+                <EmptyConfig icon={Rocket} title="No incentive programs configured." body="SPIF / incentive programs will appear here when configured for this tenant." />
+              </Panel>
+              <Panel title="Alerts" description="Threshold-based monitoring">
+                <EmptyConfig icon={Bell} title="No alerts." body="Alerts will appear here when threshold-based monitoring is configured." />
+              </Panel>
+            </div>
+
+            {/* Goals / tiers — no tier config exists for this tenant → omit the progress viz, state honestly. */}
+            <DensityGate min="medium">
+              <Panel title="Goals &amp; Tiers" description="Tier targets and pacing">
+                <EmptyConfig icon={Target} title="No goals configured." body="Tiers, pacing, and goal progress will appear here when targets are configured for this tenant." />
+              </Panel>
+            </DensityGate>
+          </>
+        )}
       </div>
-    </motion.div>
+    </PersonaAmbient>
   );
 }

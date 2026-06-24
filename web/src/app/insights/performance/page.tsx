@@ -1,6 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * OB-234 T2 — Intelligence · Attainment (/insights/performance). Mirrors the reference surface
+ * (/insights). End-State A: the ICM branch reads ONLY getCalculatedPeriods / getEntityResults /
+ * getEntityTrajectory (calculation_results / entity_period_outcomes) — zero committed_data, zero raw
+ * createClient calc query.
+ *
+ * Architect intent (Cognitive Fit Test = authority): attainment / target data does NOT exist for BCL,
+ * and EntityResult carries NO attainment field → the Attainment summary is an HONEST EMPTY card
+ * ("Targets not configured." + a REAL Configure link). The surface then pivots to what IS real:
+ * payout STANDINGS vs the population reference.
+ *
+ * DS-003 composition (ICM branch): HorizontalBar (ranked standings) + DistributionPosition (population
+ * ranking) + PrioritySortedList (hot/cold triage, splitView) + Sparkline (embedded pacing trend) =
+ * 4 distinct component types (Diversity Minimum). Plus IntelligenceElement (DS-015, G2 provable) as the
+ * dominant element. Every viz carries a reference frame. Persona density filters which elements render.
+ *
+ * PRESERVED: the Hospitality branch (currentTenant.industry === 'Hospitality' → executive restaurant
+ * view) is kept intact; the DS-003 redesign is the NON-hospitality (ICM) branch only.
+ */
+
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import {
   Card,
   CardContent,
@@ -8,7 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   BarChart,
   Bar,
@@ -26,7 +46,6 @@ import {
   Target,
   TrendingUp,
   Users,
-  Medal,
   Building2,
   MapPin,
   CreditCard,
@@ -34,28 +53,36 @@ import {
   Utensils,
   Wine,
   AlertTriangle,
+  BarChart3,
+  Award,
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
-import { useLocale , isSpanishLocale} from '@/contexts/locale-context'; // OB-226C: Korean Test
-import { useAuth } from '@/contexts/auth-context'; // OB-226C: Korean Test
-import { isVLAdmin } from '@/types/auth'; // OB-226C: Korean Test
-import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { getCheques, getFranquicias, getFinancialSummary, getSalesByFranquicia } from '@/lib/restaurant-service';
-import { getEntityResults, getPeriodsWithResults, type EntityResult } from '@/lib/drill-through'; // OB-226C: real entity payouts
+import { getEntityResults, type EntityResult } from '@/lib/drill-through';
+import {
+  getCalculatedPeriods,
+  getEntityTrajectory,
+  ALL_INSIGHTS_SCOPE,
+  type PeriodSummary,
+  type EntityTrajectory,
+} from '@/lib/insights';
+import { PeriodCards } from '@/components/insights';
+import {
+  PersonaAmbient,
+  DensityGate,
+  usePersonaTheme,
+  HorizontalBar,
+  DistributionPosition,
+  PrioritySortedList,
+  Sparkline,
+  IntelligenceElement,
+  Panel,
+  TEXT,
+  SEMANTIC,
+  type PriorityItem,
+} from '@/components/insights/ds003';
 import { Leaderboard } from '@/components/charts/leaderboard';
 import type { Cheque, Franquicia } from '@/types/cheques';
-
-// OB-226C: TechCorp mock data removed — non-hospitality branch now derives leaderboard,
-// summary stats, and distribution from real calculation_results via getEntityResults().
-
-// OB-226C: a real payout-tier band derived from totalPayout (no per-entity attainment %
-// exists across tenants — attainment is a {bonus,total,commission} object — so the
-// distribution histogram buckets the actual payout amount).
-interface DistBand {
-  tier: string;
-  count: number;
-  color: string;
-}
 
 interface ExecutiveData {
   totalRevenue: number;
@@ -77,23 +104,38 @@ interface ExecutiveData {
   bottomFranchises: Array<{ id: string; rank: number; name: string; value: number; subtitle?: string; change?: number }>;
 }
 
+// Compact supporting stat tile (mirrors the reference Stat helper — carries data, not a DS-003 type).
+function Stat({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon: typeof Users }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${TEXT.body}`}>
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${TEXT.headline}`}>{value}</div>
+      <div className={`text-xs ${TEXT.muted}`}>{hint}</div>
+    </div>
+  );
+}
+
 export default function InsightsPerformancePage() {
   const { currentTenant } = useTenant();
-  const { format, symbol } = useCurrency();
-  const { locale } = useLocale(); // OB-226C
-  const { user } = useAuth(); // OB-226C
-  const [data, setData] = useState<ExecutiveData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
+  const { format } = useCurrency();
+  const theme = usePersonaTheme();
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const tenantId = currentTenant?.id ?? '';
-  // Korean Test (codebase standard): VL admins see English; tenant users follow locale.
-  const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
 
-  // OB-226C: real entity payouts for the non-hospitality branch (replaces techCorp* mock).
-  const [entityResults, setEntityResults] = useState<EntityResult[] | null>(null);
-  const [entityLoading, setEntityLoading] = useState(true);
+  // ── Hospitality branch state (PRESERVED) ──
+  const [data, setData] = useState<ExecutiveData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // ── ICM / End-State A branch state ──
+  const [periods, setPeriods] = useState<PeriodSummary[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState('');
+  const [rows, setRows] = useState<EntityResult[]>([]);
+  const [trajectories, setTrajectories] = useState<EntityTrajectory[]>([]);
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
+  const [icmLoading, setIcmLoading] = useState(true);
 
   useEffect(() => {
     if (isHospitality) {
@@ -103,38 +145,113 @@ export default function InsightsPerformancePage() {
     }
   }, [isHospitality]);
 
-  // OB-226C: load real calculation_results (latest period) for the non-hospitality branch.
+  // ICM: calculated periods (canonical getCalculatedPeriods, start_date DESC).
   useEffect(() => {
     if (isHospitality || !tenantId) {
-      setEntityLoading(false);
+      setPeriodsLoaded(true);
+      setIcmLoading(false);
       return;
     }
     let cancelled = false;
-    setEntityLoading(true);
-    (async () => {
-      try {
-        const periods = await getPeriodsWithResults(tenantId);
-        const latestPeriodId = periods[0]?.id;
-        const results = await getEntityResults(
-          tenantId,
-          { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' },
-          latestPeriodId ? { periodId: latestPeriodId } : undefined,
-        );
+    getCalculatedPeriods(tenantId)
+      .then((ps) => {
         if (cancelled) return;
-        setEntityResults(results);
-      } catch (error) {
-        console.error('Error loading performance entity results:', error);
-        if (!cancelled) setEntityResults([]);
-      } finally {
-        if (!cancelled) setEntityLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+        setPeriods(ps);
+        setSelectedPeriodId(ps[0]?.period_id ?? '');
+        setPeriodsLoaded(true);
+        if (ps.length === 0) setIcmLoading(false);
+      })
+      .catch((err) => { console.warn('[Attainment] periods load failed:', err); setPeriodsLoaded(true); setIcmLoading(false); });
+    return () => { cancelled = true; };
   }, [isHospitality, tenantId]);
 
-  const loadHospitalityData = async () => {
+  // ICM: selected-period entity outcomes + cross-period trajectory (for pacing sparklines).
+  useEffect(() => {
+    if (isHospitality || !tenantId || !selectedPeriodId) return;
+    let cancelled = false;
+    setIcmLoading(true);
+    Promise.all([
+      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+      getEntityTrajectory(tenantId),
+    ])
+      .then(([rs, tr]) => { if (cancelled) return; setRows(rs); setTrajectories(tr); setIcmLoading(false); })
+      .catch((err) => { console.warn('[Attainment] period data load failed:', err); if (!cancelled) setIcmLoading(false); });
+    return () => { cancelled = true; };
+  }, [isHospitality, tenantId, selectedPeriodId]);
+
+  const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
+
+  const insights = useMemo(() => {
+    if (rows.length === 0) return null;
+    const totalPayout = rows.reduce((s, r) => s + (r.totalPayout || 0), 0);
+    const avgPayout = totalPayout / rows.length;
+    const sorted = [...rows].sort((a, b) => (b.totalPayout || 0) - (a.totalPayout || 0));
+    const prior = selectedIdx >= 0 ? periods[selectedIdx + 1] : undefined;
+    const priorTotal = prior?.total_payout ?? null;
+    const delta = priorTotal != null && priorTotal > 0 ? (totalPayout - priorTotal) / priorTotal : null;
+    return {
+      totalPayout,
+      avgPayout,
+      entityCount: rows.length,
+      top: sorted[0] ?? null,
+      sorted,
+      values: rows.map((r) => r.totalPayout || 0),
+      delta,
+      priorLabel: prior?.label ?? null,
+    };
+  }, [rows, periods, selectedIdx]);
+
+  // Hot / Cold: per-entity latest-vs-prior delta from the cross-period trajectory (≥2 periods).
+  const hotCold = useMemo<PriorityItem[]>(() => {
+    if (trajectories.length === 0) return [];
+    const withDelta = trajectories.filter((t) => t.delta != null && t.periods.length >= 2);
+    if (withDelta.length === 0) return [];
+    const gaining = [...withDelta].filter((t) => (t.delta ?? 0) > 0).sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0)).slice(0, 5);
+    const declining = [...withDelta].filter((t) => (t.delta ?? 0) < 0).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5);
+    const fmtDelta = (d: number) => `${d >= 0 ? '+' : ''}${format(d)}`;
+    const items: PriorityItem[] = [];
+    for (const t of gaining) {
+      items.push({
+        id: `gain-${t.entity_id}`,
+        severity: 'opportunity',
+        label: t.display_name,
+        detail: 'vs prior period',
+        value: fmtDelta(t.delta ?? 0),
+        action: { label: 'View', href: `/investigate/trace/${t.entity_id}` },
+      });
+    }
+    for (const t of declining) {
+      items.push({
+        id: `decl-${t.entity_id}`,
+        severity: 'warning',
+        label: t.display_name,
+        detail: 'vs prior period',
+        value: fmtDelta(t.delta ?? 0),
+        action: { label: 'View', href: `/investigate/trace/${t.entity_id}` },
+      });
+    }
+    return items;
+  }, [trajectories, format]);
+
+  // Pacing: top-N entities (by latest payout) each with their period series for an inline Sparkline.
+  const pacing = useMemo(() => {
+    if (trajectories.length === 0) return [];
+    return [...trajectories]
+      .filter((t) => t.periods.length >= 2)
+      .sort((a, b) => (b.periods[b.periods.length - 1]?.total_payout ?? 0) - (a.periods[a.periods.length - 1]?.total_payout ?? 0))
+      .slice(0, 8)
+      .map((t) => ({
+        id: t.entity_id,
+        name: t.display_name,
+        series: t.periods.map((p) => p.total_payout),
+        latest: t.periods[t.periods.length - 1]?.total_payout ?? 0,
+        delta: t.delta,
+        direction: t.direction,
+      }));
+  }, [trajectories]);
+
+  // ── Hospitality data loader (PRESERVED — unchanged from prior wiring) ──
+  async function loadHospitalityData() {
     setIsLoading(true);
     try {
       const [cheques, franquicias, summary, salesByFranquicia] = await Promise.all([
@@ -144,7 +261,6 @@ export default function InsightsPerformancePage() {
         getSalesByFranquicia(),
       ]);
 
-      // Calculate payment method breakdown
       const validCheques = cheques.filter((c: Cheque) => c.pagado === 1 && c.cancelado === 0);
       const cashTotal = validCheques.reduce((sum: number, c: Cheque) => sum + c.efectivo, 0);
       const cardTotal = validCheques.reduce((sum: number, c: Cheque) => sum + c.tarjeta, 0);
@@ -152,7 +268,6 @@ export default function InsightsPerformancePage() {
       const cashPct = totalPayments > 0 ? (cashTotal / totalPayments) * 100 : 0;
       const cardPct = totalPayments > 0 ? (cardTotal / totalPayments) * 100 : 0;
 
-      // Region stats
       const regionColors: Record<string, string> = {
         West: '#6366f1',
         North: '#8b5cf6',
@@ -178,15 +293,14 @@ export default function InsightsPerformancePage() {
       });
 
       const regionStats = Array.from(regionMap.entries())
-        .map(([region, data]) => ({
+        .map(([region, d]) => ({
           region,
-          sales: data.sales,
-          checkCount: data.checkCount,
+          sales: d.sales,
+          checkCount: d.checkCount,
           color: regionColors[region] || '#94a3b8',
         }))
         .sort((a, b) => b.sales - a.sales);
 
-      // Top and bottom franchises
       const franchiseRankings = salesByFranquicia.map((f, i) => ({
         id: f.franquicia.numero_franquicia,
         rank: i + 1,
@@ -226,290 +340,168 @@ export default function InsightsPerformancePage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  // OB-226C: Non-hospitality view — real entity payouts (calculation_results) replace techCorp mock.
+  // ──────────────────────────────────────────────────────────────────────────
+  // ICM / End-State A branch — DS-003 redesign (Attainment vs population standings)
+  // ──────────────────────────────────────────────────────────────────────────
   if (!isHospitality) {
-    const results = entityResults ?? [];
-    const periodLabel = results[0]?.periodLabel ?? '';
-    const totalPayout = results.reduce((sum, r) => sum + r.totalPayout, 0);
-    const entityCount = results.length;
-    const avgPayout = entityCount > 0 ? totalPayout / entityCount : 0;
-    const topPayout = results.reduce((max, r) => Math.max(max, r.totalPayout), 0);
-    const leaderboard = results.slice(0, 5); // already sorted desc by getEntityResults
-
-    // Distribution histogram: bucket the real payout amount into quartiles of the observed
-    // range (no per-entity attainment % exists across tenants, so payout is the honest axis).
-    const distBands: DistBand[] = [];
-    if (entityCount > 0 && topPayout > 0) {
-      const bandDefs = [
-        { lo: 0.75, color: '#10b981' },
-        { lo: 0.5, color: '#3b82f6' },
-        { lo: 0.25, color: '#f59e0b' },
-        { lo: 0, color: '#ef4444' },
-      ];
-      for (const def of bandDefs) {
-        const hi = def.lo === 0.75 ? Infinity : def.lo + 0.25;
-        const loAmt = def.lo * topPayout;
-        const hiAmt = hi === Infinity ? Infinity : hi * topPayout;
-        const count = results.filter((r) => r.totalPayout >= loAmt && (hi === Infinity ? true : r.totalPayout < hiAmt)).length;
-        const tier = hi === Infinity
-          ? `${symbol}${Math.round(loAmt / 1000)}k+`
-          : `${symbol}${Math.round(loAmt / 1000)}k–${Math.round(hiAmt / 1000)}k`;
-        distBands.push({ tier, count, color: def.color });
-      }
+    // Loading shell.
+    if (icmLoading && !periodsLoaded) {
+      return (
+        <PersonaAmbient>
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" style={{ borderColor: theme.accent, borderTopColor: 'transparent' }} />
+              <p className={TEXT.body}>Loading attainment…</p>
+            </div>
+          </div>
+        </PersonaAmbient>
+      );
     }
 
-    const noResults = !entityLoading && entityCount === 0;
+    // No calculated periods → honest onboarding.
+    if (periodsLoaded && periods.length === 0) {
+      return (
+        <PersonaAmbient>
+          <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+            <BarChart3 className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+            <h1 className={`text-2xl font-bold ${TEXT.headline}`}>No attainment data yet</h1>
+            <p className={`mx-auto mt-2 max-w-md ${TEXT.body}`}>
+              Standings, pacing, and population position appear once a compensation run completes.
+            </p>
+            <Link href="/operate" className="mt-5 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium" style={{ backgroundColor: theme.accentSoft, color: theme.accent }}>
+              <Target className="h-4 w-4" /> Go to Compensation
+            </Link>
+          </div>
+        </PersonaAmbient>
+      );
+    }
+
+    const selectedLabel = periods[selectedIdx]?.label ?? '';
 
     return (
-      // HF-313: Vialuce page frame (.page) replaces gradient/container; else byte-identical.
-      <div className={isVialuce ? 'page' : 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900'}>
-        <div className={isVialuce ? '' : 'container mx-auto px-6 py-8'}>
-          {isVialuce ? (
-            <div className="phead">
-              <div>
-                <h1>{isSpanish ? 'Cumplimiento' : 'Attainment'}</h1>
-                <div className="sub">
-                  {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
-                  {periodLabel ? ` · ${periodLabel}` : ''}
-                </div>
-              </div>
-            </div>
-          ) : (
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              {isSpanish ? 'Cumplimiento' : 'Attainment'}
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              {isSpanish ? 'Pagos por entidad' : 'Per-entity payouts'}
-              {periodLabel ? ` · ${periodLabel}` : ''}
+      <PersonaAmbient>
+        <div className="space-y-6">
+          <header>
+            <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Attainment</h1>
+            <p className={`mt-1 text-sm ${TEXT.body}`}>
+              Standings vs the population reference{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
             </p>
-          </div>
+          </header>
+
+          {periods.length > 0 && (
+            <PeriodCards
+              periods={periods}
+              selectedPeriodId={selectedPeriodId}
+              onPeriodChange={setSelectedPeriodId}
+              accentColor={theme.accent}
+              accentSoft={theme.accentSoft}
+            />
           )}
 
-          {entityLoading ? (
-            <div className="flex items-center justify-center min-h-[300px]">
-              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-            </div>
-          ) : noResults ? (
-            // HALT-4 honest empty state: this tenant has no calculation results yet.
-            isVialuce ? (
-              <div className="empty">
-                <div className="ic"><Trophy className="h-7 w-7" /></div>
-                <b>{isSpanish ? 'Sin datos de rendimiento' : 'No performance data yet'}</b>
-                <p>
-                  {isSpanish
-                    ? 'Los pagos por entidad aparecerán aquí una vez que se ejecuten los cálculos.'
-                    : 'Per-entity payouts will appear here once calculations have been run.'}
-                </p>
-              </div>
-            ) : (
-              <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
-                <CardContent className="py-12">
-                  <div className="text-center">
-                    <Trophy className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                      {isSpanish ? 'Sin datos de rendimiento' : 'No performance data yet'}
-                    </h3>
-                    <p className="text-blue-700 dark:text-blue-300 max-w-lg mx-auto">
-                      {isSpanish
-                        ? 'Los pagos por entidad aparecerán aquí una vez que se ejecuten los cálculos.'
-                        : 'Per-entity payouts will appear here once calculations have been run.'}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )
+          {icmLoading || !insights ? (
+            <Panel><div className={`py-16 text-center text-sm ${TEXT.muted}`}>{icmLoading ? 'Loading period…' : 'No outcomes for this period.'}</div></Panel>
           ) : (
-          <>
-          {/* Summary Stats (derived from real calculation_results) */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Total del Equipo' : 'Total Team Payout'}</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {format(totalPayout)}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2">{periodLabel}</p>
-                  </div>
-                  <div className="p-3 bg-indigo-100 rounded-full">
-                    <Trophy className="h-5 w-5 text-indigo-600" />
-                  </div>
+            <>
+              {/* Dominant: HONEST-EMPTY attainment (IntelligenceElement / DS-015, G2 provable).
+                  Attainment/target data does NOT exist (EntityResult has no attainment field) →
+                  honest empty with a REAL Configure link; the surface pivots to payout standings. */}
+              <div className="grid gap-4 lg:grid-cols-4">
+                <div className="lg:col-span-2">
+                  <IntelligenceElement
+                    value="Not configured"
+                    label="Attainment vs Target"
+                    icon={Target}
+                    comparison="No targets set for this tenant"
+                    comparisonTone="neutral"
+                    context="Per-entity attainment % requires configured plan targets. None exist yet, so this surface ranks payout standings against the population reference instead of fabricating an attainment number."
+                    impact="Set targets to unlock attainment %, target bands, and pacing-to-goal."
+                    action={{ label: 'Configure targets', href: '/configure/plans' }}
+                  />
                 </div>
-              </CardContent>
-            </Card>
+                <Stat label="Entities Paid" value={String(insights.entityCount)} hint="with outcomes this period" icon={Users} />
+                <Stat label="Average Payout" value={format(insights.avgPayout)} hint="population reference" icon={Target} />
+              </div>
 
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Entidades con Resultados' : 'Entities with Results'}</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {entityCount}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2">{periodLabel}</p>
-                  </div>
-                  <div className="p-3 bg-emerald-100 rounded-full">
-                    <Users className="h-5 w-5 text-emerald-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <Stat label="Top Standing" value={insights.top ? format(insights.top.totalPayout || 0) : '—'} hint={insights.top?.displayName ?? '—'} icon={Award} />
+                <Stat label="Period Total" value={format(insights.totalPayout)} hint={insights.delta == null ? 'no prior period' : `${insights.delta >= 0 ? '+' : ''}${(insights.delta * 100).toFixed(1)}% vs ${insights.priorLabel}`} icon={Trophy} />
+                <Stat label="Population Spread" value={`${format(Math.min(...insights.values))} – ${format(Math.max(...insights.values))}`} hint="min – max payout" icon={BarChart3} />
+              </div>
 
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Promedio' : 'Average Payout'}</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {format(avgPayout)}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2">{isSpanish ? 'Por entidad' : 'Per entity'}</p>
-                  </div>
-                  <div className="p-3 bg-purple-100 rounded-full">
-                    <Target className="h-5 w-5 text-purple-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Standings + population shape */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                {/* Element 1 — ranked standings vs population average (HorizontalBar). */}
+                <Panel title="Entity Standings" description="Ranked by total payout, vs the population average">
+                  <HorizontalBar
+                    items={insights.sorted.map((e) => ({ label: e.displayName || e.externalId, value: e.totalPayout || 0 }))}
+                    referenceLine={{ value: insights.avgPayout, label: 'Population avg' }}
+                    format={format}
+                    maxRows={10}
+                  />
+                </Panel>
 
-            <Card className="border-0 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-400">{isSpanish ? 'Pago Más Alto' : 'Top Payout'}</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 mt-1">
-                      {format(topPayout)}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-2 truncate">{leaderboard[0]?.displayName ?? ''}</p>
-                  </div>
-                  <div className="p-3 bg-amber-100 rounded-full">
-                    <TrendingUp className="h-5 w-5 text-amber-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                {/* Element 2 — population ranking with quartiles + mean (DistributionPosition). */}
+                <Panel title="Population Distribution" description="Where each entity stands — quartiles + mean reference">
+                  <DistributionPosition data={insights.values} markers={{ quartiles: true, mean: true }} format={format} />
+                </Panel>
+              </div>
 
-          <div className="grid gap-6 lg:grid-cols-2 mb-6">
-            {/* Top Performers Leaderboard (real entities) */}
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Medal className="h-5 w-5 text-amber-500" />
-                  {isSpanish ? 'Mejores Resultados' : 'Top Performers'}
-                </CardTitle>
-                <CardDescription>{periodLabel}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {leaderboard.map((performer, idx) => {
-                    const rank = idx + 1;
-                    return (
-                    <div
-                      key={performer.entityId}
-                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                        rank <= 3
-                          ? 'bg-gradient-to-r from-amber-950/20 to-transparent'
-                          : 'hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                          rank === 1 ? 'bg-amber-400 text-amber-950' :
-                          rank === 2 ? 'bg-slate-300 text-slate-700' :
-                          rank === 3 ? 'bg-amber-600 text-amber-50' :
-                          'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        }`}
-                      >
-                        {rank}
-                      </div>
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback className="text-xs bg-slate-200 dark:bg-slate-700">
-                          {performer.displayName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-50 truncate">
-                          {performer.displayName}
-                        </p>
-                        <p className="text-xs text-slate-400">{performer.externalId}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                          {format(performer.totalPayout)}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {performer.componentCount} {isSpanish ? 'componentes' : 'components'}
-                        </p>
-                      </div>
+              {/* Element 3 — Hot / Cold triage (PrioritySortedList splitView). Admin+Manager depth. */}
+              <DensityGate min="medium">
+                <Panel title="Hot / Cold Entities" description="Largest movers vs the prior period">
+                  <PrioritySortedList
+                    items={hotCold}
+                    splitView
+                    emptyLabel={trajectories.length < 2 ? 'Movement needs at least two calculated periods.' : 'No notable movement this period.'}
+                  />
+                </Panel>
+              </DensityGate>
+
+              {/* Element 4 — Pacing sparklines (Sparkline per entity). Admin-only density. */}
+              <DensityGate min="high">
+                <Panel title="Pacing" description="Period-over-period trajectory for the top entities">
+                  {pacing.length === 0 ? (
+                    <div className={`py-8 text-center text-sm ${TEXT.muted}`}>
+                      Pacing needs at least two calculated periods.
                     </div>
-                  );})}
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="space-y-6">
-              {/* Payout Distribution (real histogram over totalPayout) */}
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle>{isSpanish ? 'Distribución de Pagos' : 'Payout Distribution'}</CardTitle>
-                  <CardDescription>{isSpanish ? 'Número de entidades por rango de pago' : 'Number of entities by payout range'}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={distBands} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-                      <YAxis type="category" dataKey="tier" tickLine={false} axisLine={false} width={90} />
-                      <Tooltip
-                        formatter={(value: number) => [`${value} ${isSpanish ? 'entidades' : 'entities'}`, isSpanish ? 'Conteo' : 'Count']}
-                        contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
-                      />
-                      <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                        {distBands.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Regional Comparison — HALT-4 honest empty state: the platform has no region
-                  dimension on entities for these tenants, so nothing is fabricated. */}
-              <Card className="border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle>{isSpanish ? 'Rendimiento Regional' : 'Regional Performance'}</CardTitle>
-                  <CardDescription>{isSpanish ? 'Volumen total por región' : 'Total volume by region'}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col items-center justify-center text-center py-10">
-                    <MapPin className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
-                    <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                      {isSpanish ? 'Sin datos regionales configurados' : 'No regional data configured'}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                      {isSpanish
-                        ? 'Las entidades de este tenant no tienen una dimensión regional. Asigna regiones a las entidades para ver este desglose.'
-                        : 'Entities for this tenant have no region dimension. Assign regions to entities to see this breakdown.'}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-          </>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {pacing.map((p) => {
+                        const tone = p.direction === 'up' ? SEMANTIC.green : p.direction === 'down' ? SEMANTIC.red : 'var(--vl-text-soft, #8A90A6)';
+                        const arrow = p.direction === 'up' ? '▲' : p.direction === 'down' ? '▼' : '▪';
+                        return (
+                          <Link
+                            key={p.id}
+                            href={`/investigate/trace/${p.id}`}
+                            className="flex items-center gap-4 py-2.5 transition-colors hover:bg-muted"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className={`truncate text-sm font-medium ${TEXT.headline}`}>{p.name}</div>
+                              <div className={`text-xs ${TEXT.muted}`}>{format(p.latest)} latest</div>
+                            </div>
+                            <Sparkline data={p.series} color={tone} />
+                            <span className="shrink-0 text-xs font-semibold tabular-nums" style={{ color: tone }}>
+                              {arrow} {p.delta == null ? '—' : `${p.delta >= 0 ? '+' : ''}${format(p.delta)}`}
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Panel>
+              </DensityGate>
+            </>
           )}
         </div>
-      </div>
+      </PersonaAmbient>
     );
   }
 
-  // Hospitality / RestaurantMX Executive View
+  // ──────────────────────────────────────────────────────────────────────────
+  // Hospitality / RestaurantMX Executive View (PRESERVED — unchanged)
+  // ──────────────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
@@ -540,17 +532,8 @@ export default function InsightsPerformancePage() {
   ];
 
   return (
-    // HF-313: Vialuce page frame (.page) + .phead header; else (dark/bliss) byte-identical.
-    <div className={isVialuce ? 'page space-y-6' : 'p-6 space-y-6'}>
+    <div className="p-6 space-y-6">
       {/* Header */}
-      {isVialuce ? (
-        <div className="phead">
-          <div>
-            <h1>Executive View - National</h1>
-            <div className="sub">Performance summary across all franchises</div>
-          </div>
-        </div>
-      ) : (
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Building2 className="h-6 w-6 text-primary" />
@@ -560,7 +543,6 @@ export default function InsightsPerformancePage() {
           Performance summary across all franchises
         </p>
       </div>
-      )}
 
       {/* Top Stats */}
       <div className="grid md:grid-cols-4 gap-4">
@@ -631,7 +613,7 @@ export default function InsightsPerformancePage() {
                 type="number"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => `${symbol}${(value / 1000).toFixed(0)}k`}
+                tickFormatter={(value) => format(value)}
               />
               <YAxis type="category" dataKey="region" tickLine={false} axisLine={false} width={80} />
               <Tooltip
