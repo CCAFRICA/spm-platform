@@ -16,9 +16,13 @@ interface PeriodCardsProps {
   selectedPeriodId: string;
   onPeriodChange: (id: string) => void;
   className?: string;
+  /** OB-234 T1-E: optional persona accent for the selected card (DS-003 surfaces pass
+   *  usePersonaTheme().accent / .accentSoft). Omitted → original primary-tinted selection. */
+  accentColor?: string;
+  accentSoft?: string;
 }
 
-export function PeriodCards({ periods, selectedPeriodId, onPeriodChange, className }: PeriodCardsProps) {
+export function PeriodCards({ periods, selectedPeriodId, onPeriodChange, className, accentColor, accentSoft }: PeriodCardsProps) {
   const { format } = useCurrency();
   if (periods.length === 0) return null;
   const selected = periods.find((p) => p.period_id === selectedPeriodId)?.period_id ?? periods[0].period_id;
@@ -27,6 +31,7 @@ export function PeriodCards({ periods, selectedPeriodId, onPeriodChange, classNa
     <div className={`flex gap-3 overflow-x-auto pb-1 ${className ?? ''}`} role="tablist" aria-label="Select period">
       {periods.map((p) => {
         const active = p.period_id === selected;
+        const accented = active && accentColor;
         return (
           <button
             key={p.period_id}
@@ -34,10 +39,17 @@ export function PeriodCards({ periods, selectedPeriodId, onPeriodChange, classNa
             role="tab"
             aria-selected={active}
             onClick={() => onPeriodChange(p.period_id)}
+            style={
+              accented
+                ? { borderColor: accentColor, boxShadow: `0 0 0 1px ${accentColor}`, backgroundColor: accentSoft }
+                : undefined
+            }
             className={`shrink-0 min-w-[160px] rounded-lg border px-4 py-3 text-left transition-colors ${
-              active
-                ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                : 'border-border bg-card hover:bg-muted/50'
+              accented
+                ? ''
+                : active
+                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                  : 'border-border bg-card hover:bg-muted/50'
             }`}
           >
             <div className="flex items-center justify-between gap-2 mb-1">
