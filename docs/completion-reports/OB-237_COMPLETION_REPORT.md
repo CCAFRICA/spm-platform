@@ -1,7 +1,41 @@
 # OB-237 — Materialized Serving Path (MSP) — COMPLETION REPORT
 
 **Branch:** `ob-237-materialized-serving-path` · **Base:** `main` · **Date:** 2026-06-24 · **Mode:** ULTRACODE
-**Status:** **P0 complete (mandatory gate).** P0 surfaced architect-gated dependencies that legitimately gate T1/T2/T3 — reported below for disposition (the directive's P0-gate philosophy: "nothing is silently narrowed; the grep is authoritative"). CC does NOT merge (SR-44).
+**Status:** **P0 complete.** **T1 attempted → HALT-BYTEMATCH (all 5 modes blocked).** The byte-match gate caught that `summary_artifacts` is **stale/out-of-sync with current `committed_data`** — wiring any mode to it would silently change the displayed numbers. Conversion reverted (no contamination, SR-41); root cause + architect disposition in §T1 below. CC does NOT merge (SR-44).
+
+---
+
+## §T1 — FINANCIAL WIRING ATTEMPT → HALT-BYTEMATCH (architect disposition required)
+
+T1 wired the headline `timeline` mode to `summary_artifacts` (a clean `aggregateTimelineFromSummaries` mirroring the `network_pulse` template) and ran the byte-match gate on Sabor. **It failed — structurally, not on precision** — and the diagnosis revealed a data-integrity issue that blocks all 5 modes.
+
+### Byte-match result (timeline, Sabor)
+| metric | OLD (raw path, served) | NEW (summary_artifacts) | current committed_data (truth) |
+|---|---|---|---|
+| GRAND revenue | **$102,749,997.45** | **$100,068,158.15** | `SUM(row_data.total)` = **$103,687,500.29** |
+| GRAND checks | 263,250 | 263,250 | 263,250 |
+| GRAND tips | $13,073,353.95 | $0.00 / `"Propina"`=$12,746,075 | — |
+| latency | 58,633 ms | 1,804 ms | — |
+
+**Three different revenue numbers** — they should be one.
+
+### Root cause (definitive, structural — SR-34)
+1. **`summary_artifacts` is STALE.** Its `metrics` JSONB is keyed by the **original capitalized POS field names** (`"Total"`, `"Propina"`, …) and sums to **$100.07M** — the **pre-HF-321 / pre-HF-324** state (HF-336's backfill). The **current** `committed_data.row_data` is keyed by **lowercase normalized names** (`total`, `propina`, … — HF-321) with HF-324's multimonth-datagen values summing to **$103.69M**. The materialization was never re-run after those reseeds, so it no longer reflects the base data (`row_count`=263,250 matches, but the metric *values* and *keys* do not). No summary metric matches the raw path's `rd.total` ($102.75M) or `rd.propina` ($13.07M).
+2. **The raw serving path is non-deterministic.** `fetchRawDataServer` paginates `committed_data` with `.range()` **but no `.order()`** (DIAG-075). PostgREST range-without-order can skip/duplicate rows across pages → the served revenue ($102.75M) differs from the true `SUM(row_data.total)` ($103.69M). (Separate raw-path bug.)
+3. **`recognize()` tip binding mismatch.** The tips surface resolves to display_label `"Propinas"` (plural), but the (stale) summary metric key is `"Propina"` (singular) → 0. Symptom of the same key-representation drift.
+
+### Why this blocks all 5 modes
+`timeline`/`summary`/`location_detail`/`performance`/`leakage` all read the same stale `summary_artifacts.metrics`. Until the materialization is rebuilt from current `committed_data`, **none can byte-match** the raw path — wiring them would silently shift every Financial revenue figure by ~3.6%. (`network_pulse` byte-matched at OB-229 time because the data and summary were then in sync; they have since diverged.)
+
+### Architect disposition (SR-44 — CC cannot do these)
+1. **Re-materialize `summary_artifacts` from current `committed_data`** (re-run the OB-229 import-time aggregation / `compute_summary_artifacts` path) so `metrics` carries the lowercase normalized keys + HF-324 values. This is the unblock for all of T1.
+2. **Fix the raw-path non-determinism** — add `.order('id')` (or a stable key) to `fetchRawDataServer`'s paginated `committed_data` read so the "before" baseline is itself deterministic (follow-on HF).
+3. After (1), T1's byte-match wiring (the reverted `aggregateTimelineFromSummaries`, ready to re-apply) proceeds per the directive.
+
+### Compliance
+HALT-BYTEMATCH fired exactly as designed — the gate **prevented shipping a 3.6% silent revenue change**. The conversion was reverted (`git checkout`, no contamination — SR-41). No raw path was deleted (directive: "Do not delete the raw path" on byte-match failure). Per §2.1, both outputs are reported verbatim; the architect reconciles which is canonical.
+
+---
 
 ---
 
