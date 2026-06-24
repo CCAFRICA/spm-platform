@@ -117,9 +117,87 @@ Swept via the directive grep (`function/const …Validat… | …Validate…(`) 
 
 ---
 
-## 6. Eradication log (Tier 1) — *filled after implementation*
-## 7. PG evidence — Proof M / Proof B / Proof S (Tier 2) — *filled after proofs*
-## 8. Korean Test / No-Fixed-Taxonomy grep — *filled after proofs*
-## 9. ARTIFACT SYNC delta — *filled at integration*
-## 10. HALT outcomes — HALT-COLLISION: not fired (§3). HALT-NORM: not fired (§1). HALT-API: clear (§5). *(others recorded at close)*
-## 11. PR number and URL — *filled at close*
+## 6. Eradication log (Tier 1)
+
+**Registry deleted / freed (the enumerated unit/scale set):**
+- `intent-types.ts:374` — `ConstantScaleMeta.unit: 'percent'|'ratio'|'currency'|'count'` → `unit: string` (free-form nature).
+- `prime-grammar.ts:202→208` — `ScaleUnit = 'percent'|'ratio'|'currency'|'count'` → `ScaleUnit = string`.
+- `prime-grammar.ts:519-523` (`generatePromptGrammarSection`) — prompt "Units: percent|ratio|currency|count" → "describe it freely … there is no fixed set of allowed units."
+- `anthropic-adapter.ts:555` — prompt `"unit": "percent|ratio|currency|count"` → free-form-nature instruction.
+
+**Validator check TRANSFORMED (set-membership presence → open-vocabulary self-description):**
+- `prime-grammar.ts:349-362` `scale_annotation` — was "warn if a compare-constant lacks meta" (false-positive on every stripped value; the remedy re-laundered the strip + re-introduced HF-274 double-scaling). Now "warn only if a carried meta lacks a well-formed free-form nature" — never flags a legitimately-bare constant, never matches a unit against a set (loud-fail-on-malformed-structure).
+
+**Construction CARRY-not-strip (the `git diff` of intent-constructor.ts):**
+- `intent-constructor.ts:644-705` `buildConstantWithScale` — the four strip branches (returned bare `{prime:'constant',value}`) collapse into: carry the model's nature on the coherent branches (evaluator-side → real `scale.value`; convergence-side non-DAG-divide → `scale:1` identity); stay bare only where no nature is coherent (DAG-divide quotient-space, field-mismatch). The numeric `scale` the evaluator reads is byte-identical to pre-fix on every branch → calc-neutral.
+
+**Header/doc corrected (DD-9):** `prime-validator.ts:8-23` header item 3 rewritten to describe the self-description check; the stale "infers scale from distribution" line removed (no such code exists).
+
+**Kept (CC adjudication, §2B): `op_unknown`, `decision_127`, `unknown_prime`** — referential to the engine's operation/primitive basis + mathematical-structural; not domain registries. `op_unknown` is additionally the fail-loud authority over the evaluator's silent op-defaults (deleting it would be a C2 silent-wrong regression).
+
+## 7. PG evidence (pasted, verbatim)
+
+### Proof M — MIR (the proof tenant), validator slice — **PASS**
+`npx tsx scripts/hf339-mir-validator-proof.ts` (service-role read of MIR `972c8eb0`, new `validatePrimeTree` over the 5 real stored plans):
+```
+  [PLAN DE COMISIONES POR VENTA MAYORISTA] compare-constants=4 | OLD scale_annotation warnings=4 | NEW=0 | criticals=0
+  [PLAN DE AJUSTES Y DEVOLUCIONES (CLAWBACK)] compare-constants=1 | OLD=1 | NEW=0 | criticals=0
+  [Plan de Incentivo por Cobranza]           compare-constants=1 | OLD=1 | NEW=0 | criticals=0
+  [Monthly Quota Bonus Plan]                 compare-constants=3 | OLD=3 | NEW=0 | criticals=0
+  [PLAN DE BONO POR CARTERA NUEVA]           compare-constants=0 | OLD=0 | NEW=0 | criticals=0
+=== TOTALS === components=6 | compare-constants=9 | bare=9 | OLD scale_annotation warns=9 | NEW=0 | criticals(NEW)=0
+PROOF M (validator slice): ZERO scale_annotation warnings on MIR real plans.
+```
+This **reproduces the directive's symptom exactly** ("PrimeValidator warning on every gate and rate constant across all five plans" = 9 bare compare-constants → 9 OLD warnings) and shows the fix drives it to **0**. **Architect-gated remainder (SR-44):** clean-slate SQL + reimport of the 5 plan PDFs through the live `finalize-import` spine, then the **January 2025 calc total reported verbatim for reconciliation against the sealed figure** (the calc route is auth-gated — G-BCL/headless-401 class; CC holds no MIR ground truth). The script re-runs post-reimport to confirm zero warnings on the freshly-constructed (nature-carrying) prime_dags.
+
+### Proof B — BCL neutrality (reproducibility) — **PASS (CC slice); live recalc → architect G-BCL**
+The fix is **calc-neutral by construction**: the calc reader (`intent-executor.ts` / `run-calculation.ts`) is **untouched (C6)** and consumes ONLY `meta.scale`; my changes never alter `meta.scale` on any branch (evaluator-side = `scale.value`, unchanged; elsewhere = `1` identity or bare — the same value the reader saw pre-fix). Evidence:
+- **Self-baseline reproduced:** the 61 pre-existing calc tests pass identically pre/post (`tests 66 / pass 66 / fail 0` = 61 baseline + 5 new HF-339 tests; 0 fail).
+- **Calc-neutrality unit test (hf339-validator-premise.test.ts #4):** an identity-scale carried constant evaluates **byte-identically to a bare constant** (`1.1 >= 100 → 0` both); a real evaluator scale still applies (`1.1×100=110 >= 100 → 1`).
+- **HF-279 invariants intact:** all ratio/DAG-divide-band tests still assert no evaluator rescale.
+- **Architect G-BCL:** authenticated BCL reimport+recalc reconciled against the sealed figure (auth-gated route; the pre-existing G-BCL gate from HF-337). Any movement → HALT-CALC (not observed in the CC slice).
+
+### Proof S — subtraction + recognition (class proof) — **PASS**
+- **Subtraction grep** (directive pattern over the changed validator+construction files) returns ZERO enumerated unit/scale set-membership gates. Surviving matches enumerated and shown structural in §8.
+- **Recognition-not-registry** (hf339-validator-premise.test.ts):
+```
+✔ (1) recognition-not-registry: a NOVEL free-form nature passes validation       (basis_points / 비율 / puntos porcentuales / per-mille → 0 violations)
+✔ (1b) the retired enum values are still valid free-form strings (no regression)
+✔ (2) no false positive: a BARE compare-constant raises NO scale_annotation warning
+✔ (3) loud-fail on malformed structure: meta present but no nature → warns
+✔ (4) calc-neutrality: identity-scale carry == bare; real evaluator scale still applies
+tests 5 / pass 5 / fail 0
+```
+A comparison whose unit-nature the OLD closed set would not have contained (`basis_points`, Korean `비율`) now **passes by recognition** where it would previously have been constrained to `{percent,ratio,currency,count}`.
+
+## 8. Korean Test / No-Fixed-Taxonomy grep (changed validator + construction)
+`grep -rEn "\b(unit|scale|op|shape|severity|type|role)\b\s*(===|==| in | includes|\.has\()"` over the 5 changed files — every surviving match enumerated as **structural (non-domain-set)**:
+- `prime-grammar.ts:299` `typeof obj.op === 'string'` — type check, not set-membership.
+- `prime-grammar.ts:307` `op in {rule.ops…}` — the kept `op_unknown` **referential** check (engine operation algebra, §2B); the gate is `rule.ops.includes(op)`, the engine's own closed math basis, single-sourced from `PRIME_GRAMMAR`.
+- `prime-grammar.ts:389` `cond.prime === 'logical' && cond.op === 'and'` — structural **dispatch** over the engine's own node kinds (decision_127).
+- `prime-grammar.ts:456` `v.severity === 'critical'` — the validator's internal 2-value severity, not a domain vocabulary.
+- `intent-constructor.ts:328,428` `reference_source.type === 'ratio'`, `dimIdx === 0` — structural reference-source/index **dispatch** (HF-279 quotient-space detection).
+- `compositional-intent.ts:317,329,333` `reference_source.type === 'ratio'`, `obj.shape === 'banded_lookup'` — structural shape/source dispatch (the comment at :317 reads "Korean Test: keys on reference_source.type").
+- `ScaleUnit = string` (`prime-grammar.ts:208`) — the **freed** type (the registry, eradicated).
+**No enumerated unit/scale domain set-membership gate survives.** Korean-test prebuild gate: `PASS: zero hardcoded legacy primitive-name string literals outside registry`.
+
+## 9. ARTIFACT SYNC delta (CC emits; architect applies — channel boundary)
+- **Decision (candidate):** *The Validation Premise Law* — a validation check is legitimate only when it validates against carried reality (existence, referential resolution to a live executor/row, traceability, conservation, self-description-sufficiency); illegitimate when it gates `x ∈ {enumerated developer-maintained domain set}`. **First enforcement: HF-339.** Sharpened operative test: enforce on the recognition→construction→calc path (where a registry rejects novel-but-correct expressions); deliberate security/auth/state boundaries (file-type deny-list, RBAC roles, lifecycle FSM) are NOT registries.
+- **Anti-Pattern (candidate, extends AP-26):** *Validator-of-anticipated-forms* — a post-recognition validator that re-checks the recognizer's output against an enumerated set of permitted values it duplicates; it rejects the novel-but-correct output the recognizer exists to produce. Correct pattern: structural verification + open-vocabulary + loud-fail-on-malformed-structure.
+- **Capability row:** "Plan-interpretation validator = verification, not registry" — PrimeValidator's scale check is self-description-sufficiency; the unit nature is open-vocabulary, carried at construction.
+- **R1 / Board / Mission Control:** record HF-339 (validator premise correction) merged-pending; note the **HF-338→HF-339 reassignment** for ratification; note the deferred-class follow-ons (§2C) and the architect gates below.
+
+## 10. HALT outcomes
+- **HALT-COLLISION:** NOT fired — enforcement files untouched by #593/OB-233/OB-235 (§3).
+- **HALT-NORM:** NOT fired — a self-describing, structurally-compared normalization (numeric `scale` carries the structure) was achievable without an enumerated set; no locked-vs-locked fork.
+- **HALT-REGISTRY:** NOT fired — the registry deletion is structural (free-form nature); no locked rule contradicted.
+- **HALT-CONSTRUCTION:** NOT fired — un-stripping required NO calc-reader edit (the evaluator already consumes only `meta.scale`).
+- **HALT-CALC:** NOT fired in the CC slice — 61/61 reproduced, identity-scale proven byte-identical. (Live BCL recalc → architect G-BCL.)
+- **HALT-API:** clear — `ANTHROPIC_API_KEY` present (§5).
+- **Sequence reassignment (HF-338→HF-339):** resolved from the live directory per §0 (not a halt); flagged at top for ratification.
+
+## 11. Architect gates outstanding & PR
+- **G-CLEAN-MIR / G-MIR-CALC:** apply MIR clean-slate SQL + reimport the 5 plan PDFs through `finalize-import`; report the January 2025 calc total verbatim for reconciliation against the sealed figure (CC holds no MIR ground truth). Re-run `hf339-mir-validator-proof.ts` to confirm zero warnings on the reconstructed plans.
+- **G-BCL:** authenticated BCL reimport+recalc reconciled against the sealed figure (auth-gated; pre-existing from HF-337). Movement → HALT-CALC.
+- **Ratify** the HF-338→HF-339 reassignment and the ARTIFACT SYNC delta (§9).
+- **PR:** _(filled at close)_
