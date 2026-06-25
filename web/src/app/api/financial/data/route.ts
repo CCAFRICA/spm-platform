@@ -1010,35 +1010,40 @@ async function aggregateSummaryFromSummaries(
   return { periodLabel, lines, locationBreakdown, availableMonths, selectedMonth: monthFilter ?? null };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Products (from products/page.tsx)
-// ═══════════════════════════════════════════════════════════════════
+// OB-237 T1: products (food vs beverage category split) from summary_artifacts (entity, day). food/bev
+// resolved via HF-337 recognition to field_name (total_alimentos / total_bebidas — both in metrics);
+// cheques = row_count. Shape-identical to aggregateProducts; value-matches the committed_data truth.
+async function aggregateProductsFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  scopeEntityIds?: string[],
+) {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
 
-function aggregateProducts(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
+  const keyFor = async (surface: string, purpose: string): Promise<string | null> => {
+    const r = await recognize(sb, tenantId, surface, purpose);
+    return r.status === 'resolved' && r.fields[0] ? (r.fields[0].field_name ?? r.fields[0].display_label) : null;
+  };
+  const foodKey = await keyFor('financial.network_pulse.food', 'the portion of the charge attributable to food, or the primary product category');
+  const bevKey = await keyFor('financial.network_pulse.beverage', 'the portion of the charge attributable to beverages, or a secondary product category');
+  if (!foodKey && !bevKey) return null;
+  const mv = (m: Record<string, number>, key: string | null) => (key ? (m[key] ?? 0) : 0);
 
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
   const locAgg = new Map<string, { food: number; bev: number; cheques: number }>();
   const dailyAgg = new Map<string, { food: number; bev: number }>();
-
-  for (const c of raw.cheques) {
-    const rd = c.row_data;
-    const food = n(rd.total_alimentos);
-    const bev = n(rd.total_bebidas);
-
-    const la = locAgg.get(c.entity_id) || { food: 0, bev: 0, cheques: 0 };
-    la.food += food;
-    la.bev += bev;
-    la.cheques++;
-    locAgg.set(c.entity_id, la);
-
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) {
-      const da = dailyAgg.get(dt) || { food: 0, bev: 0 };
-      da.food += food;
-      da.bev += bev;
-      dailyAgg.set(dt, da);
-    }
+  for (const a of arts) {
+    const m = a.metrics || {};
+    const food = mv(m, foodKey), bev = mv(m, bevKey), cheques = a.row_count;
+    const la = locAgg.get(a.entity_id) || { food: 0, bev: 0, cheques: 0 };
+    la.food += food; la.bev += bev; la.cheques += cheques;
+    locAgg.set(a.entity_id, la);
+    const dt = a.summary_date;
+    if (dt) { const da = dailyAgg.get(dt) || { food: 0, bev: 0 }; da.food += food; da.bev += bev; dailyAgg.set(dt, da); }
   }
 
   let networkFood = 0, networkBev = 0;
@@ -1049,13 +1054,8 @@ function aggregateProducts(raw: { cheques: ChequeRecord[]; entities: EntityRecor
     networkFood += agg.food;
     networkBev += agg.bev;
     return {
-      id: loc.id,
-      name: loc.display_name,
-      brand: brand?.name || '',
-      brandColor: brand?.color || '#6b7280',
-      food: round2(agg.food),
-      bev: round2(agg.bev),
-      total: round2(total),
+      id: loc.id, name: loc.display_name, brand: brand?.name || '', brandColor: brand?.color || '#6b7280',
+      food: round2(agg.food), bev: round2(agg.bev), total: round2(total),
       foodPct: total > 0 ? Math.round((agg.food / total) * 1000) / 10 : 0,
       avgFoodPerCheck: agg.cheques > 0 ? round2(agg.food / agg.cheques) : 0,
       avgBevPerCheck: agg.cheques > 0 ? round2(agg.bev / agg.cheques) : 0,
@@ -1063,57 +1063,33 @@ function aggregateProducts(raw: { cheques: ChequeRecord[]; entities: EntityRecor
     };
   }).filter(l => l.cheques > 0);
 
-  // Brand aggregation
   const brandAgg = new Map<string, { food: number; bev: number }>();
   for (const loc of locResults) {
     const ba = brandAgg.get(loc.brand) || { food: 0, bev: 0 };
-    ba.food += loc.food;
-    ba.bev += loc.bev;
+    ba.food += loc.food; ba.bev += loc.bev;
     brandAgg.set(loc.brand, ba);
   }
   const brandResults = Array.from(brandAgg.entries()).map(([name, agg]) => {
     const total = agg.food + agg.bev;
     const brand = Array.from(brandLookup.values()).find(b => b.name === name);
-    return {
-      name,
-      color: brand?.color || '#6b7280',
-      food: Math.round(agg.food),
-      bev: Math.round(agg.bev),
-      total: Math.round(total),
-      foodPct: total > 0 ? Math.round((agg.food / total) * 1000) / 10 : 0,
-    };
+    return { name, color: brand?.color || '#6b7280', food: Math.round(agg.food), bev: Math.round(agg.bev), total: Math.round(total), foodPct: total > 0 ? Math.round((agg.food / total) * 1000) / 10 : 0 };
   });
 
-  // Weekly trend
   const sortedDates = Array.from(dailyAgg.keys()).sort();
   const weeklyTrend: Array<{ week: string; food: number; bev: number }> = [];
   let weekIdx = 0, wFood = 0, wBev = 0, dayCount = 0;
   for (const dt of sortedDates) {
     const d = dailyAgg.get(dt)!;
-    wFood += d.food;
-    wBev += d.bev;
-    dayCount++;
-    if (dayCount >= 7) {
-      weekIdx++;
-      weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) });
-      wFood = 0; wBev = 0; dayCount = 0;
-    }
+    wFood += d.food; wBev += d.bev; dayCount++;
+    if (dayCount >= 7) { weekIdx++; weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) }); wFood = 0; wBev = 0; dayCount = 0; }
   }
-  if (dayCount > 0) {
-    weekIdx++;
-    weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) });
-  }
+  if (dayCount > 0) { weekIdx++; weeklyTrend.push({ week: `W${weekIdx}`, food: Math.round(wFood), bev: Math.round(wBev) }); }
 
   const networkTotal = networkFood + networkBev;
-
   return {
-    networkFood: Math.round(networkFood),
-    networkBev: Math.round(networkBev),
-    networkTotal: Math.round(networkTotal),
+    networkFood: Math.round(networkFood), networkBev: Math.round(networkBev), networkTotal: Math.round(networkTotal),
     networkFoodPct: networkTotal > 0 ? Math.round((networkFood / networkTotal) * 1000) / 10 : 0,
-    locations: locResults,
-    brands: brandResults,
-    weeklyTrend,
+    locations: locResults, brands: brandResults, weeklyTrend,
   };
 }
 
@@ -1449,6 +1425,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: pf });
     }
 
+    // OB-237 T1: products (food vs beverage category split) from summary_artifacts (single path; AP-17).
+    if (mode === 'products') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const pr = await aggregateProductsFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
+      return NextResponse.json({ data: pr });
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
@@ -1487,9 +1474,6 @@ export async function POST(request: NextRequest) {
         break;
       case 'patterns':
         data = aggregatePatterns(scopedRaw, locationFilter);
-        break;
-      case 'products':
-        data = aggregateProducts(scopedRaw);
         break;
       case 'location_detail':
         if (!locationId) return NextResponse.json({ error: 'locationId required' }, { status: 400 });
