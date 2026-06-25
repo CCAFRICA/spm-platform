@@ -12,6 +12,7 @@
  * Run: cd web && NODE_OPTIONS=--max-old-space-size=4096 npx tsx scripts/ob237-rematerialize-sabor.ts
  */
 import { createClient } from '@supabase/supabase-js';
+import { recognize } from '@/lib/comprehension/surface-binding-recognition';
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 const SABOR = 'f7093bcc-e90b-4918-9680-69da7952dd65';
@@ -21,6 +22,16 @@ interface Agg { entity_id: string; summary_date: string; data_type: string; metr
 (async () => {
   const { count: before } = await sb.from('summary_artifacts').select('*', { count: 'exact', head: true }).eq('tenant_id', SABOR);
   console.log(`summary_artifacts BEFORE: ${before}`);
+
+  // OB-237 P0: resolve revenue + cancelled-flag fields via recognize (Korean Test — no hardcoded keys).
+  const keyFor = async (surface: string, purpose: string): Promise<string | null> => {
+    const r = await recognize(sb as any, SABOR, surface, purpose);
+    return r.status === 'resolved' && r.fields[0] ? (r.fields[0].field_name ?? r.fields[0].display_label) : null;
+  };
+  const revKey = await keyFor('financial.network_pulse.revenue', 'the primary monetary amount of money earned or charged as the gross outcome of each transaction or sale');
+  const cancelKey = await keyFor('financial.leakage.cancelled', 'a boolean/flag field marking whether the transaction (cheque) was cancelled or voided');
+  console.log(`resolved revenue field='${revKey}' cancelled field='${cancelKey}'`);
+  if (!revKey || !cancelKey) throw new Error('HALT-RECOGNIZE: revenue or cancelled field unresolved');
 
   // 1. Aggregate current committed_data (deterministic page by id; SUM all JSON-number fields, raw keys).
   const byKey = new Map<string, Agg>();
@@ -43,6 +54,11 @@ interface Agg { entity_id: string; summary_date: string; data_type: string; metr
       const rd = (r.row_data || {}) as Record<string, unknown>;
       for (const [key, val] of Object.entries(rd)) {
         if (typeof val === 'number' && Number.isFinite(val)) a.metrics[key] = (a.metrics[key] ?? 0) + val;
+      }
+      // OB-237 P0: conditional metrics for leakage — cancelled revenue/count (derived, not row fields).
+      if (Number(rd[cancelKey]) === 1) {
+        a.metrics.cancelled_revenue = (a.metrics.cancelled_revenue ?? 0) + (Number(rd[revKey]) || 0);
+        a.metrics.cancelled_count = (a.metrics.cancelled_count ?? 0) + 1;
       }
     }
     scanned += data.length;
@@ -67,19 +83,27 @@ interface Agg { entity_id: string; summary_date: string; data_type: string; metr
   }
   console.log(`written=${written}`);
 
-  // 3. Verify against truth.
-  let rawTotal = 0, rawCount = 0;
+  // 3. Verify against truth (revenue + cancelled_revenue conditional metric).
+  let rawTotal = 0, rawCount = 0, rawCancelRev = 0, rawCancelCount = 0;
   for (let o = 0; ; o += 1000) {
     const { data } = await sb.from('committed_data').select('row_data').eq('tenant_id', SABOR).eq('data_type', 'pos_cheque').order('id', { ascending: true }).range(o, o + 999);
     if (!data || !data.length) break;
-    for (const r of data as any[]) { rawTotal += Number(r.row_data?.total ?? 0); rawCount++; }
+    for (const r of data as any[]) {
+      rawTotal += Number(r.row_data?.[revKey] ?? 0); rawCount++;
+      if (Number(r.row_data?.[cancelKey]) === 1) { rawCancelRev += Number(r.row_data?.[revKey] ?? 0); rawCancelCount++; }
+    }
     if (data.length < 1000) break;
   }
-  let sumTotal = 0, sumRows = 0, sumPropina = 0;
-  for (const a of artifacts) { sumTotal += Number(a.metrics['total'] ?? 0); sumPropina += Number(a.metrics['propina'] ?? 0); sumRows += a.row_count; }
-  console.log(`\ncommitted_data: rows=${rawCount} SUM(total)=$${rawTotal.toFixed(2)}`);
-  console.log(`summary_artifacts: rows=${written} SUM(row_count)=${sumRows} SUM(metrics.total)=$${sumTotal.toFixed(2)} SUM(metrics.propina)=$${sumPropina.toFixed(2)}`);
+  let sumTotal = 0, sumRows = 0, sumPropina = 0, sumCancelRev = 0, sumCancelCount = 0;
+  for (const a of artifacts) {
+    sumTotal += Number(a.metrics['total'] ?? 0); sumPropina += Number(a.metrics['propina'] ?? 0); sumRows += a.row_count;
+    sumCancelRev += Number(a.metrics['cancelled_revenue'] ?? 0); sumCancelCount += Number(a.metrics['cancelled_count'] ?? 0);
+  }
+  console.log(`\ncommitted_data: rows=${rawCount} SUM(total)=$${rawTotal.toFixed(2)} cancelled_revenue=$${rawCancelRev.toFixed(2)} cancelled_count=${rawCancelCount}`);
+  console.log(`summary_artifacts: rows=${written} SUM(row_count)=${sumRows} SUM(metrics.total)=$${sumTotal.toFixed(2)} SUM(metrics.cancelled_revenue)=$${sumCancelRev.toFixed(2)} cancelled_count=${sumCancelCount}`);
   const match = Math.abs(rawTotal - sumTotal) < 0.01;
+  const cancelMatch = Math.abs(rawCancelRev - sumCancelRev) < 0.01 && rawCancelCount === sumCancelCount;
   console.log(`\nTRUTH MATCH revenue: ${match ? 'YES ✓' : 'NO ✗ HALT-REMAT'}  |  row-count: ${rawCount === sumRows ? 'YES ✓' : 'NO ✗'}`);
-  process.exit(match && rawCount === sumRows ? 0 : 1);
+  console.log(`PG-CANCEL cancelled_revenue: ${cancelMatch ? 'YES ✓' : 'NO ✗ HALT-CANCEL-MATCH'}`);
+  process.exit(match && rawCount === sumRows && cancelMatch ? 0 : 1);
 })().catch((e) => { console.error('ERR', e?.message || e); process.exit(1); });
