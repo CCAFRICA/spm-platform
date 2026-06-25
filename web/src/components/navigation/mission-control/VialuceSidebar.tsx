@@ -125,8 +125,10 @@ export function VialuceSidebar() {
       {/* Brand */}
       <div className="sb-brand" onClick={isVLAdmin ? () => router.push('/select-tenant') : undefined} style={isVLAdmin ? { cursor: 'pointer' } : undefined}>
         {/* HF-340: the Bliss diamond mark (geometry identical to ChromeSidebar's bliss branch),
-            themed to Vialuce's own indigo/gold tokens. Same asset, reused; no new/duplicate file. */}
-        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" className="shrink-0">
+            themed to Vialuce's own indigo/gold tokens. Same asset, reused; no new/duplicate file.
+            HF-342: rendered at 40px (viewBox-native, was 32px) so the mark — which fills only ~64% of
+            its viewBox — reads as a deliberate, well-sized lockup beside the wordmark. */}
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" className="shrink-0">
           <rect x="11" y="11" width="18" height="18" rx="1" transform="rotate(45 20 20)" stroke="var(--vialuce-indigo)" strokeWidth="1.25" />
           <rect x="15.5" y="15.5" width="9" height="9" rx="0.5" transform="rotate(45 20 20)" fill="var(--vialuce-indigo)" />
           <circle cx="20" cy="20" r="1.6" fill="var(--vialuce-gold)" />
