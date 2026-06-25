@@ -28,14 +28,11 @@
 
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
-import { constructTree } from '@/lib/plan-intelligence/intent-constructor';
-import {
-  ConstructionError,
-  MissingCompositionalIntentError,
-  StructuralCoherenceError,
-  assertRatioBandScaleCoherence,
-  type CompositionalIntent,
-} from '@/lib/plan-intelligence/compositional-intent';
+// HF-341 R3: the CompositionalIntent shape layer (intent-constructor / compositional-intent) is
+// eradicated — the LLM emits the calculationIntent PrimeNode DAG directly and validateComponentIntent
+// (the structural verifier) is the construction layer. constructTree / ConstructionError /
+// MissingCompositionalIntentError / StructuralCoherenceError / assertRatioBandScaleCoherence and the
+// HF-271 collectDeclaredRatios/collectTwoFieldDivides ratio-proofread are gone.
 // HF-272: the extractReferencesFromDAG import (HF-270 gate's reference-leaf walk) was
 // removed with the interpretation-time field-resolution gate (Phase 2.1). The canonical
 // walk still lives in convergence-service for the calc-time resolution path.
@@ -266,8 +263,9 @@ export async function orchestratePerComponentInterpretation(
       // the failed component belongs to. Display data only — not a predicate.
       return { component: null, outcome: { ...componentResult.outcome, appliesTo } };
     }
-    // HF-252: CompositionalIntent.applies_to takes precedence over the skeleton's value.
-    const intentAppliesTo = (componentResult.component.metadataExtension?.compositional_intent as
+    // HF-252 / HF-341 R3: the LLM's top-level `applies_to` takes precedence over the skeleton's value.
+    // (Carried on metadataExtension.applies_to from the prime-DAG-direct response field.)
+    const intentAppliesTo = (componentResult.component.metadataExtension as
       | { applies_to?: unknown } | undefined)?.applies_to;
     const resolvedAppliesTo: string[] =
       Array.isArray(intentAppliesTo) && intentAppliesTo.length > 0
@@ -407,50 +405,6 @@ interface PerComponentCallResult {
 // ─────────────────────────────────────────────
 //
 // Pure structure-to-structure traversal — no catalog, no field literals, no shape names.
-// `collectDeclaredRatios` walks the emitted CompositionalIntent for every ReferenceSource
-// of type `ratio` (the structure the LLM RECOGNIZED). `collectTwoFieldDivides` walks the
-// constructed PrimeNode DAG for every `arithmetic`/`divide` over two `reference` leaves
-// (what the constructor BUILT). The proofread asserts the two agree: a declared ratio that
-// did not surface as a two-distinct-field divide, or whose numerator/denominator is missing
-// or identical, is structurally incoherent.
-
-function collectDeclaredRatios(node: unknown, out: Array<{ num: string; denom: string }>): void {
-  if (!node || typeof node !== 'object') return;
-  const obj = node as Record<string, unknown>;
-  if (obj.type === 'ratio') {
-    out.push({
-      num: typeof obj.numerator_field === 'string' ? obj.numerator_field : '',
-      denom: typeof obj.denominator_field === 'string' ? obj.denominator_field : '',
-    });
-  }
-  for (const v of Object.values(obj)) {
-    if (Array.isArray(v)) {
-      for (const child of v) collectDeclaredRatios(child, out);
-    } else if (v && typeof v === 'object') {
-      collectDeclaredRatios(v, out);
-    }
-  }
-}
-
-function collectTwoFieldDivides(node: unknown, out: Array<[string, string]>): void {
-  if (!node || typeof node !== 'object') return;
-  const obj = node as Record<string, unknown>;
-  if (obj.prime === 'arithmetic' && obj.op === 'divide' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
-    const a = obj.inputs[0] as Record<string, unknown> | undefined;
-    const b = obj.inputs[1] as Record<string, unknown> | undefined;
-    const af = a && a.prime === 'reference' && typeof a.field === 'string' ? a.field : null;
-    const bf = b && b.prime === 'reference' && typeof b.field === 'string' ? b.field : null;
-    if (af && bf) out.push([af, bf]);
-  }
-  for (const v of Object.values(obj)) {
-    if (Array.isArray(v)) {
-      for (const child of v) collectTwoFieldDivides(child, out);
-    } else if (v && typeof v === 'object') {
-      collectTwoFieldDivides(v, out);
-    }
-  }
-}
-
 
 async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<PerComponentCallResult> {
   const aiService = getAIService();
@@ -510,184 +464,71 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
             `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} message=${message}`,
         );
       } else {
-        // HF-252 single pipeline: construction pathway is the sole route.
-        // Response MUST contain compositional_intent. Absence is a structured
-        // failure (MissingCompositionalIntentError), not a silent downgrade to
-        // a deprecated emission pathway (T0-E03 / AP-17 / Decision 154).
-        const compositionalIntentRaw = result.compositional_intent as Record<string, unknown> | undefined;
-        let intent: Record<string, unknown> | undefined;
-        const constructionMethod = 'compositional_intent' as const;
+        // HF-341 R3: the LLM emits the calculationIntent PrimeNode DAG DIRECTLY (the engine's
+        // computation algebra). There is no CompositionalIntent shape intermediate and no constructTree —
+        // CONSTRUCTION IS STRUCTURAL VERIFICATION. validateComponentIntent (PRIME_GRAMMAR /
+        // validatePrimeTree) checks the DAG is well-formed (canonical primes, op-in-algebra, arity, child
+        // topology, type compatibility) AND the R3-elevated guarantees (Decision-127 half-open band edges,
+        // HF-279 scale coherence, terminal completeness, exhaustive emission) and rejects loudly (C2). The
+        // engine evaluates the verified DAG; convergence resolves each `reference` token against the real
+        // data columns at calc time (Decision 158).
+        const intent = result.calculationIntent as Record<string, unknown> | undefined;
+        const constructionMethod = 'prime_dag' as const;
 
-        try {
-          if (!compositionalIntentRaw) {
-            throw new MissingCompositionalIntentError(spec.id, spec.name);
-          }
-          // Decision 158 pathway: LLM emitted a CompositionalIntent.
-          // Validate structurally inside constructTree; throw ConstructionError
-          // on malformed input (caught below and mapped to error class).
-          const ci = compositionalIntentRaw as unknown as CompositionalIntent;
-          // HF-323: import is pure plan comprehension — the LLM emits the compositional intent and
-          // the constructor builds the DAG, with NO data inspection or interception. (HF-322's
-          // import-time count→metric discriminator was removed here: it required period/convergence
-          // context that does not exist at import time, since periods are created after plan import.)
-          const constructedTree = constructTree(ci);
-          intent = constructedTree as unknown as Record<string, unknown>;
-          // HF-272: the HF-270 interpretation-time field-resolution gate was REMOVED here
-          // (registry preclusion, AUD-009). It rejected the LLM's recognized `reference`
-          // leaves against an enumerated anchor set that, on a plan-only import, degraded to
-          // the plan's incomplete `requiredInputs` — the DATA_TYPES death one level up,
-          // rejecting legitimately-recognized ratio sub-fields. The unified pathway is
-          // restored (Decision 158): the LLM recognizes/defines/names the field, code
-          // constructs the DAG, and convergence resolves each named token against the REAL
-          // DATA COLUMNS at calc time (a set complete-by-construction). The gate's one
-          // legitimate function — catching a token that maps to NO real column — is relocated
-          // to convergence as a loud per-component failure (HF-272 Phase 3), where "no real
-          // column" is actually knowable. The HF-271 structural-coherence proofread below
-          // (internal incoherence, zero plan knowledge) is retained, untouched.
-          // HF-271: structural-coherence proofread (the ribosome's exonuclease). The emitted
-          // `ci` IS the structure the LLM recognized; `constructedTree` is what was built.
-          // Verify INTERNAL coherence — never against a catalog: every `ratio` the intent
-          // declared must surface as a `divide` over TWO DISTINCT reference fields in the DAG.
-          // A declared ratio that collapsed to a single field, or whose numerator/denominator
-          // is missing or identical, is structurally incoherent → structured failure
-          // (StructuralCoherenceError → cognition_violation), routed through the existing retry
-          // policy, never persisted. Korean Test: purely structure-to-structure; the only
-          // literals are grammar tokens and error text. (Arithmetic operand-arity is already
-          // constructor-guaranteed — constructArithmetic throws on ≠2 operands — so the ratio
-          // assertion is the substantive first coherence assertion; append-only by design.)
-          const declaredRatios: Array<{ num: string; denom: string }> = [];
-          collectDeclaredRatios(ci as unknown, declaredRatios);
-          if (declaredRatios.length > 0) {
-            const degenerate = declaredRatios.find(r => !r.num || !r.denom || r.num === r.denom);
-            if (degenerate) {
-              throw new StructuralCoherenceError(
-                spec.id,
-                `a declared ratio has a missing or identical numerator/denominator (numerator="${degenerate.num}" denominator="${degenerate.denom}")`,
-              );
-            }
-            const twoFieldDivides: Array<[string, string]> = [];
-            collectTwoFieldDivides(constructedTree, twoFieldDivides);
-            const coherentDivides = twoFieldDivides.filter(([a, b]) => a !== b);
-            if (coherentDivides.length < declaredRatios.length) {
-              throw new StructuralCoherenceError(
-                spec.id,
-                `${declaredRatios.length} ratio(s) declared but only ${coherentDivides.length} two-distinct-field divide(s) constructed — a declared ratio collapsed to a single field`,
-              );
-            }
-          }
-          // HF-279: DAG-divide band coherence invariant — a ratio-source band
-          // paired with a scale that would bind to it is internally incoherent;
-          // raise StructuralCoherenceError -> cognition_violation, never construct
-          // silently. See assertRatioBandScaleCoherence for the full rationale.
-          assertRatioBandScaleCoherence(ci, spec.id);
-          console.log(
-            `[plan-component] constructed component=${spec.id} from compositional_intent ` +
-              `shape=${ci.structure?.shape ?? '(unknown)'}`,
-          );
-        } catch (constructErr) {
-          const errLatency = Date.now() - callStart;
-          if (constructErr instanceof MissingCompositionalIntentError) {
-            // Structured failure: response lacked compositional_intent.
-            // Map to cognition_failure per HF-248 taxonomy so retry policy
-            // governs whether the prompt is re-attempted with refinement.
-            lastErrClass = 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof ConstructionError) {
-            // Constructor rejected the CompositionalIntent.
-            // Output-count mismatch → cognition_truncation. Unknown shape /
-            // breaks-ordering / structural malformation → cognition_violation.
-            lastErrClass = constructErr.message.includes('output count')
-              ? 'cognition_truncation'
-              : 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else if (constructErr instanceof StructuralCoherenceError) {
-            // HF-271: the composed structure is internally incoherent (a declared ratio
-            // collapsed to a single field, or had an identical/missing numerator-denominator).
-            // Structured failure → cognition_violation so retry re-attempts with the
-            // grammar-description prompt; on exhaustion a `failed` outcome is recorded —
-            // a structurally-incoherent component is NEVER persisted.
-            lastErrClass = 'cognition_violation';
-            lastErrMessage = constructErr.message;
-          } else {
-            lastErrClass = 'unknown';
-            lastErrMessage = constructErr instanceof Error ? constructErr.message : String(constructErr);
-          }
+        if (!intent || typeof intent.prime !== 'string') {
+          // Structured failure: the response carried no PrimeNode calculationIntent.
+          lastErrClass = 'cognition_violation';
+          lastErrMessage = `[plan-component] "${spec.name}" (id="${spec.id}") emitted no calculationIntent PrimeNode tree (expected a "prime"-discriminated DAG).`;
           console.log(
             `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
-              `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${errLatency} ` +
-              `construction="${lastErrMessage}"`,
+              `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} ${lastErrMessage}`,
           );
-          const policy = retryPolicy(lastErrClass);
-          if (attempt >= policy.maxAttempts) {
+        } else {
+          // Structural verification IS the construction layer (Validation Premise Law).
+          const validation = validateComponentIntent(intent, {
+            componentLabel: spec.name,
+            expectedCellCount: spec.rateTableCellCount,
+          });
+          if (validation.valid) {
+            console.log(
+              `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
+                `latencyMs=${latency} method=${constructionMethod}`,
+            );
+            const metadataExtension: Record<string, unknown> = {
+              construction_method: constructionMethod,
+            };
+            // HF-341 R3: carry the LLM's top-level applies_to (variant routing) onto metadata.
+            if (Array.isArray(result.applies_to)) {
+              metadataExtension.applies_to = result.applies_to;
+            }
             return {
-              component: null,
+              component: {
+                calculationIntent: intent,
+                calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
+                confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
+                reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+                metadataExtension,
+              },
               outcome: {
                 id: spec.id,
                 name: spec.name,
-                status: 'failed',
+                status: 'success',
                 attempts: attempt,
-                errClass: lastErrClass,
-                errMessage: lastErrMessage,
                 lastAttemptAt: new Date().toISOString(),
               },
             };
           }
-          const delayMs = policy.backoffMs * Math.pow(2, attempt - 1);
-          if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
-          continue;
-        }
-
-        // Validate the constructed/assembled tree against PRIME_GRAMMAR.
-        // Under HF-251 the constructor's structural guarantees (exhaustive
-        // emission, half-open intervals, terminal completeness) should
-        // satisfy the validator on every well-formed intent. Validator-
-        // rejections under HF-251 indicate a constructor bug.
-        const validation = validateComponentIntent(intent, {
-          componentLabel: spec.name,
-          expectedCellCount: spec.rateTableCellCount,
-        });
-        if (validation.valid) {
+          const critical = validation.violations.filter(v => v.severity === 'critical');
+          lastViolations = critical.map(v => `${v.check}@${v.nodePath}: ${v.message}`).join('; ');
+          lastErrClass = critical.some(v => v.check === 'exhaustive_emission')
+            ? 'cognition_truncation'
+            : 'cognition_violation';
+          lastErrMessage = `Validator rejected (${critical.length} critical): ${lastViolations}`;
           console.log(
-            `[plan-component] SUCCESS component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
-              `latencyMs=${latency} method=${constructionMethod}`,
+            `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
+              `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} violation="${lastViolations}"`,
           );
-          // HF-251: persist the CompositionalIntent in component metadata
-          // when present, so the signal surface (Decision 153) carries the
-          // semantic structure alongside the tree. Tree shape that the
-          // engine consumes is unchanged.
-          const metadataExtension: Record<string, unknown> = {
-            construction_method: constructionMethod,
-          };
-          if (compositionalIntentRaw) {
-            metadataExtension.compositional_intent = compositionalIntentRaw;
-          }
-          return {
-            component: {
-              calculationIntent: intent,
-              calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
-              confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
-              reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
-              metadataExtension,
-            },
-            outcome: {
-              id: spec.id,
-              name: spec.name,
-              status: 'success',
-              attempts: attempt,
-              lastAttemptAt: new Date().toISOString(),
-            },
-          };
         }
-        const critical = validation.violations.filter(v => v.severity === 'critical');
-        lastViolations = critical.map(v => `${v.check}@${v.nodePath}: ${v.message}`).join('; ');
-        lastErrClass = critical.some(v => v.check === 'exhaustive_emission')
-          ? 'cognition_truncation'
-          : 'cognition_violation';
-        lastErrMessage = `Validator rejected (${critical.length} critical): ${lastViolations}`;
-        console.log(
-          `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
-            `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} violation="${lastViolations}"`,
-        );
       }
     } catch (err) {
       const latency = Date.now() - callStart;
