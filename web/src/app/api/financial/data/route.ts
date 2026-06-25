@@ -952,7 +952,7 @@ async function aggregateSummaryFromSummaries(
   tenantId: string,
   entities: EntityRecord[],
   monthFilter?: string,
-): Promise<ReturnType<typeof aggregateSummary> | null> {
+) {
   let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
   if (arts.length === 0) return null;
   const availableMonths = Array.from(new Set(arts.map(a => (a.summary_date || '').substring(0, 7)).filter(Boolean))).sort();
