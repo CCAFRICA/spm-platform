@@ -27,9 +27,63 @@ export { getEntityResults } from '@/lib/drill-through';
 export { aggregateByDimension } from './dimension-discovery';
 export type { DiscoveredDimension } from './dimension-discovery';
 
+// ── Period-rollup sentinel (OB-237 T-AGG) — the WRITE-TIME period-level materialization ──────────────────
+// The per-entity D7 materialization (entity_period_outcomes) carries one row per (entity, period). Reading a
+// PERIOD TOTAL meant fetching all N entity rows and JS .reduce-ing them (BCL = 85 rows/period). OB-237 builds
+// a period-level rollup: one sentinel row per (tenant, period) in summary_artifacts with
+// data_type='period_outcomes', selected by period_id. metrics carries the pre-summed total_payout +
+// entity_count + component_totals (by componentId) + component_totals_by_name (by componentName). The reads
+// below fetch THAT one row (no reduce); they fall back to the per-entity path only when the sentinel is
+// absent (graceful — populated by scripts/ob237-populate-period-rollup-*.ts; absent tenants keep working).
+interface PeriodRollup {
+  total_payout: number;
+  entity_count: number;
+  component_totals: Record<string, number>;            // keyed by componentId
+  component_totals_by_name: Record<string, number>;    // keyed by componentName (getComponentTotals contract)
+  component_entity_counts_by_name: Record<string, number>; // entities per component name
+}
+
+const num = (v: unknown): number =>
+  typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : 0;
+
+const asNumberRecord = (v: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = num(val);
+  }
+  return out;
+};
+
+/** Read the one period-rollup sentinel row for (tenant, period), or null if it hasn't been materialized. */
+async function getPeriodRollup(
+  tenantId: string,
+  periodId: string,
+  sb: SupabaseClient<Database>,
+): Promise<PeriodRollup | null> {
+  if (!tenantId || !periodId) return null;
+  const { data } = await (sb as any)
+    .from('summary_artifacts')
+    .select('metrics')
+    .eq('tenant_id', tenantId)
+    .eq('data_type', 'period_outcomes')
+    .eq('period_id', periodId)
+    .limit(1);
+  const row = (data ?? [])[0] as any;
+  const metrics = row?.metrics;
+  if (!metrics || typeof metrics !== 'object') return null;
+  return {
+    total_payout: num(metrics.total_payout),
+    entity_count: num(metrics.entity_count),
+    component_totals: asNumberRecord(metrics.component_totals),
+    component_totals_by_name: asNumberRecord(metrics.component_totals_by_name),
+    component_entity_counts_by_name: asNumberRecord(metrics.component_entity_counts_by_name),
+  };
+}
+
 // ── getPeriodTotal — the authoritative period total (SUM of clean entity payouts) ────────────────────────
-/** SUM(total_payout) for the period, from the clean entity results (entity_period_outcomes →
- *  calculation_results). This is the number /perform and /stream both show — no re-aggregation. */
+/** SUM(total_payout) for the period. Reads the ONE period-rollup sentinel row (OB-237 — no O(n) reduce over
+ *  the 85 entity_period_outcomes rows). Falls back to the per-entity getEntityResults path only when the
+ *  sentinel is absent. This is the number /perform and /stream both show — no re-aggregation. */
 export async function getPeriodTotal(
   tenantId: string,
   periodId: string,
@@ -37,9 +91,15 @@ export async function getPeriodTotal(
 ): Promise<number> {
   if (!tenantId || !periodId) return 0;
   const sb = client ?? createClient();
+  const rollup = await getPeriodRollup(tenantId, periodId, sb);
+  if (rollup) return rollup.total_payout; // one row, no reduce
+  // graceful fallback: tenant/period without a materialized rollup
   const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
   return rows.reduce((s, r) => s + (r.totalPayout ?? 0), 0);
 }
+
+// internal export for sibling lib/insights modules (distribution/trajectory) to read the same sentinel.
+export { getPeriodRollup };
 
 // ── getBatchValidity — THE single validity verdict (calculation_batches.summary) ─────────────────────────
 export type ValiditySeverity = 'clean' | 'warning' | 'critical' | 'none';

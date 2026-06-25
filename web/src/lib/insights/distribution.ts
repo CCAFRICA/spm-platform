@@ -7,6 +7,7 @@ import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
 import { ALL_INSIGHTS_SCOPE } from './periods';
+import { getPeriodRollup } from './intelligence-data';
 import type { DistributionResult, DistributionBin, ComponentTotal } from './types';
 
 function stats(payouts: number[]): { mean: number; median: number; std: number } {
@@ -19,6 +20,12 @@ function stats(payouts: number[]): { mean: number; median: number; std: number }
   return { mean, median, std: Math.sqrt(variance) };
 }
 
+// OB-237 T-AGG HALT-COVERAGE: getPayoutDistribution is a histogram over the INDIVIDUAL entity payouts
+// (mean/median/std + per-bin counts across the 85 per-entity values). The period-rollup sentinel carries
+// only the period SUM + component sums, NOT the full per-entity payout vector, so the distribution cannot be
+// served from it without storing every entity's payout (which is just the per-entity rows again). It stays
+// on the per-entity getEntityResults path — already materialization-backed (entity_period_outcomes), it is a
+// genuine distribution, not an aggregate. (Same coverage-gap class as the Financial location_detail mode.)
 export async function getPayoutDistribution(
   tenantId: string,
   periodId: string,
@@ -62,6 +69,27 @@ export async function getComponentTotals(
   client?: SupabaseClient<Database>,
 ): Promise<ComponentTotal[]> {
   const sb = client ?? createClient();
+
+  // OB-237 T-AGG: read the per-component sums + entity counts from the ONE period-rollup sentinel row (no
+  // O(n) reduce over the 85 entity_period_outcomes rows). component_totals_by_name + the parallel
+  // component_entity_counts_by_name mirror the prior per-entity iteration EXACTLY (name-keyed, += payout,
+  // += 1 entity per component appearance). Fall back to the per-entity path only when the sentinel is absent.
+  const rollup = await getPeriodRollup(tenantId, periodId, sb);
+  if (rollup && Object.keys(rollup.component_totals_by_name).length > 0) {
+    const byName = rollup.component_totals_by_name;
+    const countByName = rollup.component_entity_counts_by_name;
+    const grand = Object.values(byName).reduce((s, v) => s + v, 0);
+    return Object.entries(byName)
+      .map(([component_name, total_amount]) => ({
+        component_name,
+        total_amount,
+        entity_count: countByName[component_name] ?? 0,
+        percentage_of_total: grand > 0 ? (total_amount / grand) * 100 : 0,
+      }))
+      .sort((a, b) => b.total_amount - a.total_amount);
+  }
+
+  // Graceful fallback: per-entity path (tenant/period without a materialized rollup).
   const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
   const totals = new Map<string, { amount: number; entities: number }>();
   for (const r of rows) {
