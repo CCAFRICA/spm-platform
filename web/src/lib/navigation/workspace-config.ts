@@ -45,7 +45,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         labelEs: 'Tableros',
         routes: [
           { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.intelligence_stream' },
-          { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          // HF-343 §3.3/§9: capability-derived (was a roles[] fallback). own_results = every role → home for all.
+          { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.own_results' },
         ],
       },
       // OB-213 Phase 1 / OB-322 O-1: Insights suite — exactly five sub-pages. My Team and
@@ -55,12 +56,15 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         id: 'insights',
         label: 'Insights',
         labelEs: 'Perspectivas',
+        // HF-343 §3.3/§9: the Insights suite is CROSS-ENTITY org/team analytics — capability-gated on
+        // view.team_results (platform/admin/manager) instead of a roles[] fallback. A member/viewer
+        // (own_results only) no longer sees org analytics in the rail; their surface is /perform.
         routes: [
-          { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/performance', label: 'Attainment', labelEs: 'Cumplimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/performance', label: 'Attainment', labelEs: 'Cumplimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
         ],
       },
       // OB-213 Phase 1: Acceleration (KEEP).
