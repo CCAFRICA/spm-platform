@@ -107,9 +107,10 @@ function calculatePayout(attainment: number, tiers: TierConfig[]): number {
   return payout;
 }
 
-// HF-343: `entityId` is supplied by the /perform page from useAuthScope (the AUTHENTICATED own
-// entity), not read from the cosmetic persona context — so the Rep surface can never be pointed at a
-// peer by a persona-switch/fallback. Falls back to usePersona() only if no prop is passed.
+// HF-343: `entityId` is supplied by the /perform page from useAuth().ownEntityId (the AUTHENTICATED
+// own entity, resolved in the single auth lifecycle), not read from the cosmetic persona context — so
+// the Rep surface can never be pointed at a peer by a persona-switch/fallback. Falls back to
+// usePersona() only if no prop is passed.
 export function RepDashboard({ entityId: entityIdProp }: { entityId?: string | null } = {}) {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format } = useCurrency();

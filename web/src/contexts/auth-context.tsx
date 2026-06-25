@@ -12,7 +12,7 @@
  *   2. AuthShellProtected — backup redirect if isAuthenticated becomes false
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { SessionExpiryWarning } from '@/components/session/SessionExpiryWarning';
 import { useRouter, usePathname } from 'next/navigation';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
@@ -27,6 +27,11 @@ import {
   SESSION_ABSENT,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
+// HF-343 REGRESSION FIX: scope resolution lives in THIS context (one auth lifecycle, one isLoading),
+// not a parallel scope hook. resolveAuthenticatedScope is a pure utility called during init.
+import { resolveAuthenticatedScope, scopeIsDeny, ALL_SCOPE } from '@/lib/drill-through/entity-scope';
+import type { EntityScope } from '@/lib/drill-through/types';
+import { resolveRole, type Role } from '@/lib/auth/permissions';
 
 // ──────────────────────────────────────────────
 // Context Type
@@ -44,6 +49,15 @@ interface AuthContextType {
   isVLAdmin: boolean;
   capabilities: string[];
   profileLocale: string | null;
+  // HF-343: persona scope resolved in the SAME lifecycle as user/capabilities. When isLoading is
+  // false, ALL of these are resolved together (zero intermediate wrong-renders). Consumers read
+  // scope from useAuth() — there is no second hook, no second loading state, no second query chain.
+  scope: EntityScope;          // thread into scope-aware reads (ALL for admin, narrowed for manager/member)
+  viewRole: Role | null;       // the authenticated canonical role the surface renders through
+  ownEntityId: string | null;  // the member's own entity (entities.profile_id), else null
+  canViewAll: boolean;         // platform/admin — DS-014 §4.4 (gates tenant-wide panels)
+  canViewTeam: boolean;        // platform/admin/manager (gates team/aggregate panels)
+  isDenied: boolean;           // narrowed role with no resolvable entity (member unlinked — HALT-C)
   login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -108,6 +122,43 @@ function mapProfileToUser(profile: AuthProfile): User {
 }
 
 // ──────────────────────────────────────────────
+// HF-343 — Scope resolution (part of the single auth lifecycle)
+// ──────────────────────────────────────────────
+
+interface ResolvedScope {
+  scope: EntityScope;
+  viewRole: Role;
+  ownEntityId: string | null;
+}
+
+/** Fail-closed default for a non-admin whose scope cannot be resolved (DENY, never tenant). */
+const DENY_SCOPE: EntityScope = { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'explicit' };
+
+function isAdminRole(role: Role | null): boolean {
+  return role === 'platform' || role === 'admin';
+}
+
+/**
+ * Resolve the authenticated persona scope from a profile, in the SAME init sequence as user +
+ * capabilities. admin/platform → ALL (zero queries, synchronous-equivalent); manager → profile_scope
+ * team (one query); member/viewer → own entity (one query). Never throws — fails closed for non-admins.
+ */
+async function resolveProfileScope(profile: AuthProfile): Promise<ResolvedScope> {
+  const viewRole: Role = resolveRole(profile.role) ?? 'member';
+  if (isAdminRole(viewRole)) return { scope: ALL_SCOPE, viewRole, ownEntityId: null };
+  try {
+    const scope = await resolveAuthenticatedScope(profile.role, profile.id, profile.tenantId);
+    // own entity = the single narrowed entity a member surface (RepDashboard) should read.
+    const ownEntityId = viewRole !== 'manager' && !scopeIsDeny(scope) && scope.visibleEntityIds.length > 0
+      ? scope.visibleEntityIds[0]
+      : null;
+    return { scope, viewRole, ownEntityId };
+  } catch {
+    return { scope: DENY_SCOPE, viewRole, ownEntityId: null }; // fail closed
+  }
+}
+
+// ──────────────────────────────────────────────
 // Provider
 // ──────────────────────────────────────────────
 
@@ -139,6 +190,14 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   const router = useRouter();
   const pathname = usePathname();
 
+  // HF-343: derive the initial role/scope synchronously from server state. admin/platform resolve to
+  // ALL with NO query, so an SSR-authed admin renders immediately (isLoading false) with scope already
+  // correct. A member/manager needs one query → isLoading stays true until initAuth resolves it, so
+  // NOTHING renders against an unresolved scope (zero rep-flash / wrong-render).
+  const initialProfile = initialAuthState?.profile ?? null;
+  const initialViewRole: Role | null = initialProfile ? (resolveRole(initialProfile.role) ?? 'member') : null;
+  const initialAdmin = isAdminRole(initialViewRole);
+
   // OB-178: Initialize from server state if available, otherwise null (client-side init)
   const [user, setUser] = useState<User | null>(() => {
     if (initialAuthState?.profile) {
@@ -162,7 +221,17 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   const [profileLocale, setProfileLocale] = useState<string | null>(
     initialAuthState?.profile?.locale || null
   );
-  const [isLoading, setIsLoading] = useState(!initialAuthState);
+  // HF-343: scope/viewRole/ownEntityId live HERE — resolved alongside user/capabilities.
+  const [scope, setScope] = useState<EntityScope>(initialAdmin ? ALL_SCOPE : DENY_SCOPE);
+  const [viewRole, setViewRole] = useState<Role | null>(initialViewRole);
+  const [ownEntityId, setOwnEntityId] = useState<string | null>(null);
+  // ONE isLoading governs everything. Ready synchronously only when there is nothing async to resolve:
+  // SSR-unauthenticated (no profile) OR SSR-authed admin (scope = ALL, no query). Else load.
+  const [isLoading, setIsLoading] = useState(() => {
+    if (!initialAuthState) return true;   // no server state → full client init
+    if (!initialProfile) return false;    // server says unauthenticated → nothing to resolve
+    return !initialAdmin;                 // authed: admin ready now; member/manager need a scope query
+  });
 
   // Initialize: check Supabase session + listen for auth changes
   useEffect(() => {
@@ -191,12 +260,15 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
           return; // isLoading set false in finally
         }
 
-        // 3. Both session AND user confirmed — NOW fetch profile.
+        // 3. Both session AND user confirmed — NOW fetch profile + resolve scope IN THE SAME sequence.
         const profile = await fetchCurrentProfile();
         if (profile && profile !== SESSION_ABSENT) {
+          const { scope: s, viewRole: vr, ownEntityId: oe } = await resolveProfileScope(profile);
+          // Batched (React 18 auto-batch): user + capabilities + scope flip together, before any render.
           setUser(mapProfileToUser(profile));
           setCapabilities(profile.capabilities || []);
           setProfileLocale(profile.locale);
+          setScope(s); setViewRole(vr); setOwnEntityId(oe);
         }
         // If profile is null (missing row) or SESSION_ABSENT, user stays null.
         // AuthShellProtected will handle the redirect. Do NOT redirect here.
@@ -206,14 +278,17 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const p = await fetchCurrentProfile();
             if (p && p !== SESSION_ABSENT) {
+              const { scope: s, viewRole: vr, ownEntityId: oe } = await resolveProfileScope(p);
               setUser(mapProfileToUser(p));
               setCapabilities(p.capabilities || []);
               setProfileLocale(p.locale);
+              setScope(s); setViewRole(vr); setOwnEntityId(oe);
             }
           } else if (event === 'SIGNED_OUT') {
             setUser(null);
             setCapabilities([]);
             setProfileLocale(null);
+            setScope(DENY_SCOPE); setViewRole(null); setOwnEntityId(null);
             // Do NOT redirect here — AuthShellProtected handles navigation
           }
         });
@@ -258,9 +333,11 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
       }
 
       const mappedUser = mapProfileToUser(profile);
+      const { scope: s, viewRole: vr, ownEntityId: oe } = await resolveProfileScope(profile);
       setUser(mappedUser);
       setCapabilities(profile.capabilities || []);
       setProfileLocale(profile.locale);
+      setScope(s); setViewRole(vr); setOwnEntityId(oe);
 
       if (isVLAdmin(mappedUser)) {
         router.push('/select-tenant');
@@ -325,26 +402,43 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   }, [user]);
 
   // ── Capabilities (entity model check) ──
+  // HF-343 / DS-014 §4: platform + admin inherit ALL capabilities. The bypass makes capability checks
+  // independent of whether the stored `profiles.capabilities` array is fully materialized — a stale or
+  // empty array no longer hides sidebar items / surfaces from an admin.
   const hasCapability = useCallback((capability: string): boolean => {
+    if (user && (user.role === 'platform' || user.role === 'admin')) return true;
     return capabilities.includes(capability);
-  }, [capabilities]);
+  }, [user, capabilities]);
 
   const isUserVLAdmin = user ? isVLAdmin(user) : false;
 
+  // HF-343: capability gates derived from the authenticated role (DS-014 §4.4), in the same lifecycle.
+  const canViewAll = isAdminRole(viewRole);
+  const canViewTeam = canViewAll || viewRole === 'manager';
+  const isDenied = scopeIsDeny(scope);
+
+  const value = useMemo<AuthContextType>(() => ({
+    user,
+    isAuthenticated: !!user,
+    isLoading,
+    isVLAdmin: isUserVLAdmin,
+    capabilities,
+    profileLocale,
+    scope,
+    viewRole,
+    ownEntityId,
+    canViewAll,
+    canViewTeam,
+    isDenied,
+    login,
+    logout,
+    hasPermission,
+    hasCapability,
+  }), [user, isLoading, isUserVLAdmin, capabilities, profileLocale, scope, viewRole, ownEntityId, canViewAll, canViewTeam, isDenied, login, logout, hasPermission, hasCapability]);
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        isLoading,
-        isVLAdmin: isUserVLAdmin,
-        capabilities,
-        profileLocale,
-        login,
-        logout,
-        hasPermission,
-        hasCapability,
-      }}
+      value={value}
     >
       {children}
       {/* HF-147: Session expiry warning — only shown when authenticated */}

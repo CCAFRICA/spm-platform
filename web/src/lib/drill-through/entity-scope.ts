@@ -13,7 +13,8 @@ import { createClient } from '@/lib/supabase/client';
 import { resolveRole } from '@/lib/auth/permissions';
 import type { EntityScope } from './types';
 
-const ALL_SCOPE: EntityScope = {
+/** The tenant-wide (admin/platform) scope. Exported so auth-context can seed it synchronously. */
+export const ALL_SCOPE: EntityScope = {
   visibleEntityIds: [],
   visibleRuleSetIds: [],
   visiblePeriodIds: [],
@@ -55,59 +56,47 @@ async function resolveOwnEntityId(
 }
 
 /**
- * HF-343 Phase 1 — THE single authenticated-scope resolver consumed by every `/perform` read path.
- * Keyed off the authenticated `profiles.role` (Decision 39), never the cosmetic persona override.
- * Structural (Korean Test): resolves entity visibility from role + profile_scope/entity linkage with
- * zero domain/language logic.
+ * HF-343 — THE single authenticated-scope resolver. Keyed off the authenticated `profiles.role`
+ * (Decision 39), never the cosmetic persona override. Structural (Korean Test): resolves entity
+ * visibility from role + profile_scope/entity linkage with zero domain/language logic.
  *
- *   platform / admin → ALL_SCOPE (tenant-wide; existing behavior)
- *   manager          → profile_scope.visible_entity_ids (team set); fail-closed to own entity when
+ * REGRESSION FIX (eradicate the parallel auth path): this is a pure UTILITY called ONCE by
+ * auth-context during initialization — NOT from a hook, NOT during page render, NOT a second loading
+ * lifecycle. It takes the already-resolved `profileId` (profiles.id) the auth init already holds, so
+ * it issues at most ONE query (zero for admin/platform).
+ *
+ *   platform / admin → ALL_SCOPE (tenant-wide; zero queries)
+ *   manager          → profile_scope.visible_entity_ids (one query); fail-closed to own entity when
  *                      no scope row (least privilege — OB-211 WS7 precedent)
- *   member / viewer  → own linked entity only; DENY (read nothing) when unlinked (HALT-C, fail closed)
+ *   member / viewer  → own linked entity only (one query, entities.profile_id); DENY when unlinked
+ *                      (HALT-C, fail closed)
  *
- * @param viewRole   authenticated role string (any alias — resolved via permissions.resolveRole)
- * @param authUserId the Supabase auth user id (profiles.auth_user_id), used to find the profile
- * @param opts.sampleWhenUnlinked  VL-admin demo only: when a member/viewer view resolves to no own
- *                      entity, scope to one sample individual entity (so "view as rep" demos render).
- *                      Real members never set this → they DENY when unlinked.
+ * @param role      authenticated role string (any alias — resolved via permissions.resolveRole)
+ * @param profileId profiles.id (already resolved by auth-context from fetchCurrentProfile)
+ * @param tenantId  the profile's tenant
  */
 export async function resolveAuthenticatedScope(
-  viewRole: string | null | undefined,
-  authUserId: string | null | undefined,
-  tenantId: string,
-  opts?: { sampleWhenUnlinked?: boolean },
+  role: string | null | undefined,
+  profileId: string | null | undefined,
+  tenantId: string | null | undefined,
   client?: SupabaseClient<Database>,
 ): Promise<EntityScope> {
-  const canonical = viewRole ? resolveRole(viewRole) : null;
-  if (canonical === 'admin' || canonical === 'platform') return ALL_SCOPE;
-  if (!tenantId) return ownScope(null); // no tenant context → fail closed
+  const canonical = role ? resolveRole(role) : null;
+  if (canonical === 'admin' || canonical === 'platform') return ALL_SCOPE; // zero queries
+  if (!profileId || !tenantId) return ownScope(null); // no identity/tenant → fail closed (DENY)
 
   const sb = client ?? createClient();
 
-  // the authenticated profile for this auth user, in this tenant
-  let profileId: string | null = null;
-  if (authUserId) {
-    const { data } = await sb.from('profiles').select('id').eq('auth_user_id', authUserId).eq('tenant_id', tenantId).maybeSingle();
-    profileId = (data?.id as string | null) ?? null;
-  }
-  const ownEntityId = await resolveOwnEntityId(profileId, tenantId, sb);
-
   if (canonical === 'manager') {
-    const teamScope = await resolveEntityScope(profileId, sb); // profile_scope reader
+    const teamScope = await resolveEntityScope(profileId, sb); // ONE query (profile_scope)
     if (scopeIsNarrowed(teamScope)) return teamScope;          // real team set
-    return { ...ownScope(ownEntityId), scopeType: 'graph_derived' }; // no profile_scope → own only (least privilege)
+    const own = await resolveOwnEntityId(profileId, tenantId, sb); // fallback (no scope row)
+    return { ...ownScope(own), scopeType: 'graph_derived' };   // own only (least privilege), never ALL
   }
 
-  // member / viewer / unknown → own linked entity
-  if (ownEntityId) return ownScope(ownEntityId);
-
-  // unlinked: VL-admin demo picks a sample individual; a real member DENYs (HALT-C)
-  if (opts?.sampleWhenUnlinked) {
-    const { data: sample } = await sb
-      .from('entities').select('id').eq('tenant_id', tenantId).eq('entity_type', 'individual').limit(1).maybeSingle();
-    return ownScope((sample?.id as string | null) ?? null);
-  }
-  return ownScope(null); // DENY
+  // member / viewer / unknown → own linked entity (DENY when unlinked — HALT-C)
+  const own = await resolveOwnEntityId(profileId, tenantId, sb); // ONE query (entities.profile_id)
+  return ownScope(own);
 }
 
 export async function resolveEntityScope(

@@ -20,7 +20,6 @@ import { useRouter } from 'next/navigation';
 import { Award, DollarSign, Sparkles, Target, Users } from 'lucide-react';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
-import { useAuthScope } from '@/hooks/use-auth-scope'; // HF-343: authenticated scope + capability gating
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
 import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
@@ -112,18 +111,17 @@ export default function PerformPage() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: preserved for non-DS-003 branches (financial-only cards)
   const { persona } = usePersona();
-  // HF-343: the authenticated scope + capability gates. `authScope` narrows every ICM read to the
-  // member's own entity / manager's team; `canViewAll`/`canViewTeam` gate org-wide panels by the
-  // authenticated role (Decision 39) — NOT the cosmetic persona. `isDenied` = member with no linked
-  // entity (HALT-C → own-empty state, never the tenant).
-  const { scope: authScope, canViewAll, canViewTeam, isDenied, ownEntityId, loading: scopeLoading } = useAuthScope();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
   const { ruleSetCount, entityCount: sessionEntityCount } = useSession();
   const theme = usePersonaTheme();
   const hasFinancial = useFeature('financial');
   const { locale } = useLocale();
-  const { user } = useAuth();
+  // HF-343: persona scope comes from the SINGLE auth lifecycle (useAuth), not a parallel hook. When
+  // this page renders, AuthShell has already gated on auth isLoading → scope is fully resolved.
+  // `authScope` narrows every ICM read; `canViewAll`/`canViewTeam` gate org panels by authenticated
+  // role (Decision 39); `isDenied` = member with no linked entity (HALT-C → own-empty state).
+  const { user, scope: authScope, canViewAll, canViewTeam, isDenied, ownEntityId } = useAuth();
   const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasICM = ruleSetCount > 0;
   const tenantId = currentTenant?.id ?? '';
@@ -148,7 +146,6 @@ export default function PerformPage() {
       setPeriodsLoaded(true);
       return;
     }
-    if (scopeLoading) return; // wait for the authenticated scope before issuing the scoped read
     if (isDenied) { // member with no linked entity (HALT-C) — read nothing, surface own-empty state
       setPeriods([]); setSelectedPeriodId(''); setPeriodsLoaded(true);
       return;
@@ -163,7 +160,7 @@ export default function PerformPage() {
       })
       .catch((err) => { console.warn('[Perform] periods load failed:', err); if (!cancelled) setPeriodsLoaded(true); });
     return () => { cancelled = true; };
-  }, [tenantId, hasICM, scopeLoading, isDenied, authScope]);
+  }, [tenantId, hasICM, isDenied, authScope]);
 
   // Load selected-period data (period total, component totals, entity results, batch validity).
   useEffect(() => {
@@ -273,7 +270,7 @@ export default function PerformPage() {
   }
 
   // ── Loading shell (initial) ──
-  const initialLoading = (hasICM && (scopeLoading || !periodsLoaded)) || (hasFinancial && !hasICM && financialLoading);
+  const initialLoading = (hasICM && !periodsLoaded) || (hasFinancial && !hasICM && financialLoading);
   if (initialLoading) {
     return (
       <PersonaAmbient>
