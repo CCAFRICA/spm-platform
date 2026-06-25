@@ -1,3 +1,21 @@
+# OB-237 — MSP Application Map
+
+## FINAL STATE (T-PROOF) — ZERO RAW ENTRIES
+
+| Agent | Surface / mode | Classification | Materialization |
+|---|---|---|---|
+| Financial | network_pulse, timeline, summary, performance, products, leakage | **WIRED** | `summary_artifacts` (+ conditional metrics for leakage) |
+| Financial | staff, location_detail, patterns, server_detail | **WIRED** | `summary_artifacts_fine` (entity, mesero, date, hour) |
+| Financial | cheques | **BOUNDED** | filtered `committed_data` + LIMIT (drill-through) |
+| Intelligence | getPeriodTotal, getComponentTotals, getPopulationTrend | **WIRED** | `period_outcomes` sentinel rollup (one row/period) |
+| Intelligence | getPayoutDistribution | **WIRED** (per-entity histogram) | `entity_period_outcomes` (genuine distribution, not an aggregate) |
+| Compensation | period/dashboard aggregates | **WIRED** | `period_outcomes` sentinel rollup |
+| Compensation | per-entity statement / my-compensation | **BOUNDED** | one `entity_period_outcomes`/`calculation_results` row (O(1) indexed) |
+
+`fetchRawDataServer` deleted. Zero RAW. All value-matched to deterministic truth ($100,068,158.15 Sabor / $312,033 BCL). Full evidence + empirical table: `docs/completion-reports/OB-237_COMPLETION_REPORT.md` §T-PROOF.
+
+---
+
 # OB-237 — MSP Application Map (P0 Discovery)
 
 **Branch:** `ob-237-materialized-serving-path` · **Date:** 2026-06-24 · **Tenants:** Sabor `f7093bcc-…` (Financial), BCL `b1c2d3e4-aaaa-…` (Comp/Intel)

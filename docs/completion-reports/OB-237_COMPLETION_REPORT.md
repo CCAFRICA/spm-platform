@@ -1,5 +1,52 @@
 # OB-237 — Materialized Serving Path (MSP) — COMPLETION REPORT
 
+## §T-PROOF — FINAL INTEGRATION PROOF (all visualizations, all agents)
+
+**Zero residuals. Every aggregate visualization serves from a materialization. `fetchRawDataServer` deleted. Zero raw aggregate paths remain platform-wide.**
+
+The T-FIN ║ T-AGG fan-out completed (T-AGG clean; T-FIN's code landed but its run left a stale fine-table — re-running the canonical deterministic populator fixed it; all value-matches then passed). All 4 fine-table modes value-matched against deterministic truth; the (entity,day) summary + its 6 modes did not regress.
+
+### PG-FINAL-2 — Empirical performance table (the headline)
+| Mode | Before RAW (ms) | After (ms) | Speedup | Truth-match | Materialization |
+|---|---|---|---|---|---|
+| network_pulse | 3,277 | 2,341 | — | ✓ $100,068,158.15 | summary_artifacts |
+| timeline | 58,633 | 1,366 | **43×** | ✓ | summary_artifacts |
+| summary | ~58,000 | 1,379 | **42×** | ✓ | summary_artifacts |
+| performance | ~58,000 | 1,371 | **42×** | ✓ | summary_artifacts |
+| products | ~58,000 | 1,319 | **44×** | ✓ food $66.75M / bev $22.25M | summary_artifacts |
+| leakage | 57,669 | 1,569 | **37×** | ✓ Desc $1,186,755.09 / Cort $337,531.65 / Canc $512,731.27 | summary_artifacts + conditional metrics |
+| staff | 55,423 | 19,850 | 2.8× | ✓ $99,555,426.88 (excl-cancel) | summary_artifacts_fine |
+| location_detail | ~58,000 | 1,411 | **41×** | ✓ $6,086,529.36 | summary_artifacts_fine |
+| patterns | ~58,000 | 19,266 | 3.0× | ✓ $99,555,426.88 (excl-cancel) | summary_artifacts_fine |
+| server_detail | ~58,000 | 494 | **117×** | ✓ $1,948,071.93 | summary_artifacts_fine |
+| **Intelligence** getPeriodTotal | 1,981 (O(n) reduce) | 605 (sentinel) | **3.3×** | ✓ BCL $312,033 / per-period | period_outcomes sentinel rollup |
+| **Compensation** (same rollup) | per-entity reduce | one-row read | O(n)→O(1) | ✓ $312,033 | period_outcomes sentinel rollup |
+
+**Note on staff/patterns (2.8×/3.0×):** these read the full `summary_artifacts_fine` (88,459 rows) into JS — MSP-compliant (a materialization, not base rows) and 3× faster, but the residual is the 88K-row JSONB fetch. Sub-2s would require SQL aggregation over the fine table (a PostgREST-aggregate/RPC = architect migration, out of CC scope) — a named follow-on. `location_detail`/`server_detail` filter the fine table to one entity/server (small reads) → 41×/117×.
+
+### PG-FINAL-1 — Zero raw aggregate paths (platform-wide)
+- **Financial:** ZERO — no `fetchRawDataServer`, no raw `aggregate*` (only `*FromSummaries`/`*FromFine` + the bounded `aggregateChequesBounded` drill-through).
+- **Intelligence/Compensation:** the 2 surviving `.reduce` (intelligence-data.ts:98, trajectory.ts:55) are **graceful fallbacks** — the primary paths read the one-row sentinel rollup; the reduce fires only for a period without a materialized rollup (never for BCL). Per T-AGG OBJ2 (graceful degradation for un-materialized tenants).
+- **committed_data reads in serving routes:** none are aggregate-visualization paths — `aggregateChequesBounded` (bounded drill, filtered+LIMIT), the calc engine (`calculation/run` — out of scope), observatory/users (admin counts, `head:true`), intelligence/wire (binding, not viz).
+
+### PG-FINAL-3 — Surfaces (headless value-match; browser render = architect-gated SR-44)
+Every Financial mode returns correct data headlessly (all 10 value-matched above). Intelligence/Compensation `getPeriodTotal` returns BCL $312,033 / per-period exact from the sentinel. Browser render (`/financial`, `/financial/{timeline,performance,leakage,staff}`, `/stream`, `/insights`, `/perform`) is architect-gated per SR-44.
+
+### PG-FINAL-4 — Build clean
+`tsc --noEmit` exit 0; `rm -rf .next && npm run build` exit 0 (after the `route.ts:965` let→const fix). No code changed since (the fine-table re-population was a DB-only data operation).
+
+### PG-FINAL-5 — MSP Application Map
+`docs/diagnostics/OB-237_MSP_APPLICATION_MAP.md` updated: every Financial mode WIRED (cheques BOUNDED); Intelligence/Compensation aggregate reads WIRED to the sentinel rollup. **Zero RAW entries.**
+
+### Verification summary
+- Fine table: 88,459 rows, SUM(metrics.total) = **$100,068,158.15** = deterministic truth (re-run after T-FIN's stale state). cancelled_revenue $512,731.27.
+- Period rollup: 6 BCL sentinel rows, per-period exact, grand **$312,033**.
+- `fetchRawDataServer`: **deleted** (0 references). All raw `aggregate*`: deleted.
+- (entity,day) summary_artifacts: intact ($100,068,158.15) — 6 prior modes no regression.
+
+---
+
+
 ## §P0-FINAL (OB-237 COMPLETE directive) — conditional metric + leakage wired; ARCHITECT GATE reached
 
 **PG-SCHEMA — `summary_artifacts` schema (for modeling `summary_artifacts_fine`):**
