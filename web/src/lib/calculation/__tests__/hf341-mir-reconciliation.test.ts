@@ -139,3 +139,64 @@ test('PG-10 (C6): composed:"multiply" is the NEW mode alongside it — 3 × 4 = 
   const intent = ci({ shape: 'composed', composition: 'multiply', children: [{ kind: 'constant', value: 3 }, { kind: 'constant', value: 4 }] } as unknown as StructuralDescription);
   assert.equal(ev(constructTree(intent), ctx({})), 12);
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// R2 — lookup dimension is KEY-TYPE-AGNOSTIC (categorical key → output, no new shape, no engine edit)
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+const catRateLookup = (): StructuralDescription => ({
+  shape: 'banded_lookup',
+  dimensions: [{ reference_field: 'Categoria', reference_source: { type: 'attribute', field: 'Categoria' }, keys: ['ALI', 'BEB', 'LIM', 'CPE'] }],
+  outputs: [0.025, 0.020, 0.030, 0.035],
+} as unknown as StructuralDescription);
+
+test('PG-R1: a CATEGORICAL banded_lookup (Categoria ALI/BEB/LIM/CPE → rates) constructs & maps each key to its output', () => {
+  const dag = constructTree(ci(catRateLookup()));
+  assert.equal(ev(dag, ctx({ metrics: { Categoria: 'ALI' as unknown as number } })), 0.025);
+  assert.equal(ev(dag, ctx({ metrics: { Categoria: 'LIM' as unknown as number } })), 0.030);
+  assert.equal(ev(dag, ctx({ metrics: { Categoria: 'CPE' as unknown as number } })), 0.035);
+  assert.equal(ev(dag, ctx({ metrics: { Categoria: 'ZZZ' as unknown as number } })), 0); // no-match terminator
+});
+
+test('PG-R1: MIR Plan 1 shape — Monto × categoryRate(categorical lookup) × accelerator — constructs end-to-end', () => {
+  const plan1 = ci({
+    shape: 'composed', composition: 'multiply',
+    children: [
+      { shape: 'arithmetic', operation: 'multiply', operands: [{ kind: 'reference', source: { type: 'metric', field: 'Monto_Total' } }, { kind: 'constant', value: 1 }] },
+      catRateLookup(),
+      { shape: 'conditional', condition: { reference: { type: 'metric', field: 'monto_acum' }, operator: 'gte', threshold: 150000 }, then: { kind: 'constant', value: 1.25 }, else: { kind: 'constant', value: 1 } },
+    ],
+  } as unknown as StructuralDescription);
+  const dag = constructTree(plan1);
+  // 10000 × 0.030 (LIM) × 1.25 (≥150K) = 375
+  assert.equal(ev(dag, ctx({ metrics: { Monto_Total: 10000, Categoria: 'LIM' as unknown as number, monto_acum: 200000 } })), 375);
+  // below accelerator threshold → × 1.00
+  assert.equal(ev(dag, ctx({ metrics: { Monto_Total: 10000, Categoria: 'LIM' as unknown as number, monto_acum: 50000 } })), 300);
+});
+
+test('PG-R3: a NUMERIC banded_lookup is unchanged (ascending breaks → bands)', () => {
+  const numLookup = ci({
+    shape: 'banded_lookup',
+    dimensions: [{ reference_field: 'attain', reference_source: { type: 'metric', field: 'attain' }, breaks: [100, 130] }],
+    outputs: [0, 150, 300],
+  } as unknown as StructuralDescription);
+  const dag = constructTree(numLookup);
+  assert.equal(ev(dag, ctx({ metrics: { attain: 140 } })), 300); // ≥130
+  assert.equal(ev(dag, ctx({ metrics: { attain: 120 } })), 150); // [100,130)
+  assert.equal(ev(dag, ctx({ metrics: { attain: 50 } })), 0);    // <100
+});
+
+test('PG-R5/C2: a dimension with NEITHER breaks nor keys fails loud — never a silent default key type', () => {
+  const bad = ci({ shape: 'banded_lookup', dimensions: [{ reference_field: 'x', reference_source: { type: 'metric', field: 'x' } }], outputs: [1] } as unknown as StructuralDescription);
+  assert.throws(() => constructTree(bad), /neither numeric breaks nor categorical keys|undetermined/);
+});
+
+test('PG-R5/C2: a dimension with BOTH breaks and keys fails loud (ambiguous key structure)', () => {
+  const bad = ci({ shape: 'banded_lookup', dimensions: [{ reference_field: 'x', reference_source: { type: 'metric', field: 'x' }, breaks: [1], keys: ['a'] }], outputs: [1, 2] } as unknown as StructuralDescription);
+  assert.throws(() => constructTree(bad), /BOTH breaks and keys|ambiguous/);
+});
+
+test('PG-R5: outputs count must match the key structure (categorical keys.length) — else fail loud', () => {
+  const bad = ci({ shape: 'banded_lookup', dimensions: [{ reference_field: 'Categoria', reference_source: { type: 'attribute', field: 'Categoria' }, keys: ['ALI', 'BEB', 'LIM', 'CPE'] }], outputs: [0.025] } as unknown as StructuralDescription);
+  assert.throws(() => constructTree(bad), /inconsistent with the key structure|outputs count/);
+});

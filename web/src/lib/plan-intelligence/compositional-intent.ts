@@ -112,10 +112,22 @@ export type OperandDescription =
 // derived from references (e.g., "5% of revenue per tier"), the derivation
 // describes the per-cell computation.
 
+// HF-341 R2: a lookup dimension is KEY-TYPE-AGNOSTIC. It always carries its key reference
+// (reference_field + reference_source) plus the key structure the LLM RECOGNIZED — EXACTLY ONE of:
+//   • `breaks` — a NUMERIC key: ordered thresholds partitioning a continuous range into breaks.length+1
+//     bands, each band → one output (the original banded_lookup; ascending).
+//   • `keys` — a CATEGORICAL key: discrete values mapping 1:1 to outputs (ALI/BEB/LIM/CPE → rates).
+//     No thresholds, no ordering; the key set is the LLM's recognition of the plan's categories.
+// The key's nature is CARRIED from recognition (Validation Premise Law / Decision 158) — construction
+// reads which structure is present and builds the matching comparison (gte for numeric, eq for
+// categorical), BOTH via the existing `compare` prime (no engine change, C6). A dimension carrying
+// NEITHER (or BOTH) fails loud at construction (C2) — the key type is a property of the data, never a
+// developer-curated key-type selector (Korean Test: no {numeric, categorical} enum).
 export interface BandedLookupDimension {
   reference_field: string;
   reference_source: ReferenceSource;
-  breaks: number[];
+  breaks?: number[];
+  keys?: Array<string | number>;
 }
 
 export interface BandedLookupDescription {

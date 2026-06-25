@@ -223,23 +223,25 @@ function constructStructure(
 // LOWEST tier (below the smallest break) and band N (= breaks.length) is
 // the HIGHEST tier (at or above the largest break).
 
+// HF-341 R2: band count of ONE dimension, key-type-agnostic. A categorical dimension has one band per
+// discrete key (keys.length); a numeric dimension has breaks.length+1 bands (the "below lowest" band
+// plus one per break). 0 when neither is determinable — the validator fails loud before construction.
+function dimBandCount(dim: BandedLookupDimension): number {
+  if (Array.isArray(dim.keys) && dim.keys.length > 0) return dim.keys.length;
+  if (Array.isArray(dim.breaks) && dim.breaks.length > 0) return dim.breaks.length + 1;
+  return 0;
+}
+
 function constructBandedLookup(
   desc: BandedLookupDescription,
   scale: ScaleSpec | null,
   path: string,
 ): PrimeNode {
+  // HF-341 R2: validateBandedLookup now owns the output-count consistency check (PG-R5),
+  // key-type-agnostic via dimBandCount — so the prior duplicate check here is removed.
   validateBandedLookup(desc, path);
 
   const dims = desc.dimensions;
-  const totalCells = dims.reduce((acc, d) => acc * (d.breaks.length + 1), 1);
-  if (desc.outputs.length !== totalCells) {
-    throw new ConstructionError(
-      path,
-      desc,
-      `output count ${desc.outputs.length} does not match dimension product ${totalCells} ` +
-        `(${dims.map(d => d.breaks.length + 1).join('×')})`,
-    );
-  }
 
   // Recursive build over dimensions. cellIndexBase advances by the product
   // of remaining-dimension band counts as we descend through outer-dim
@@ -264,16 +266,50 @@ function buildDimRecursive(
   }
 
   const dim = dims[dimIdx];
-  const numBands = dim.breaks.length + 1;
+  const isCategorical = Array.isArray(dim.keys) && dim.keys.length > 0;
+  const numBands = dimBandCount(dim);
   // remainingProduct = number of cells per band at this dimension (the
   // product of band counts for all deeper dimensions). Used to advance
   // cellIndexBase as we move through bands at this level.
   let remainingProduct = 1;
   for (let i = dimIdx + 1; i < dims.length; i++) {
-    remainingProduct *= dims[i].breaks.length + 1;
+    remainingProduct *= dimBandCount(dims[i]);
   }
 
-  // Build the nested conditional chain for this dimension. We start from
+  // HF-341 R2 — CATEGORICAL key: each discrete key maps directly to its output cell. Build a cascade of
+  // equality matches — conditional(compare(eq, ref, key[b]), output(b), <next>) — terminated by a
+  // no-match constant(0). Order is irrelevant (keys are distinct; exactly one matches). Uses the SAME
+  // `compare` prime as the numeric path; the executor already evaluates string eq (OB-220), so there is
+  // NO engine change (C6). No "below lowest" band — each key IS a band (band count = keys.length).
+  if (isCategorical) {
+    let chain: PrimeNode = { prime: 'constant', value: 0 };
+    for (let b = 0; b < numBands; b++) {
+      const keyVal = dim.keys![b];
+      const thenBranch = buildDimRecursive(
+        desc, scale, dims, dimIdx + 1, cellIndexBase + b * remainingProduct,
+        `${path}.dim[${dimIdx}].key[${b}]`,
+      );
+      chain = {
+        prime: 'conditional',
+        condition: {
+          prime: 'compare',
+          op: 'eq',
+          inputs: [
+            buildReferenceNode(dim.reference_source, dim.reference_field, `${path}.dim[${dimIdx}].ref`),
+            // a categorical key is a string-valued constant (the executor reads it raw via rawOperand,
+            // OB-220); a numeric discrete key stays numeric. PrimeNode types constant.value as number —
+            // the categorical path carries category strings, tolerated by evaluate()'s constant+compare.
+            { prime: 'constant', value: (typeof keyVal === 'number' ? keyVal : String(keyVal)) as unknown as number },
+          ],
+        },
+        then: thenBranch,
+        else: chain,
+      };
+    }
+    return chain;
+  }
+
+  // NUMERIC key (unchanged). Build the nested conditional chain for this dimension. We start from
   // the HIGHEST band (index numBands - 1, no upper bound) and recurse
   // downward, emitting `conditional(ref >= break[i], thenBranch, elseBranch)`
   // at each level. The leaf-most else is constant(0) (no-match terminator).
@@ -307,9 +343,9 @@ function buildDimRecursive(
     `${path}.dim[${dimIdx}].band[0]`,
   );
 
-  // Bands 1..numBands-1.
+  // Bands 1..numBands-1. (Numeric branch — breaks is present; the validator guaranteed it.)
   for (let b = 1; b < numBands; b++) {
-    const breakValue = dim.breaks[b - 1];
+    const breakValue = dim.breaks![b - 1];
     const thenBranch = buildDimRecursive(
       desc,
       scale,
@@ -769,39 +805,69 @@ function refSourceField(source: ReferenceSource): string {
   }
 }
 
+// HF-341 R2: STRUCTURAL, key-type-agnostic validation. It checks (a) every dimension has a key
+// reference, (b) outputs is non-empty + finite, (c) outputs count is consistent with the key STRUCTURE
+// (product of per-dimension band counts). It does NOT check which key TYPE a dimension is against an
+// enumerated set — the key type (numeric breaks vs categorical keys) is a property of the data carried
+// from recognition, not a developer expectation (Validation Premise Law / Korean Test). A dimension that
+// determines NEITHER (or BOTH) key structures fails loud (C2).
 function validateBandedLookup(desc: BandedLookupDescription, path: string): void {
   if (!Array.isArray(desc.dimensions) || desc.dimensions.length === 0) {
     throw new ConstructionError(path, desc, 'banded_lookup requires at least one dimension');
   }
   desc.dimensions.forEach((dim, i) => {
-    if (!Array.isArray(dim.breaks)) {
-      throw new ConstructionError(`${path}.dimensions[${i}]`, desc, 'dimension.breaks is not an array');
-    }
-    if (dim.breaks.length === 0) {
-      throw new ConstructionError(`${path}.dimensions[${i}]`, desc, 'dimension.breaks is empty (need at least 1 break for 2 bands)');
-    }
-    for (let j = 1; j < dim.breaks.length; j++) {
-      if (dim.breaks[j] <= dim.breaks[j - 1]) {
-        throw new ConstructionError(
-          `${path}.dimensions[${i}].breaks[${j}]`,
-          desc,
-          `breaks not in ascending order: breaks[${j-1}]=${dim.breaks[j-1]} >= breaks[${j}]=${dim.breaks[j]}`,
-        );
-      }
-    }
+    // (a) key reference present — every dimension reads a key (structural, both key types).
     if (!dim.reference_source) {
       throw new ConstructionError(`${path}.dimensions[${i}].reference_source`, desc, 'reference_source missing');
     }
     if (typeof dim.reference_field !== 'string' || dim.reference_field.length === 0) {
       throw new ConstructionError(`${path}.dimensions[${i}].reference_field`, desc, 'reference_field must be a non-empty string');
     }
+    // The dimension carries its key STRUCTURE — numeric `breaks` XOR categorical `keys`.
+    const hasBreaks = Array.isArray(dim.breaks) && dim.breaks.length > 0;
+    const hasKeys = Array.isArray(dim.keys) && dim.keys.length > 0;
+    if (!hasBreaks && !hasKeys) {
+      throw new ConstructionError(
+        `${path}.dimensions[${i}]`, desc,
+        'dimension carries neither numeric breaks nor categorical keys — the key structure is undetermined; ' +
+        'cannot construct the lookup (C2: fail loud; never default a key type)',
+      );
+    }
+    if (hasBreaks && hasKeys) {
+      throw new ConstructionError(
+        `${path}.dimensions[${i}]`, desc,
+        'dimension carries BOTH breaks and keys — the key structure is ambiguous (exactly one is expected)',
+      );
+    }
+    if (hasBreaks) {
+      // numeric key: thresholds must be strictly ascending (half-open band semantics).
+      for (let j = 1; j < dim.breaks!.length; j++) {
+        if (dim.breaks![j] <= dim.breaks![j - 1]) {
+          throw new ConstructionError(
+            `${path}.dimensions[${i}].breaks[${j}]`, desc,
+            `breaks not in ascending order: breaks[${j-1}]=${dim.breaks![j-1]} >= breaks[${j}]=${dim.breaks![j]}`,
+          );
+        }
+      }
+    }
+    // categorical key: discrete values map 1:1 to outputs; no ordering constraint (string or numeric keys).
   });
-  if (!Array.isArray(desc.outputs)) {
-    throw new ConstructionError(`${path}.outputs`, desc, 'outputs is not an array');
+  // (b) outputs present, non-empty, finite — outputs are the looked-up VALUES (numeric for both key types).
+  if (!Array.isArray(desc.outputs) || desc.outputs.length === 0) {
+    throw new ConstructionError(`${path}.outputs`, desc, 'outputs is empty or not an array');
   }
   desc.outputs.forEach((o, i) => {
     if (typeof o !== 'number' || !Number.isFinite(o)) {
       throw new ConstructionError(`${path}.outputs[${i}]`, desc, `outputs[${i}] is not a finite number (got ${o})`);
     }
   });
+  // (c) outputs count consistent with the key STRUCTURE (product of per-dimension band counts).
+  const totalCells = desc.dimensions.reduce((acc, d) => acc * dimBandCount(d), 1);
+  if (desc.outputs.length !== totalCells) {
+    throw new ConstructionError(
+      `${path}.outputs`, desc,
+      `output count ${desc.outputs.length} is inconsistent with the key structure ` +
+      `(expected ${totalCells} = ${desc.dimensions.map(d => dimBandCount(d)).join('×')})`,
+    );
+  }
 }

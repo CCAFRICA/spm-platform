@@ -502,7 +502,8 @@ Some differentiation is PER-ENTITY: a property the whole entity carries (one val
 
 CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
 
-1. banded_lookup — N-dimensional tier table (1D banded rate / 2D matrix / etc.)
+1. banded_lookup — N-dimensional lookup table (a key selects an output). A dimension's key is EITHER
+   numeric thresholds OR a discrete set of values — carry whichever the plan actually uses:
 
    {
      "shape": "banded_lookup",
@@ -510,14 +511,25 @@ CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
        {
          "reference_field": "<field_name>",
          "reference_source": { "type": "metric|ratio|aggregate|attribute|cross_data|scope_aggregate|prior_component", "...": "..." },
-         "breaks": [<number>, <number>, ...]   // ascending, breaks.length+1 bands per dimension
+         "breaks": [<number>, <number>, ...]   // NUMERIC key: ascending thresholds → breaks.length+1 bands
        },
        ...
      ],
-     "outputs": [<n1>, <n2>, ...]   // flat array, length = product of (breaks.length+1) across dimensions
+     "outputs": [<n1>, <n2>, ...]   // flat array of the looked-up VALUES (always numeric)
    }
 
-   Cell at (i, j, k, ...) → outputs[i * d2_bands * d3_bands * ... + j * d3_bands * ... + k * ... + ...].
+   • NUMERIC key (a value crosses ordered thresholds — attainment tiers, an amount over a limit): give
+     "breaks" (ascending). That dimension has breaks.length+1 bands; outputs map to bands.
+   • CATEGORICAL key (a discrete attribute/code SELECTS a value — e.g. a product category ALI/BEB/LIM/CPE
+     each with its own rate): give "keys" — the exact set of category values — INSTEAD of "breaks", and one
+     output per key in the SAME order. Do NOT invent numeric breaks for a categorical key, and do NOT
+     collapse the categories to one output:
+       { "reference_field": "Categoria", "reference_source": {"type":"attribute","field":"Categoria"},
+         "keys": ["ALI","BEB","LIM","CPE"] }   with   "outputs": [0.025, 0.020, 0.030, 0.035]
+   • A dimension gives EXACTLY ONE of "breaks" (numeric) or "keys" (categorical) — never both, never neither.
+
+   outputs length = product of each dimension's band/key count.
+   Cell at (i, j, k, ...) → outputs[i * d2_count * d3_count * ... + j * d3_count * ... + k * ... + ...].
 
 2. arithmetic — binary numeric composition
 
@@ -588,7 +600,7 @@ STRUCTURAL SHAPES — how values combine:
   • A payout EARNED / PAID / ACTIVATED ONLY WHEN an eligibility condition holds — the plan says "only if/when", "provided that", "must reach", "qualifies when", or pays NOTHING when a precondition fails — → wrap the ENTIRE component payout in a conditional: the condition is that precondition, the then-branch is the payout structure, and the else-branch is { "kind": "constant", "value": 0 }. The gate is part of the component — if you omit it the payout is paid UNCONDITIONALLY (wrong; the blocked entities would be over-paid). The condition may be NUMERIC (a ratio/amount vs a threshold, e.g. collection_rate > 0.70 in the quotient's own space) OR CATEGORICAL (an attribute equals a value).
   • A base amount MULTIPLIED by a rate AND a separate multiplier/accelerator (e.g. "commission = amount × category-rate × accelerator", where the accelerator is itself a small banded lookup of 1.00/1.25) → ONE component whose structure is an arithmetic multiply (or composed:"multiply") nesting the base, the rate, and the accelerator structure. Do NOT emit the accelerator as a SEPARATE component — separate components are SUMMED into the entity total, so a multiplier emitted as its own component is ADDED (≈ +1) instead of multiplying (the factor is lost). Stack every multiplicative factor INSIDE one component, nested to as many factors as the plan states.
   • A bound on a value — a cap, floor, limit, "no more than", "no less than", "maximum/minimum of" — → a conditional clamp applied to THAT value, in the same space the bound is stated (a cap on a ratio clamps the ratio), applied BEFORE that value combines further.
-  • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values. When a dimension's reference is a ratio (a division), state that dimension's break points in the quotient's own space (0.85 for 85%, 1.3 for 130%/1.3x) and emit no scale for it (HF-279).
+  • A value selected by a key → a banded_lookup; give the reference field(s) for each dimension and the cell values. The key is EITHER numeric thresholds (a payout that varies across graduated bands — give ascending "breaks") OR a discrete set of categories (a category/code that selects a value — give "keys", the exact category set, one output per key). Use whichever the plan states; never force numeric breaks onto a categorical key. When a numeric dimension's reference is a ratio (a division), state that dimension's break points in the quotient's own space (0.85 for 85%, 1.3 for 130%/1.3x) and emit no scale for it (HF-279).
   • Independently-computed parts combined into one result → composed (sum / max / min / first_match).
 
 THE COMPOSITION RULE (the generative core): these primitives nest and combine freely and recursively to match whatever the plan describes — a ratio can be the operand of a clamp, a clamp can be the operand of a multiply, a multiply can be a child of a sum, to whatever depth the plan's text implies. There is no fixed template to select; describe the actual structure you read. If a value is bounded and then multiplied by a base, that is an arithmetic multiply whose operands are the clamped value and the base — composed from primitives, not retrieved as a named shape.

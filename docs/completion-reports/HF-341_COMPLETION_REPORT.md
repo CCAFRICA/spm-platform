@@ -257,3 +257,69 @@ After fixes: `tsc --noEmit` 0 errors · `next lint` 0 errors · `next build` cle
 **PR #601** — https://github.com/CCAFRICA/spm-platform/pull/601 (`hf-341-mir-reconciliation` → `main`).
 Not merged: the architect applies the SR-44 MIR reimport + recalc (PG-1…PG-8) and confirms the BCL /
 Plan-2 HALT-CALC invariants before merge.
+
+---
+
+## §R2 — Lookup dimension: key-type-agnostic (PR #601 correction)
+
+**Defect (regression introduced by R1's `composed:"multiply"`).** The grammar correctly merged MIR
+Plan 1's three factors into one component, but child 2 — the category rate, a `banded_lookup` whose key
+`Categoria` is a STRING (ALI/BEB/LIM/CPE → 2.5/2.0/3.0/3.5%) — failed construction: the dimension
+validator demanded numeric `breaks`, and the LLM emitted `breaks:[]` (no numbers to break on) →
+`dimension.breaks is empty (need at least 1 break for 2 bands)`. The validator enforced an anticipated
+key type (numeric thresholds) and rejected a correctly-recognized one (categorical string) — the
+Validation Premise Law.
+
+**Fix (subtraction + carry, not a new shape).** The lookup dimension is now **key-type-agnostic**: it
+carries its key reference plus the key structure the LLM recognized — **`breaks` (numeric) XOR `keys`
+(categorical)**. Construction reads which is present and builds the matching comparison — `gte` for
+numeric (unchanged), `eq` for categorical — **both via the existing `compare` prime** (the executor
+already evaluates string eq, OB-220), so **no engine edit** (C6). No `categorical_lookup` shape, no
+`{numeric, categorical}` key-type enum.
+
+**Change (files):**
+- `compositional-intent.ts` — `BandedLookupDimension.breaks` made optional; `+keys?: Array<string|number>`.
+- `intent-constructor.ts` — `dimBandCount()` helper (keys.length | breaks.length+1); `buildDimRecursive`
+  gains a categorical eq-match branch; `validateBandedLookup` rewritten to **structural-only**
+  (key reference present; exactly one of breaks/keys — else fail loud C2; outputs non-empty + finite;
+  outputs count = product of per-dimension band counts) and now owns the output-count check (the prior
+  duplicate in `constructBandedLookup` removed).
+- `anthropic-adapter.ts` — the `banded_lookup` grammar + prose teach `keys` for a categorical key
+  (one output per key, same order), structurally framed (no key-type selector).
+
+**PG evidence (synthetic `node:test`, 6 new; live import = architect SR-44 same as R1):**
+```
+✔ PG-R1: a CATEGORICAL banded_lookup (Categoria ALI/BEB/LIM/CPE → rates) constructs & maps each key → output   (ALI→0.025, LIM→0.030, CPE→0.035, no-match→0)
+✔ PG-R1: MIR Plan 1 shape — Monto × categoryRate(categorical lookup) × accelerator — constructs end-to-end     (10000×0.030×1.25 = 375; ×1.00 below threshold = 300)
+✔ PG-R3: a NUMERIC banded_lookup is unchanged (ascending breaks → bands)                                        (140→300, 120→150, 50→0)
+✔ PG-R5/C2: a dimension with NEITHER breaks nor keys fails loud — never a silent default key type
+✔ PG-R5/C2: a dimension with BOTH breaks and keys fails loud (ambiguous key structure)
+✔ PG-R5: outputs count must match the key structure (categorical keys.length) — else fail loud
+```
+- **PG-R2 (Plans 2–5 unchanged) / PG-R3 (numeric unchanged):** the full existing `banded_lookup` suite
+  passes byte-identical (`1D banded lookup 4 bands`, `2D banded lookup 6×5 BCL C0 shape`, `composed: sum
+  of two banded lookups`, `banded_lookup (no count) untouched`, `mismatched output count`). The numeric
+  construction path is not altered.
+- **PG-R4 (no shape registry):** `git grep categorical_lookup` → none; no `{numeric,categorical}` /
+  `keyType` enum; the `StructuralDescription` shape union is unchanged (5 literals).
+- **PG-R5 (validator structural-only):** see `validateBandedLookup` — checks key reference + outputs
+  (non-empty, finite) + outputs-count-vs-band-product; never which key type against an enumerated set.
+- **PG-R6:** `tsc --noEmit` 0 · `npm test` **309/309** (15 HF-341, incl. 6 R2) · `next build` clean (210/210).
+
+**Corrected Plan 1 CompositionalIntent (child 2 carries string keys, not empty breaks):**
+```json
+{ "shape": "composed", "composition": "multiply", "children": [
+  { "shape": "arithmetic", "operation": "multiply",
+    "operands": [ {"kind":"reference","source":{"type":"metric","field":"Monto_Total"}}, {"kind":"constant","value":1} ] },
+  { "shape": "banded_lookup",
+    "dimensions": [ {"reference_field":"Categoria","reference_source":{"type":"attribute","field":"Categoria"},
+                     "keys":["ALI","BEB","LIM","CPE"]} ],
+    "outputs": [0.025, 0.020, 0.030, 0.035] },
+  { "shape": "conditional",
+    "condition": {"reference":{"type":"scope_aggregate","field":"Monto_Total","boundary":"DNI_Vendedor","op":"sum"},"operator":"gte","threshold":150000},
+    "then": {"kind":"constant","value":1.25}, "else": {"kind":"constant","value":1} } ] }
+```
+
+**HALT outcomes (R2):** HALT-CALC — not triggered (no engine evaluator edit; categorical dimension
+constructs into existing `compare(eq)`/`conditional` primes). HALT-REGISTRY — not triggered (no
+key-type enum, no shape-name addition). PG-R1 live (Plan 1 imports; `ruleSets=5`) = architect SR-44.
