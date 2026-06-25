@@ -116,7 +116,7 @@ export default function PerformPage() {
   // member's own entity / manager's team; `canViewAll`/`canViewTeam` gate org-wide panels by the
   // authenticated role (Decision 39) — NOT the cosmetic persona. `isDenied` = member with no linked
   // entity (HALT-C → own-empty state, never the tenant).
-  const { scope: authScope, canViewAll, canViewTeam, isDenied, loading: scopeLoading } = useAuthScope();
+  const { scope: authScope, canViewAll, canViewTeam, isDenied, ownEntityId, loading: scopeLoading } = useAuthScope();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
   const { ruleSetCount, entityCount: sessionEntityCount } = useSession();
@@ -619,7 +619,7 @@ export default function PerformPage() {
               <DensityGate min="low">
                 {canViewAll && <AdminDashboard />}
                 {canViewTeam && !canViewAll && <ManagerDashboard />}
-                {!canViewTeam && <RepDashboard />}
+                {!canViewTeam && <RepDashboard entityId={ownEntityId} />}
               </DensityGate>
             )}
           </>

@@ -39,6 +39,9 @@ export interface AuthScopeResult {
   canViewTeam: boolean;
   /** narrowed role whose entity set resolved to nothing (member with no linked entity — HALT-C) */
   isDenied: boolean;
+  /** the member's OWN entity (the single narrowed entity), or null for team/all/denied scopes —
+   *  the authoritative id a member sub-surface (RepDashboard) must read, NOT the cosmetic persona. */
+  ownEntityId: string | null;
 }
 
 export function useAuthScope(): AuthScopeResult {
@@ -86,5 +89,9 @@ export function useAuthScope(): AuthScopeResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, tenantId, viewRole, isVLAdmin]);
 
-  return { loading, viewRole, scope, canViewAll, canViewTeam, isDenied: scopeIsDeny(scope) };
+  const isDenied = scopeIsDeny(scope);
+  // own entity = the single narrowed entity an own-scope (member) surface should read. For team/all
+  // scopes this is null (those surfaces are not own-keyed).
+  const ownEntityId = !canViewTeam && !isDenied && scope.visibleEntityIds.length > 0 ? scope.visibleEntityIds[0] : null;
+  return { loading, viewRole, scope, canViewAll, canViewTeam, isDenied, ownEntityId };
 }

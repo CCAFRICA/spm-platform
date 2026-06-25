@@ -39,7 +39,6 @@ import {
   getRepDashboardData,
   type RepDashboardData,
 } from '@/lib/data/persona-queries';
-import { AgentInbox } from '@/components/agents/AgentInbox';
 import { InsightPanel } from '@/components/intelligence/InsightPanel';
 import { computeRepInsights } from '@/lib/intelligence/insight-engine';
 import { RepTrajectoryPanel } from '@/components/intelligence/RepTrajectory';
@@ -108,10 +107,14 @@ function calculatePayout(attainment: number, tiers: TierConfig[]): number {
   return payout;
 }
 
-export function RepDashboard() {
+// HF-343: `entityId` is supplied by the /perform page from useAuthScope (the AUTHENTICATED own
+// entity), not read from the cosmetic persona context — so the Rep surface can never be pointed at a
+// peer by a persona-switch/fallback. Falls back to usePersona() only if no prop is passed.
+export function RepDashboard({ entityId: entityIdProp }: { entityId?: string | null } = {}) {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format } = useCurrency();
-  const { entityId } = usePersona();
+  const { entityId: personaEntityId } = usePersona();
+  const entityId = entityIdProp !== undefined ? entityIdProp : personaEntityId;
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const hasFinancial = useFeature('financial');
@@ -307,7 +310,10 @@ export function RepDashboard() {
 
   return (
     <div className="space-y-4">
-      <AgentInbox tenantId={currentTenant?.id} persona="rep" />
+      {/* HF-343 (§3.2): the AgentInbox feed (/api/platform/agent-inbox) is tenant-wide and carries NO
+          entity column — it cannot be scoped to the member's own entity, so it is NOT rendered on the
+          member surface (hide rather than leak, §3.5). The member's own intelligence is the InsightPanel
+          (computeRepInsights over own data) + AssessmentPanel + NextAction below, all own-scoped. */}
       {nextActionContext ? <NextAction context={nextActionContext} /> : null}
       <AssessmentPanel
         persona="rep"

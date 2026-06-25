@@ -40,10 +40,10 @@ import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { useAuth } from '@/contexts/auth-context'; // OB-226 C: manager-scoped drill-through resolution
 import {
-  resolveEntityScope,
+  resolveAuthenticatedScope,
   getPeriodsWithResults,
   type EntityScope,
-} from '@/lib/drill-through'; // OB-226 C
+} from '@/lib/drill-through'; // OB-226 C → HF-343: fail-CLOSED manager scope
 import { DrillThroughPanel } from '@/components/drill-through'; // OB-226 C
 
 const HERO_STYLE = {
@@ -134,11 +134,11 @@ export function ManagerDashboard() {
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // OB-226 C: when the persona scope yields no team (manager with no profile_scope row —
-  // the BCL/MIR case, where persona-context fails CLOSED to entityIds:[]), resolve the
-  // OB-224 drill-through scope from the profile. For BCL/MIR this resolves to scopeType
-  // 'all' (profile_scope is empty), so the real entity leaderboard renders via
-  // DrillThroughPanel. Genuinely empty → honest "no team assignments" empty state below.
+  // HF-343 (§3.1/§3.2 — supersedes OB-226 C fail-open): resolve the team drill-through scope from the
+  // AUTHENTICATED role via resolveAuthenticatedScope('manager', …). The old resolveEntityScope(user.id)
+  // FAILED OPEN — a manager with no profile_scope row got scopeType 'all' and the DrillThroughPanel
+  // rendered the WHOLE tenant. resolveAuthenticatedScope fails CLOSED: profile_scope team set, else the
+  // manager's own entity, else DENY → DrillThroughPanel shows team/own/empty, NEVER the tenant.
   const [teamScope, setTeamScope] = useState<EntityScope | null>(null);
   const [drillPeriodId, setDrillPeriodId] = useState<string | undefined>(undefined);
 
@@ -148,14 +148,14 @@ export function ManagerDashboard() {
     (async () => {
       try {
         const [resolved, periods] = await Promise.all([
-          resolveEntityScope(user?.id),
+          resolveAuthenticatedScope('manager', user?.id, tenantId),
           getPeriodsWithResults(tenantId),
         ]);
         if (cancelled) return;
         setTeamScope(resolved);
         setDrillPeriodId(periods[0]?.id);
       } catch {
-        // resolveEntityScope already fails to ALL_SCOPE; swallow and let the empty state handle it
+        // on error, leave teamScope null → the empty "no team assignments" state renders (fail closed)
       }
     })();
     return () => { cancelled = true; };
