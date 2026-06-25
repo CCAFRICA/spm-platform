@@ -358,7 +358,9 @@ export async function commitContentUnit(
   // Decision 108 — HC role @ >= 0.80 overrides structural binding.
   // HF-233 — Classification-aware resolution: transaction reads reference_key,
   // entity/target reads identifier, reference is null.
-  let entityIdField = resolveEntityIdField(
+  // HF-341 R3: const — the entity-id is the recognized identifies-scope column, never reassigned by a
+  // cardinality override (deleted). The structural existence check below verifies it, not overrides it.
+  const entityIdField = resolveEntityIdField(
     unit.confirmedBindings,
     unit.classificationTrace,
     classification,

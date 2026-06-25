@@ -323,3 +323,109 @@ already evaluates string eq, OB-220), so **no engine edit** (C6). No `categorica
 **HALT outcomes (R2):** HALT-CALC — not triggered (no engine evaluator edit; categorical dimension
 constructs into existing `compare(eq)`/`conditional` primes). HALT-REGISTRY — not triggered (no
 key-type enum, no shape-name addition). PG-R1 live (Plan 1 imports; `ruleSets=5`) = architect SR-44.
+
+---
+
+## §R3 — Construction-vocabulary eradication (LLM expresses, engine reads)
+
+R1/R2 each *opened* the intent-construction vocabulary (added `multiply`, then `keys`) rather than
+removing it. R3 **eradicates the vocabulary layer entirely**: the LLM emits the `calculationIntent`
+PrimeNode DAG — the engine's universal computation algebra — **directly**; construction becomes
+**structural verification** (`validatePrimeTree`), not shape-matching; the engine evaluates. The R1/R2
+shape extensions are unwound (they were registry growth). **Safe-by-default:** the change is
+import-path-only — no persisted plan, no rule_set, and no evaluator (`intent-executor.ts`) is touched →
+existing BCL/MIR calc is byte-identical until a re-import (the architect's SR-44 / HALT-CALC gate).
+
+### Eradication inventory (V1–V9)
+
+| V | Registry | Disposition |
+|---|----------|-------------|
+| V1 | shape vocabulary `{arithmetic, banded_lookup, conditional, composed}` + `constructTree` switch | **DELETED** — `intent-constructor.ts` (873 lines) + `compositional-intent.ts` shape types (437) removed; the LLM emits PrimeNode DAGs; `plan-orchestration` routes them through `validateComponentIntent`. |
+| V2 | composition mode `{add, multiply}` (`ComposedDescription.composition`) | **DELETED** — multiplicative stacking is `arithmetic(multiply, …)` in the DAG; no mode field. |
+| V3 | reduction whitelist `validReductions` + `'sum'` default | **DELETED** — `ReductionKind`→open string; op carried verbatim; consumer fails loud (C2) on an unexecutable op (every live op byte-identical). |
+| V4 | dimension key type `{breaks XOR keys}` | **DELETED** with the shape layer — a category select is a `conditional(compare(eq,…))` cascade; a numeric tier is a half-open `gte` cascade. |
+| V5 | condition operand type `{numeric, categorical}` | **DELETED** with the shape layer — `compare` already evaluates numeric and string operands (OB-220). |
+| V6 | modifier-shape enum `{cap, floor, …}` | Opened to `string` in R1; PG-11 grep clean. A modifier is `arithmetic`/`conditional` in the DAG. |
+| V7 | component fold `c0+…+cN` | Not reintroduced; multiplicative composition lives in the DAG (R2 ADR-2 within-component; engine fold untouched). |
+| V8 | entity-id lowest-cardinality heuristic (`commit-content-unit.ts`) | **DELETED** — entity-id is the LLM `identifies`-scope column (`findHcEntityIdColumn`), verified structurally (column exists in rows); no cardinality override. |
+| V9 | shape-specific TS types | **DELETED** with `compositional-intent.ts`. |
+
+### PG evidence (CC in-PR — PG-8..14, PG-19)
+
+```
+PG-8  (no shape vocabulary): git grep StructuralDescription|*Description union|IntentShape|constructTree
+        → zero non-comment hits; intent-constructor.ts + compositional-intent.ts DELETED.
+PG-9  (no reduction whitelist): git grep validReductions → zero (only the explanatory comment).
+PG-10 (no key-type constraint): git grep dimBandCount|BandedLookupDimension|"breaks XOR keys" → zero.
+PG-11 (no modifier-shape enum): git grep "modifier: 'cap' |" intent-types.ts → zero (open string).
+PG-12 (no composition-mode enum): git grep "composition: 'sum'"|ComposedDescription → zero.
+PG-13 (no entity-id heuristic): git grep distinctRatio|entityScopeAlt|fallbackAlt → zero.
+PG-14 (structural verification only): validatePrimeTree — audit below.
+PG-19: tsc --noEmit 0 · next lint 0 errors · next build clean (210/210) · npm test 282/282
+        (incl. 12 R3 tests: the engine evaluates the eradicated-form DAGs AND the verifier rejects
+         drift — terminal_completeness / decision_127 / HF-279 — critical).
+```
+
+### PG-14 — Validation Premise audit of every surviving construction check (`validatePrimeTree`)
+
+Each check passes the acceptance test (*can a developer make it more complete by editing a list?* → No):
+- **unknown_prime** — the node's `prime` is in the engine's algebra (referential resolution against the
+  evaluator's vocabulary). Structural. The 9-prime set is the universal alphabet (Decision 24/155), not a
+  domain taxonomy — it composes, it does not enumerate plan shapes.
+- **op_unknown** — the `op` is in its prime's operator set (arithmetic `+−×÷`, compare `gt/…/eq`, aggregate
+  `sum/…/max`). The algebra's operators, mirroring the evaluator. Structural.
+- **arity** / **child_topology** — input count and required child slots match the prime's shape (operation
+  arity / well-formedness). Structural.
+- **decision_127** (critical) — band-selection uses gte+lt (half-open). The tier-resolution correctness
+  invariant; gte/lt is the algebra of half-open intervals. Structural.
+- **scale_annotation + HF-279** (critical) — a scale carrier is well-formed (self-description sufficiency),
+  and a ratio-source band carries no scale (node-topology coherence: divide + scaled-constant). Structural.
+- **terminal_completeness** (critical) — every conditional else-chain terminates in a constant (the
+  conditional is total; no undefined fallback). Structural (conservation).
+- **exhaustive_emission** (critical) — leaf count ≥ the declared rate-table cell count (the tree carries
+  every declared cell; no silent truncation). Structural (conservation).
+
+No check enumerates a domain set a developer extends. The verifier verifies structure; it does not match shapes.
+
+### The MIR Plan 1 DAG (the actual PrimeNode the engine evaluates — no shape name)
+
+```
+arithmetic(multiply,
+  reference(Monto_Total),
+  arithmetic(multiply,
+    conditional(compare(eq, reference(Categoria), constant("ALI")), constant(0.025),
+      conditional(compare(eq, reference(Categoria), constant("BEB")), constant(0.020),
+        conditional(compare(eq, reference(Categoria), constant("LIM")), constant(0.030),
+          conditional(compare(eq, reference(Categoria), constant("CPE")), constant(0.035),
+            constant(0))))),
+    conditional(compare(gte, reference(monto_acum), constant(150000)), constant(1.25), constant(1))))
+```
+Amount × category-rate × accelerator — a category select is a conditional cascade (not a "banded_lookup"),
+a multiplicative stack is nested arithmetic (not a "composed:multiply" mode). Verified by synthetic test:
+`10000 × 0.030 (LIM) × 1.25 (≥150K) = 375`; below threshold `× 1.00 = 300`; zero base `= 0`.
+
+### Safety net (shipped FIRST, R3-1) + BCL byte-identical
+
+`constructTree`'s three by-construction guarantees — Decision-127 half-open, HF-279 single-site/ratio-band
+scale, terminal completeness — were elevated warning→**critical** in `validatePrimeTree` BEFORE the prompt
+pivot, so a directly-emitted DAG that would drift is **rejected loudly at import** (C2), never silently
+persisted (proven by the 3 drift-rejection tests). **BCL byte-identical:** R3 touches no persisted
+rule_set and no evaluator (`intent-executor.ts` unchanged across R3); `resolveColumnFromBatch` is
+byte-identical for `sum` (BCL's op). Existing calc is unchanged by construction; the architect re-imports
+BCL + MIR under the new prompt and confirms $312,033 / Plan 2 = 210,000 (PG-1..7) before merge.
+
+### HALT outcomes (R3)
+- **HALT-CALC** — not triggered by construction (import-path-only; evaluator + persisted plans untouched).
+  Architect confirms BCL/Plan-2 on re-import.
+- **HALT-ENGINE** — not triggered; the evaluator already evaluates every well-formed DAG the verifier passes
+  (no evaluator extension needed — the eradicated-form DAGs use only existing primes).
+- **HALT-COLLISION / HALT-API** — none.
+
+### Residuals (R3 §6A)
+1. **Plan 5 magnitude** — a cross-period clawback concern independent of vocabulary; if it persists after
+   re-import it is a convergence/cross-period-reference defect, reported separately (the magnitude guard is
+   not a vocabulary concern). 2. **Robles engine arc** — distribution evaluator / tope / streak / reversal,
+   downstream. 3. **Progressive Performance** — the plan-interpretation caches key on file bytes / component
+   id, NOT shape names (verified), so eradication does not break them; `construction_method='prime_dag'` is
+   set as the provenance marker. A cross-plan DAG-topology fingerprint (none exists today) would key on the
+   prime-discriminator multiset / arity / depth — net-new, out of R3 scope.
