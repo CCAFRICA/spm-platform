@@ -19,11 +19,16 @@
  *      (half-open). lte upper bounds are flagged as violations.
  *   5. Terminal completeness — else chains terminate in an explicit constant.
  *
- * Critical violations (unknown_prime, arity, op_unknown, child_topology) make
- * the result invalid; the caller (ai-plan-interpreter) throws so the component
- * cannot proceed. Warnings (scale_annotation, exhaustive_emission, decision_127,
- * terminal_completeness) are logged but do not block — the convergence layer's
- * deterministic fallbacks handle the missing-metadata cases.
+ * Critical violations make the result invalid; the caller (ai-plan-interpreter /
+ * plan-orchestration) throws so the component cannot proceed.
+ *
+ * HF-341 R3: with the CompositionalIntent shape layer + intent-constructor eradicated, the LLM emits
+ * the PrimeNode DAG directly and this verifier IS the construction layer. The three guarantees that
+ * constructTree previously provided BY CONSTRUCTION — Decision-127 half-open band edges, single-site /
+ * coherent scale placement (incl. the HF-279 ratio-band rule), and terminal completeness — are now
+ * ELEVATED to CRITICAL: a directly-emitted DAG that violates any of them is rejected loudly at import
+ * (C2), never silently persisted. exhaustive_emission stays critical (HF-244). Only structurally-benign
+ * notes (if any) remain warnings.
  */
 
 import { validatePrimeTree } from './prime-grammar';
