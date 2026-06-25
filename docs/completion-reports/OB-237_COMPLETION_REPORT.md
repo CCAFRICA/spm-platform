@@ -1,5 +1,41 @@
 # OB-237 — Materialized Serving Path (MSP) — COMPLETION REPORT
 
+## §ROLLUP — WRITE-TIME ROLLUP MATERIALIZATION (staff + patterns residual)
+
+**Zero residuals. Every aggregate visualization serves from a pre-computed materialization at its display grain. Zero JS reduces over multi-thousand-row fetches remain.**
+
+The T-PROOF residual: staff/patterns were MSP-compliant but read all 88,459 `summary_artifacts_fine` rows and JS-reduced them (~19s). Same disease, finer grain. Fixed by adding a **third materialization tier** — pre-aggregated at each surface's display grain — derived from the fine table at materialization time.
+
+### Design (how stored / how triggered / row counts)
+`web/scripts/ob237-populate-rollups-sabor.ts` reads `summary_artifacts_fine` (data_type=`pos_cheque`, deterministic `.order('id')`) and writes three new `data_type`s into the same table (no new table → no architect migration; idempotent delete+insert of only the rollup data_types, `pos_cheque` untouched). It replicates the surfaces' exact rules (excl-cancelled = unconditional − cancelled conditional metrics; per-row skip; `weekIndex`; `dowFromDate`):
+
+| Tier | data_type | Grain | Rows (Sabor) | metrics |
+|---|---|---|---|---|
+| Staff | `staff_rollup` | (entity_id=location, sub_entity_id=mesero) | **40** | revenue, checks, tips, week0–week3 (excl-cancelled) |
+| Patterns | `patterns_rollup` | (entity_id, sub_entity_id=day_of_week) | **140** | hours{h:{r,c}}, revenue, checks, tips, guests, num_days, service_* |
+| Patterns meta | `patterns_meta` | (tenant) | **1** | dow_days{0–6}, total_days — GLOBAL distinct-day union (not summable per-entity) |
+
+The grain keeps `entity_id` (location) so `scopeEntityIds` (staff) and `locationFilter` (patterns) still filter at read time. `getRollupRows()` reads the small filtered set; the surfaces' ranking / heatmap / dayTotals logic is byte-identical, only the data source changed.
+
+### PG-STAFF-ROLLUP / PG-PATTERNS-ROLLUP — truth-match
+- staff_rollup: 40 rows, Σrevenue = **$99,555,426.88** = excl-cancelled truth ✓
+- patterns_rollup: 140 rows, Σheatmap-revenue = **$99,555,426.88** ✓; patterns_meta dow_days={0..6:18}, total_days=126.
+
+### PG-STAFF-TIMING / PG-PATTERNS-TIMING (final two empirical rows)
+| Mode | Before (88K JS reduce) | After (rollup) | Speedup | Σ value-match |
+|---|---|---|---|---|
+| staff | 19,850 ms | **628 ms** | **32×** | $99,555,426.88 ✓ |
+| patterns | 19,266 ms | **475 ms** | **41×** | $99,555,426.88 ✓ (peakHour 23 / peakDay Thu / avgSvc 72.43 / avgDailyRev $790,122.44) |
+
+Both now under 3 s (target met). The 88K-row fetch + JS reduce is deleted for both (AP-17, single rollup path).
+
+### PG-REGRESS — no regression
+network_pulse `netRevenue` = **$100,068,158.15** / checksServed 263,250 (unchanged); timeline(month) Σ = **$100,068,158.15** (unchanged). The other 8 modes untouched (only the two `*FromFine` readers changed). PG-BUILD: `npm run build` exit 0.
+
+**Commit:** `6a536600` — OB-237 RESIDUAL: write-time rollups for staff + patterns.
+
+---
+
 ## §T-PROOF — FINAL INTEGRATION PROOF (all visualizations, all agents)
 
 **Zero residuals. Every aggregate visualization serves from a materialization. `fetchRawDataServer` deleted. Zero raw aggregate paths remain platform-wide.**
