@@ -118,7 +118,14 @@ interface DataCapability {
 // (convergence-bindings.ts) and the resolver, which already implement count. Purely additive — no
 // existing tenant relied on count being silently defaulted to 'sum' (that would be wrong today). The
 // full structural {aggregation:{op}} binding migration (directive §5.1) is deferred (§6A residual).
-export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count' | 'count';
+// HF-341 R3 (V3 eradication): the reduction is an OPEN-VOCABULARY operation string — the aggregation
+// the LLM expressed for collapsing an entity's rows to one value. The prior closed union + the
+// `validReductions` runtime whitelist (which defaulted any unrecognized op to 'sum' — a silent wrong
+// answer) are gone (Validation Premise Law: a set a developer extends by editing). The op is carried
+// VERBATIM and validated STRUCTURALLY at the consumer (resolveColumnFromBatch) — it executes the op or
+// FAILS LOUD (C2) on one it cannot, never silently sums. The engine's aggregate ops {sum,count,avg,min,max}
+// remain the executable algebra; snapshot/last/first/distinct_count/count are convergence collapse ops.
+export type ReductionKind = string;
 
 export interface ComponentBinding {
   column: string;
@@ -1954,8 +1961,11 @@ Infer it from the column's structural type + contextual identity (an "...balance
               value: f.value as string | number | boolean,
             }))
         : [];
-      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count', 'count']; // OB-225: align with ReductionKind + resolver
-      const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
+      // HF-341 R3 (V3): carry the LLM's reduction op VERBATIM (open-vocabulary) — no membership
+      // whitelist. 'sum' is the default only when the op is ABSENT (a genuinely numeric flow); an
+      // unrecognized op is NOT coerced to 'sum' here — it flows to the consumer, which executes it or
+      // fails loud (C2).
+      const reduction: ReductionKind = (typeof obj.reduction === 'string' && obj.reduction.trim() !== '') ? obj.reduction : 'sum';
       // HF-341 (D2b): per-sub-entity grouping key for a snapshot/last/first reduction (e.g. client id
       // for "last Saldo_Pendiente per client per month"). Free-form column name from the LLM; the
       // resolver validates it exists at calc time (no column-name registry).

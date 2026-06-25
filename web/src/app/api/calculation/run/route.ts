@@ -1843,8 +1843,18 @@ export async function POST(request: NextRequest) {
         case 'min': result = Math.min(...nums); break;
         case 'average': result = nums.reduce((a, b) => a + b, 0) / nums.length; break;
         case 'distinct_count': result = new Set(nums).size; break;
-        case 'sum':
-        default: result = nums.reduce((a, b) => a + b, 0); break;
+        case 'sum': result = nums.reduce((a, b) => a + b, 0); break;
+        default:
+          // HF-341 R3 (V3 / C2): the reduction op is carried VERBATIM from recognition (no whitelist).
+          // An op that no case here can execute is a structural failure — fail LOUD rather than silently
+          // summing it (the prior `default: sum` silently mis-reduced an unrecognized op). Live tenants
+          // use known ops (sum/snapshot/last/first/max/min/average/distinct_count/count) → byte-identical;
+          // only a genuinely-unrecognized op throws.
+          throw new Error(
+            `[resolveColumnFromBatch] unexecutable reduction op "${reduction}" for column "${column}" ` +
+            `(entity ${entityExternalId}). Known ops: sum, count, snapshot, last, first, max, min, average, ` +
+            `distinct_count. The op was carried verbatim from recognition; emit one the engine can execute.`,
+          );
       }
     }
 

@@ -364,72 +364,20 @@ export async function commitContentUnit(
     classification,
   );
 
-  // OB-231 §5.2: structural sanity signal (NOT a gate). The LLM's entity-scope assessment is
-  // authoritative (Decision 158); but an entity identifier should REPEAT across rows (e.g. ~30
-  // sellers across thousands of transactions). If the resolved column is ~1:1 distinct-to-row
-  // (the per-row-transaction-id shape the MIR Folio bug produced), log a warning and proceed —
-  // the semantic assessment still wins, this only surfaces a possible mis-characterization.
+  // HF-341 R3 (V8 eradication): the entity-id is the column the LLM scoped as the entity identity
+  // (resolveEntityIdField → findHcEntityIdColumn reads the free-form `identifies` channel; a
+  // transaction/event id is already rejected by TXN_SCOPE). The prior OB-231/HF-333 CARDINALITY
+  // HEURISTIC — a developer rule (lowest-cardinality repeating identifier) that OVERRODE the recognized
+  // answer — is DELETED (Validation Premise Law: a heuristic standing in front of recognition's output;
+  // it can be made "more complete" by editing the ratio threshold → it is a registry of expectation).
+  // Construction VERIFIES STRUCTURALLY instead: the resolved column must EXIST in the rows. A column
+  // recognition named that the data does not carry is surfaced loudly (C2); recognition is trusted,
+  // never overridden by cardinality (Decision 158).
   if (entityIdField && rows.length >= 20) {
-    const hcInterp = (unit.classificationTrace?.headerComprehension as
-      | { interpretations?: Record<string, { identifies?: string; data_nature?: string; characterization?: string }> }
-      | undefined)?.interpretations;
-    // HF-341 (D3b/D4a): the resolved column is correctly the ENTITY when the LLM scoped it ENTITY
-    // (`identifies`), even if it is ~1:1 — on a roster/population sheet (classification 'entity') every
-    // row IS a distinct entity, so a 1:1 id is EXPECTED, not transaction-shaped. The prior trigger
-    // fired on the 1:1 Nómina roster and substituted "Estado" (a 2-value status) for "DNI" → "Activo"
-    // harvested as an entity (D4a). Gate the override OUT when the sheet IS the population or the
-    // resolved column already carries an ENTITY_SCOPE identifies (trust the LLM's entity-scope
-    // recognition over the cardinality heuristic — Decision 158).
-    const resolvedScope = `${hcInterp?.[entityIdField]?.identifies ?? ''}`;
-    const resolvedIsEntityScope = ENTITY_SCOPE.test(resolvedScope) && !TXN_SCOPE.test(resolvedScope);
-    const skipOverride = classification === 'entity' || resolvedIsEntityScope;
-
-    const seen = new Set<unknown>();
-    for (const r of rows) if (entityIdField in (r as Record<string, unknown>)) seen.add((r as Record<string, unknown>)[entityIdField]);
-    if (!skipOverride && seen.size > 0) {
-      const distinctRatio = seen.size / rows.length;
-      if (distinctRatio > 0.95) {
-        // HF-341 (D3b): the resolved id is ~1:1 (transaction-shaped — the MIR Folio bug). Prefer
-        // another identifier, but honor the LLM `identifies` SCOPE (the channel findHcEntityIdColumn
-        // trusts), NOT raw cardinality. The entity is the column the LLM scoped ENTITY (the paid
-        // population — e.g. DNI_Vendedor, 30 sellers), never a most-repeating DIMENSION (Almacen, a
-        // warehouse) or a status (Estado). Among entity-scope identifiers prefer the HIGHEST-cardinality
-        // repeating one (the population); reject TXN_SCOPE; only if NO entity-scope candidate exists
-        // fall back to the prior lowest-ratio repeating identifier. Korean Test: candidates come from
-        // the LLM's free-form identifies/data_nature, matched structurally, never a field-name list.
-        let entityScopeAlt: { col: string; distinct: number } | null = null;
-        let fallbackAlt: { col: string; ratio: number } | null = null;
-        if (hcInterp) {
-          for (const [col, interp] of Object.entries(hcInterp)) {
-            if (col === entityIdField) continue;
-            const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-            if (!IDENTIFIER_NATURE.test(natureText)) continue;
-            const scope = `${interp.identifies ?? ''}`;
-            if (TXN_SCOPE.test(scope)) continue;  // a transaction/event id is never the entity key
-            const s = new Set<unknown>();
-            for (const r of rows) if (col in (r as Record<string, unknown>)) s.add((r as Record<string, unknown>)[col]);
-            if (s.size === 0) continue;
-            const ratio = s.size / rows.length;
-            if (ratio >= 0.95) continue;  // also ~1:1 → transaction-shaped, never the entity
-            if (ENTITY_SCOPE.test(scope)) {
-              if (!entityScopeAlt || s.size > entityScopeAlt.distinct) entityScopeAlt = { col, distinct: s.size };
-            } else if (ratio < 0.5 && (!fallbackAlt || ratio < fallbackAlt.ratio)) {
-              fallbackAlt = { col, ratio };
-            }
-          }
-        }
-        const chosen = entityScopeAlt
-          ? { col: entityScopeAlt.col, why: `entity-scope identifier, ${entityScopeAlt.distinct} distinct (the paid population)` }
-          : fallbackAlt
-            ? { col: fallbackAlt.col, why: `repeating identifier, ${Math.round(fallbackAlt.ratio * 100)}% distinct (no entity-scope candidate)` }
-            : null;
-        if (chosen) {
-          console.warn(`[HF-333][entity-id] resolved "${entityIdField}" is ~1:1 (${seen.size}/${rows.length}) on "${tabName}"; preferring "${chosen.col}" (${chosen.why}) — HF-341 honors the LLM identifies-scope (Decision 158: LLM recognizes, construction verifies).`);
-          entityIdField = chosen.col;
-        } else {
-          console.warn(`[OB-231][entity-id-sanity] resolved entity_id_field="${entityIdField}" is ~1:1 across rows (${seen.size}/${rows.length} distinct) on "${tabName}" — looks per-row (transaction-shaped), not a repeating entity. No entity-scope/repeating identifier alternative found; proceeding on the LLM's semantic assessment (Decision 158); flag for review if numbers look mis-attributed.`);
-        }
-      }
+    let presentCount = 0;
+    for (const r of rows) if (entityIdField in (r as Record<string, unknown>)) presentCount += 1;
+    if (presentCount === 0) {
+      console.warn(`[entity-id] resolved entity_id_field="${entityIdField}" on "${tabName}" is absent from all ${rows.length} rows — recognition named a column the data does not carry; flag for review (no cardinality override; Decision 158).`);
     }
   }
 
