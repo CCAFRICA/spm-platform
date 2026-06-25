@@ -64,6 +64,24 @@ export type ReferenceSource =
         operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
         value: string | number;
       };
+    }
+  // HF-341 (RA-2): reference-table read — look up a value from a reference data_type keyed by a
+  // column, as a FIRST-CLASS operation alongside aggregate(column, op). This is the Robles
+  // factor-model primitive (participant_rate = ref(base_table, recipient) × ref(product_factor,
+  // category) × …): a value resolved from a dimensional table by a key, NOT an aggregation over the
+  // entity's own rows. The constructor realizes the resolvable (static-key) form as
+  // filter(key_column == keyValue){ aggregate(value_column, op) } over the joined reference rows
+  // (HF-329 reference-join merges reference rows into the entity's activeRows at calc time); a fully
+  // dynamic key (resolved from another reference at calc time) is the Robles engine arc and fails
+  // loud at construction rather than constructing a wrong tree (C2). MIR exercises no reference read.
+  // Korean Test: data_type is the LLM's free-form classification surface; no table-name registry.
+  | {
+      type: 'reference_lookup';
+      data_type: string;        // the reference sheet's free-form data_type classification
+      key_column: string;       // the reference-table column matched against the key value
+      key_source: ReferenceSource;  // resolves the key value (e.g. an entity attribute/metric)
+      value_column: string;     // the reference-table column whose value is returned
+      op?: 'sum' | 'avg' | 'min' | 'max' | 'first';  // collapse when multiple ref rows match (default first)
     };
 
 // ─────────────────────────────────────────────
@@ -126,19 +144,35 @@ export interface ConditionalDescription {
   condition: {
     reference: ReferenceSource;
     operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
-    threshold: number;
+    // HF-341 (RA-4): the comparison RHS is operand-typed so a gate can express BOTH a numeric
+    // threshold (the common eligibility gate: collection_rate > 0.70) AND a categorical attribute
+    // match (channel == "wholesale", product_line == "<machine_line>"). Resolution precedence in
+    // constructConditional: rightReference > value > threshold. Open-vocabulary — the category VALUE
+    // is a free-form string with NO enumerated set; the operator set {gt,gte,lt,lte,eq,neq} is the
+    // structural compare alphabet (peer of arithmetic +−×÷), not a domain taxonomy. The engine's
+    // `compare` prime already evaluates string eq/neq (OB-220), so no engine change is needed.
+    threshold?: number;                  // numeric gate (byte-identical construction via buildConstantWithScale)
+    value?: string | number | boolean;   // RA-4: categorical/numeric operand value (string → categorical compare)
+    rightReference?: ReferenceSource;     // RA-4: reference-vs-reference comparison
   };
   then: StructuralDescription | OperandDescription;
   else: StructuralDescription | OperandDescription;
 }
 
 // ─────────────────────────────────────────────
-// ComposedDescription — composition wrapper (sum/max/min/first_match of children)
+// ComposedDescription — composition wrapper (sum/multiply/max/min/first_match of children)
 // ─────────────────────────────────────────────
+//
+// HF-341 (RA-1): `multiply` makes an N-factor multiplicative CHAIN declarable in the DAG —
+// total = c0 × c1 × … × cn — NOT a two-component special case. This is the Robles factor-model
+// shape (participant_rate = ref(base) × ref(product_factor) × ref(channel_factor)). The constructor
+// folds N children with the existing reduceArithmetic(children, 'multiply'); the engine already
+// evaluates arithmetic-multiply within a component. `multiply` is reused from the engine's
+// arithmetic alphabet — no new composition-mode registry, no component-type→mode map (Korean Test).
 
 export interface ComposedDescription {
   shape: 'composed';
-  composition: 'sum' | 'max' | 'min' | 'first_match';
+  composition: 'sum' | 'multiply' | 'max' | 'min' | 'first_match';
   children: StructuralDescription[];
 }
 
@@ -228,6 +262,15 @@ export interface CompositionalIntent {
   structure: StructuralDescription;
   scale: ScaleSpec | null;
   output_precision: number;
+  /**
+   * HF-341 (RA-5 / Validation Premise Law): open-vocabulary post-base modifier shapes
+   * (cap / floor / tope / streak / devolución / …) declared for the live prime_dag path. `kind` is a
+   * FREE-FORM string, never a closed enum — Robles introduces modifier shapes beyond cap/floor that
+   * must be expressible in the contract before the engine supports them (the modifier engine is the
+   * §6A Robles arc). The constructor wraps the base DAG per declared modifier; an unknown kind with
+   * no structural basis fails loud (C2). No modifier-name→behavior map (Korean Test).
+   */
+  modifiers?: Array<{ kind: string; params?: Record<string, unknown> }>;
   metadata?: Record<string, unknown>;
 }
 

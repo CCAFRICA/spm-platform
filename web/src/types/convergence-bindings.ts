@@ -27,6 +27,13 @@ export interface ConvergenceBindingEntry {
   // OB-222: 'count' counts the rows passing the binding's filters (qualifying-row count; the column
   // value is irrelevant). Distinct from 'distinct_count' (distinct numeric values of the column).
   reduction?: 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count' | 'count';
+  // HF-341 (D2b): per-key grouping for a snapshot/last/first reduction. When present, the resolver
+  // groups the entity's rows by `key_column` (e.g. a client id), selects one value per group by a
+  // DETERMINISTIC order, then SUMS across groups — i.e. Σ of per-client month-end balances for
+  // `Saldo_Pendiente = last record per client per month`. Absent ⇒ the existing single-value
+  // snapshot/last path is byte-identical. The reduction stays the engine's aggregation alphabet; the
+  // key is a structural grouping column (no column-name registry).
+  key_column?: string;
   // OB-220: wide-format temporal binding — periodKey ("YYYY-MM") → source column (e.g. MIR Cuotas:
   // {"2025-01":"Enero_2025",...}). When present, the engine resolves the column for the current calc
   // period instead of `column` (which may be "" for a pure temporal binding).
@@ -58,4 +65,16 @@ export interface ConvergenceBindingEntry {
     operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains';
     value: string | number | boolean;
   }>;
+  // HF-341 (RA-3 / PG-13): the structural HOME for a distribution fan-out fragment — a representation
+  // of "one source row fans out to N resolved recipients, each with its own derivation" that COEXISTS
+  // with the per-entity scalar fields above (HF-234: both coexist). All fields are free-form/optional,
+  // so adding this home neither alters single-entity resolution nor enforces a per-entity-only shape.
+  // The Robles distribution evaluator that CONSUMES this is the §6A arc; HF-341 only declares the home
+  // so a distribution contract has somewhere to live (no fan-out is built here). Korean Test: no
+  // closed recipient-kind set; `recipients_source` / `per_recipient` are open structural descriptions.
+  distribution?: {
+    recipients_source: unknown;   // how the recipient set is resolved (e.g. an entity_relationships traversal)
+    per_recipient: unknown;       // the per-recipient derivation (a binding/reference description)
+    share_field?: string;         // optional per-recipient share/weight column
+  };
 }

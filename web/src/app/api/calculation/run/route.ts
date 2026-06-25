@@ -673,6 +673,12 @@ export async function POST(request: NextRequest) {
         .not('source_date', 'is', null)
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
+        // HF-341 (OB-237 determinism + D2b): a deterministic total order over the paginated .range()
+        // fetch — without it, pages can overlap/drop rows (the OB-237 $102.75M class). Order-invariant
+        // for `sum` (BCL/Meridian byte-identical, PG-8); it additionally makes the D2b key-grouped
+        // `last` = the latest source_date per client (month-end balance). id is the unique tiebreak.
+        .order('source_date', { ascending: true })
+        .order('id', { ascending: true })
         .range(from, to);
       q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
@@ -700,6 +706,9 @@ export async function POST(request: NextRequest) {
         .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
+        // HF-341 (OB-237 determinism): deterministic total order over paginated .range() (see source_date path).
+        .order('source_date', { ascending: true })
+        .order('id', { ascending: true })
         .range(from, to);
       q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
@@ -725,6 +734,8 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
+      // HF-341 (OB-237 determinism): id is the unique total-order key (source_date is null here).
+      .order('id', { ascending: true })
       .range(from, to);
     q = applyCommittedDataVisibility(q, hiddenBatchIds);
     const { data: page } = await q;
@@ -1140,17 +1151,14 @@ export async function POST(request: NextRequest) {
   for (const [empNum, uuidSet] of Array.from(employeeToEntityIds.entries())) {
     if (uuidSet.size <= 1) continue; // No siblings to merge
 
-    // Find the "primary" entity — the one with roster sheet (Datos Colaborador)
+    // Find the "primary" entity — the sibling carrying the population bucket.
+    // HF-341 (D4b): structurally, the rows the SCI layer classified data_type === 'entity'
+    // (recognize/guarantee), not a closed roster-keyword match (the removed Korean-Test registry).
     let primaryId: string | null = null;
     for (const uuid of Array.from(uuidSet)) {
       const sheets = dataByEntity.get(uuid);
-      if (sheets) {
-        for (const sheetName of Array.from(sheets.keys())) {
-          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
-            primaryId = uuid;
-            break;
-          }
-        }
+      if (sheets && sheets.has('entity')) {
+        primaryId = uuid;
       }
       if (primaryId) break;
     }
@@ -1196,10 +1204,16 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // OB-147: Enhanced roster identification — three-tier detection:
-  //   1. AI context: sheet classified as 'roster' or 'entity_data'
-  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
-  //   3. Keyword fallback: sheet name contains known roster terms
+  // HF-341 (D4b): STRUCTURAL roster detection. The prior Tier-3 keyword list
+  // (['datos colaborador','roster','employee','empleados']) is a closed developer value-set
+  // (Korean-Test violation) AND was DEAD: dataByEntity is keyed by row.data_type (route.ts:835),
+  // whose keys are the SCI classifications {entity,transaction,target,reference} — the keyword list
+  // could never match them, so "No roster detected — calculating all 35" fired even when a Nómina
+  // roster existed. It is REMOVED. A roster is recognized STRUCTURALLY: the SCI layer classifies the
+  // rows that ARE the entity population as data_type === 'entity' (recognize/guarantee, Decision 158),
+  // so the roster is exactly the set of entities carrying an 'entity'-classified bucket. The `__`
+  // parent-sheet heuristic is retained FIRST (byte-identical for any tenant already relying on it);
+  // the structural marker is the new fallback (replacing the dead keyword tier).
   const allSheetNames = new Set<string>();
   for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
@@ -1209,8 +1223,9 @@ export async function POST(request: NextRequest) {
 
   let rosterSheetName: string | null = null;
 
-  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
-  // start with its name + "__". This is the import convention for multi-tab files.
+  // Tier A (retained, runs first): Parent sheet heuristic — a sheet is a "parent" if other sheets
+  // start with its name + "__". This is the import convention for multi-tab files. Preserved verbatim
+  // so any tenant currently detecting its roster this way is byte-identical (PG-8 / HALT-CALC).
   if (!rosterSheetName && allSheetNames.size > 1) {
     for (const candidate of Array.from(allSheetNames)) {
       const prefix = candidate + '__';
@@ -1223,16 +1238,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Tier 3: Keyword fallback
-  if (!rosterSheetName) {
-    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
-    for (const sheetName of Array.from(allSheetNames)) {
-      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
-        rosterSheetName = sheetName;
-        addLog(`Roster detected via keyword match: "${rosterSheetName}"`);
-        break;
-      }
-    }
+  // Tier B (HF-341 structural, replaces the dead keyword tier): the population is the set of rows the
+  // SCI layer classified as data_type === 'entity'. No keyword list; data_type is the platform's
+  // structural classification surface, not a developer-maintained domain keyword set (Korean Test).
+  const ENTITY_DATA_TYPE = 'entity';
+  if (!rosterSheetName && allSheetNames.has(ENTITY_DATA_TYPE)) {
+    rosterSheetName = ENTITY_DATA_TYPE;
+    addLog(`Roster detected via structural marker: data_type='${ENTITY_DATA_TYPE}' (rows recognized as the entity population)`);
   }
 
   // Build roster entity set from the identified roster sheet
@@ -1490,6 +1502,8 @@ export async function POST(request: NextRequest) {
       isTemporalBinding(b) ? (tbPeriodKey ? (resolveTemporalColumn(b.columnMap, tbPeriodKey) ?? undefined) : undefined) : b?.column || undefined;
     const effRed = (b: ConvergenceBindingEntry | undefined): string | undefined =>
       isTemporalBinding(b) ? ((b as { reduction?: string }).reduction ?? 'snapshot') : b?.reduction;
+    // HF-341 (D2b): the per-sub-entity grouping key for a snapshot/last/first reduction (e.g. client id).
+    const effKey = (b: ConvergenceBindingEntry | undefined): string | undefined => b?.key_column;
 
     // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
     // through the roster-join index to produce the lookup key against the measure
@@ -1540,7 +1554,7 @@ export async function POST(request: NextRequest) {
         // per-entity skip on purpose (per-entity data absence, NOT a binding gap — DD-7).
         const fbCol = effCol(fieldBinding); // OB-220: temporal-aware column resolution
         if (!fbCol) continue;
-        const rawValue = resolveColumnFromBatch(fbCol, lookupKey, fieldBinding?.filters, effRed(fieldBinding));
+        const rawValue = resolveColumnFromBatch(fbCol, lookupKey, fieldBinding?.filters, effRed(fieldBinding), effKey(fieldBinding));
         if (rawValue === null) continue;
         const scaled = fieldBinding?.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
         dagMetrics[field] = scaled;
@@ -1595,8 +1609,8 @@ export async function POST(request: NextRequest) {
         : null;
 
       // HF-227: filters read from the binding entry, not from metric_derivations.
-      const rawNumValue = resolveColumnFromBatch(effCol(numBinding)!, lookupKey, numBinding!.filters, effRed(numBinding));
-      const rawDenValue = resolveColumnFromBatch(effCol(denBinding)!, lookupKey, denBinding!.filters, effRed(denBinding));
+      const rawNumValue = resolveColumnFromBatch(effCol(numBinding)!, lookupKey, numBinding!.filters, effRed(numBinding), effKey(numBinding));
+      const rawDenValue = resolveColumnFromBatch(effCol(denBinding)!, lookupKey, denBinding!.filters, effRed(denBinding), effKey(denBinding));
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1625,7 +1639,7 @@ export async function POST(request: NextRequest) {
     if (effCol(actualBinding)) {
       // HF-227: filters live on the binding entry (Decision 111 single-
       // structure completion; replaces HF-226's findMetricFilters bridge).
-      const rawActualValue = resolveColumnFromBatch(effCol(actualBinding)!, lookupKey, actualBinding!.filters, effRed(actualBinding));
+      const rawActualValue = resolveColumnFromBatch(effCol(actualBinding)!, lookupKey, actualBinding!.filters, effRed(actualBinding), effKey(actualBinding));
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1647,7 +1661,7 @@ export async function POST(request: NextRequest) {
       // HF-222 Phase 3: gate on column.
       if (effCol(targetBinding)) {
         // HF-227: filters read from the binding entry directly.
-        const rawTargetValue = resolveColumnFromBatch(effCol(targetBinding)!, lookupKey, targetBinding!.filters, effRed(targetBinding));
+        const rawTargetValue = resolveColumnFromBatch(effCol(targetBinding)!, lookupKey, targetBinding!.filters, effRed(targetBinding), effKey(targetBinding));
         let targetValue = rawTargetValue;
         if (targetBinding?.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
@@ -1694,6 +1708,7 @@ export async function POST(request: NextRequest) {
     entityExternalId: string,
     filters?: MetricDerivationRule['filters'],
     reduction: string = 'sum',  // OB-216 §2 (Phase 3'): binding-recognised reduction; default flow-sum
+    keyColumn?: string,  // HF-341 (D2b): per-sub-entity grouping key for snapshot/last/first (Σ of per-key values)
   ): number | null {
     // HF-302 (RC-2, DIAG-072): select the batch whose rows actually CARRY `column` (non-null) for this
     // entity — not merely the first batch with ANY rows. After RC-3 an entity can have rows in multiple
@@ -1785,6 +1800,42 @@ export async function POST(request: NextRequest) {
         bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=count | rowCount=${entityRows.length} | filteredOut=${filteredOut} | matched=${matched} | returned=${matched}`);
       }
       return matched;
+    }
+
+    // HF-341 (D2b): per-sub-entity key-grouped snapshot/last/first. When the binding carries a
+    // key_column (e.g. the client id), a snapshot/last/first reduction is taken ONCE PER SUB-ENTITY
+    // and the per-sub-entity values are SUMMED — i.e. Σ over clients of the last Saldo_Pendiente per
+    // client per month, NOT a raw sum over every collection-event row (which N× inflates the
+    // denominator). entityRows are in deterministic source_date order (the fetch .order), so 'last'
+    // is the month-end record per client; 'first' the earliest; 'snapshot' the same as 'last' (a
+    // stock invariant within the period). Absent key_column ⇒ the existing single-value path below is
+    // byte-identical. Korean Test: key_column is a structural grouping column, no name registry.
+    if (keyColumn && (reduction === 'snapshot' || reduction === 'last' || reduction === 'first')) {
+      const byKey = new Map<unknown, number>();
+      let groupedFilteredOut = 0;
+      for (const rd of entityRows) {
+        if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) { groupedFilteredOut += 1; continue; }
+        const v = rd[column];
+        let num: number | null = null;
+        if (typeof v === 'number') num = v;
+        else if (typeof v === 'string') { const p = parseFloat(v.replace(/[,$\s]/g, '')); if (!isNaN(p)) num = p; }
+        if (num === null) continue;
+        const k = rd[keyColumn];
+        if (reduction === 'first') { if (!byKey.has(k)) byKey.set(k, num); }
+        else { byKey.set(k, num); }  // snapshot/last → overwrite → last-in-order (month-end) wins
+      }
+      if (byKey.size === 0) {
+        if (shouldEmitTrace(entityExternalId)) {
+          bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=${reduction} | key_column=${keyColumn} | groups=0 | returned=null`);
+        }
+        return null;
+      }
+      let groupedSum = 0;
+      for (const val of Array.from(byKey.values())) groupedSum += val;
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=${reduction} | key_column=${keyColumn} | groups=${byKey.size} | filteredOut=${groupedFilteredOut} | Σ(per-key)=${groupedSum}`);
+      }
+      return groupedSum;
     }
 
     // OB-216 §2 (Phase 3'): apply the BINDING-RECOGNISED reduction over the entity's rows. Default

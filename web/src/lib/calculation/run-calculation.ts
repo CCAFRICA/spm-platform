@@ -1181,13 +1181,11 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     let primaryId: string | null = null;
     for (const uuid of Array.from(uuidSet)) {
       const sheets = dataByEntity.get(uuid);
-      if (sheets) {
-        for (const sheetName of Array.from(sheets.keys())) {
-          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
-            primaryId = uuid;
-            break;
-          }
-        }
+      // HF-341 (D4b): the consolidation primary is the sibling UUID carrying the population bucket —
+      // structurally, the rows the SCI layer classified data_type === 'entity' (recognize/guarantee),
+      // not a closed roster-keyword match (the removed Korean-Test registry).
+      if (sheets && sheets.has('entity')) {
+        primaryId = uuid;
       }
       if (primaryId) break;
     }
@@ -1220,10 +1218,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // OB-147: Enhanced roster identification — three-tier detection:
-  //   1. AI context: sheet classified as 'roster' or 'entity_data'
-  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
-  //   3. Keyword fallback: sheet name contains known roster terms
+  // HF-341 (D4b): STRUCTURAL roster detection — mirror of run/route.ts. The dead Tier-3 keyword list
+  // (a closed developer value-set, Korean-Test violation) is REMOVED; a roster is recognized as the
+  // rows the SCI layer classified data_type === 'entity' (the population — recognize/guarantee). The
+  // `__` parent-sheet heuristic is retained first (byte-identical for tenants relying on it).
   const allSheetNames = new Set<string>();
   for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
@@ -1233,8 +1231,8 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
 
   let rosterSheetName: string | null = null;
 
-  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
-  // start with its name + "__". This is the import convention for multi-tab files.
+  // Tier A (retained): Parent sheet heuristic — a sheet is a "parent" if other sheets start with its
+  // name + "__". The import convention for multi-tab files.
   if (!rosterSheetName && allSheetNames.size > 1) {
     for (const candidate of Array.from(allSheetNames)) {
       const prefix = candidate + '__';
@@ -1247,16 +1245,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
     }
   }
 
-  // Tier 3: Keyword fallback
-  if (!rosterSheetName) {
-    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
-    for (const sheetName of Array.from(allSheetNames)) {
-      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
-        rosterSheetName = sheetName;
-        console.log(`[RunCalculation] Roster detected via keyword match: "${rosterSheetName}"`);
-        break;
-      }
-    }
+  // Tier B (HF-341 structural, replaces the dead keyword tier): rows classified data_type === 'entity'.
+  if (!rosterSheetName && allSheetNames.has('entity')) {
+    rosterSheetName = 'entity';
+    console.log(`[RunCalculation] Roster detected via structural marker: data_type='entity' (rows recognized as the entity population)`);
   }
 
   // Build roster entity set from the identified roster sheet

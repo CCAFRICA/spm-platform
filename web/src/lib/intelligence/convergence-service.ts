@@ -131,6 +131,11 @@ export interface ComponentBinding {
   // LLM-recognized from the column's nature (contextualIdentity / value-shape) + the field's intent
   // role, deterministically applied by resolveColumnFromBatch. Absent ⇒ 'sum' (legacy flow behavior).
   reduction?: ReductionKind;
+  // HF-341 (D2b): per-sub-entity grouping key for a snapshot/last/first reduction (e.g. the client id
+  // for "last Saldo_Pendiente per client per period"). When present, resolveColumnFromBatch groups the
+  // entity's rows by this column, takes one value per group (deterministic order), then SUMS across
+  // groups. Absent ⇒ single-value snapshot/last (byte-identical). Mirrors ConvergenceBindingEntry.key_column.
+  key_column?: string;
   // OB-223 §1.3: wide-format temporal binding (periodKey "YYYY-MM" → source column). When present the
   // binding resolves the period's column at calc time (resolveTemporalColumn, route.ts) instead of a
   // single `column`. Produced when the LLM abstains and detectTemporalColumnMap finds a month-column set.
@@ -1813,7 +1818,7 @@ type LabeledCandidate = {
 // OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
 // confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
 type BindingProposal =
-  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind; columnMap?: Record<string, string> }
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind; columnMap?: Record<string, string>; key_column?: string }
   | { abstain: true; reason: string };
 
 // OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
@@ -1897,11 +1902,12 @@ ${candidateList}
 For each required field above, return {"column","sheet","confidence","reduction"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.
 
 "reduction" = HOW this column's MULTIPLE ROWS for one entity over the period collapse to ONE value for this field's role:
-- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction).
+- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction). A "sum" is only valid for a NUMERIC column.
+- "count": the COUNT of the rows that QUALIFY a condition — use this when the field's role is "HOW MANY" (e.g. number of NEW clients, number of VERIFIED sales). A CATEGORICAL / FLAG / yes-no column (type names it a "categorical"/"binary flag"/"status") is NEVER summed — its text sums to 0; if the plan counts the rows where the flag holds, return "reduction":"count" AND a "filters" entry naming that column and its AFFIRMATIVE value (e.g. {"field":"<flag column>","operator":"eq","value":"<the value that means yes, read from the data>"}).
 - "snapshot": a STOCK / balance / point-in-time value that is THE SAME on every row of the entity (a running balance, an assigned quota). Take it ONCE — NEVER sum it (summing multiplies it by the row count).
-- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period.
-- "last" / "first": the latest / earliest value. "distinct_count": the count of distinct values.
-Infer it from the column's contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when it is genuinely a flow.`;
+- "last" / "first": the latest / earliest value. For a STOCK that is per-SUB-ENTITY (e.g. an outstanding balance per CLIENT, where one seller owns many clients), return "reduction":"last" (or "snapshot") AND "key_column":"<the sub-entity id column, e.g. the client id>" so the value is taken ONCE per sub-entity (last record per client per period) and the per-sub-entity values are summed — never summed raw across all rows.
+- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period. "distinct_count": the count of distinct values.
+Infer it from the column's structural type + contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; a "categorical"/"flag" reads as a count-of-qualifying → "count"+filter; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when the column is genuinely a NUMERIC flow.`;
 
   try {
     const aiService = getAIService();
@@ -1950,7 +1956,11 @@ Infer it from the column's contextual identity (an "...balance"/"outstanding" re
         : [];
       const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count', 'count']; // OB-225: align with ReductionKind + resolver
       const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
-      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction };
+      // HF-341 (D2b): per-sub-entity grouping key for a snapshot/last/first reduction (e.g. client id
+      // for "last Saldo_Pendiente per client per month"). Free-form column name from the LLM; the
+      // resolver validates it exists at calc time (no column-name registry).
+      const key_column = typeof obj.key_column === 'string' && obj.key_column.trim() !== '' ? obj.key_column : undefined;
+      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction, key_column };
     }
     const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}/${v.reduction}`).join(', ');
     console.log(`[Convergence] OB-216 §2-S4 LLM binding proposals: {${summary}}`);
@@ -2957,6 +2967,32 @@ async function generateAllComponentBindings(
       // all batches by column name, so a column resolves from its own sheet's rows — and a component
       // whose fields bind on different sheets unions those sheets implicitly (§E batchIds union).
       const stats = sheetCap.columnStats[proposal.column];
+
+      // HF-341 (C2 fail-loud): a NUMERIC aggregation (sum/average/min/max) over a structurally
+      // NON-NUMERIC column silently yields 0/null — the D1 defect (Verificado "Sí"/"No" summed → 0).
+      // Detect it STRUCTURALLY: columnStats is populated ONLY for majority-numeric columns (nulls are
+      // filtered before the >50%-numeric test, so a numeric-with-nulls column still registers stats);
+      // its ABSENCE means the column's non-null values are majority non-numeric, so any value-arithmetic
+      // reduction is invalid. NO nature string is read → no nature→operation map. count / distinct_count
+      // / snapshot / last / first are value-type-agnostic and are NOT gated here. Surface a loud
+      // resolutionFailure (mirrors the abstain/absent gaps above) instead of a silent $0.
+      // BCL/Meridian flow columns are numeric → have columnStats → this never fires for them (PG-8).
+      const numericAgg = proposal.reduction === 'sum' || proposal.reduction === 'average'
+        || proposal.reduction === 'min' || proposal.reduction === 'max';
+      if (numericAgg && !stats) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: {
+            token: req.metricField,
+            reason: `numeric_reduction_'${proposal.reduction}'_on_nonnumeric_column:${proposal.column}`,
+            candidatesConsidered: labeledCandidates.length,
+          },
+        };
+        console.log(`[Convergence] HF-341 C2 ${comp.name}:${req.role} → ${proposal.column}: reduction='${proposal.reduction}' is a numeric aggregation but the column is structurally non-numeric (no numeric columnStats) → loud failure, not silent $0 (a categorical/flag must bind via 'count' + a filter, or 'snapshot'/'last')`);
+        continue;
+      }
+
       const scaleFactor = stats ? scoreColumnForRequirement(proposal.column, stats, req).scaleFactor : 1;
       bindings[compKey][req.role] = {
         column: proposal.column,
@@ -2965,10 +3001,11 @@ async function generateAllComponentBindings(
         confidence: proposal.confidence,
         scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
         reduction: proposal.reduction !== 'sum' ? proposal.reduction : undefined,
+        key_column: proposal.key_column,  // HF-341 (D2b): per-sub-entity grouping for snapshot/last/first
         filters: proposal.filters,
         learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
       };
-      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, conf=${proposal.confidence.toFixed(2)}, validated)`);
+      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, reduction=${proposal.reduction}${proposal.key_column ? `, key_column=${proposal.key_column}` : ''}, conf=${proposal.confidence.toFixed(2)}, validated)`);
     }
 
     // HF-218 Component 1 — Entity identifier self-verification.

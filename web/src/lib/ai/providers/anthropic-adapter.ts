@@ -527,14 +527,18 @@ CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
 
    {
      "shape": "conditional",
-     "condition": { "reference": <source>, "operator": "gt|gte|lt|lte|eq|neq", "threshold": <number> },
+     "condition": { "reference": <source>, "operator": "gt|gte|lt|lte|eq|neq", "threshold": <number> },   // numeric gate
+     // For a CATEGORICAL gate (an attribute EQUALS a category value), use "value": "<category>" in place
+     //   of "threshold" (e.g. { "reference": {"type":"attribute","field":"channel"}, "operator":"eq", "value":"wholesale" }).
+     // For a reference-vs-reference gate, use "rightReference": <source> in place of "threshold".
      "then": <structure or operand>,
      "else": <structure or operand>
    }
 
-4. composed — sum/max/min/first_match over children
+4. composed — sum/multiply/max/min/first_match over children
 
-   { "shape": "composed", "composition": "sum|max|min|first_match", "children": [<structure>, ...] }
+   { "shape": "composed", "composition": "sum|multiply|max|min|first_match", "children": [<structure>, ...] }
+   // "multiply" composes the children into an N-factor product (c0 × c1 × … × cn).
 
 Operand kinds:
   { "kind": "reference", "source": <ReferenceSource> }
@@ -550,6 +554,7 @@ ReferenceSource types:
   { "type": "scope_aggregate", "field": "<name>", "boundary": "<attr>", "op": "sum|count|avg|min|max" }
   { "type": "cross_data", "data_type": "<type>", "field"?: "<f>", "aggregation": "count|sum" }
   { "type": "prior_component", "component_index": <n> }
+  { "type": "reference_lookup", "data_type": "<reference table data_type>", "key_column": "<ref column matched against the key>", "key_source": <ReferenceSource that resolves the key value>, "value_column": "<ref column returned>", "op"?: "sum|avg|min|max|first" }   // look a value up from a reference table keyed by a column (a factor/rate-table read)
 
 Scale specification — name which side scales (HF-244 mutual exclusion):
   scale: { "side": "evaluator|convergence", "unit": "<the value's native nature in your own terms; e.g. percent, ratio, currency, count, or any descriptor that fits — there is no fixed set>", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
@@ -581,6 +586,8 @@ REFERENCE TYPES — how a single value is read from the data:
 STRUCTURAL SHAPES — how values combine:
   • Values combined by an operation (× ÷ + −) → arithmetic; state the operation and its two operands. An operand may itself be a nested structure.
   • A value that changes at a threshold/condition → conditional; state the condition (reference, operator, threshold), the then-value, and the else-value.
+  • A payout EARNED / PAID / ACTIVATED ONLY WHEN an eligibility condition holds — the plan says "only if/when", "provided that", "must reach", "qualifies when", or pays NOTHING when a precondition fails — → wrap the ENTIRE component payout in a conditional: the condition is that precondition, the then-branch is the payout structure, and the else-branch is { "kind": "constant", "value": 0 }. The gate is part of the component — if you omit it the payout is paid UNCONDITIONALLY (wrong; the blocked entities would be over-paid). The condition may be NUMERIC (a ratio/amount vs a threshold, e.g. collection_rate > 0.70 in the quotient's own space) OR CATEGORICAL (an attribute equals a value).
+  • A base amount MULTIPLIED by a rate AND a separate multiplier/accelerator (e.g. "commission = amount × category-rate × accelerator", where the accelerator is itself a small banded lookup of 1.00/1.25) → ONE component whose structure is an arithmetic multiply (or composed:"multiply") nesting the base, the rate, and the accelerator structure. Do NOT emit the accelerator as a SEPARATE component — separate components are SUMMED into the entity total, so a multiplier emitted as its own component is ADDED (≈ +1) instead of multiplying (the factor is lost). Stack every multiplicative factor INSIDE one component, nested to as many factors as the plan states.
   • A bound on a value — a cap, floor, limit, "no more than", "no less than", "maximum/minimum of" — → a conditional clamp applied to THAT value, in the same space the bound is stated (a cap on a ratio clamps the ratio), applied BEFORE that value combines further.
   • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values. When a dimension's reference is a ratio (a division), state that dimension's break points in the quotient's own space (0.85 for 85%, 1.3 for 130%/1.3x) and emit no scale for it (HF-279).
   • Independently-computed parts combined into one result → composed (sum / max / min / first_match).

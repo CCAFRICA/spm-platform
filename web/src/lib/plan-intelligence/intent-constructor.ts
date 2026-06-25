@@ -418,14 +418,32 @@ function constructConditional(
   if (desc.then === undefined || desc.else === undefined) {
     throw new ConstructionError(path, desc, 'conditional requires both then and else branches');
   }
+  const cond = desc.condition;
+  // HF-341 (RA-4): operand-typed RHS — precedence rightReference > value > numeric threshold. A
+  // categorical value emits a string-valued constant (the executor's compare prime evaluates string
+  // eq/neq via rawOperand, OB-220). The numeric-threshold path is byte-identical (buildConstantWithScale).
+  let rhs: PrimeNode;
+  if (cond.rightReference) {
+    rhs = buildReferenceNode(cond.rightReference, refSourceField(cond.rightReference), `${path}.condition.rightReference`);
+  } else if (cond.value !== undefined) {
+    rhs = typeof cond.value === 'number'
+      ? { prime: 'constant', value: cond.value }
+      // string | boolean → string-valued constant. PrimeNode types constant.value as number; the
+      // categorical/AI path carries category strings, tolerated by evaluate()'s constant+compare cases.
+      : { prime: 'constant', value: String(cond.value) as unknown as number };
+  } else if (typeof cond.threshold === 'number') {
+    rhs = buildConstantWithScale(cond.threshold, scale, refSourceField(cond.reference), true, cond.reference?.type === 'ratio');
+  } else {
+    throw new ConstructionError(path, desc, 'conditional condition requires one of: rightReference, value, or numeric threshold');
+  }
   return {
     prime: 'conditional',
     condition: {
       prime: 'compare',
-      op: desc.condition.operator,
+      op: cond.operator,
       inputs: [
-        buildReferenceNode(desc.condition.reference, refSourceField(desc.condition.reference), `${path}.condition.reference`),
-        buildConstantWithScale(desc.condition.threshold, scale, refSourceField(desc.condition.reference), true, desc.condition.reference?.type === 'ratio'),
+        buildReferenceNode(cond.reference, refSourceField(cond.reference), `${path}.condition.reference`),
+        rhs,
       ],
     },
     then: constructBranchOrOperand(desc.then, scale, `${path}.then`),
@@ -478,6 +496,10 @@ function constructComposed(
   switch (desc.composition) {
     case 'sum':
       return reduceArithmetic(childNodes, 'add');
+    case 'multiply':
+      // HF-341 (RA-1): N-factor multiplicative chain — total = c0 × c1 × … × cn — declared in the
+      // DAG via the existing N-way reduceArithmetic fold. The Robles factor-model shape.
+      return reduceArithmetic(childNodes, 'multiply');
     case 'max':
       return reducePairwiseMax(childNodes, 'gt');
     case 'min':
@@ -489,7 +511,7 @@ function constructComposed(
       throw new ConstructionError(
         path,
         desc,
-        `unknown composition "${String(unknown)}" (expected sum | max | min | first_match)`,
+        `unknown composition "${String(unknown)}" (expected sum | multiply | max | min | first_match)`,
       );
     }
   }
@@ -634,6 +656,22 @@ function buildReferenceNode(
       // Synthetic-key reference to a prior component's output. Same
       // convention as cross_data — convergence resolves "prior:<index>".
       return { prime: 'reference', field: `prior:${source.component_index}` };
+    case 'reference_lookup': {
+      // HF-341 (RA-2): reference-table read — ref(data_type, key_column) → value_column, collapsed
+      // by `op` when multiple ref rows match. Represented as a synthetic reference key (the same
+      // convention as cross_data / prior_component: a key the metric-resolution layer resolves at
+      // calc time). The key VALUE is resolved from key_source. The Robles distribution/factor-model
+      // arc (§6A residual #1) wires the calc-time resolver; HF-341 establishes the vocabulary so the
+      // operation set now INCLUDES a first-class reference read alongside aggregate(column, op)
+      // (PG-12). Korean Test: data_type / columns are free-form structural identifiers — no table
+      // registry. This is a representable HOME, not a built reference-join engine for Robles.
+      const keyField = refSourceField(source.key_source);
+      const op = source.op ?? 'first';
+      return {
+        prime: 'reference',
+        field: `reference_lookup:${source.data_type}:${source.key_column}:${keyField}:${source.value_column}:${op}`,
+      };
+    }
     default: {
       const unknown = (source as { type?: unknown }).type;
       throw new ConstructionError(path, source as never, `unknown reference_source.type "${String(unknown)}"`);
@@ -724,6 +762,8 @@ function refSourceField(source: ReferenceSource): string {
       return source.field ?? source.data_type;
     case 'prior_component':
       return `prior:${source.component_index}`;
+    case 'reference_lookup':
+      return source.value_column;  // HF-341 (RA-2): the field read from the reference table
   }
 }
 
