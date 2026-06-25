@@ -6,6 +6,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
+import { scopeIsDeny, scopeIsNarrowed } from '@/lib/drill-through/entity-scope';
+import type { EntityScope } from '@/lib/drill-through/types';
 import { ALL_INSIGHTS_SCOPE } from './periods';
 import { getPeriodRollup } from './intelligence-data';
 import type { DistributionResult, DistributionBin, ComponentTotal } from './types';
@@ -66,15 +68,21 @@ export async function getPayoutDistribution(
 export async function getComponentTotals(
   tenantId: string,
   periodId: string,
+  // HF-343: optional authenticated scope (default ALL = admin → byte-identical to prior callers).
+  // The component-totals sentinel is TENANT-WIDE; a narrowed scope bypasses it and aggregates only
+  // the visible entities' component breakdowns (a member sees ONLY their own components).
+  scope: EntityScope = ALL_INSIGHTS_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<ComponentTotal[]> {
   const sb = client ?? createClient();
+  if (scopeIsDeny(scope)) return [];
 
   // OB-237 T-AGG: read the per-component sums + entity counts from the ONE period-rollup sentinel row (no
   // O(n) reduce over the 85 entity_period_outcomes rows). component_totals_by_name + the parallel
   // component_entity_counts_by_name mirror the prior per-entity iteration EXACTLY (name-keyed, += payout,
   // += 1 entity per component appearance). Fall back to the per-entity path only when the sentinel is absent.
-  const rollup = await getPeriodRollup(tenantId, periodId, sb);
+  // HF-343: a narrowed scope SKIPS the tenant-wide sentinel and uses the scoped per-entity path below.
+  const rollup = scopeIsNarrowed(scope) ? null : await getPeriodRollup(tenantId, periodId, sb);
   if (rollup && Object.keys(rollup.component_totals_by_name).length > 0) {
     const byName = rollup.component_totals_by_name;
     const countByName = rollup.component_entity_counts_by_name;
@@ -89,8 +97,8 @@ export async function getComponentTotals(
       .sort((a, b) => b.total_amount - a.total_amount);
   }
 
-  // Graceful fallback: per-entity path (tenant/period without a materialized rollup).
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  // Graceful fallback / scoped path: per-entity (tenant/period without a sentinel, OR a narrowed scope).
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   const totals = new Map<string, { amount: number; entities: number }>();
   for (const r of rows) {
     const bd = r.componentBreakdown ?? {};

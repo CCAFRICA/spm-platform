@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import type { EntityResult, EntityScope, PeriodOption } from './types';
+import { scopeIsDeny } from './entity-scope';
 
 const num = (v: unknown): number =>
   typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : 0;
@@ -96,6 +97,9 @@ export async function getEntityResults(
   client?: SupabaseClient<Database>,
 ): Promise<EntityResult[]> {
   if (!tenantId) return [];
+  // HF-343: a narrowed-but-empty scope (member with no linked entity — HALT-C) reads NOTHING.
+  // Without this guard the empty set would collapse to `scoped = null` = "all" (tenant leak).
+  if (scopeIsDeny(scope)) return [];
   const sb = client ?? createClient();
   const scoped = scope.visibleEntityIds.length > 0 ? scope.visibleEntityIds : null;
 

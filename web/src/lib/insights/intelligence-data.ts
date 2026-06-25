@@ -14,6 +14,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
+import { scopeIsDeny, scopeIsNarrowed } from '@/lib/drill-through/entity-scope';
+import type { EntityScope } from '@/lib/drill-through/types';
 import { ALL_INSIGHTS_SCOPE } from './periods';
 import { discoverDimensions, type DiscoveredDimension } from './dimension-discovery';
 
@@ -87,12 +89,23 @@ async function getPeriodRollup(
 export async function getPeriodTotal(
   tenantId: string,
   periodId: string,
+  // HF-343: optional authenticated scope (default ALL = admin → byte-identical to prior callers).
+  // The period-rollup sentinel is TENANT-WIDE by construction (no per-entity vector), so a narrowed
+  // scope MUST bypass it and sum only the visible entities' payouts (§3.1 — OB-237 materialized path
+  // filtered through the scope resolver). A DENY scope reads nothing.
+  scope: EntityScope = ALL_INSIGHTS_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<number> {
   if (!tenantId || !periodId) return 0;
+  if (scopeIsDeny(scope)) return 0;
   const sb = client ?? createClient();
+  if (scopeIsNarrowed(scope)) {
+    // narrowed (member own / manager team): sum the scoped per-entity rows — NOT the tenant sentinel
+    const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
+    return rows.reduce((s, r) => s + (r.totalPayout ?? 0), 0);
+  }
   const rollup = await getPeriodRollup(tenantId, periodId, sb);
-  if (rollup) return rollup.total_payout; // one row, no reduce
+  if (rollup) return rollup.total_payout; // admin/all: one row, no reduce
   // graceful fallback: tenant/period without a materialized rollup
   const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
   return rows.reduce((s, r) => s + (r.totalPayout ?? 0), 0);
