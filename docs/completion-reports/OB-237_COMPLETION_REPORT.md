@@ -77,8 +77,11 @@ Of the 4 remaining modes, **2 wired and value-matched**, **2 are genuine coverag
 | `timeline` | PASS (rev/checks/tips EXACT) | 58,633 ms | 1,366 ms | **~43×** |
 | `summary` | PASS (Gross $100,068,158.15 / 263,250 / Tips $12,746,075.01; 6 months) | ~58,000 ms* | 1,379 ms | **~42×** |
 | `performance` | PASS (SUM(20 locations.revenue) $100,068,158.15) | ~58,000 ms* | 1,371 ms | **~42×** |
+| `products` | PASS (networkFood $66,751,957 / networkBev $22,246,074 / checks 263,250) | ~58,000 ms* | 1,319 ms | **~44×** |
 
-*Raw baseline for summary/performance is the shared `fetchRawDataServer` cold cost (~58–63 s, measured on timeline); the early-return now intercepts before it.
+*Raw baseline for summary/performance/products is the shared `fetchRawDataServer` cold cost (~58–63 s, measured: timeline 58,633 / leakage 57,669); the early-return now intercepts before it.
+
+**`products` was re-classified during the spec work** (it aggregates per-location food/beverage *category* totals — `total_alimentos`/`total_bebidas`, already in `summary_artifacts.metrics` — NOT per-product line items), so it needed **no migration** and was wired here. food/bev resolved via `recognize()` → `field_name` (`total_alimentos`/`total_bebidas`).
 
 Each wired mode: `aggregate<Mode>FromSummaries` reading `summary_artifacts` (raw field keys = `recognize().field_name`), summary-primary single-path early-return, **raw function + switch case DELETED (AP-17)**.
 
@@ -102,8 +105,8 @@ Wired modes: single materialized path. Coverage-gap modes: raw path retained (do
 `tsc --noEmit` 0, `rm -rf .next && npm run build` EXIT 0. All 4 wired modes value-matched headlessly against deterministic `committed_data` truth (the buggy non-deterministic raw path is retired for them). Browser render verification is architect-gated (SR-44).
 
 ### Net result
-- **MSP invariant now holds for 4 of 6 Financial aggregate modes** (network_pulse, timeline, summary, performance) — they read the materialization, not base rows; the non-deterministic raw path is deleted for them.
-- **2 modes (location_detail, leakage) + the 4 P0 coverage-gap modes** await a finer materialization (architect).
+- **MSP invariant now holds for 5 of 10 Financial aggregate modes** (network_pulse, timeline, summary, performance, products) — they read the materialization, not base rows; the non-deterministic raw path is deleted for them (network_pulse retains its OB-229 raw fallback).
+- **5 modes await a finer materialization** (architect, per `docs/diagnostics/OB-237_FINER_MATERIALIZATION_SPEC.md`): `leakage` (cancelled-revenue conditional metric), `staff` + `location_detail` (server grain), `patterns` (hourly grain), `server_detail` (server+hourly grain). Recommended sibling table `summary_artifacts_fine` + a Summary-Engine conditional-metric extension.
 - The re-materialization corrected the data-determinism issue; the headline `timeline` is **43× faster** and **correct** (where the raw path was both slow and wrong).
 
 ---
