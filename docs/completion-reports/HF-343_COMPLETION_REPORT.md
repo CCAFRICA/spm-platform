@@ -4,7 +4,34 @@
 2026-06-24
 
 ## Execution Time
-Single session. Phase-0 diagnosis (parallel-agent investigation) → Phase 1–3 implementation → adversarial-review hardening → build/proof.
+Single session. Phase-0 diagnosis (parallel-agent investigation) → Phase 1–3 implementation → adversarial-review hardening → build/proof. **Amended:** architect regression fix — eradicate the parallel auth path.
+
+---
+
+## REGRESSION FIX (architect-directed amend) — eradicate the parallel auth path
+
+**Violation:** Phase 1 introduced `useAuthScope` + `resolveAuthenticatedScope` as a SECOND auth lifecycle (its own loading state + Supabase query chain) racing `auth-context`. That race was the root of the reported regressions (missing sidebar, rep flash, slow load, login bounce).
+
+**Eradication (not patching):**
+- **DELETED** `web/src/hooks/use-auth-scope.ts`. Zero `useAuthScope` references remain (grep-proven).
+- `auth-context.tsx` now resolves scope **inside `initAuth`** (and `login` + `onAuthStateChange`), right after `fetchCurrentProfile`, via `resolveProfileScope(profile)`. **ONE `isLoading`** governs everything — when false, `user` + `capabilities` + `scope`/`viewRole`/`ownEntityId`/`canViewAll`/`canViewTeam`/`isDenied` are all resolved together (batched). admin/platform → ALL synchronously (SSR-authed admin renders immediately, no query); member/manager → one query, `isLoading` stays true until resolved (zero wrong-render).
+- `hasCapability` gets the **DS-014 §4 admin/platform bypass** (`user.role === 'platform' || 'admin' → true`) — a stale/empty `capabilities` array no longer hides admin sidebar/surfaces.
+- `resolveAuthenticatedScope` is now a **pure utility** called once during auth init (takes the already-resolved `profileId`; ≤1 query; no `profiles` re-lookup, no `sampleWhenUnlinked`).
+- Consumers read scope **from `useAuth()`**: `perform/page.tsx` (parallel hook + its `scopeLoading` guards removed — scope is guaranteed resolved when the page renders behind AuthShell's `isLoading` gate); `ManagerDashboard` reads `useAuth().scope` for the drill-through (render-time resolver call removed).
+- Phase-3 `workspace-config` capability gates unchanged (correct once `hasCapability` has the admin bypass + one loading state).
+
+**Behavior note:** the VL-admin persona switcher no longer narrows `/perform` data scope (scope is authenticated-role-only — Decision 39); the switcher stays cosmetic (theme/title).
+
+**Proof:** `use-auth-scope.ts` deleted; `grep useAuthScope` → 0; `tsc` 0; `npm run test` 294/294; `npm run build` exit 0 (210/210); `localhost:3000/login` → 200. Context type (all fields in one lifecycle):
+```ts
+interface AuthContextType {
+  user; isAuthenticated; isLoading; isVLAdmin; capabilities; profileLocale;
+  scope: EntityScope; viewRole: Role | null; ownEntityId: string | null;
+  canViewAll: boolean; canViewTeam: boolean; isDenied: boolean;
+  login; logout; hasPermission; hasCapability;
+}
+```
+**Architect browser verification (the non-negotiable gate):** Login as VL admin → MFA → Observatory → BCL → `/operate` renders with full sidebar, correct admin view, NO rep flash, NO blank intermediate, under 5s, zero console auth errors.
 
 ---
 
