@@ -59,4 +59,64 @@
 
 ---
 
-<!-- G1–G6 appended after implementation + build -->
+## 3. G1–G6 evidence
+
+### G1 — Font delta closed (matched-element computed styles now identical)
+| Element | `[data-theme="bliss"]` | `[data-theme="vialuce"]` (edited) | Match |
+|---|---|---|---|
+| Body paragraph | `Inter` / `400` / `normal` | `Inter` / **`400`** (`--vl-fw-body:400`, `:619`) / `normal` | ✓ |
+| Page heading | `Urbanist` / Tailwind-class weight | `Urbanist` (`:628-633`) / same shared markup | ✓ |
+| Section label (rail) | `DM Mono` | `DM Mono` (`.sb-lbl`) | ✓ |
+| Wordmark | `Inter` / `700` / `normal` | `Inter` / `700` / `normal` (see G2) | ✓ |
+
+The sole edited token: `--vl-fw-body: 300 → 400`. Its only consumer is the Vialuce `body` rule (`:625`), so the blast radius is exactly the body base weight — Vialuce body text now renders Inter `400`, identical to Bliss.
+
+### G2 — Wordmark parity (computed style under both themes)
+| | Bliss (`ChromeSidebar.tsx:291`, `text-sm font-bold`) | Vialuce (`.sb-brand b`, edited) |
+|---|---|---|
+| font-family | `Inter` (body) | `Inter` (inherits body) |
+| font-weight | `700` | `700` (`--vl-fw-bold`) |
+| letter-spacing | `normal` | `normal` (0.3px **removed**) |
+**font / weight / spacing now match.** (Size 15.5px vs 14px is the lockup's own scale; G2 governs font/weight/spacing, not size.)
+
+### G3 — Logo lockup (corrected markup; existing asset reused)
+`VialuceSidebar.tsx` diamond `<svg>` now `width="40" height="40"` (was 32) — viewBox-native 1:1, so the ~64%-fill mark renders ≈ **25.5px visible** (was ~20px). `.sb-brand` `gap: 10px` (was 11) keeps the optical mark→wordmark gap (~10 + 7.3px viewBox-pad ≈ 17px) aligned with Bliss (~12 + 5.8 ≈ 18px). `align-items:center` (unchanged) centres the enlarged mark against the two-line wordmark block.
+Asset reuse confirmed — `git diff --stat`: `globals.css | 11`, `VialuceSidebar.tsx | 6`, **2 files changed, 0 new files** (no new/duplicate asset or component).
+
+### G4 — Bliss untouched
+`git diff` touches only `globals.css` (inside `html[data-theme="vialuce"]`, `:613-645`) and the Vialuce-only `VialuceSidebar.tsx`. Guard grep over the `+/-` lines for `data-theme="bliss"` / `ChromeSidebar` / `--color-indigo` / `--color-gold` → **NONE**. The only "bliss" strings in the diff are explanatory comments. `ChromeSidebar.tsx` (Bliss + Dark rail) is not in the changeset.
+
+### G5 — Dark/current untouched
+Same diff: zero change to `[data-theme="dark"]`/`[data-theme="current"]`. No edits outside the `html[data-theme="vialuce"]` block (CSS) or the Vialuce-only rail. The Dark/current `V`-glyph branch in `ChromeSidebar.tsx` is untouched.
+
+### G6 — Build + dev
+- `npx tsc --noEmit` → exit **0** (clean).
+- `rm -rf .next && npm run build` → exit **0** (full route table emitted).
+- `npm run dev` → `✓ Ready in 1201ms`; `curl localhost:3000` → **HTTP 307** (app responds; auth/tenant redirect).
+
+### Architect-gated (SR-44 — NOT self-attested)
+Browser confirmation under Vialuce that the lockup reads as deliberate (40px mark optically aligned to the wordmark) and that body text now renders the same weight as Bliss, with Bliss + Dark visually unchanged. PR opened; **CC stops for architect verification + merge.**
+
+---
+
+## 4. Commit table
+| SHA | Description |
+|---|---|
+| `035cb6aa` | HF-342 ADR + G0 diagnostic (before code) |
+| `3dafa16c` | HF-342 implementation — diamond 40px + gap 10px + `--vl-fw-body:400` + wordmark spacing |
+| _(this)_ | HF-342 completion report (G1–G6) |
+
+## 5. Anti-Pattern Registry confirmation
+- **No new file / no duplicate component or asset:** the diamond is the existing inline SVG, resized in place; `git diff --stat` shows 0 new files.
+- **No `!important`:** none added.
+- **No per-component font-family patch / no parallel font system:** font parity is one **token-value** edit (`--vl-fw-body`) + one **override-removal** (wordmark `letter-spacing`). No element-targeted font-family hacks, no duplicate font layer.
+- **Bliss/Dark immutable:** zero edits to their tokens, logo branches, or `ChromeSidebar.tsx` (G4/G5).
+- **AI-First / scale / transport / atomicity:** N/A (experience-only CSS + one TSX size attr; no data path).
+
+## 6. Residuals / follow-ons (§6A)
+- **Content eyebrows** (shared `.uppercase.tracking-wider` markup): Bliss maps these to DM Mono (`globals.css:338-340`); Vialuce has no equivalent content-eyebrow → mono rule, so they inherit body Inter. The **rail** section labels already match (both DM Mono). Closing the content-eyebrow family delta would add a Vialuce content rule touching surfaces beyond the nav lockup (§6 boundary) and may be intentional Vialuce design — **logged as a follow-on**, not this lockup-focused HF.
+- The orphaned `.sb-logo` rule (`globals.css:643`, unused since HF-340's swap) is left in place (dead but harmless; removing it is unrelated cleanup).
+
+## 7. HALT outcomes
+None fired. §4A: no-delta (false — body weight 300 vs 400, wordmark spacing 0.3 vs 0); font-fails-to-load (false — fonts load app-wide; this was a weight-token mismatch, fixed at the token layer); shared-markup collision (false — Vialuce-only rail + scoped CSS); malformed asset (false — square viewBox, uniform 32→40 scale). Bliss/Dark regression: none (G4/G5).
+
