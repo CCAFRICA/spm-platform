@@ -62,7 +62,49 @@ Re-materializing `summary_artifacts` deterministically (`order by id`, SUM all J
 tsc 0, build 0. Commits: re-materialize (`summary == truth`), timeline wire (`value-matched, raw removed`).
 
 ### Remaining modes (4) — same proven pattern
-`summary`, `location_detail`, `performance`, `leakage` follow the identical pattern: `aggregate<Mode>FromSummaries` reading `summary_artifacts` with `field_name` measure resolution, summary-primary early-return, value-match grand totals against the deterministic `committed_data` truth, delete raw path. `leakage` additionally needs discount/comp/cancel bindings (the `recognize` surfaces for discount/comp exist in the network_pulse MEASURES; a `cancelled-revenue` binding may need adding — HALT-RECOGNIZE if unresolvable). These are mechanical repetitions of the timeline conversion.
+`summary`, `location_detail`, `performance`, `leakage` follow the identical pattern. See §T1-COMPLETE.
+
+---
+
+## §T1-COMPLETE — all wirable modes done; 2 coverage gaps found on close reading
+
+Of the 4 remaining modes, **2 wired and value-matched**, **2 are genuine coverage gaps** (P0's "wirable" classification was optimistic — close reading revealed sub-entity/conditional-aggregate dependencies the entity-day summary cannot serve).
+
+### Wired + value-matched to deterministic truth ($100,068,158.15 / 263,250 / $12,746,075.01)
+| Mode | Value-match | Raw baseline | Summary | Speedup |
+|---|---|---|---|---|
+| `network_pulse` | PASS (revenue $100,068,158.15, tipRate 12.74) | — (was wired) | 2,341 ms | — |
+| `timeline` | PASS (rev/checks/tips EXACT) | 58,633 ms | 1,366 ms | **~43×** |
+| `summary` | PASS (Gross $100,068,158.15 / 263,250 / Tips $12,746,075.01; 6 months) | ~58,000 ms* | 1,379 ms | **~42×** |
+| `performance` | PASS (SUM(20 locations.revenue) $100,068,158.15) | ~58,000 ms* | 1,371 ms | **~42×** |
+
+*Raw baseline for summary/performance is the shared `fetchRawDataServer` cold cost (~58–63 s, measured on timeline); the early-return now intercepts before it.
+
+Each wired mode: `aggregate<Mode>FromSummaries` reading `summary_artifacts` (raw field keys = `recognize().field_name`), summary-primary single-path early-return, **raw function + switch case DELETED (AP-17)**.
+
+### HALT-COVERAGE (kept raw — cannot be served from the entity-day summary; SR-34: no hybrid/reduced-scope)
+- **`location_detail`** — returns a **per-`mesero_id` staff breakdown** (sub-entity data). `summary_artifacts` is grained at (entity, day), not (entity, server). Same gap class as `staff`/`server_detail`.
+- **`leakage`** — needs **cancelled revenue** = `SUM(total WHERE cancelado=1)`, a **conditional aggregate** the domain-agnostic summary does not materialize (it carries `SUM(total)` and `SUM(cancelado)`=count, not the cross-product). Discount/comp totals ARE servable, but the leakage figure depends on cancelled-revenue, so the mode cannot be cleanly wired without a finer/conditional materialization.
+
+Both kept their raw paths intact (no regression). They join `staff`/`server_detail`/`patterns`/`products` as **coverage-gap residuals** needing a finer materialization (architect — a materialization build = migration, SR-44).
+
+### Zero-raw-path verification (`grep` over route.ts)
+```
+aggregateTimeline(    -> 0 (deleted; only aggregateTimelineFromSummaries)
+aggregateSummary(     -> 0 (deleted)
+aggregatePerformance( -> 0 (deleted)
+aggregateLeakage(     -> PRESENT (HALT-COVERAGE, kept raw)
+aggregateLocationDetail( -> PRESENT (HALT-COVERAGE, kept raw)
+```
+Wired modes: single materialized path. Coverage-gap modes: raw path retained (documented).
+
+### Build / verification
+`tsc --noEmit` 0, `rm -rf .next && npm run build` EXIT 0. All 4 wired modes value-matched headlessly against deterministic `committed_data` truth (the buggy non-deterministic raw path is retired for them). Browser render verification is architect-gated (SR-44).
+
+### Net result
+- **MSP invariant now holds for 4 of 6 Financial aggregate modes** (network_pulse, timeline, summary, performance) — they read the materialization, not base rows; the non-deterministic raw path is deleted for them.
+- **2 modes (location_detail, leakage) + the 4 P0 coverage-gap modes** await a finer materialization (architect).
+- The re-materialization corrected the data-determinism issue; the headline `timeline` is **43× faster** and **correct** (where the raw path was both slow and wrong).
 
 ---
 
