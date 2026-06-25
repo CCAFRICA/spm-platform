@@ -254,4 +254,6 @@ After fixes: `tsc --noEmit` 0 errors · `next lint` 0 errors · `next build` cle
 
 ## 9 — PR
 
-_(filled after PR open)_
+**PR #601** — https://github.com/CCAFRICA/spm-platform/pull/601 (`hf-341-mir-reconciliation` → `main`).
+Not merged: the architect applies the SR-44 MIR reimport + recalc (PG-1…PG-8) and confirms the BCL /
+Plan-2 HALT-CALC invariants before merge.
