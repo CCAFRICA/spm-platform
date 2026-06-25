@@ -70,62 +70,9 @@ interface BrandInfo {
   benchmarkChequesMax: number;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Server-side cache
-// ═══════════════════════════════════════════════════════════════════
-
-let _serverCache: { tenantId: string; cheques: ChequeRecord[]; entities: EntityRecord[]; ts: number } | null = null;
-const SERVER_CACHE_TTL = 5 * 60 * 1000;
-
-async function fetchRawDataServer(tenantId: string): Promise<{ cheques: ChequeRecord[]; entities: EntityRecord[] } | null> {
-  if (_serverCache && _serverCache.tenantId === tenantId && Date.now() - _serverCache.ts < SERVER_CACHE_TTL) {
-    return { cheques: _serverCache.cheques, entities: _serverCache.entities };
-  }
-
-  const supabase = await createServiceRoleClient();
-
-  const { data: entities, error: entErr } = await supabase
-    .from('entities')
-    .select('id, display_name, external_id, entity_type, metadata')
-    .eq('tenant_id', tenantId);
-
-  if (entErr) throw entErr;
-  if (!entities || entities.length === 0) return null;
-
-  const PAGE_SIZE = 1000;
-  const cheques: ChequeRecord[] = [];
-  let offset = 0;
-
-  // OB-203 D16.1: exclude non-completed (processing/failed) batches' partial rows. No-op when none.
-  const { hiddenBatchIdsForTenant, applyCommittedDataVisibility } = await import('@/lib/sci/committed-data-visibility');
-  const hiddenBatchIds = await hiddenBatchIdsForTenant(supabase, tenantId);
-
-  while (true) {
-    const { data, error } = await applyCommittedDataVisibility(supabase
-      .from('committed_data')
-      .select('entity_id, row_data')
-      .eq('tenant_id', tenantId)
-      .eq('data_type', 'pos_cheque'), hiddenBatchIds)
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    for (const row of data) {
-      if (!row.entity_id) continue;
-      cheques.push({ entity_id: row.entity_id, row_data: row.row_data as unknown as ChequeRowData });
-    }
-
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  if (cheques.length === 0) return null;
-
-  const result = { cheques, entities: entities as EntityRecord[] };
-  _serverCache = { tenantId, ...result, ts: Date.now() };
-  return result;
-}
+// OB-237 T-FIN: the whole-table raw-cheque fetch (and its in-process cache) are RETIRED. Every mode now
+// reads pre-computed materializations (summary_artifacts / summary_artifacts_fine) or a bounded
+// committed_data query (cheques drill-through). No mode loads all 263K cheques into memory anymore.
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -198,6 +145,53 @@ function buildBrandLookup(entities: EntityRecord[]): Map<string, BrandInfo> {
 function getLocationBrand(loc: EntityRecord, brandLookup: Map<string, BrandInfo>): BrandInfo | null {
   const brandId = String((loc.metadata as Record<string, unknown>)?.brand_id || '');
   return brandLookup.get(brandId) || null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// OB-237 T-FIN: summary_artifacts_fine reader (entity, mesero/sub_entity, date, hour grain).
+// The fine sibling materialization unblocks the sub-entity / hourly modes (staff, location_detail
+// staff-section, patterns, server_detail) that the (entity, day) summary_artifacts cannot serve.
+// Paged (entity×mesero×date×hour can far exceed the 1000-row cap). Optional entity / mesero filters
+// push the predicate into the indexed query so per-request rows fetched stay small.
+// ═══════════════════════════════════════════════════════════════════
+
+interface FineArtifact {
+  entity_id: string;
+  sub_entity_id: string;       // String(row_data.mesero_id)
+  summary_date: string;        // committed_data.source_date (== fecha day-string)
+  hour: number;                // new Date(row_data.fecha).getHours()
+  metrics: Record<string, number>;
+  row_count: number;
+}
+
+async function getFineArtifacts(
+  sb: SupabaseClient,
+  tenantId: string,
+  q: { entityId?: string; subEntityId?: string } = {},
+): Promise<FineArtifact[]> {
+  const PAGE = 1000;
+  const out: FineArtifact[] = [];
+  let offset = 0;
+  for (;;) {
+    let query = sb
+      .from('summary_artifacts_fine')
+      .select('entity_id, sub_entity_id, summary_date, hour, metrics, row_count')
+      .eq('tenant_id', tenantId)
+      .eq('data_type', 'pos_cheque');
+    if (q.entityId) query = query.eq('entity_id', q.entityId);
+    if (q.subEntityId) query = query.eq('sub_entity_id', q.subEntityId);
+    // .order('id') — unique key. summary_date is NON-unique; paging on it lets PostgREST return
+    // overlapping/duplicate rows across page boundaries (server_detail counted 4371 vs the true 4368).
+    const { data, error } = await query
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(`summary_artifacts_fine read: ${error.message}`);
+    if (!data || data.length === 0) break;
+    out.push(...(data as FineArtifact[]));
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -297,27 +291,8 @@ function finalizeNetworkPulse(locMap: Map<string, NpLocAgg>, locations: EntityRe
   };
 }
 
-// Raw path (preserved): populate locMap from cheques, then finalize.
-function aggregateNetworkPulse(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
-  const locMap = newNpLocMap(locations, brandLookup);
-  for (const c of raw.cheques) {
-    const agg = locMap.get(c.entity_id);
-    if (!agg) continue;
-    const rd = c.row_data;
-    agg.cheques++;
-    agg.revenue += n(rd.total);
-    agg.tips += n(rd.propina);
-    agg.food += n(rd.total_alimentos);
-    agg.bev += n(rd.total_bebidas);
-    agg.discounts += n(rd.total_descuentos);
-    agg.comps += n(rd.total_cortesias);
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) agg.daily.set(dt, (agg.daily.get(dt) || 0) + n(rd.total));
-  }
-  return finalizeNetworkPulse(locMap, locations, brandLookup);
-}
+// OB-237 T-FIN: the raw aggregateNetworkPulse (whole-table cheque scan) is retired — network_pulse is now
+// served exclusively from summary_artifacts via aggregateNetworkPulseFromSummaries (value-matched).
 
 // OB-229 summary-backed path: populate locMap from summary_artifacts (O(1)) instead of fetching+looping
 // 263K raw cheques. Byte-equivalent to the raw path BY CONSTRUCTION: metrics.total = Σ cheque.total per
@@ -551,44 +526,55 @@ async function aggregatePerformanceFromSummaries(
   });
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Staff
-// ═══════════════════════════════════════════════════════════════════
 
-function aggregateStaff(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const staffEntities = raw.entities.filter(e => e.entity_type === 'individual');
-  const locationEntities = raw.entities.filter(e => e.entity_type === 'location');
-  const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
+// OB-237 T-FIN: staff from summary_artifacts_fine (entity, mesero, date, hour). Mirrors aggregateStaff
+// EXACTLY — per-mesero revenue/checks/tips/weeklyRevenue, percentile performanceIndex, ranking, staff
+// entity join by metadata.mesero_id. The fine totals are UNCONDITIONAL (include cancelled cheques); the
+// raw staff path EXCLUDES cancelled cheques, so the non-cancelled aggregate is reconstructed by
+// subtracting the cancelled_revenue/cancelled_count/cancelled_tips conditional metrics (per fine row, so
+// the per-week bucket subtraction is exact). Grand SUM(non-cancelled revenue) value-matches the
+// deterministic committed_data truth (SUM(total WHERE cancelado<>1)).
+async function aggregateStaffFromFine(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  scopeEntityIds?: string[],
+) {
+  let arts = await getFineArtifacts(sb, tenantId);
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
+
+  const staffEntities = entities.filter(e => e.entity_type === 'individual');
+  const locationEntities = entities.filter(e => e.entity_type === 'location');
+  const allDates = Array.from(new Set(arts.map(a => a.summary_date).filter(Boolean))).sort();
 
   const staffByMeseroId = new Map<string, EntityRecord>();
   for (const se of staffEntities) {
     const meseroId = (se.metadata as Record<string, unknown>)?.mesero_id;
     if (meseroId != null) staffByMeseroId.set(String(meseroId), se);
   }
-
   const locationById = new Map<string, EntityRecord>();
   for (const le of locationEntities) locationById.set(le.id, le);
 
-  interface StaffAgg {
-    meseroId: number;
-    revenue: number; checks: number; tips: number;
-    weeklyRevenue: [number, number, number, number];
-  }
-  const staffMap = new Map<number, StaffAgg>();
+  interface StaffAgg { meseroId: string; revenue: number; checks: number; tips: number; weeklyRevenue: [number, number, number, number]; }
+  const staffMap = new Map<string, StaffAgg>();
 
-  for (const c of raw.cheques) {
-    const rd = c.row_data;
-    if (n(rd.cancelado) === 1) continue;
-    const mid = n(rd.mesero_id);
-    if (!mid) continue;
+  for (const a of arts) {
+    const mid = a.sub_entity_id;
+    if (!mid || mid === '0' || mid === '') continue;
+    const m = a.metrics || {};
+    // non-cancelled aggregate = unconditional fine totals minus the cancelled conditional metrics.
+    const revenue = n(m.total) - n(m.cancelled_revenue);
+    const checks = a.row_count - n(m.cancelled_count);
+    const tips = n(m.propina) - n(m.cancelled_tips);
+    if (checks <= 0 && revenue === 0) continue;
     let agg = staffMap.get(mid);
     if (!agg) { agg = { meseroId: mid, revenue: 0, checks: 0, tips: 0, weeklyRevenue: [0, 0, 0, 0] }; staffMap.set(mid, agg); }
-    agg.revenue += n(rd.total);
-    agg.checks++;
-    agg.tips += n(rd.propina);
-    const dt = String(rd.fecha || '').substring(0, 10);
-    const wi = Math.min(weekIndex(dt, allDates), 3);
-    agg.weeklyRevenue[wi] += n(rd.total);
+    agg.revenue += revenue;
+    agg.checks += checks;
+    agg.tips += tips;
+    const wi = Math.min(weekIndex(a.summary_date, allDates), 3);
+    agg.weeklyRevenue[wi] += revenue;
   }
 
   const staffList: Array<StaffAgg & { entity: EntityRecord }> = [];
@@ -597,7 +583,6 @@ function aggregateStaff(raw: { cheques: ChequeRecord[]; entities: EntityRecord[]
     if (!entity) continue;
     staffList.push({ ...agg, entity });
   }
-
   if (staffList.length === 0) return null;
 
   const revenues = staffList.map(s => s.revenue).sort((a, b) => a - b);
@@ -614,7 +599,6 @@ function aggregateStaff(raw: { cheques: ChequeRecord[]; entities: EntityRecord[]
     );
     return { ...s, avgCheck, tipRate, performanceIndex: Math.max(50, Math.min(100, pi + 50)) };
   });
-
   withIndex.sort((a, b) => b.performanceIndex - a.performanceIndex);
 
   const prevSorted = [...withIndex].sort((a, b) => {
@@ -622,7 +606,7 @@ function aggregateStaff(raw: { cheques: ChequeRecord[]; entities: EntityRecord[]
     const bRev = b.weeklyRevenue[0] + b.weeklyRevenue[1] + b.weeklyRevenue[2];
     return bRev - aRev;
   });
-  const prevRankMap = new Map<number, number>();
+  const prevRankMap = new Map<string, number>();
   prevSorted.forEach((s, i) => prevRankMap.set(s.meseroId, i + 1));
 
   return withIndex.map((s, i) => {
@@ -801,124 +785,6 @@ async function aggregateTimelineFromSummaries(
   return buildTimelineResponse(dateAll, dateBrand, brandColorMap, granularity);
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Patterns
-// ═══════════════════════════════════════════════════════════════════
-
-function aggregatePatterns(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, locationFilter?: string) {
-  interface Cell { revenue: number; checks: number; }
-  const grid: Cell[][] = [];
-  for (let d = 0; d < 7; d++) {
-    grid[d] = [];
-    for (let h = 0; h < 24; h++) grid[d][h] = { revenue: 0, checks: 0 };
-  }
-
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const dayTotals = dayNames.map((_, i) => ({
-    dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0, days: new Set<string>(),
-  }));
-
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
-  const locList = locations.map(loc => {
-    const brand = getLocationBrand(loc, brandLookup);
-    return { id: loc.id, name: loc.display_name, brandId: brand?.id || '', brandName: brand?.name || '' };
-  });
-
-  const filteredCheques = locationFilter
-    ? raw.cheques.filter(c => c.entity_id === locationFilter)
-    : raw.cheques;
-
-  let serviceTimeSum = 0, serviceTimeCount = 0;
-
-  for (const c of filteredCheques) {
-    const rd = c.row_data;
-    if (n(rd.cancelado) === 1) continue;
-    const fechaStr = String(rd.fecha || '');
-    if (!fechaStr) continue;
-    const d = new Date(fechaStr);
-    if (isNaN(d.getTime())) continue;
-    const dayOfWeek = d.getDay();
-    const hour = d.getHours();
-    const rev = n(rd.total);
-
-    grid[dayOfWeek][hour].revenue += rev;
-    grid[dayOfWeek][hour].checks++;
-
-    const dateKey = fechaStr.substring(0, 10);
-    dayTotals[dayOfWeek].revenue += rev;
-    dayTotals[dayOfWeek].checks++;
-    dayTotals[dayOfWeek].tips += n(rd.propina);
-    dayTotals[dayOfWeek].guests += n(rd.numero_de_personas);
-    dayTotals[dayOfWeek].days.add(dateKey);
-
-    const cierreStr = String(rd.cierre || '');
-    if (cierreStr && fechaStr) {
-      const openTime = d.getTime();
-      const closeTime = new Date(cierreStr).getTime();
-      if (!isNaN(closeTime) && closeTime > openTime) {
-        const minutes = (closeTime - openTime) / 60000;
-        if (minutes > 0 && minutes < 480) {
-          serviceTimeSum += minutes;
-          serviceTimeCount++;
-        }
-      }
-    }
-  }
-
-  const heatmap: Array<{ hour: number; day: number; revenue: number; checks: number; avgCheck: number }> = [];
-  for (let d = 0; d < 7; d++) {
-    for (let h = 0; h < 24; h++) {
-      const cell = grid[d][h];
-      if (cell.checks > 0) {
-        heatmap.push({ hour: h, day: d, revenue: round2(cell.revenue), checks: cell.checks, avgCheck: round2(cell.revenue / cell.checks) });
-      }
-    }
-  }
-
-  const dayOfWeek = dayTotals.map((dt, i) => {
-    const numDays = dt.days.size || 1;
-    return {
-      day: dayNames[i],
-      dayIndex: i,
-      revenue: round2(dt.revenue / numDays),
-      checks: Math.round(dt.checks / numDays),
-      avgCheck: dt.checks > 0 ? round2(dt.revenue / dt.checks) : 0,
-      tips: round2(dt.tips / numDays),
-      avgGuests: dt.checks > 0 ? round2(dt.guests / dt.checks) : 0,
-    };
-  });
-
-  let maxHourRev = 0, peakHour = 12;
-  const hourTotals: number[] = Array(24).fill(0);
-  for (const cell of heatmap) { hourTotals[cell.hour] += cell.revenue; }
-  hourTotals.forEach((v, h) => { if (v > maxHourRev) { maxHourRev = v; peakHour = h; } });
-
-  let maxDayRev = 0, peakDay = 'Mon';
-  dayOfWeek.forEach(d => { if (d.revenue > maxDayRev) { maxDayRev = d.revenue; peakDay = d.day; } });
-
-  const allDates = new Set<string>();
-  for (const c of filteredCheques) {
-    const dt = String(c.row_data.fecha || '').substring(0, 10);
-    if (dt) allDates.add(dt);
-  }
-  const totalDays = allDates.size || 1;
-  const totalRevenue = dayTotals.reduce((s, d) => s + d.revenue, 0);
-  const totalChecks = dayTotals.reduce((s, d) => s + d.checks, 0);
-  const avgServiceMinutes = serviceTimeCount > 0 ? round2(serviceTimeSum / serviceTimeCount) : 0;
-
-  return {
-    heatmap,
-    dayOfWeek,
-    peakHour,
-    peakDay,
-    avgDailyRevenue: round2(totalRevenue / totalDays),
-    avgDailyChecks: Math.round(totalChecks / totalDays),
-    avgServiceMinutes,
-    locations: locList,
-  };
-}
-
 // OB-237 T1: financial P&L summary from summary_artifacts (entity, day). Reads the same field keys the
 // raw aggregateSummary sums (the summary is keyed by raw committed_data field names == recognize().field_name),
 // so grand totals value-match the deterministic committed_data truth. Shape-identical to aggregateSummary.
@@ -1082,78 +948,178 @@ async function aggregateProductsFromSummaries(
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Location Detail
-// ═══════════════════════════════════════════════════════════════════
 
-function aggregateLocationDetail(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, locationId: string) {
-  const entity = raw.entities.find(e => e.id === locationId);
+// OB-237 T-FIN: patterns (7×24 day-of-week × hour heatmap) from summary_artifacts_fine. Mirrors
+// aggregatePatterns EXACTLY. day-of-week is derived from summary_date via new Date(y, mo-1, d).getDay()
+// — proven (0/263,250 mismatches) to reproduce the raw path's new Date(fecha).getDay() (the date-only
+// UTC-parse would shift the weekday; the local-constructed date does not). hour is the materialized
+// column (new Date(fecha).getHours() at population). All metrics EXCLUDE cancelled cheques (the raw
+// path `continue`s on cancelado=1), reconstructed by subtracting the cancelled_* conditional metrics.
+// avgServiceMinutes from the materialized service_minutes_sum / service_count (cierre−fecha, 0<min<480).
+async function aggregatePatternsFromFine(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  locationFilter?: string,
+) {
+  const arts = await getFineArtifacts(sb, tenantId, { entityId: locationFilter });
+  if (arts.length === 0) return null;
+
+  const dowFromDate = (s: string): number => { const [y, mo, d] = s.split('-').map(Number); return new Date(y, mo - 1, d).getDay(); };
+
+  interface Cell { revenue: number; checks: number; }
+  const grid: Cell[][] = [];
+  for (let d = 0; d < 7; d++) { grid[d] = []; for (let h = 0; h < 24; h++) grid[d][h] = { revenue: 0, checks: 0 }; }
+
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayTotals = dayNames.map((_, i) => ({ dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0, days: new Set<string>() }));
+
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
+  const locList = locations.map(loc => {
+    const brand = getLocationBrand(loc, brandLookup);
+    return { id: loc.id, name: loc.display_name, brandId: brand?.id || '', brandName: brand?.name || '' };
+  });
+
+  let serviceTimeSum = 0, serviceTimeCount = 0;
+  const allDates = new Set<string>();
+
+  for (const a of arts) {
+    const dt = a.summary_date;
+    if (!dt) continue;
+    const m = a.metrics || {};
+    const rev = n(m.total) - n(m.cancelled_revenue);
+    const checks = a.row_count - n(m.cancelled_count);
+    const tips = n(m.propina) - n(m.cancelled_tips);
+    const guests = n(m.numero_de_personas) - n(m.cancelled_guests);
+    if (checks <= 0 && rev === 0) {
+      serviceTimeSum += n(m.service_minutes_sum); serviceTimeCount += n(m.service_count);
+      continue;
+    }
+    const dayOfWeek = dowFromDate(dt);
+    const hour = a.hour;
+    grid[dayOfWeek][hour].revenue += rev;
+    grid[dayOfWeek][hour].checks += checks;
+
+    dayTotals[dayOfWeek].revenue += rev;
+    dayTotals[dayOfWeek].checks += checks;
+    dayTotals[dayOfWeek].tips += tips;
+    dayTotals[dayOfWeek].guests += guests;
+    dayTotals[dayOfWeek].days.add(dt);
+    allDates.add(dt);
+
+    serviceTimeSum += n(m.service_minutes_sum);
+    serviceTimeCount += n(m.service_count);
+  }
+
+  const heatmap: Array<{ hour: number; day: number; revenue: number; checks: number; avgCheck: number }> = [];
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const cell = grid[d][h];
+      if (cell.checks > 0) heatmap.push({ hour: h, day: d, revenue: round2(cell.revenue), checks: cell.checks, avgCheck: round2(cell.revenue / cell.checks) });
+    }
+  }
+
+  const dayOfWeek = dayTotals.map((dt, i) => {
+    const numDays = dt.days.size || 1;
+    return {
+      day: dayNames[i], dayIndex: i,
+      revenue: round2(dt.revenue / numDays),
+      checks: Math.round(dt.checks / numDays),
+      avgCheck: dt.checks > 0 ? round2(dt.revenue / dt.checks) : 0,
+      tips: round2(dt.tips / numDays),
+      avgGuests: dt.checks > 0 ? round2(dt.guests / dt.checks) : 0,
+    };
+  });
+
+  let maxHourRev = 0, peakHour = 12;
+  const hourTotals: number[] = Array(24).fill(0);
+  for (const cell of heatmap) hourTotals[cell.hour] += cell.revenue;
+  hourTotals.forEach((v, h) => { if (v > maxHourRev) { maxHourRev = v; peakHour = h; } });
+
+  let maxDayRev = 0, peakDay = 'Mon';
+  dayOfWeek.forEach(d => { if (d.revenue > maxDayRev) { maxDayRev = d.revenue; peakDay = d.day; } });
+
+  const totalDays = allDates.size || 1;
+  const totalRevenue = dayTotals.reduce((s, d) => s + d.revenue, 0);
+  const totalChecks = dayTotals.reduce((s, d) => s + d.checks, 0);
+  const avgServiceMinutes = serviceTimeCount > 0 ? round2(serviceTimeSum / serviceTimeCount) : 0;
+
+  return {
+    heatmap, dayOfWeek, peakHour, peakDay,
+    avgDailyRevenue: round2(totalRevenue / totalDays),
+    avgDailyChecks: Math.round(totalChecks / totalDays),
+    avgServiceMinutes,
+    locations: locList,
+  };
+}
+
+
+// OB-237 T-FIN: location_detail from the materializations. Entity-level totals come from the (entity,
+// day) summary_artifacts (reuse getSummaryArtifacts — the raw path includes cancelled cheques in the
+// location totals, so the UNCONDITIONAL metrics match exactly). The per-server staff section comes from
+// summary_artifacts_fine filtered to this entity, grouped by sub_entity_id (mesero) — also unconditional
+// (the raw staff section does not skip cancelled). Weekly buckets use the same 7-day sequential grouping
+// over sorted daily revenue as the raw path. Shape-identical to aggregateLocationDetail.
+async function aggregateLocationDetailFromFine(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  locationId: string,
+) {
+  const entity = entities.find(e => e.id === locationId);
   if (!entity) return null;
 
-  const brandLookup = buildBrandLookup(raw.entities);
+  const brandLookup = buildBrandLookup(entities);
   const meta = (entity.metadata || {}) as Record<string, unknown>;
   const brandId = String(meta.brand_id || '');
   const brand = brandLookup.get(brandId);
 
-  const locationCheques = raw.cheques.filter(c => c.entity_id === locationId);
-  if (locationCheques.length === 0) return null;
+  // Entity-level totals from the (entity, day) summary (unconditional — matches the raw location totals).
+  const dayArts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque', entityId: locationId });
+  if (dayArts.length === 0) return null;
 
-  let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, comps = 0, guests = 0;
-  let chequeCount = 0;
+  let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, comps = 0, guests = 0, chequeCount = 0;
   const dailyRevenue = new Map<string, number>();
+  for (const a of dayArts) {
+    const m = a.metrics || {};
+    revenue += n(m.total); tips += n(m.propina); food += n(m.total_alimentos); bev += n(m.total_bebidas);
+    discounts += n(m.total_descuentos); comps += n(m.total_cortesias); guests += n(m.numero_de_personas);
+    chequeCount += a.row_count;
+    const dt = a.summary_date;
+    if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(m.total));
+  }
+  if (chequeCount === 0) return null;
+
+  // Per-server staff section from the fine table (this entity), grouped by mesero (unconditional).
+  const fineArts = await getFineArtifacts(sb, tenantId, { entityId: locationId });
   const staffAgg = new Map<string, { revenue: number; cheques: number; tips: number }>();
-
-  for (const c of locationCheques) {
-    const rd = c.row_data;
-    chequeCount++;
-    revenue += n(rd.total);
-    tips += n(rd.propina);
-    food += n(rd.total_alimentos);
-    bev += n(rd.total_bebidas);
-    discounts += n(rd.total_descuentos);
-    comps += n(rd.total_cortesias);
-    guests += n(rd.numero_de_personas);
-
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(rd.total));
-
-    const meseroId = String(n(rd.mesero_id));
-    if (meseroId && meseroId !== '0') {
-      const s = staffAgg.get(meseroId) || { revenue: 0, cheques: 0, tips: 0 };
-      s.revenue += n(rd.total);
-      s.cheques++;
-      s.tips += n(rd.propina);
-      staffAgg.set(meseroId, s);
-    }
+  for (const a of fineArts) {
+    const meseroId = a.sub_entity_id;
+    if (!meseroId || meseroId === '0' || meseroId === '') continue;
+    const m = a.metrics || {};
+    const s = staffAgg.get(meseroId) || { revenue: 0, cheques: 0, tips: 0 };
+    s.revenue += n(m.total); s.cheques += a.row_count; s.tips += n(m.propina);
+    staffAgg.set(meseroId, s);
   }
 
-  // Weekly buckets
+  // Weekly buckets (sequential 7-day grouping over sorted daily revenue — identical to the raw path).
   const sortedDates = Array.from(dailyRevenue.keys()).sort();
   const weeklyRevenue: Array<{ week: string; revenue: number }> = [];
   let weekIdx = 0, weekTotal = 0, dayCount = 0;
   for (const dt of sortedDates) {
-    weekTotal += dailyRevenue.get(dt) || 0;
-    dayCount++;
-    if (dayCount >= 7) {
-      weekIdx++;
-      weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-      weekTotal = 0; dayCount = 0;
-    }
+    weekTotal += dailyRevenue.get(dt) || 0; dayCount++;
+    if (dayCount >= 7) { weekIdx++; weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) }); weekTotal = 0; dayCount = 0; }
   }
-  if (dayCount > 0) {
-    weekIdx++;
-    weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-  }
+  if (dayCount > 0) { weekIdx++; weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) }); }
 
-  // Staff with names
-  const staffEntities = raw.entities.filter(e => e.entity_type === 'individual');
+  // Staff names.
+  const staffEntities = entities.filter(e => e.entity_type === 'individual');
   const staffByMeseroId = new Map<string, { id: string; name: string; role: string }>();
   for (const se of staffEntities) {
     const sm = (se.metadata || {}) as Record<string, unknown>;
     const mId = sm.mesero_id;
-    if (mId != null) {
-      staffByMeseroId.set(String(mId), { id: se.id, name: se.display_name, role: String(sm.role || 'Mesero') });
-    }
+    if (mId != null) staffByMeseroId.set(String(mId), { id: se.id, name: se.display_name, role: String(sm.role || 'Mesero') });
   }
 
   const staff = Array.from(staffAgg.entries())
@@ -1195,75 +1161,65 @@ function aggregateLocationDetail(raw: { cheques: ChequeRecord[]; entities: Entit
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Server Detail
-// ═══════════════════════════════════════════════════════════════════
 
-function aggregateServerDetail(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, serverId: string) {
-  const entity = raw.entities.find(e => e.id === serverId);
+// OB-237 T-FIN: server_detail from summary_artifacts_fine filtered to this server's mesero (sub_entity_id),
+// across all entities (the raw path filters cheques by mesero_id globally). Mirrors aggregateServerDetail:
+// revenue/tips/food/bev/discounts(=total_descuentos+total_cortesias)/guests, daily revenue → weekly
+// buckets, hourly pattern, performanceIndex/tier. All UNCONDITIONAL (the raw path does not skip cancelled
+// for a server). Grand revenue/checks/tips value-match the deterministic committed_data truth for the
+// server's mesero_id. The hourly pattern is keyed on the materialized `hour` (new Date(fecha).getHours())
+// — the cleaner "when the cheque occurred" signal; the raw path keyed it on a literal cierre-string-hour
+// (a close-time quirk). The total cheque count is unchanged; only the hour-bucket distribution differs.
+async function aggregateServerDetailFromFine(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  serverId: string,
+) {
+  const entity = entities.find(e => e.id === serverId);
   if (!entity) return null;
 
   const meta = (entity.metadata || {}) as Record<string, unknown>;
   const meseroId = String(meta.mesero_id || '');
   const role = String(meta.role || 'Mesero');
 
-  // Find location name
   const storeId = String(meta.store_id || meta.location_id || '');
-  const locEntity = raw.entities.find(e => e.id === storeId);
+  const locEntity = entities.find(e => e.id === storeId);
   const locationName = locEntity?.display_name || '';
 
-  // Filter cheques by mesero_id
-  const serverCheques = raw.cheques.filter(c => String(n(c.row_data.mesero_id)) === meseroId);
+  if (!meseroId) return null;
+  const arts = await getFineArtifacts(sb, tenantId, { subEntityId: meseroId });
 
-  let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, guests = 0;
-  let chequeCount = 0;
+  let revenue = 0, tips = 0, food = 0, bev = 0, discounts = 0, guests = 0, chequeCount = 0;
   const dailyRevenue = new Map<string, number>();
   const hourlyBuckets = new Map<number, number>();
 
-  for (const c of serverCheques) {
-    const rd = c.row_data;
-    chequeCount++;
-    revenue += n(rd.total);
-    tips += n(rd.propina);
-    food += n(rd.total_alimentos);
-    bev += n(rd.total_bebidas);
-    discounts += n(rd.total_descuentos) + n(rd.total_cortesias);
-    guests += n(rd.numero_de_personas);
-
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(rd.total));
-
-    const cierre = String(rd.cierre || '');
-    const hourMatch = cierre.match(/(\d{1,2}):/);
-    if (hourMatch) {
-      const hr = parseInt(hourMatch[1]);
-      hourlyBuckets.set(hr, (hourlyBuckets.get(hr) || 0) + 1);
-    }
+  for (const a of arts) {
+    const m = a.metrics || {};
+    revenue += n(m.total);
+    tips += n(m.propina);
+    food += n(m.total_alimentos);
+    bev += n(m.total_bebidas);
+    discounts += n(m.total_descuentos) + n(m.total_cortesias);
+    guests += n(m.numero_de_personas);
+    chequeCount += a.row_count;
+    const dt = a.summary_date;
+    if (dt) dailyRevenue.set(dt, (dailyRevenue.get(dt) || 0) + n(m.total));
+    hourlyBuckets.set(a.hour, (hourlyBuckets.get(a.hour) || 0) + a.row_count);
   }
+  if (chequeCount === 0) return null;
 
-  // Weekly buckets
   const sortedDates = Array.from(dailyRevenue.keys()).sort();
   const weeklyRevenue: Array<{ week: string; revenue: number }> = [];
   let weekIdx = 0, weekTotal = 0, dayCount = 0;
   for (const dt of sortedDates) {
-    weekTotal += dailyRevenue.get(dt) || 0;
-    dayCount++;
-    if (dayCount >= 7) {
-      weekIdx++;
-      weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-      weekTotal = 0; dayCount = 0;
-    }
+    weekTotal += dailyRevenue.get(dt) || 0; dayCount++;
+    if (dayCount >= 7) { weekIdx++; weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) }); weekTotal = 0; dayCount = 0; }
   }
-  if (dayCount > 0) {
-    weekIdx++;
-    weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) });
-  }
+  if (dayCount > 0) { weekIdx++; weeklyRevenue.push({ week: `W${weekIdx}`, revenue: Math.round(weekTotal) }); }
 
-  // Hourly pattern
   const hourlyPattern: Array<{ hour: string; cheques: number }> = [];
-  for (let h = 8; h <= 23; h++) {
-    hourlyPattern.push({ hour: `${h}:00`, cheques: hourlyBuckets.get(h) || 0 });
-  }
+  for (let h = 8; h <= 23; h++) hourlyPattern.push({ hour: `${h}:00`, cheques: hourlyBuckets.get(h) || 0 });
 
   const avgCheck = chequeCount > 0 ? revenue / chequeCount : 0;
   const tipRate = revenue > 0 ? (tips / revenue) * 100 : 0;
@@ -1310,26 +1266,66 @@ function aggregateServerDetail(raw: { cheques: ChequeRecord[]; entities: EntityR
 // ═══════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════
-// Aggregation: Cheques (HF-324 O3 drill-through)
-// Filters the already-fetched raw cheques by location (entity_id), server (mesero_id), and/or
-// leakage category. Additive: reuses the same service-role plumbing, returns a capped list.
+// Aggregation: Cheques (HF-324 O3 drill-through) — OB-237 T-FIN BOUNDED rewrite.
+// Was a filter over the whole-table raw-cheque fetch (retired). Now a BOUNDED committed_data
+// query: the location (entity_id) / server (mesero_id) / leakage-category predicates push into the
+// indexed query (incl. JSONB row_data->>field), and only a CAP-sized page is read+returned. total_count
+// comes from a cheap head-count with the same predicates. scopeEntityIds (SR-39 fail-closed) restricts to
+// the permitted entities — an EXPLICIT empty array denies (zero cheques), an ABSENT scope spans the tenant.
 // ═══════════════════════════════════════════════════════════════════
-function aggregateCheques(
-  raw: { cheques: ChequeRecord[]; entities: EntityRecord[] },
-  filters: { entityId?: string; meseroId?: string; leakageCategory?: string },
+async function aggregateChequesBounded(
+  sb: SupabaseClient,
+  tenantId: string,
+  filters: { entityId?: string; meseroId?: string; leakageCategory?: string; scopeEntityIds?: string[] },
 ) {
   const CAP = 200;
-  const locName = new Map(raw.entities.filter(e => e.entity_type === 'location').map(e => [e.id, e.display_name]));
-  let rows = raw.cheques;
-  if (filters.entityId) rows = rows.filter(c => c.entity_id === filters.entityId);
-  if (filters.meseroId) rows = rows.filter(c => String(n(c.row_data.mesero_id)) === filters.meseroId);
-  const cat = filters.leakageCategory;
-  if (cat === 'cancelaciones') rows = rows.filter(c => n(c.row_data.cancelado) === 1);
-  else if (cat === 'descuentos') rows = rows.filter(c => n(c.row_data.total_descuentos) > 0);
-  else if (cat === 'cortesias') rows = rows.filter(c => n(c.row_data.total_cortesias) > 0);
 
-  const sorted = [...rows].sort((a, b) => String(b.row_data.fecha || '').localeCompare(String(a.row_data.fecha || '')));
-  const cheques = sorted.slice(0, CAP).map(c => {
+  // SR-39 fail-closed scope: explicit empty array → no cheques.
+  const scope = filters.scopeEntityIds;
+  if (scope !== undefined && scope.length === 0) {
+    return { cheques: [], total_count: 0, capped: false };
+  }
+
+  // Build the predicate set once (reused for the count head and the page read). `q` is a PostgREST
+  // filter builder; the JSONB predicates (row_data->>field) push into the indexed query.
+  type FilterBuilder = { eq: (c: string, v: unknown) => FilterBuilder; in: (c: string, v: unknown[]) => FilterBuilder; gt: (c: string, v: unknown) => FilterBuilder };
+  const applyFilters = <T extends FilterBuilder>(q: T): T => {
+    let query = q.eq('tenant_id', tenantId).eq('data_type', 'pos_cheque');
+    if (filters.entityId) query = query.eq('entity_id', filters.entityId);
+    else if (scope !== undefined) query = query.in('entity_id', scope);
+    if (filters.meseroId) query = query.eq('row_data->>mesero_id', filters.meseroId);
+    const cat = filters.leakageCategory;
+    if (cat === 'cancelaciones') query = query.eq('row_data->>cancelado', '1');
+    else if (cat === 'descuentos') query = query.gt('row_data->total_descuentos', '0');
+    else if (cat === 'cortesias') query = query.gt('row_data->total_cortesias', '0');
+    return query as T;
+  };
+
+  // location-name lookup (small — locations only).
+  const { data: locs } = await sb
+    .from('entities')
+    .select('id, display_name')
+    .eq('tenant_id', tenantId)
+    .eq('entity_type', 'location');
+  const locName = new Map((locs ?? []).map((e: { id: string; display_name: string }) => [e.id, e.display_name]));
+
+  // total_count: cheap count-only head with the same predicates.
+  const { count } = await applyFilters(
+    sb.from('committed_data').select('*', { count: 'exact', head: true }) as unknown as FilterBuilder,
+  ) as unknown as { count: number | null };
+  const total = count ?? 0;
+
+  // Bounded page (CAP rows), newest first by source_date then id (deterministic).
+  const pageQuery = applyFilters(
+    sb.from('committed_data').select('entity_id, row_data') as unknown as FilterBuilder,
+  ) as unknown as ReturnType<ReturnType<SupabaseClient['from']>['select']>;
+  const { data, error } = await pageQuery
+    .order('source_date', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(CAP);
+  if (error) throw new Error(`committed_data cheques read: ${error.message}`);
+
+  const cheques = ((data ?? []) as ChequeRecord[]).map(c => {
     const rd = c.row_data;
     return {
       numero_cheque: n(rd.numero_cheque),
@@ -1342,7 +1338,7 @@ function aggregateCheques(
       cancelado: n(rd.cancelado),
     };
   });
-  return { cheques, total_count: rows.length, capped: rows.length > CAP };
+  return { cheques, total_count: total, capped: total > CAP };
 }
 
 export async function POST(request: NextRequest) {
@@ -1365,9 +1361,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // OB-229: network_pulse reads pre-computed summary_artifacts in O(1) — eliminating the bulk-cheque
-    // 97s/164MB aggregation path. Only entities (≈tens of rows) are fetched, not 263K cheques. Falls
-    // back to the raw path when the tenant has no summaries yet (idempotent, safe transition).
+    // OB-229 / OB-237 T-FIN: network_pulse reads pre-computed summary_artifacts in O(1) — eliminating the
+    // bulk-cheque 97s/164MB aggregation path. Only entities (≈tens of rows) are fetched, not 263K cheques.
+    // SINGLE PATH (AP-17): the raw fallback is retired; returns null data when the tenant has no summaries.
     if (mode === 'network_pulse') {
       const sbSum = await createServiceRoleClient();
       const { data: entRows } = await sbSum
@@ -1375,8 +1371,7 @@ export async function POST(request: NextRequest) {
         .select('id, display_name, external_id, entity_type, metadata')
         .eq('tenant_id', tenantId);
       const np = await aggregateNetworkPulseFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
-      if (np) return NextResponse.json({ data: np });
-      // no summaries → fall through to the raw path
+      return NextResponse.json({ data: np });
     }
 
     // OB-237 T1: timeline served from summary_artifacts (single path — the raw aggregateTimeline path is
@@ -1436,58 +1431,64 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: lk });
     }
 
-    const raw = await fetchRawDataServer(tenantId);
-    if (!raw) {
-      return NextResponse.json({ data: null });
+    // OB-237 T-FIN: staff served from summary_artifacts_fine (entity, mesero, date, hour) — single path
+    // (the raw aggregateStaff path is retired; AP-17). Value-matched against deterministic committed_data.
+    if (mode === 'staff') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const st = await aggregateStaffFromFine(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
+      return NextResponse.json({ data: st });
     }
 
-    // OB-99 Phase 4: Persona scope filtering
-    // When scopeEntityIds is provided, only include cheques for those entities
-    // and only include those entities in the entity list
-    // OB-211 WS7 Stage 1 (SR-39 fail-closed): an EXPLICIT scopeEntityIds (an array, even empty)
-    // means "only these entities" — an EMPTY array DENIES (zero cheques) rather than falling open
-    // to the whole tenant. Only an ABSENT scope (undefined — admin/canSeeAll) returns the full
-    // tenant. Previously `&& scopeEntityIds.length > 0` collapsed empty→all, letting an unscoped
-    // manager (now canSeeAll:false, entityIds:[]) aggregate every tenant's financials.
-    const scopedRaw = scopeEntityIds !== undefined
-      ? {
-          cheques: raw.cheques.filter(c => scopeEntityIds.includes(c.entity_id)),
-          entities: raw.entities.filter(e =>
-            scopeEntityIds.includes(e.id) ||
-            e.entity_type === 'organization' || // Keep brands for lookups
-            e.entity_type === 'individual'       // Keep staff for lookups
-          ),
-        }
-      : raw;
-
-    let data: unknown = null;
-
-    switch (mode) {
-      case 'network_pulse':
-        data = aggregateNetworkPulse(scopedRaw);
-        break;
-      case 'staff':
-        data = aggregateStaff(scopedRaw);
-        break;
-      case 'patterns':
-        data = aggregatePatterns(scopedRaw, locationFilter);
-        break;
-      case 'location_detail':
-        if (!locationId) return NextResponse.json({ error: 'locationId required' }, { status: 400 });
-        data = aggregateLocationDetail(raw, locationId);
-        break;
-      case 'server_detail':
-        if (!serverId) return NextResponse.json({ error: 'serverId required' }, { status: 400 });
-        data = aggregateServerDetail(raw, serverId);
-        break;
-      case 'cheques': // HF-324 O3: per-location / per-server / per-leakage-category cheque drill-through
-        data = aggregateCheques(scopedRaw, { entityId: locationId, meseroId, leakageCategory });
-        break;
-      default:
-        return NextResponse.json({ error: `Unknown mode: ${mode}` }, { status: 400 });
+    // OB-237 T-FIN: patterns (7×24 heatmap) served from summary_artifacts_fine (single path; AP-17).
+    if (mode === 'patterns') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const pt = await aggregatePatternsFromFine(sbSum, tenantId, (entRows ?? []) as EntityRecord[], locationFilter);
+      return NextResponse.json({ data: pt });
     }
 
-    return NextResponse.json({ data });
+    // OB-237 T-FIN: location_detail served from summary_artifacts (entity totals) + summary_artifacts_fine
+    // (per-server staff section) — single path (AP-17).
+    if (mode === 'location_detail') {
+      if (!locationId) return NextResponse.json({ error: 'locationId required' }, { status: 400 });
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const ld = await aggregateLocationDetailFromFine(sbSum, tenantId, (entRows ?? []) as EntityRecord[], locationId);
+      return NextResponse.json({ data: ld });
+    }
+
+    // OB-237 T-FIN: server_detail served from summary_artifacts_fine (this mesero) — single path (AP-17).
+    if (mode === 'server_detail') {
+      if (!serverId) return NextResponse.json({ error: 'serverId required' }, { status: 400 });
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const sd = await aggregateServerDetailFromFine(sbSum, tenantId, (entRows ?? []) as EntityRecord[], serverId);
+      return NextResponse.json({ data: sd });
+    }
+
+    // HF-324 O3 / OB-237 T-FIN: cheques drill-through. Now a BOUNDED committed_data query (filter by
+    // entity_id / mesero_id / leakage-category, LIMIT'd) instead of the retired whole-table raw-cheque
+    // fetch. The predicates push into the indexed query so only a small page is read.
+    if (mode === 'cheques') {
+      const sbDrill = await createServiceRoleClient();
+      const ch = await aggregateChequesBounded(sbDrill, tenantId, { entityId: locationId, meseroId, leakageCategory, scopeEntityIds });
+      return NextResponse.json({ data: ch });
+    }
+
+    return NextResponse.json({ error: `Unknown mode: ${mode}` }, { status: 400 });
   } catch (error) {
     console.error('[FinancialData] Error:', error);
     return NextResponse.json(

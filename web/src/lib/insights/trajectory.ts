@@ -8,6 +8,7 @@ import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getPeriodsWithResults, getEntityResults } from '@/lib/drill-through';
 import { ALL_INSIGHTS_SCOPE } from './periods';
+import { getPeriodRollup } from './intelligence-data';
 import type { EntityTrajectory, TrajectoryPoint, PopulationTrendPoint } from './types';
 
 const STABLE_EPS = 0.005; // <0.5% change = stable
@@ -28,18 +29,41 @@ export async function getPopulationTrend(
 ): Promise<PopulationTrendPoint[]> {
   if (!tenantId) return [];
   const sb = client ?? createClient();
-  const { perPeriod } = await loadAcrossPeriods(tenantId, sb);
-  return perPeriod.map(({ period, rows }) => {
-    const total = rows.reduce((s, r) => s + r.totalPayout, 0);
-    return {
-      period_id: period.id,
-      label: period.label,
-      start_date: period.start_date ?? '',
-      total,
-      avg: rows.length ? total / rows.length : 0,
-      entity_count: rows.length,
-    };
-  });
+
+  // OB-237 T-AGG: per-period total + count + avg come from the ONE period-rollup sentinel row per period (no
+  // O(n) reduce over each period's 85 entity_period_outcomes rows, and no per-entity fetch at all). Each
+  // period is resolved by getPeriodsWithResults (the period axis); the rollup supplies its total/entity_count.
+  const periodsDesc = await getPeriodsWithResults(tenantId, sb);
+  const periodsAsc = [...periodsDesc].sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''));
+  const points = await Promise.all(
+    periodsAsc.map(async (period): Promise<PopulationTrendPoint> => {
+      const rollup = await getPeriodRollup(tenantId, period.id, sb);
+      if (rollup) {
+        const total = rollup.total_payout;
+        const count = rollup.entity_count;
+        return {
+          period_id: period.id,
+          label: period.label,
+          start_date: period.start_date ?? '',
+          total,
+          avg: count ? total / count : 0,
+          entity_count: count,
+        };
+      }
+      // graceful fallback: per-entity path for periods without a materialized rollup
+      const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: period.id }, sb);
+      const total = rows.reduce((s, r) => s + r.totalPayout, 0);
+      return {
+        period_id: period.id,
+        label: period.label,
+        start_date: period.start_date ?? '',
+        total,
+        avg: rows.length ? total / rows.length : 0,
+        entity_count: rows.length,
+      };
+    }),
+  );
+  return points;
 }
 
 export async function getEntityTrajectory(

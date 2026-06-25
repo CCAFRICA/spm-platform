@@ -30,7 +30,9 @@ interface Agg { entity_id: string; summary_date: string; data_type: string; metr
   };
   const revKey = await keyFor('financial.network_pulse.revenue', 'the primary monetary amount of money earned or charged as the gross outcome of each transaction or sale');
   const cancelKey = await keyFor('financial.leakage.cancelled', 'a boolean/flag field marking whether the transaction (cheque) was cancelled or voided');
-  console.log(`resolved revenue field='${revKey}' cancelled field='${cancelKey}'`);
+  const discKey = await keyFor('financial.network_pulse.discount', 'the amount discounted or reduced from the charge');
+  const compKey = await keyFor('financial.network_pulse.complimentary', 'the amount given away as complimentary or comped (a zero-charge item)');
+  console.log(`resolved revenue='${revKey}' cancelled='${cancelKey}' discount='${discKey}' comp='${compKey}'`);
   if (!revKey || !cancelKey) throw new Error('HALT-RECOGNIZE: revenue or cancelled field unresolved');
 
   // 1. Aggregate current committed_data (deterministic page by id; SUM all JSON-number fields, raw keys).
@@ -55,11 +57,14 @@ interface Agg { entity_id: string; summary_date: string; data_type: string; metr
       for (const [key, val] of Object.entries(rd)) {
         if (typeof val === 'number' && Number.isFinite(val)) a.metrics[key] = (a.metrics[key] ?? 0) + val;
       }
-      // OB-237 P0: conditional metrics for leakage — cancelled revenue/count (derived, not row fields).
+      // OB-237 P0: conditional metrics for leakage — cancelled revenue/count + discount/comp counts
+      // (cheques WHERE field>0). Derived, not row fields. Enables exact leakage value-match.
       if (Number(rd[cancelKey]) === 1) {
         a.metrics.cancelled_revenue = (a.metrics.cancelled_revenue ?? 0) + (Number(rd[revKey]) || 0);
         a.metrics.cancelled_count = (a.metrics.cancelled_count ?? 0) + 1;
       }
+      if (discKey && Number(rd[discKey]) > 0) a.metrics.discount_count = (a.metrics.discount_count ?? 0) + 1;
+      if (compKey && Number(rd[compKey]) > 0) a.metrics.comp_count = (a.metrics.comp_count ?? 0) + 1;
     }
     scanned += data.length;
     if (data.length < 1000) break;
