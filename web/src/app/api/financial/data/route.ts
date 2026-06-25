@@ -380,63 +380,65 @@ async function aggregateNetworkPulseFromSummaries(
   return finalizeNetworkPulse(locMap, locations, brandLookup);
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Leakage
-// ═══════════════════════════════════════════════════════════════════
+// OB-237 P0: leakage from summary_artifacts (entity, day). Discount/comp amounts from metrics; cancelled
+// revenue + the conditional counts (discount_count/comp_count/cancelled_count) from the OB-237 conditional
+// metrics. Grouped by summary_date (deterministic truth date). Shape-identical to aggregateLeakage.
+async function aggregateLeakageFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  scopeEntityIds?: string[],
+) {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
 
-function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
-  const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
+  const keyFor = async (surface: string, purpose: string): Promise<string | null> => {
+    const r = await recognize(sb, tenantId, surface, purpose);
+    return r.status === 'resolved' && r.fields[0] ? (r.fields[0].field_name ?? r.fields[0].display_label) : null;
+  };
+  const revKey = await keyFor('financial.network_pulse.revenue', 'the primary monetary amount of money earned or charged as the gross outcome of each transaction or sale');
+  const discKey = await keyFor('financial.network_pulse.discount', 'the amount discounted or reduced from the charge');
+  const compKey = await keyFor('financial.network_pulse.complimentary', 'the amount given away as complimentary or comped (a zero-charge item)');
+  if (!revKey) return null;
+  const mv = (m: Record<string, number>, key: string | null) => (key ? (m[key] ?? 0) : 0);
 
-  let totalDiscounts = 0, discountCount = 0;
-  let totalComps = 0, compCount = 0;
-  let totalCancelRevenue = 0, cancelCount = 0;
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
+  const allDates = Array.from(new Set(arts.map(a => a.summary_date).filter(Boolean))).sort();
   const midDate = allDates[Math.floor(allDates.length / 2)] || '';
-  let firstHalfDisc = 0, secondHalfDisc = 0;
-  let firstHalfComp = 0, secondHalfComp = 0;
-  let firstHalfCancel = 0, secondHalfCancel = 0;
 
+  let totalDiscounts = 0, discountCount = 0, totalComps = 0, compCount = 0, totalCancelRevenue = 0, cancelCount = 0;
+  let firstHalfDisc = 0, secondHalfDisc = 0, firstHalfComp = 0, secondHalfComp = 0, firstHalfCancel = 0, secondHalfCancel = 0;
   interface LocWeek { revenue: number; leakage: number; }
   const locWeekly = new Map<string, LocWeek[]>();
   const locTotals = new Map<string, { revenue: number; leakage: number; name: string; brand: string }>();
-
   for (const loc of locations) {
     const brand = getLocationBrand(loc, brandLookup);
     locTotals.set(loc.id, { revenue: 0, leakage: 0, name: loc.display_name, brand: brand?.name || '' });
     locWeekly.set(loc.id, [{ revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }]);
   }
+  const weekTotals = [{ revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }, { revenue: 0, leakage: 0 }];
 
-  const weekTotals = [
-    { revenue: 0, leakage: 0 },
-    { revenue: 0, leakage: 0 },
-    { revenue: 0, leakage: 0 },
-    { revenue: 0, leakage: 0 },
-  ];
-
-  for (const c of raw.cheques) {
-    const rd = c.row_data;
-    const disc = n(rd.total_descuentos);
-    const comp = n(rd.total_cortesias);
-    const isCancelled = n(rd.cancelado) === 1;
-    const revenue = n(rd.total);
-    const cancelRev = isCancelled ? revenue : 0;
+  for (const a of arts) {
+    const m = a.metrics || {};
+    const disc = mv(m, discKey), comp = mv(m, compKey), revenue = mv(m, revKey);
+    const cancelRev = Number(m.cancelled_revenue ?? 0);
     const chequeLeakage = disc + comp + cancelRev;
-    const dt = String(rd.fecha || '').substring(0, 10);
+    const dt = a.summary_date;
     const isSecondHalf = dt >= midDate;
 
-    if (disc > 0) { totalDiscounts += disc; discountCount++; }
-    if (comp > 0) { totalComps += comp; compCount++; }
-    if (isCancelled) { totalCancelRevenue += revenue; cancelCount++; }
+    totalDiscounts += disc; discountCount += Number(m.discount_count ?? 0);
+    totalComps += comp; compCount += Number(m.comp_count ?? 0);
+    totalCancelRevenue += cancelRev; cancelCount += Number(m.cancelled_count ?? 0);
 
     if (isSecondHalf) { secondHalfDisc += disc; secondHalfComp += comp; secondHalfCancel += cancelRev; }
     else { firstHalfDisc += disc; firstHalfComp += comp; firstHalfCancel += cancelRev; }
 
-    const lt = locTotals.get(c.entity_id);
+    const lt = locTotals.get(a.entity_id);
     if (lt) { lt.revenue += revenue; lt.leakage += chequeLeakage; }
-
     const wi = Math.min(weekIndex(dt, allDates), 3);
-    const lw = locWeekly.get(c.entity_id);
+    const lw = locWeekly.get(a.entity_id);
     if (lw && lw[wi]) { lw[wi].revenue += revenue; lw[wi].leakage += chequeLeakage; }
     if (weekTotals[wi]) { weekTotals[wi].revenue += revenue; weekTotals[wi].leakage += chequeLeakage; }
   }
@@ -446,7 +448,6 @@ function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord
   const cancelTrend = firstHalfCancel > 0 ? ((secondHalfCancel - firstHalfCancel) / firstHalfCancel) * 100 : 0;
 
   const categories = [
-    // HF-324 O3: `key` is a stable, language-independent identifier for the cheques drill filter.
     { category: 'Cancelaciones', key: 'cancelaciones', amount: round2(totalCancelRevenue), count: cancelCount, trend: round2(cancelTrend) },
     { category: 'Descuentos', key: 'descuentos', amount: round2(totalDiscounts), count: discountCount, trend: round2(discTrend) },
     { category: 'Cortesías', key: 'cortesias', amount: round2(totalComps), count: compCount, trend: round2(compTrend) },
@@ -458,23 +459,11 @@ function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord
       const rate = v.revenue > 0 ? (v.leakage / v.revenue) * 100 : 0;
       const lw = locWeekly.get(id) || [];
       const weeklyTrend = lw.map(w => w.revenue > 0 ? round2((w.leakage / w.revenue) * 100) : 0);
-      return {
-        id, name: v.name, brand: v.brand,
-        leakageAmount: round2(v.leakage),
-        leakageRate: round2(rate),
-        threshold: 2.5,
-        status: (rate > 3.5 ? 'critical' : rate > 2.5 ? 'warning' : 'ok') as 'ok' | 'warning' | 'critical',
-        weeklyTrend,
-      };
+      return { id, name: v.name, brand: v.brand, leakageAmount: round2(v.leakage), leakageRate: round2(rate), threshold: 2.5, status: (rate > 3.5 ? 'critical' : rate > 2.5 ? 'warning' : 'ok') as 'ok' | 'warning' | 'critical', weeklyTrend };
     })
     .sort((a, b) => b.leakageRate - a.leakageRate);
 
-  const trend = weekTotals.map((w, i) => ({
-    period: `W${i + 1}`,
-    amount: round2(w.leakage),
-    rate: w.revenue > 0 ? round2((w.leakage / w.revenue) * 100) : 0,
-  }));
-
+  const trend = weekTotals.map((w, i) => ({ period: `W${i + 1}`, amount: round2(w.leakage), rate: w.revenue > 0 ? round2((w.leakage / w.revenue) * 100) : 0 }));
   return { categories, locations: locData, trend };
 }
 
@@ -1436,6 +1425,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: pr });
     }
 
+    // OB-237 P0: leakage served from summary_artifacts + conditional metrics (single path; AP-17).
+    if (mode === 'leakage') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const lk = await aggregateLeakageFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
+      return NextResponse.json({ data: lk });
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
@@ -1465,9 +1465,6 @@ export async function POST(request: NextRequest) {
     switch (mode) {
       case 'network_pulse':
         data = aggregateNetworkPulse(scopedRaw);
-        break;
-      case 'leakage':
-        data = aggregateLeakage(scopedRaw);
         break;
       case 'staff':
         data = aggregateStaff(scopedRaw);
