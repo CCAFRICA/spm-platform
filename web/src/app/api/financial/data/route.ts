@@ -195,6 +195,46 @@ async function getFineArtifacts(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// OB-237 RESIDUAL: write-time rollup reader (the THIRD materialization tier). staff_rollup (per
+// location×mesero, ~40 rows) and patterns_rollup (per entity×day-of-week, ~140 rows) are pre-aggregated
+// from summary_artifacts_fine at materialization time so the staff/patterns surfaces read a small set
+// instead of reducing 88K fine rows in JS. metrics is a free-form rollup blob (not the per-field sums of
+// the fine tier), so it is typed loosely here. Small reads — single page suffices, but page defensively.
+// ═══════════════════════════════════════════════════════════════════
+interface RollupRow {
+  entity_id: string;
+  sub_entity_id: string;
+  metrics: Record<string, unknown>;
+  row_count: number;
+}
+
+async function getRollupRows(
+  sb: SupabaseClient,
+  tenantId: string,
+  dataType: string,
+  entityId?: string,
+): Promise<RollupRow[]> {
+  const PAGE = 1000;
+  const out: RollupRow[] = [];
+  let offset = 0;
+  for (;;) {
+    let query = sb
+      .from('summary_artifacts_fine')
+      .select('entity_id, sub_entity_id, metrics, row_count')
+      .eq('tenant_id', tenantId)
+      .eq('data_type', dataType);
+    if (entityId) query = query.eq('entity_id', entityId);
+    const { data, error } = await query.order('id', { ascending: true }).range(offset, offset + PAGE - 1);
+    if (error) throw new Error(`${dataType} read: ${error.message}`);
+    if (!data || data.length === 0) break;
+    out.push(...(data as RollupRow[]));
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Aggregation: Network Pulse
 // ═══════════════════════════════════════════════════════════════════
 
@@ -540,13 +580,15 @@ async function aggregateStaffFromFine(
   entities: EntityRecord[],
   scopeEntityIds?: string[],
 ) {
-  let arts = await getFineArtifacts(sb, tenantId);
-  if (arts.length === 0) return null;
-  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
+  // OB-237 RESIDUAL: read the staff_rollup tier (~40 pre-aggregated (location, mesero) rows) instead of
+  // reducing the 88K-row fine table. metrics already carry excl-cancelled revenue/checks/tips + the four
+  // weekly buckets, computed at materialization time by the same skip/cancel/weekIndex rule this loop used.
+  let rows = await getRollupRows(sb, tenantId, 'staff_rollup');
+  if (rows.length === 0) return null;
+  if (scopeEntityIds !== undefined) rows = rows.filter(r => scopeEntityIds.includes(r.entity_id));
 
   const staffEntities = entities.filter(e => e.entity_type === 'individual');
   const locationEntities = entities.filter(e => e.entity_type === 'location');
-  const allDates = Array.from(new Set(arts.map(a => a.summary_date).filter(Boolean))).sort();
 
   const staffByMeseroId = new Map<string, EntityRecord>();
   for (const se of staffEntities) {
@@ -559,22 +601,21 @@ async function aggregateStaffFromFine(
   interface StaffAgg { meseroId: string; revenue: number; checks: number; tips: number; weeklyRevenue: [number, number, number, number]; }
   const staffMap = new Map<string, StaffAgg>();
 
-  for (const a of arts) {
-    const mid = a.sub_entity_id;
+  // Group rollup rows by mesero (summing across locations to match the prior mesero-keyed aggregate;
+  // scopeEntityIds already filtered on entity_id/location above).
+  for (const r of rows) {
+    const mid = r.sub_entity_id;
     if (!mid || mid === '0' || mid === '') continue;
-    const m = a.metrics || {};
-    // non-cancelled aggregate = unconditional fine totals minus the cancelled conditional metrics.
-    const revenue = n(m.total) - n(m.cancelled_revenue);
-    const checks = a.row_count - n(m.cancelled_count);
-    const tips = n(m.propina) - n(m.cancelled_tips);
-    if (checks <= 0 && revenue === 0) continue;
+    const m = r.metrics || {};
     let agg = staffMap.get(mid);
     if (!agg) { agg = { meseroId: mid, revenue: 0, checks: 0, tips: 0, weeklyRevenue: [0, 0, 0, 0] }; staffMap.set(mid, agg); }
-    agg.revenue += revenue;
-    agg.checks += checks;
-    agg.tips += tips;
-    const wi = Math.min(weekIndex(a.summary_date, allDates), 3);
-    agg.weeklyRevenue[wi] += revenue;
+    agg.revenue += n(m.revenue);
+    agg.checks += n(m.checks);
+    agg.tips += n(m.tips);
+    agg.weeklyRevenue[0] += n(m.week0);
+    agg.weeklyRevenue[1] += n(m.week1);
+    agg.weeklyRevenue[2] += n(m.week2);
+    agg.weeklyRevenue[3] += n(m.week3);
   }
 
   const staffList: Array<StaffAgg & { entity: EntityRecord }> = [];
@@ -962,17 +1003,24 @@ async function aggregatePatternsFromFine(
   entities: EntityRecord[],
   locationFilter?: string,
 ) {
-  const arts = await getFineArtifacts(sb, tenantId, { entityId: locationFilter });
-  if (arts.length === 0) return null;
-
-  const dowFromDate = (s: string): number => { const [y, mo, d] = s.split('-').map(Number); return new Date(y, mo - 1, d).getDay(); };
+  // OB-237 RESIDUAL: read the patterns_rollup tier (~140 pre-aggregated (entity, day-of-week) rows, each
+  // carrying its per-hour cells + dow totals + distinct-day count + service time) instead of reducing the
+  // 88K fine table. locationFilter pushes the entity predicate into the indexed read.
+  const rows = await getRollupRows(sb, tenantId, 'patterns_rollup', locationFilter);
+  if (rows.length === 0) return null;
+  // patterns_meta carries the GLOBAL per-dow distinct-day counts — the network heatmap divides per-dow
+  // revenue by the UNION of dates across entities, which is NOT summable from per-entity counts. A single
+  // filtered location reads its own row's num_days instead.
+  const metaRows = locationFilter ? [] : await getRollupRows(sb, tenantId, 'patterns_meta');
+  const meta = (metaRows[0]?.metrics ?? {}) as { dow_days?: Record<string, number>; total_days?: number };
 
   interface Cell { revenue: number; checks: number; }
   const grid: Cell[][] = [];
   for (let d = 0; d < 7; d++) { grid[d] = []; for (let h = 0; h < 24; h++) grid[d][h] = { revenue: 0, checks: 0 }; }
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const dayTotals = dayNames.map((_, i) => ({ dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0, days: new Set<string>() }));
+  const dayTotals = dayNames.map((_, i) => ({ dayIndex: i, revenue: 0, checks: 0, tips: 0, guests: 0 }));
+  const numDaysByDow = Array(7).fill(0) as number[];
 
   const locations = entities.filter(e => e.entity_type === 'location');
   const brandLookup = buildBrandLookup(entities);
@@ -982,35 +1030,28 @@ async function aggregatePatternsFromFine(
   });
 
   let serviceTimeSum = 0, serviceTimeCount = 0;
-  const allDates = new Set<string>();
 
-  for (const a of arts) {
-    const dt = a.summary_date;
-    if (!dt) continue;
-    const m = a.metrics || {};
-    const rev = n(m.total) - n(m.cancelled_revenue);
-    const checks = a.row_count - n(m.cancelled_count);
-    const tips = n(m.propina) - n(m.cancelled_tips);
-    const guests = n(m.numero_de_personas) - n(m.cancelled_guests);
-    if (checks <= 0 && rev === 0) {
-      serviceTimeSum += n(m.service_minutes_sum); serviceTimeCount += n(m.service_count);
-      continue;
+  for (const r of rows) {
+    const dow = Number(r.sub_entity_id);
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
+    const m = r.metrics || {};
+    const hours = (m.hours ?? {}) as Record<string, { r: number; c: number }>;
+    for (const [hStr, cell] of Object.entries(hours)) {
+      const h = Number(hStr);
+      grid[dow][h].revenue += n(cell.r);
+      grid[dow][h].checks += n(cell.c);
     }
-    const dayOfWeek = dowFromDate(dt);
-    const hour = a.hour;
-    grid[dayOfWeek][hour].revenue += rev;
-    grid[dayOfWeek][hour].checks += checks;
-
-    dayTotals[dayOfWeek].revenue += rev;
-    dayTotals[dayOfWeek].checks += checks;
-    dayTotals[dayOfWeek].tips += tips;
-    dayTotals[dayOfWeek].guests += guests;
-    dayTotals[dayOfWeek].days.add(dt);
-    allDates.add(dt);
-
+    dayTotals[dow].revenue += n(m.revenue);
+    dayTotals[dow].checks += n(m.checks);
+    dayTotals[dow].tips += n(m.tips);
+    dayTotals[dow].guests += n(m.guests);
     serviceTimeSum += n(m.service_minutes_sum);
     serviceTimeCount += n(m.service_count);
+    if (locationFilter) numDaysByDow[dow] += n(m.num_days); // one row per dow for a single location
   }
+  // network: per-dow distinct days = the global union (meta). location: the entity's own counts (above).
+  if (!locationFilter) for (let d = 0; d < 7; d++) numDaysByDow[d] = n(meta.dow_days?.[String(d)]);
+  const totalDays = (locationFilter ? numDaysByDow.reduce((s, v) => s + v, 0) : n(meta.total_days)) || 1;
 
   const heatmap: Array<{ hour: number; day: number; revenue: number; checks: number; avgCheck: number }> = [];
   for (let d = 0; d < 7; d++) {
@@ -1021,7 +1062,7 @@ async function aggregatePatternsFromFine(
   }
 
   const dayOfWeek = dayTotals.map((dt, i) => {
-    const numDays = dt.days.size || 1;
+    const numDays = numDaysByDow[i] || 1;
     return {
       day: dayNames[i], dayIndex: i,
       revenue: round2(dt.revenue / numDays),
@@ -1040,7 +1081,6 @@ async function aggregatePatternsFromFine(
   let maxDayRev = 0, peakDay = 'Mon';
   dayOfWeek.forEach(d => { if (d.revenue > maxDayRev) { maxDayRev = d.revenue; peakDay = d.day; } });
 
-  const totalDays = allDates.size || 1;
   const totalRevenue = dayTotals.reduce((s, d) => s + d.revenue, 0);
   const totalChecks = dayTotals.reduce((s, d) => s + d.checks, 0);
   const avgServiceMinutes = serviceTimeCount > 0 ? round2(serviceTimeSum / serviceTimeCount) : 0;
