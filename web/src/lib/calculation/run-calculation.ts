@@ -1178,17 +1178,12 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   for (const [, uuidSet] of Array.from(employeeToEntityIds.entries())) {
     if (uuidSet.size <= 1) continue;
 
-    let primaryId: string | null = null;
-    for (const uuid of Array.from(uuidSet)) {
-      const sheets = dataByEntity.get(uuid);
-      // HF-341 (D4b): the consolidation primary is the sibling UUID carrying the population bucket —
-      // structurally, the rows the SCI layer classified data_type === 'entity' (recognize/guarantee),
-      // not a closed roster-keyword match (the removed Korean-Test registry).
-      if (sheets && sheets.has('entity')) {
-        primaryId = uuid;
-      }
-      if (primaryId) break;
-    }
+    // HF-341 (D4b): the roster-keyword primary-selection registry is REMOVED (Korean Test). That
+    // keyword never matched the data_type-keyed sheet names, so primaryId always stayed null and this
+    // sibling-consolidation was already a no-op (the `continue` below always fired) — removing it is
+    // byte-identical. A structural data_type='entity' primary preference is deferred with the
+    // roster-filter activation (HALT-CALC; see §4a).
+    const primaryId: string | null = null;
     if (!primaryId) continue;
 
     for (const siblingId of Array.from(uuidSet)) {
@@ -1218,10 +1213,10 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // HF-341 (D4b): STRUCTURAL roster detection — mirror of run/route.ts. The dead Tier-3 keyword list
-  // (a closed developer value-set, Korean-Test violation) is REMOVED; a roster is recognized as the
-  // rows the SCI layer classified data_type === 'entity' (the population — recognize/guarantee). The
-  // `__` parent-sheet heuristic is retained first (byte-identical for tenants relying on it).
+  // HF-341 (D4b): the dead Tier-3 keyword list (a closed developer value-set, Korean-Test violation) is
+  // REMOVED; the `__` parent-sheet heuristic (Tier A) is retained. A structural data_type='entity' roster
+  // FILTER is deferred (HALT-CALC: activating a never-before-active population filter could move an
+  // existing tenant's total) — see run/route.ts §4a. Roster detection stays inert here, byte-identical.
   const allSheetNames = new Set<string>();
   for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
@@ -1243,12 +1238,6 @@ export async function runCalculation(input: CalculationInput): Promise<Calculati
         break;
       }
     }
-  }
-
-  // Tier B (HF-341 structural, replaces the dead keyword tier): rows classified data_type === 'entity'.
-  if (!rosterSheetName && allSheetNames.has('entity')) {
-    rosterSheetName = 'entity';
-    console.log(`[RunCalculation] Roster detected via structural marker: data_type='entity' (rows recognized as the entity population)`);
   }
 
   // Build roster entity set from the identified roster sheet

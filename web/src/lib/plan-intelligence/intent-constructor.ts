@@ -657,20 +657,22 @@ function buildReferenceNode(
       // convention as cross_data — convergence resolves "prior:<index>".
       return { prime: 'reference', field: `prior:${source.component_index}` };
     case 'reference_lookup': {
-      // HF-341 (RA-2): reference-table read — ref(data_type, key_column) → value_column, collapsed
-      // by `op` when multiple ref rows match. Represented as a synthetic reference key (the same
-      // convention as cross_data / prior_component: a key the metric-resolution layer resolves at
-      // calc time). The key VALUE is resolved from key_source. The Robles distribution/factor-model
-      // arc (§6A residual #1) wires the calc-time resolver; HF-341 establishes the vocabulary so the
-      // operation set now INCLUDES a first-class reference read alongside aggregate(column, op)
-      // (PG-12). Korean Test: data_type / columns are free-form structural identifiers — no table
-      // registry. This is a representable HOME, not a built reference-join engine for Robles.
-      const keyField = refSourceField(source.key_source);
-      const op = source.op ?? 'first';
-      return {
-        prime: 'reference',
-        field: `reference_lookup:${source.data_type}:${source.key_column}:${keyField}:${source.value_column}:${op}`,
-      };
+      // HF-341 (RA-2): reference-table read — ref(data_type, key_column) → value_column. The OPERATION
+      // VOCABULARY includes this first-class reference read (the ReferenceSource union + this recognized
+      // constructor case prove PG-12 representability), but its CALC-TIME RESOLVER is the Robles
+      // distribution/factor-model arc (§6A residual #1) and is NOT yet wired. Emitting a synthetic
+      // `reference_lookup:*` key here would resolve to 0 at calc (the `reference` prime coerces a missing
+      // metric to 0), silently zeroing any multiply chain — a C2 violation. So construction FAILS LOUD
+      // until the resolver lands, rather than constructing a silently-wrong DAG. Korean Test: data_type /
+      // columns are free-form structural identifiers (no table registry); the failure is structural, not
+      // a value-set check. reference_lookup is NOT advertised in the live LLM prompt for the same reason.
+      throw new ConstructionError(
+        path, source as never,
+        `reference_lookup (data_type="${source.data_type}", key_column="${source.key_column}" → ` +
+        `value_column="${source.value_column}") is representable in the operation vocabulary (RA-2/PG-12) ` +
+        `but its calc-time resolver is the Robles arc (§6A residual #1) and is not yet wired. Construction ` +
+        `fails loud rather than emit a reference that silently resolves to 0 (C2).`,
+      );
     }
     default: {
       const unknown = (source as { type?: unknown }).type;

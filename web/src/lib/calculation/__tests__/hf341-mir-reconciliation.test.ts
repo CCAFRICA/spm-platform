@@ -32,17 +32,6 @@ const ev = (n: PrimeNode, c: EvalContext) => evaluate(n, c).toNumber();
 const ci = (structure: StructuralDescription): CompositionalIntent => ({
   component_id: 'c', component_name: 'c', structure, scale: null, output_precision: 0,
 });
-// collect every reference field present in a constructed PrimeNode tree (for representability proofs)
-function refFields(node: PrimeNode, out: string[] = []): string[] {
-  const n = node as unknown as Record<string, unknown>;
-  if (n.prime === 'reference' && typeof n.field === 'string') out.push(n.field);
-  for (const v of Object.values(n)) {
-    if (Array.isArray(v)) v.forEach(c => c && typeof c === 'object' && refFields(c as PrimeNode, out));
-    else if (v && typeof v === 'object') refFields(v as PrimeNode, out);
-  }
-  return out;
-}
-
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // D3a / PG-11 (RA-1) — N-factor multiplicative composition declared in the DAG
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -123,7 +112,7 @@ test('D1 / PG-1: COUNT of rows where Verificado="Sí" × 150 > 0 (the flag is co
 // PG-12 (RA-2) — reference-table read is a first-class operation in the vocabulary
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
-test('PG-12 (RA-2): reference_lookup(data_type, key_column → value_column) is constructible & representable', () => {
+test('PG-12 (RA-2): reference_lookup is REPRESENTABLE in the vocabulary; construction FAILS LOUD (no silent 0) until the Robles resolver lands', () => {
   const intent = ci({
     shape: 'arithmetic', operation: 'multiply',
     operands: [
@@ -131,9 +120,10 @@ test('PG-12 (RA-2): reference_lookup(data_type, key_column → value_column) is 
       { kind: 'constant', value: 1 },
     ],
   } as unknown as StructuralDescription);
-  const dag = constructTree(intent);  // must NOT throw — the vocabulary includes the reference read
-  const fields = refFields(dag);
-  assert.ok(fields.some(f => f.startsWith('reference_lookup:rate_table:recipient:')), `reference read key present: ${fields.join(',')}`);
+  // The op is in the ReferenceSource union (PG-12 representability), and the constructor RECOGNIZES it
+  // (a specific case, not the unknown-type default) — but it throws a loud, reference_lookup-specific
+  // ConstructionError rather than emitting a reference that would silently resolve to 0 at calc (C2).
+  assert.throws(() => constructTree(intent), /reference_lookup|Robles arc/);
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════

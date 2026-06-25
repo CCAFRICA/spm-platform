@@ -554,7 +554,6 @@ ReferenceSource types:
   { "type": "scope_aggregate", "field": "<name>", "boundary": "<attr>", "op": "sum|count|avg|min|max" }
   { "type": "cross_data", "data_type": "<type>", "field"?: "<f>", "aggregation": "count|sum" }
   { "type": "prior_component", "component_index": <n> }
-  { "type": "reference_lookup", "data_type": "<reference table data_type>", "key_column": "<ref column matched against the key>", "key_source": <ReferenceSource that resolves the key value>, "value_column": "<ref column returned>", "op"?: "sum|avg|min|max|first" }   // look a value up from a reference table keyed by a column (a factor/rate-table read)
 
 Scale specification — name which side scales (HF-244 mutual exclusion):
   scale: { "side": "evaluator|convergence", "unit": "<the value's native nature in your own terms; e.g. percent, ratio, currency, count, or any descriptor that fits — there is no fixed set>", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }

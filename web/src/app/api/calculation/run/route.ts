@@ -673,12 +673,6 @@ export async function POST(request: NextRequest) {
         .not('source_date', 'is', null)
         .gte('source_date', period.start_date)
         .lte('source_date', period.end_date)
-        // HF-341 (OB-237 determinism + D2b): a deterministic total order over the paginated .range()
-        // fetch — without it, pages can overlap/drop rows (the OB-237 $102.75M class). Order-invariant
-        // for `sum` (BCL/Meridian byte-identical, PG-8); it additionally makes the D2b key-grouped
-        // `last` = the latest source_date per client (month-end balance). id is the unique tiebreak.
-        .order('source_date', { ascending: true })
-        .order('id', { ascending: true })
         .range(from, to);
       q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
@@ -706,9 +700,6 @@ export async function POST(request: NextRequest) {
         .select('id, entity_id, data_type, row_data, import_batch_id, metadata')
         .eq('tenant_id', tenantId)
         .eq('period_id', periodId)
-        // HF-341 (OB-237 determinism): deterministic total order over paginated .range() (see source_date path).
-        .order('source_date', { ascending: true })
-        .order('id', { ascending: true })
         .range(from, to);
       q = applyCommittedDataVisibility(q, hiddenBatchIds);
       const { data: page } = await q;
@@ -734,8 +725,6 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .is('period_id', null)
       .is('source_date', null)
-      // HF-341 (OB-237 determinism): id is the unique total-order key (source_date is null here).
-      .order('id', { ascending: true })
       .range(from, to);
     q = applyCommittedDataVisibility(q, hiddenBatchIds);
     const { data: page } = await q;
@@ -1151,22 +1140,12 @@ export async function POST(request: NextRequest) {
   for (const [empNum, uuidSet] of Array.from(employeeToEntityIds.entries())) {
     if (uuidSet.size <= 1) continue; // No siblings to merge
 
-    // Find the "primary" entity — the sibling carrying the population bucket.
-    // HF-341 (D4b): structurally, the rows the SCI layer classified data_type === 'entity'
-    // (recognize/guarantee), not a closed roster-keyword match (the removed Korean-Test registry).
-    let primaryId: string | null = null;
-    for (const uuid of Array.from(uuidSet)) {
-      const sheets = dataByEntity.get(uuid);
-      if (sheets && sheets.has('entity')) {
-        primaryId = uuid;
-      }
-      if (primaryId) break;
-    }
-
-    // Fallback: use the entity that's in the extIdToAssignedId map
-    if (!primaryId) {
-      primaryId = extIdToAssignedId.get(empNum) ?? null;
-    }
+    // HF-341 (D4b): the roster-keyword primary-selection registry is REMOVED (Korean Test). That
+    // keyword (['datos colaborador',…]) never matched the data_type-keyed sheet names, so primaryId
+    // always fell through to the extIdToAssignedId fallback below — removing it is byte-identical.
+    // (A structural data_type='entity' primary preference is deferred with the roster-filter
+    // activation above, HALT-CALC.)
+    const primaryId: string | null = extIdToAssignedId.get(empNum) ?? null;
     if (!primaryId) continue;
 
     // Merge all sibling data into the primary entity
@@ -1204,16 +1183,20 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // HF-341 (D4b): STRUCTURAL roster detection. The prior Tier-3 keyword list
-  // (['datos colaborador','roster','employee','empleados']) is a closed developer value-set
-  // (Korean-Test violation) AND was DEAD: dataByEntity is keyed by row.data_type (route.ts:835),
-  // whose keys are the SCI classifications {entity,transaction,target,reference} — the keyword list
-  // could never match them, so "No roster detected — calculating all 35" fired even when a Nómina
-  // roster existed. It is REMOVED. A roster is recognized STRUCTURALLY: the SCI layer classifies the
-  // rows that ARE the entity population as data_type === 'entity' (recognize/guarantee, Decision 158),
-  // so the roster is exactly the set of entities carrying an 'entity'-classified bucket. The `__`
-  // parent-sheet heuristic is retained FIRST (byte-identical for any tenant already relying on it);
-  // the structural marker is the new fallback (replacing the dead keyword tier).
+  // HF-341 (D4b): the prior Tier-3 keyword list (['datos colaborador','roster','employee','empleados'])
+  // is a closed developer value-set (Korean-Test violation) AND was DEAD: dataByEntity is keyed by
+  // row.data_type (route.ts:835), whose keys are the SCI classifications — the keyword list could never
+  // match them. It is REMOVED. The `__` parent-sheet heuristic (Tier A) is retained verbatim.
+  //
+  // HALT-CALC NOTE: a STRUCTURAL roster (rows classified data_type === 'entity') would be the natural
+  // replacement, but ACTIVATING a population filter from it changes behavior platform-wide — no roster
+  // was EVER detected for SCI tenants before (both prior tiers are inert against data_type-keyed sheets),
+  // so every SCI tenant currently calculates ALL assigned entities. Turning the filter on could drop a
+  // paid entity from an existing tenant's grand total (BCL $312,033 / MIR Plan 2 210,000). The directive's
+  // PG-5 ("Activo" not an entity, count < 35) is already met by the D4a entity-id fix (entity_id_field no
+  // longer resolves to a categorical status, so "Activo" is never harvested) — the roster-based population
+  // FILTER is therefore deferred to an architect-verified follow-up (confirm BCL/Meridian-neutral before
+  // activating). Roster detection stays inert here, byte-identical to current behavior.
   const allSheetNames = new Set<string>();
   for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
@@ -1223,9 +1206,8 @@ export async function POST(request: NextRequest) {
 
   let rosterSheetName: string | null = null;
 
-  // Tier A (retained, runs first): Parent sheet heuristic — a sheet is a "parent" if other sheets
-  // start with its name + "__". This is the import convention for multi-tab files. Preserved verbatim
-  // so any tenant currently detecting its roster this way is byte-identical (PG-8 / HALT-CALC).
+  // Tier A (retained verbatim): Parent sheet heuristic — a sheet is a "parent" if other sheets start
+  // with its name + "__". Byte-identical for any tenant already relying on it (PG-8 / HALT-CALC).
   if (!rosterSheetName && allSheetNames.size > 1) {
     for (const candidate of Array.from(allSheetNames)) {
       const prefix = candidate + '__';
@@ -1236,15 +1218,6 @@ export async function POST(request: NextRequest) {
         break;
       }
     }
-  }
-
-  // Tier B (HF-341 structural, replaces the dead keyword tier): the population is the set of rows the
-  // SCI layer classified as data_type === 'entity'. No keyword list; data_type is the platform's
-  // structural classification surface, not a developer-maintained domain keyword set (Korean Test).
-  const ENTITY_DATA_TYPE = 'entity';
-  if (!rosterSheetName && allSheetNames.has(ENTITY_DATA_TYPE)) {
-    rosterSheetName = ENTITY_DATA_TYPE;
-    addLog(`Roster detected via structural marker: data_type='${ENTITY_DATA_TYPE}' (rows recognized as the entity population)`);
   }
 
   // Build roster entity set from the identified roster sheet
@@ -1804,13 +1777,21 @@ export async function POST(request: NextRequest) {
 
     // HF-341 (D2b): per-sub-entity key-grouped snapshot/last/first. When the binding carries a
     // key_column (e.g. the client id), a snapshot/last/first reduction is taken ONCE PER SUB-ENTITY
-    // and the per-sub-entity values are SUMMED — i.e. Σ over clients of the last Saldo_Pendiente per
-    // client per month, NOT a raw sum over every collection-event row (which N× inflates the
-    // denominator). entityRows are in deterministic source_date order (the fetch .order), so 'last'
-    // is the month-end record per client; 'first' the earliest; 'snapshot' the same as 'last' (a
-    // stock invariant within the period). Absent key_column ⇒ the existing single-value path below is
-    // byte-identical. Korean Test: key_column is a structural grouping column, no name registry.
-    if (keyColumn && (reduction === 'snapshot' || reduction === 'last' || reduction === 'first')) {
+    // and the per-sub-entity values are SUMMED — i.e. Σ over clients of the per-client Saldo_Pendiente,
+    // NOT a raw sum over every collection-event row (which N× inflates the denominator). 'last'/'snapshot'
+    // keep the last value in the entity's row order per client; 'first' the first. (Cross-page row
+    // ordering is non-deterministic at the fetch — a deterministic-order fetch is a separate OB-237-class
+    // follow-up; the per-client roll-up here removes the N× inflation regardless.) Absent key_column ⇒
+    // the single-value path below is byte-identical. Korean Test: key_column is a structural grouping
+    // column, no name registry.
+    // C2: the key_column is a free-form field from the LLM; if NO row actually carries it, the grouping
+    // would silently collapse to one bucket (a single value, not Σ-per-sub-entity). Detect that
+    // structurally and fall through loudly to the non-keyed path rather than silently mis-reduce.
+    const keyColumnPresent = !!keyColumn && entityRows.some(rd => keyColumn in rd);
+    if (keyColumn && !keyColumnPresent && shouldEmitTrace(entityExternalId)) {
+      bufferTrace(`[CalcTrace] HF-341 D2b: key_column='${keyColumn}' is absent from entity=${entityExternalId} rows for column='${column}' — falling through to the non-keyed '${reduction}' reduction (loud, not a silent single-bucket collapse).`);
+    }
+    if (keyColumn && keyColumnPresent && (reduction === 'snapshot' || reduction === 'last' || reduction === 'first')) {
       const byKey = new Map<unknown, number>();
       let groupedFilteredOut = 0;
       for (const rd of entityRows) {
@@ -1822,7 +1803,7 @@ export async function POST(request: NextRequest) {
         if (num === null) continue;
         const k = rd[keyColumn];
         if (reduction === 'first') { if (!byKey.has(k)) byKey.set(k, num); }
-        else { byKey.set(k, num); }  // snapshot/last → overwrite → last-in-order (month-end) wins
+        else { byKey.set(k, num); }  // snapshot/last → overwrite → last-in-row-order wins
       }
       if (byKey.size === 0) {
         if (shouldEmitTrace(entityExternalId)) {

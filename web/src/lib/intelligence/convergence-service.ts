@@ -2970,16 +2970,20 @@ async function generateAllComponentBindings(
 
       // HF-341 (C2 fail-loud): a NUMERIC aggregation (sum/average/min/max) over a structurally
       // NON-NUMERIC column silently yields 0/null — the D1 defect (Verificado "Sí"/"No" summed → 0).
-      // Detect it STRUCTURALLY: columnStats is populated ONLY for majority-numeric columns (nulls are
-      // filtered before the >50%-numeric test, so a numeric-with-nulls column still registers stats);
-      // its ABSENCE means the column's non-null values are majority non-numeric, so any value-arithmetic
-      // reduction is invalid. NO nature string is read → no nature→operation map. count / distinct_count
-      // / snapshot / last / first are value-type-agnostic and are NOT gated here. Surface a loud
-      // resolutionFailure (mirrors the abstain/absent gaps above) instead of a silent $0.
-      // BCL/Meridian flow columns are numeric → have columnStats → this never fires for them (PG-8).
+      // Detect it STRUCTURALLY with POSITIVE non-numeric evidence: the column has NO numeric columnStats
+      // (columnStats is populated only for majority-numeric columns) AND it was recorded as a string
+      // column (categoricalFields / booleanFields — >50% of its sampled values are strings). Requiring
+      // positive string evidence (not merely absent stats) means a SPARSE numeric column (all-null in
+      // the sample → in none of these sets) is NEVER flagged — so this cannot misfire on a BCL/Meridian
+      // numeric column (HALT-CALC / PG-8). NO nature string is read → no nature→operation map.
+      // count / distinct_count / snapshot / last / first are value-type-agnostic and are NOT gated here.
       const numericAgg = proposal.reduction === 'sum' || proposal.reduction === 'average'
         || proposal.reduction === 'min' || proposal.reduction === 'max';
-      if (numericAgg && !stats) {
+      const positivelyNonNumeric = !stats && (
+        (sheetCap.categoricalFields ?? []).some(c => c.field === proposal.column)
+        || (sheetCap.booleanFields ?? []).some(b => b.field === proposal.column)
+      );
+      if (numericAgg && positivelyNonNumeric) {
         bindings[compKey][req.role] = {
           column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
           match_pass: 'failed', confidence: 0,
