@@ -944,78 +944,61 @@ function aggregatePatterns(raw: { cheques: ChequeRecord[]; entities: EntityRecor
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Summary
-// ═══════════════════════════════════════════════════════════════════
+// OB-237 T1: financial P&L summary from summary_artifacts (entity, day). Reads the same field keys the
+// raw aggregateSummary sums (the summary is keyed by raw committed_data field names == recognize().field_name),
+// so grand totals value-match the deterministic committed_data truth. Shape-identical to aggregateSummary.
+async function aggregateSummaryFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  monthFilter?: string,
+): Promise<ReturnType<typeof aggregateSummary> | null> {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  const availableMonths = Array.from(new Set(arts.map(a => (a.summary_date || '').substring(0, 7)).filter(Boolean))).sort();
+  if (monthFilter) arts = arts.filter(a => (a.summary_date || '').substring(0, 7) === monthFilter);
 
-async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }, tenantId: string, monthFilter?: string) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
   const locMap = new Map<string, { name: string; brand: string; brandColor: string; revenue: number; food: number; bev: number; tips: number; discounts: number; comps: number; tax: number; cash: number; card: number; guests: number; cheques: number; cancelled: number }>();
-
   for (const loc of locations) {
     const brand = getLocationBrand(loc, brandLookup);
-    locMap.set(loc.id, {
-      name: loc.display_name,
-      brand: brand?.name || '',
-      brandColor: brand?.color || '#6b7280',
-      revenue: 0, food: 0, bev: 0, tips: 0, discounts: 0, comps: 0, tax: 0, cash: 0, card: 0, guests: 0, cheques: 0, cancelled: 0,
-    });
+    locMap.set(loc.id, { name: loc.display_name, brand: brand?.name || '', brandColor: brand?.color || '#6b7280', revenue: 0, food: 0, bev: 0, tips: 0, discounts: 0, comps: 0, tax: 0, cash: 0, card: 0, guests: 0, cheques: 0, cancelled: 0 });
   }
 
   let totalRevenue = 0, totalFood = 0, totalBev = 0, totalTips = 0;
   let totalDiscounts = 0, totalComps = 0, totalTax = 0, totalCash = 0, totalCard = 0;
   let totalGuests = 0, totalCheques = 0, totalCancelled = 0;
   const dates = new Set<string>();
-  // HF-324 O2/PG-5: distinct fecha months for the period selector + optional per-month filter (additive).
-  const availableMonths = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 7)).filter(Boolean))).sort();
-  const summaryCheques = monthFilter ? raw.cheques.filter(c => String(c.row_data.fecha || '').substring(0, 7) === monthFilter) : raw.cheques;
-
-  for (const c of summaryCheques) {
-    const rd = c.row_data;
-    const rev = n(rd.total);
-    const food = n(rd.total_alimentos);
-    const bev = n(rd.total_bebidas);
-    const tips = n(rd.propina);
-    const disc = n(rd.total_descuentos);
-    const comp = n(rd.total_cortesias);
-    const tax = n(rd.total_impuesto);
-    const cash = n(rd.efectivo);
-    const card = n(rd.tarjeta);
-    const guests = n(rd.numero_de_personas);
-    const isCancelled = n(rd.cancelado) === 1;
+  for (const a of arts) {
+    const m = a.metrics || {};
+    const rev = n(m.total), food = n(m.total_alimentos), bev = n(m.total_bebidas), tips = n(m.propina);
+    const disc = n(m.total_descuentos), comp = n(m.total_cortesias), tax = n(m.total_impuesto);
+    const cash = n(m.efectivo), card = n(m.tarjeta), guests = n(m.numero_de_personas);
+    const cancelled = n(m.cancelado), cheques = a.row_count;
 
     totalRevenue += rev; totalFood += food; totalBev += bev; totalTips += tips;
     totalDiscounts += disc; totalComps += comp; totalTax += tax;
     totalCash += cash; totalCard += card; totalGuests += guests;
-    totalCheques++; if (isCancelled) totalCancelled++;
+    totalCheques += cheques; totalCancelled += cancelled;
 
-    const loc = locMap.get(c.entity_id);
+    const loc = locMap.get(a.entity_id);
     if (loc) {
       loc.revenue += rev; loc.food += food; loc.bev += bev; loc.tips += tips;
       loc.discounts += disc; loc.comps += comp; loc.tax += tax;
       loc.cash += cash; loc.card += card; loc.guests += guests;
-      loc.cheques++; if (isCancelled) loc.cancelled++;
+      loc.cheques += cheques; loc.cancelled += cancelled;
     }
-
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) dates.add(dt);
+    if (a.summary_date) dates.add(a.summary_date);
   }
 
-  // Period label from DB
   let periodLabel = '';
-  const supabase = await createServiceRoleClient();
-  const { data: periods } = await supabase.from('periods').select('label').eq('tenant_id', tenantId).limit(1).single();
-  if (periods?.label) {
-    periodLabel = periods.label;
-  } else {
-    const sortedDates = Array.from(dates).sort();
-    periodLabel = `${sortedDates[0] || ''} — ${sortedDates[sortedDates.length - 1] || ''}`;
-  }
-  if (monthFilter) periodLabel = monthFilter; // HF-324: reflect the selected month
+  const { data: periods } = await sb.from('periods').select('label').eq('tenant_id', tenantId).limit(1).single();
+  if (periods?.label) periodLabel = periods.label;
+  else { const sd = Array.from(dates).sort(); periodLabel = `${sd[0] || ''} — ${sd[sd.length - 1] || ''}`; }
+  if (monthFilter) periodLabel = monthFilter;
 
   const netRevenue = totalRevenue - totalDiscounts - totalComps;
-
   const lines = [
     { label: 'Gross Revenue', amount: round2(totalRevenue), isSubtotal: true },
     { label: '  Food Sales', amount: round2(totalFood), percent: totalRevenue > 0 ? round2((totalFood / totalRevenue) * 100) : 0 },
@@ -1033,16 +1016,10 @@ async function aggregateSummary(raw: { cheques: ChequeRecord[]; entities: Entity
     { label: 'Average Check', amount: totalCheques > 0 ? round2(totalRevenue / totalCheques) : 0 },
     { label: 'Average Guests/Check', amount: totalCheques > 0 ? round2(totalGuests / totalCheques) : 0 },
   ];
-
   const locationBreakdown = Array.from(locMap.values())
     .filter(l => l.cheques > 0)
     .sort((a, b) => b.revenue - a.revenue)
-    .map(l => ({
-      name: l.name, brand: l.brand, brandColor: l.brandColor,
-      revenue: round2(l.revenue), food: round2(l.food), bev: round2(l.bev),
-      tips: round2(l.tips), discounts: round2(l.discounts), comps: round2(l.comps),
-      netRevenue: round2(l.revenue - l.discounts - l.comps),
-    }));
+    .map(l => ({ name: l.name, brand: l.brand, brandColor: l.brandColor, revenue: round2(l.revenue), food: round2(l.food), bev: round2(l.bev), tips: round2(l.tips), discounts: round2(l.discounts), comps: round2(l.comps), netRevenue: round2(l.revenue - l.discounts - l.comps) }));
 
   return { periodLabel, lines, locationBreakdown, availableMonths, selectedMonth: monthFilter ?? null };
 }
@@ -1464,6 +1441,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: tl });
     }
 
+    // OB-237 T1: summary (financial P&L) served from summary_artifacts (single path; AP-17).
+    if (mode === 'summary') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const sm = await aggregateSummaryFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], monthFilter);
+      return NextResponse.json({ data: sm });
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
@@ -1505,9 +1493,6 @@ export async function POST(request: NextRequest) {
         break;
       case 'patterns':
         data = aggregatePatterns(scopedRaw, locationFilter);
-        break;
-      case 'summary':
-        data = await aggregateSummary(scopedRaw, tenantId, monthFilter);
         break;
       case 'products':
         data = aggregateProducts(scopedRaw);
