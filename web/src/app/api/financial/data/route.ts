@@ -478,52 +478,41 @@ function aggregateLeakage(raw: { cheques: ChequeRecord[]; entities: EntityRecord
   return { categories, locations: locData, trend };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Aggregation: Performance (Location Benchmarks)
-// ═══════════════════════════════════════════════════════════════════
+// OB-237 T1: per-location performance from summary_artifacts (entity, day). Same per-location metrics +
+// brand benchmarks + weekly buckets as aggregatePerformance, read from the materialization (raw field
+// keys == recognize().field_name). Grand revenue across locations value-matches the committed_data truth.
+async function aggregatePerformanceFromSummaries(
+  sb: SupabaseClient,
+  tenantId: string,
+  entities: EntityRecord[],
+  scopeEntityIds?: string[],
+) {
+  let arts = await getSummaryArtifacts(sb, tenantId, { dataType: 'pos_cheque' });
+  if (arts.length === 0) return null;
+  if (scopeEntityIds !== undefined) arts = arts.filter(a => scopeEntityIds.includes(a.entity_id));
 
-function aggregatePerformance(raw: { cheques: ChequeRecord[]; entities: EntityRecord[] }) {
-  const locations = raw.entities.filter(e => e.entity_type === 'location');
-  const brandLookup = buildBrandLookup(raw.entities);
-  const allDates = Array.from(new Set(raw.cheques.map(c => String(c.row_data.fecha || '').substring(0, 10)))).sort();
-
-  interface LocPerf {
-    id: string; name: string; city: string;
-    brandId: string; brandName: string; brandColor: string;
-    revenue: number; cheques: number; tips: number;
-    food: number; bev: number; discounts: number; comps: number;
-    daily: Map<string, number>;
-    weeklyRevenue: [number, number, number, number];
-  }
-
+  const locations = entities.filter(e => e.entity_type === 'location');
+  const brandLookup = buildBrandLookup(entities);
+  interface LocPerf { id: string; name: string; city: string; brandId: string; brandName: string; brandColor: string; revenue: number; cheques: number; tips: number; food: number; bev: number; discounts: number; comps: number; daily: Map<string, number>; weeklyRevenue: [number, number, number, number]; }
   const locMap = new Map<string, LocPerf>();
   for (const loc of locations) {
     const m = (loc.metadata || {}) as Record<string, unknown>;
     const brand = getLocationBrand(loc, brandLookup);
-    locMap.set(loc.id, {
-      id: loc.id, name: loc.display_name, city: String(m.city || ''),
-      brandId: brand?.id || '', brandName: brand?.name || '',
-      brandColor: brand?.color || '#6b7280',
-      revenue: 0, cheques: 0, tips: 0, food: 0, bev: 0, discounts: 0, comps: 0,
-      daily: new Map(), weeklyRevenue: [0, 0, 0, 0],
-    });
+    locMap.set(loc.id, { id: loc.id, name: loc.display_name, city: String(m.city || ''), brandId: brand?.id || '', brandName: brand?.name || '', brandColor: brand?.color || '#6b7280', revenue: 0, cheques: 0, tips: 0, food: 0, bev: 0, discounts: 0, comps: 0, daily: new Map(), weeklyRevenue: [0, 0, 0, 0] });
   }
 
-  for (const c of raw.cheques) {
-    const agg = locMap.get(c.entity_id);
+  const allDates = Array.from(new Set(arts.map(a => a.summary_date).filter(Boolean))).sort();
+  for (const a of arts) {
+    const agg = locMap.get(a.entity_id);
     if (!agg) continue;
-    const rd = c.row_data;
-    agg.revenue += n(rd.total);
-    agg.cheques++;
-    agg.tips += n(rd.propina);
-    agg.food += n(rd.total_alimentos);
-    agg.bev += n(rd.total_bebidas);
-    agg.discounts += n(rd.total_descuentos);
-    agg.comps += n(rd.total_cortesias);
-    const dt = String(rd.fecha || '').substring(0, 10);
-    if (dt) agg.daily.set(dt, (agg.daily.get(dt) || 0) + n(rd.total));
+    const m = a.metrics || {};
+    agg.revenue += n(m.total); agg.cheques += a.row_count; agg.tips += n(m.propina);
+    agg.food += n(m.total_alimentos); agg.bev += n(m.total_bebidas);
+    agg.discounts += n(m.total_descuentos); agg.comps += n(m.total_cortesias);
+    const dt = a.summary_date;
+    if (dt) agg.daily.set(dt, (agg.daily.get(dt) || 0) + n(m.total));
     const wi = Math.min(weekIndex(dt, allDates), 3);
-    agg.weeklyRevenue[wi] += n(rd.total);
+    agg.weeklyRevenue[wi] += n(m.total);
   }
 
   const locs = Array.from(locMap.values()).filter(l => l.cheques > 0);
@@ -535,15 +524,13 @@ function aggregatePerformance(raw: { cheques: ChequeRecord[]; entities: EntityRe
     b.revenue += l.revenue; b.cheques += l.cheques;
     brandAvg.set(l.brandId, b);
   }
-
   const networkTips = locs.reduce((s, l) => s + l.tips, 0);
   const networkRevenue = locs.reduce((s, l) => s + l.revenue, 0);
   const networkAvgTipRate = networkRevenue > 0 ? (networkTips / networkRevenue) * 100 : 0;
 
   const byRevenue = locs.sort((a, b) => b.revenue - a.revenue);
   const maxRevenue = byRevenue[0]?.revenue || 1;
-  const prevRevenue = locs.map(l => ({ id: l.id, rev: l.weeklyRevenue[0] + l.weeklyRevenue[1] + l.weeklyRevenue[2] }))
-    .sort((a, b) => b.rev - a.rev);
+  const prevRevenue = locs.map(l => ({ id: l.id, rev: l.weeklyRevenue[0] + l.weeklyRevenue[1] + l.weeklyRevenue[2] })).sort((a, b) => b.rev - a.rev);
   const prevRankMap = new Map<string, number>();
   prevRevenue.forEach((pr, i) => prevRankMap.set(pr.id, i + 1));
 
@@ -558,7 +545,6 @@ function aggregatePerformance(raw: { cheques: ChequeRecord[]; entities: EntityRe
     const totalFoodBev = l.food + l.bev;
     const foodPct = totalFoodBev > 0 ? Math.round((l.food / totalFoodBev) * 100) : 50;
     const leakage = l.revenue > 0 ? ((l.discounts + l.comps) / l.revenue) * 100 : 0;
-
     return {
       id: l.id, rank, rankChange: prevRank - rank,
       name: l.name, city: l.city,
@@ -1452,6 +1438,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: sm });
     }
 
+    // OB-237 T1: performance (per-location benchmarks) served from summary_artifacts (single path; AP-17).
+    if (mode === 'performance') {
+      const sbSum = await createServiceRoleClient();
+      const { data: entRows } = await sbSum
+        .from('entities')
+        .select('id, display_name, external_id, entity_type, metadata')
+        .eq('tenant_id', tenantId);
+      const pf = await aggregatePerformanceFromSummaries(sbSum, tenantId, (entRows ?? []) as EntityRecord[], scopeEntityIds);
+      return NextResponse.json({ data: pf });
+    }
+
     const raw = await fetchRawDataServer(tenantId);
     if (!raw) {
       return NextResponse.json({ data: null });
@@ -1484,9 +1481,6 @@ export async function POST(request: NextRequest) {
         break;
       case 'leakage':
         data = aggregateLeakage(scopedRaw);
-        break;
-      case 'performance':
-        data = aggregatePerformance(scopedRaw);
         break;
       case 'staff':
         data = aggregateStaff(scopedRaw);
