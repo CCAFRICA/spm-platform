@@ -64,7 +64,7 @@ Single session. Phase-0 diagnosis (parallel-agent investigation) → Phase 1–3
 | PG-8 | FP-49 SQL verification gate (only if ANY SQL written) | **N/A** | **No SQL written.** App-layer read-scope filtering only; no migrations, no RLS, no DDL. |
 | PG-9 | `npm run build` exits 0 | **PASS** | `BUILD EXIT CODE: 0`; "✓ Compiled successfully"; "✓ Generating static pages (210/210)". |
 | PG-10 | `localhost:3000` responds after clean build | **PASS** | `npm run dev` → `/login` HTTP 200, `/` HTTP 307→/login (unauth redirect). |
-| PG-11 | PR created | **PASS** | See "VERIFICATION SCRIPT OUTPUT" — `gh pr create` URL below. |
+| PG-11 | PR created | **PASS** | https://github.com/CCAFRICA/spm-platform/pull/600 |
 
 ---
 
@@ -160,4 +160,4 @@ GET /login 200
 ```
 
 ### PR
-`<gh pr create URL — see below>`
+https://github.com/CCAFRICA/spm-platform/pull/600
