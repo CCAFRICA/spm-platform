@@ -1,5 +1,41 @@
 # OB-237 — Materialized Serving Path (MSP) — COMPLETION REPORT
 
+## §P0-FINAL (OB-237 COMPLETE directive) — conditional metric + leakage wired; ARCHITECT GATE reached
+
+**PG-SCHEMA — `summary_artifacts` schema (for modeling `summary_artifacts_fine`):**
+```
+id uuid · tenant_id uuid · entity_id uuid · summary_date date(string) · period_id (null)
+data_type text · metrics jsonb · row_count int · convergence_hash (null) · computed_at · created_at
+sample metrics (lowercase raw keys): { mesa, folio, total, pagado, propina, tarjeta, efectivo,
+  subtotal, ..., total_descuentos, total_cortesias, cancelado, + OB-237 derived:
+  cancelled_revenue, cancelled_count, discount_count, comp_count }
+```
+
+**PG-CANCEL — conditional metric matches deterministic truth.** Summary Engine extended (the standalone re-materializer; the OB-233 engine HALTs on the `mesa` "group" method) to compute `cancelled_revenue`=SUM(total WHERE cancelado=1), `cancelled_count`, `discount_count` (cheques WHERE total_descuentos>0), `comp_count`. Fields resolved via `recognize()` (Korean Test: total/cancelado/total_descuentos/total_cortesias — no hardcode). Re-materialized Sabor:
+`cancelled_revenue $512,731.27 / cancelled_count 1,320` == deterministic committed_data truth ✓; revenue $100,068,158.15 + row_count 263,250 unchanged.
+
+**PG-REGRESS-P0** — network_pulse + timeline still **$100,068,158.15** after re-materialization ✓.
+
+**PG-LEAKAGE — leakage wired, value-matched, raw deleted (AP-17).** Categories vs deterministic truth (EXACT):
+| category | amount | count |
+|---|---|---|
+| Descuentos | $1,186,755.09 | 104,688 |
+| Cortesías | $337,531.65 | 79,266 |
+| Cancelaciones | $512,731.27 | 1,320 |
+Timing: **57,669 ms RAW → 1,569 ms (~37×)**.
+
+**PG-BASELINE — unrecoverable RAW cold baselines captured (before any T-FIN deletion):** `staff` **55,423 ms** (cold), `leakage` 57,669 ms (cold), `timeline` 58,633 ms (cold) — all `fetchRawDataServer`-dominated; `patterns`/`location_detail`/`server_detail` warm-confirm trivial JS agg (15–159 ms), cold ≈ shared ~55–58 s fetch.
+
+### ARCHITECT GATE
+**CREATE `summary_artifacts_fine`** (schema modeled on `summary_artifacts` above, **plus `mesero_id text`, `hour smallint`**, grain (entity, mesero, date, hour); the OB-237 conditional metrics carry into its `metrics`) **AND the aggregation RPCs** (`sum_entity_period_outcomes(p_tenant, p_period)`, a `component_breakdown` rollup RPC for T-AGG). **Both needed, one SQL Editor session.** Spec: `docs/diagnostics/OB-237_FINER_MATERIALIZATION_SPEC.md`.
+
+**HALT — CC STOPS here (P0 complete).** On resume: **T-FIN** populates `summary_artifacts_fine` for Sabor + wires `staff`/`location_detail`/`patterns`/`server_detail` + deletes `fetchRawDataServer` and all raw `aggregate*`; **T-AGG** converts Intelligence/Compensation JS `.reduce` → the RPCs ($312,033 BCL); **T-PROOF** runs the platform-wide zero-raw grep + the full empirical table.
+
+**6 of 10 Financial modes now materialized** (network_pulse, timeline, summary, performance, products, leakage), all value-matched to deterministic truth; raw paths deleted. tsc 0, build 0.
+
+---
+
+
 **Branch:** `ob-237-materialized-serving-path` · **Base:** `main` · **Date:** 2026-06-24 · **Mode:** ULTRACODE
 **Status:** **P0 complete.** **T1 attempted → HALT-BYTEMATCH (all 5 modes blocked).** The byte-match gate caught that `summary_artifacts` is **stale/out-of-sync with current `committed_data`** — wiring any mode to it would silently change the displayed numbers. Conversion reverted (no contamination, SR-41); root cause + architect disposition in §T1 below. CC does NOT merge (SR-44).
 
