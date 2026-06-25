@@ -86,6 +86,17 @@ const VL_VALUE = 'var(--vl-text)';        // replaces #e4e4e7 / #d4d4d8 strong v
 const VL_MUTED = 'var(--vl-text-muted)';  // replaces #a1a1aa secondary text
 const VL_TRACK = '#EEF0F6';               // replaces dark rgba(39,39,42,0.8) tracks/rings
 
+// HF-343 (§3.2/§3.5): anonymized relative position. A member may see WHERE they stand, never WHO is
+// around them or by how much. Derived from aggregate rank/total counts (no peer names/payouts).
+function quartileLabel(rank: number, total: number, isSpanish: boolean): string | null {
+  if (rank <= 0 || total <= 0) return null;
+  const pct = rank / total; // lower rank = better
+  if (pct <= 0.25) return isSpanish ? 'Cuartil superior' : 'Top quartile';
+  if (pct <= 0.5) return isSpanish ? 'Sobre la media' : 'Above average';
+  if (pct <= 0.75) return isSpanish ? 'Bajo la media' : 'Below average';
+  return isSpanish ? 'Cuartil inferior' : 'Bottom quartile';
+}
+
 // Calculate payout for a given attainment using tiers
 function calculatePayout(attainment: number, tiers: TierConfig[]): number {
   let payout = 0;
@@ -327,10 +338,11 @@ export function RepDashboard() {
             </div>
             {/* Pill badges */}
             <div className="flex flex-wrap gap-2 mt-3">
-              {data.rank > 0 && data.totalEntities > 0 && (
+              {/* HF-343: anonymized quartile, NOT "#rank de N" (peer count is an org exposure — §1/§3.5) */}
+              {quartileLabel(data.rank, data.totalEntities, isSpanish) && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
                   style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                  #{data.rank} de {data.totalEntities}
+                  {quartileLabel(data.rank, data.totalEntities, isSpanish)}
                 </span>
               )}
               {data.attainment >= 100 && (

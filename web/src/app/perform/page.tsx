@@ -20,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import { Award, DollarSign, Sparkles, Target, Users } from 'lucide-react';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313: Vialuce page-template adoption (else-branch unchanged)
 import { usePersona } from '@/contexts/persona-context';
+import { useAuthScope } from '@/hooks/use-auth-scope'; // HF-343: authenticated scope + capability gating
 import { AdminDashboard } from '@/components/dashboards/AdminDashboard';
 import { ManagerDashboard } from '@/components/dashboards/ManagerDashboard';
 import { RepDashboard } from '@/components/dashboards/RepDashboard';
@@ -33,7 +34,6 @@ import {
   getPeriodTotal,
   getComponentTotals,
   getBatchValidity,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
   type ValidityVerdict as Verdict,
@@ -112,6 +112,11 @@ export default function PerformPage() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: preserved for non-DS-003 branches (financial-only cards)
   const { persona } = usePersona();
+  // HF-343: the authenticated scope + capability gates. `authScope` narrows every ICM read to the
+  // member's own entity / manager's team; `canViewAll`/`canViewTeam` gate org-wide panels by the
+  // authenticated role (Decision 39) — NOT the cosmetic persona. `isDenied` = member with no linked
+  // entity (HALT-C → own-empty state, never the tenant).
+  const { scope: authScope, canViewAll, canViewTeam, isDenied, loading: scopeLoading } = useAuthScope();
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
   const { ruleSetCount, entityCount: sessionEntityCount } = useSession();
@@ -137,14 +142,19 @@ export default function PerformPage() {
   const [financialData, setFinancialData] = useState<FinancialSummary | null>(null);
   const [financialLoading, setFinancialLoading] = useState(true);
 
-  // Load calculated periods (ICM clean path).
+  // Load calculated periods (ICM clean path) — HF-343: scoped to the authenticated entity set.
   useEffect(() => {
     if (!tenantId || !hasICM) {
       setPeriodsLoaded(true);
       return;
     }
+    if (scopeLoading) return; // wait for the authenticated scope before issuing the scoped read
+    if (isDenied) { // member with no linked entity (HALT-C) — read nothing, surface own-empty state
+      setPeriods([]); setSelectedPeriodId(''); setPeriodsLoaded(true);
+      return;
+    }
     let cancelled = false;
-    getCalculatedPeriods(tenantId)
+    getCalculatedPeriods(tenantId, authScope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -153,7 +163,7 @@ export default function PerformPage() {
       })
       .catch((err) => { console.warn('[Perform] periods load failed:', err); if (!cancelled) setPeriodsLoaded(true); });
     return () => { cancelled = true; };
-  }, [tenantId, hasICM]);
+  }, [tenantId, hasICM, scopeLoading, isDenied, authScope]);
 
   // Load selected-period data (period total, component totals, entity results, batch validity).
   useEffect(() => {
@@ -161,10 +171,12 @@ export default function PerformPage() {
     let cancelled = false;
     setPeriodDataLoading(true);
     Promise.all([
-      getPeriodTotal(tenantId, selectedPeriodId),
-      getComponentTotals(tenantId, selectedPeriodId),
-      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-      getBatchValidity(tenantId, selectedPeriodId),
+      // HF-343: scope the period total / component totals / entity rows to the authenticated set.
+      // A narrowed scope bypasses the tenant-wide OB-237 sentinels and reads only visible entities.
+      getPeriodTotal(tenantId, selectedPeriodId, authScope),
+      getComponentTotals(tenantId, selectedPeriodId, authScope),
+      getEntityResults(tenantId, authScope, { periodId: selectedPeriodId }),
+      getBatchValidity(tenantId, selectedPeriodId), // tenant batch verdict — gated by canViewAll panel
     ])
       .then(([total, ct, rs, v]) => {
         if (cancelled) return;
@@ -176,7 +188,7 @@ export default function PerformPage() {
       })
       .catch((err) => { console.warn('[Perform] period data load failed:', err); if (!cancelled) setPeriodDataLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, selectedPeriodId]);
+  }, [tenantId, selectedPeriodId, authScope]);
 
   // Load financial substrate (preserved restaurant/financial path — NOT calc data).
   useEffect(() => {
@@ -261,7 +273,7 @@ export default function PerformPage() {
   }
 
   // ── Loading shell (initial) ──
-  const initialLoading = (hasICM && !periodsLoaded) || (hasFinancial && !hasICM && financialLoading);
+  const initialLoading = (hasICM && (scopeLoading || !periodsLoaded)) || (hasFinancial && !hasICM && financialLoading);
   if (initialLoading) {
     return (
       <PersonaAmbient>
@@ -330,6 +342,45 @@ export default function PerformPage() {
     );
   }
 
+  // ── Branch 2.5 (HF-343): member/viewer whose own entity is not linked (HALT-C). The scope
+  //     resolver failed closed (DENY) — show the honest own-empty state, NEVER tenant data. ──
+  if (hasICM && isDenied) {
+    return (
+      <PersonaAmbient>
+        <div className="space-y-6">
+          <header>
+            <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
+            <p className={`mt-1 text-sm ${TEXT.body}`}>{currentTenant.name}</p>
+          </header>
+
+          {hasFinancial && financialData && (
+            <FinancialPerformanceBanner
+              data={financialData}
+              persona={persona}
+              isSpanish={isSpanish}
+              formatCurrency={formatCurrency}
+              onNavigate={(href) => router.push(href)}
+            />
+          )}
+
+          <Panel>
+            <div className="py-12 text-center">
+              <Users className="mx-auto mb-4 h-12 w-12" style={{ color: theme.accent }} />
+              <h3 className={`text-lg font-semibold ${TEXT.headline}`}>
+                {isSpanish ? 'Tus resultados aún no están vinculados' : 'Your results aren’t linked yet'}
+              </h3>
+              <p className={`mx-auto mt-2 max-w-md text-sm ${TEXT.body}`}>
+                {isSpanish
+                  ? 'Tu perfil todavía no está asociado a una entidad de resultados. Pídele a tu administrador que vincule tu cuenta para ver tu compensación.'
+                  : 'Your profile isn’t associated with a results entity yet. Ask your administrator to link your account to see your compensation.'}
+              </p>
+            </div>
+          </Panel>
+        </div>
+      </PersonaAmbient>
+    );
+  }
+
   // ── Branch 3: ICM configured but no calculated periods (preserved "ready to calculate") ──
   if (hasICM && periodsLoaded && periods.length === 0) {
     return (
@@ -384,7 +435,8 @@ export default function PerformPage() {
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
             {currentTenant.name}
-            {insights ? ` · ${insights.entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ''}
+            {/* HF-343: entity count is an org-aggregate framing — only shown to team/all viewers. */}
+            {insights ? (canViewTeam ? ` · ${insights.entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ` · ${selectedLabel}`) : ''}
           </p>
         </header>
 
@@ -419,11 +471,13 @@ export default function PerformPage() {
           </Panel>
         ) : (
           <>
-            {/* Dominant: authoritative Period Total + supporting tiles */}
-            <div className="grid gap-4 lg:grid-cols-4">
+            {/* Dominant: authoritative Period Total. HF-343: the 3 supporting tiles are org-aggregate
+                framings — "Entities Paid" / "Average Payout" / "Top Result" (which exposes a peer's
+                name) — gated to team/all viewers. A member sees only their own Period Total. */}
+            <div className={`grid gap-4 ${canViewTeam ? 'lg:grid-cols-4' : 'lg:grid-cols-1'}`}>
               <div className="lg:col-span-1">
                 <HeroMetric
-                  label={isSpanish ? 'Total del Periodo' : 'Period Total'}
+                  label={canViewTeam ? (isSpanish ? 'Total del Periodo' : 'Period Total') : (isSpanish ? 'Mi Compensación' : 'My Compensation')}
                   value={insights.total}
                   format={formatCurrency}
                   icon={DollarSign}
@@ -433,49 +487,58 @@ export default function PerformPage() {
                       ? (isSpanish ? 'sin periodo previo' : 'no prior period')
                       : `${signedPct(insights.delta)} ${isSpanish ? 'vs' : 'vs'} ${insights.priorLabel}`,
                   }}
-                  subtitle={`${insights.entityCount} ${isSpanish ? 'entidades · prom' : 'entities · avg'} ${formatCurrency(insights.avgPayout)}`}
+                  subtitle={canViewTeam
+                    ? `${insights.entityCount} ${isSpanish ? 'entidades · prom' : 'entities · avg'} ${formatCurrency(insights.avgPayout)}`
+                    : `${selectedLabel}`}
                 />
               </div>
-              <Stat
-                label={isSpanish ? 'Entidades Pagadas' : 'Entities Paid'}
-                value={String(insights.entityCount)}
-                hint={isSpanish ? 'con resultados este periodo' : 'with outcomes this period'}
-                icon={Users}
-              />
-              <Stat
-                label={isSpanish ? 'Pago Promedio' : 'Average Payout'}
-                value={formatCurrency(insights.avgPayout)}
-                hint={isSpanish ? 'por entidad' : 'per entity'}
-                icon={Target}
-              />
-              <Stat
-                label={isSpanish ? 'Mejor Resultado' : 'Top Result'}
-                value={insights.top ? formatCurrency(insights.top.totalPayout || 0) : '—'}
-                hint={insights.top?.displayName ?? '—'}
-                icon={Award}
-              />
+              {canViewTeam && (
+                <>
+                  <Stat
+                    label={isSpanish ? 'Entidades Pagadas' : 'Entities Paid'}
+                    value={String(insights.entityCount)}
+                    hint={isSpanish ? 'con resultados este periodo' : 'with outcomes this period'}
+                    icon={Users}
+                  />
+                  <Stat
+                    label={isSpanish ? 'Pago Promedio' : 'Average Payout'}
+                    value={formatCurrency(insights.avgPayout)}
+                    hint={isSpanish ? 'por entidad' : 'per entity'}
+                    icon={Target}
+                  />
+                  <Stat
+                    label={isSpanish ? 'Mejor Resultado' : 'Top Result'}
+                    value={insights.top ? formatCurrency(insights.top.totalPayout || 0) : '—'}
+                    hint={insights.top?.displayName ?? '—'}
+                    icon={Award}
+                  />
+                </>
+              )}
             </div>
 
-            {/* G2: the headline finding as a Five-Elements intelligence card (real navigate action) */}
-            <IntelligenceElement
-              label={isSpanish ? 'Hallazgo del Periodo' : 'Period Finding'}
-              value={formatCurrency(insights.total)}
-              icon={DollarSign}
-              comparison={insights.delta == null
-                ? (isSpanish ? 'Primer periodo calculado' : 'First calculated period')
-                : `${signedPct(insights.delta)} ${isSpanish ? 'frente a' : 'vs'} ${insights.priorLabel}`}
-              comparisonTone={insights.delta == null ? 'neutral' : insights.delta > 0 ? 'positive' : insights.delta < 0 ? 'negative' : 'neutral'}
-              context={isSpanish
-                ? `Total de compensación para ${selectedLabel} en ${insights.entityCount} entidades (promedio ${formatCurrency(insights.avgPayout)}).`
-                : `Compensation total for ${selectedLabel} across ${insights.entityCount} entities (avg ${formatCurrency(insights.avgPayout)}).`}
-              impact={isSpanish
-                ? 'Revisa y aprueba el lote antes de la firma.'
-                : 'Review and approve the batch before sign-off.'}
-              action={{ label: isSpanish ? 'Ir a Compensación' : 'Go to Compensation', href: '/operate' }}
-            />
+            {/* G2: the headline finding (org-aggregate "across N entities" + batch sign-off action) —
+                HF-343: team/all viewers only. */}
+            {canViewTeam && (
+              <IntelligenceElement
+                label={isSpanish ? 'Hallazgo del Periodo' : 'Period Finding'}
+                value={formatCurrency(insights.total)}
+                icon={DollarSign}
+                comparison={insights.delta == null
+                  ? (isSpanish ? 'Primer periodo calculado' : 'First calculated period')
+                  : `${signedPct(insights.delta)} ${isSpanish ? 'frente a' : 'vs'} ${insights.priorLabel}`}
+                comparisonTone={insights.delta == null ? 'neutral' : insights.delta > 0 ? 'positive' : insights.delta < 0 ? 'negative' : 'neutral'}
+                context={isSpanish
+                  ? `Total de compensación para ${selectedLabel} en ${insights.entityCount} entidades (promedio ${formatCurrency(insights.avgPayout)}).`
+                  : `Compensation total for ${selectedLabel} across ${insights.entityCount} entities (avg ${formatCurrency(insights.avgPayout)}).`}
+                impact={isSpanish
+                  ? 'Revisa y aprueba el lote antes de la firma.'
+                  : 'Review and approve the batch before sign-off.'}
+                action={{ label: isSpanish ? 'Ir a Compensación' : 'Go to Compensation', href: '/operate' }}
+              />
+            )}
 
-            {/* G4: THE data-quality verdict — SAME component + source as /stream */}
-            {validity && (
+            {/* G4: THE data-quality verdict — tenant-batch totals → HF-343: admin/all only. */}
+            {canViewAll && validity && (
               <Panel
                 title={isSpanish ? 'Calidad de Datos' : 'Data Quality'}
                 description={isSpanish ? 'Veredicto único del lote de cálculo' : 'The single calculation-batch verdict'}
@@ -484,10 +547,15 @@ export default function PerformPage() {
               </Panel>
             )}
 
-            {/* Composition: where the period's payout is allocated (part-of-whole) */}
+            {/* Composition: where the payout is allocated (part-of-whole). HF-343: scoped — a member
+                sees ONLY their own component breakdown (componentTotals are scope-filtered upstream). */}
             <Panel
-              title={isSpanish ? 'Compensación por Componente' : 'Compensation by Component'}
-              description={isSpanish ? 'Cómo se asigna el pago del periodo' : "Where the period's payout is allocated"}
+              title={canViewTeam
+                ? (isSpanish ? 'Compensación por Componente' : 'Compensation by Component')
+                : (isSpanish ? 'Mi Compensación por Componente' : 'My Compensation by Component')}
+              description={canViewTeam
+                ? (isSpanish ? 'Cómo se asigna el pago del periodo' : "Where the period's payout is allocated")
+                : (isSpanish ? 'Cómo se asigna tu pago del periodo' : 'How your payout is allocated this period')}
             >
               <StackedBar
                 segments={componentTotals.map((c) => ({ label: c.component_name, value: c.total_amount }))}
@@ -497,51 +565,61 @@ export default function PerformPage() {
               />
             </Panel>
 
-            {/* Population shape — admin density (high) */}
-            <DensityGate min="high">
+            {/* Population shape — org/team distribution (every entity's payout). HF-343: team/all only
+                (a member's "population of one" is both meaningless and a cross-entity exposure). */}
+            {canViewTeam && (
+              <DensityGate min="high">
+                <Panel
+                  title={isSpanish ? 'Distribución de Pagos' : 'Payout Distribution'}
+                  description={isSpanish ? 'Forma de la población con referencia de cuartiles y media' : 'Population shape with quartile + mean reference'}
+                >
+                  <DistributionPosition
+                    data={insights.values}
+                    markers={{ quartiles: true, mean: true }}
+                    format={formatCurrency}
+                    emptyLabel={isSpanish ? 'Sin datos de población.' : 'No population data.'}
+                  />
+                </Panel>
+              </DensityGate>
+            )}
+
+            {/* Lifecycle: the comp-run status + sign-off action (/operate). HF-343: team/all only —
+                the action targets a workspace a member cannot enter (avoids a dead-end). */}
+            {canViewTeam && (
               <Panel
-                title={isSpanish ? 'Distribución de Pagos' : 'Payout Distribution'}
-                description={isSpanish ? 'Forma de la población con referencia de cuartiles y media' : 'Population shape with quartile + mean reference'}
+                title={isSpanish ? 'Ciclo de Vida del Periodo' : 'Period Lifecycle'}
+                description={isSpanish ? 'Posición del periodo en la ejecución de compensación' : "This period's position in the compensation run"}
               >
-                <DistributionPosition
-                  data={insights.values}
-                  markers={{ quartiles: true, mean: true }}
-                  format={formatCurrency}
-                  emptyLabel={isSpanish ? 'Sin datos de población.' : 'No population data.'}
+                <ConfigurablePipeline
+                  stages={buildLifecycleStages(selectedPeriod?.lifecycle_state ?? null)}
+                  action={{ label: isSpanish ? 'Ir a Compensación' : 'Go to Compensation', href: '/operate' }}
                 />
               </Panel>
-            </DensityGate>
+            )}
 
-            {/* Lifecycle: where this period sits in the comp run, next action to Compensation */}
-            <Panel
-              title={isSpanish ? 'Ciclo de Vida del Periodo' : 'Period Lifecycle'}
-              description={isSpanish ? 'Posición del periodo en la ejecución de compensación' : "This period's position in the compensation run"}
-            >
-              <ConfigurablePipeline
-                stages={buildLifecycleStages(selectedPeriod?.lifecycle_state ?? null)}
-                action={{ label: isSpanish ? 'Ir a Compensación' : 'Go to Compensation', href: '/operate' }}
-              />
-            </Panel>
+            {/* Intelligence findings — honest stub (plan-health, an org concern). HF-343: team/all only. */}
+            {canViewTeam && (
+              <DensityGate min="high">
+                <Panel title={isSpanish ? 'Hallazgos de IA' : 'AI Findings'}>
+                  <StubAction
+                    label={isSpanish ? 'Hallazgos de IA' : 'AI findings'}
+                    description={isSpanish
+                      ? 'El análisis de salud del plan (saturación de topes, irrelevancia de componentes) llegará pronto.'
+                      : 'AI findings coming soon — plan-health analysis (cap saturation, component irrelevance).'}
+                    icon={Sparkles}
+                  />
+                </Panel>
+              </DensityGate>
+            )}
 
-            {/* Intelligence findings — honest stub (no real AI intelligence output on this surface) */}
-            <DensityGate min="high">
-              <Panel title={isSpanish ? 'Hallazgos de IA' : 'AI Findings'}>
-                <StubAction
-                  label={isSpanish ? 'Hallazgos de IA' : 'AI findings'}
-                  description={isSpanish
-                    ? 'El análisis de salud del plan (saturación de topes, irrelevancia de componentes) llegará pronto.'
-                    : 'AI findings coming soon — plan-health analysis (cap saturation, component irrelevance).'}
-                  icon={Sparkles}
-                />
-              </Panel>
-            </DensityGate>
-
-            {/* Persona dashboards — preserved drill-through / persona depth (null-data guard) */}
+            {/* Persona dashboards — HF-343: selected by the authenticated CAPABILITY (not the cosmetic
+                persona). AdminDashboard reads tenant-wide unconditionally → canViewAll only; Manager is
+                team-scoped (profile_scope); Rep is own-entity-scoped (the member default). */}
             {insights.total > 0 && (
               <DensityGate min="low">
-                {persona === 'admin' && <AdminDashboard />}
-                {persona === 'manager' && <ManagerDashboard />}
-                {persona === 'rep' && <RepDashboard />}
+                {canViewAll && <AdminDashboard />}
+                {canViewTeam && !canViewAll && <ManagerDashboard />}
+                {!canViewTeam && <RepDashboard />}
               </DensityGate>
             )}
           </>

@@ -363,17 +363,20 @@ export async function getRepDashboardData(
     .eq('entity_id', resolvedEntityId)
     .order('created_at', { ascending: false });
 
-  // All outcomes for relative ranking
-  const { data: allOutcomes } = await supabase
-    .from('entity_period_outcomes')
-    .select('entity_id, total_payout')
-    .eq('tenant_id', tenantId)
-    .eq('period_id', periodId)
-    .order('total_payout', { ascending: false });
-
-  const safeAll = allOutcomes ?? [];
-  const myRank = safeAll.findIndex(o => o.entity_id === resolvedEntityId) + 1;
-  const neighbors = buildRelativeNeighbors(safeAll, resolvedEntityId, myRank);
+  // HF-343: relative rank via AGGREGATE counts ONLY — the member's browser never receives raw peer
+  // payouts (§3.1: no tenant-wide row read for a non-admin). The peer leaderboard (which would expose
+  // peer payout VALUES) is intentionally dropped; the surface renders an anonymized quartile derived
+  // from rank/total (§3.2/§3.5 — a member may see anonymized position, never named peers or payouts).
+  const myPayout = myOutcome?.total_payout ?? 0;
+  const [{ count: totalCount }, { count: aheadCount }] = await Promise.all([
+    supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId).eq('period_id', periodId),
+    supabase.from('entity_period_outcomes').select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId).eq('period_id', periodId).gt('total_payout', myPayout),
+  ]);
+  const myRank = (aheadCount ?? 0) + 1;
+  const totalEntities = totalCount ?? 0;
+  const neighbors: NeighborItem[] = []; // leaderboard hidden — peer payouts cannot be cleanly anonymized
 
   // Resolve period IDs to human-readable labels
   const resultPeriodIds = Array.from(new Set((myResults ?? []).map(r => r.period_id).filter(Boolean)));
@@ -395,7 +398,7 @@ export async function getRepDashboardData(
     totalPayout: myOutcome?.total_payout ?? 0,
     components: parseComponents(myResults?.[0]?.components ?? null),
     rank: myRank > 0 ? myRank : 0,
-    totalEntities: safeAll.length,
+    totalEntities,
     neighbors,
     history: (myResults ?? []).map(r => ({
       period: periodLabelMap.get(r.period_id ?? '') ?? r.period_id ?? '',
@@ -522,49 +525,9 @@ function aggregateComponentsFromResults(
   return Object.entries(totals).map(([name, value]) => ({ name, value }));
 }
 
-function buildRelativeNeighbors(
-  allOutcomes: Array<{ entity_id: string; total_payout: number }>,
-  entityId: string,
-  myRank: number
-): NeighborItem[] {
-  const neighbors: NeighborItem[] = [];
-
-  // 3 above (not anonymized)
-  for (let i = Math.max(0, myRank - 4); i < myRank - 1; i++) {
-    if (allOutcomes[i]) {
-      neighbors.push({
-        rank: i + 1,
-        name: `#${i + 1}`,
-        value: allOutcomes[i].total_payout,
-        anonymous: false,
-      });
-    }
-  }
-
-  // Self
-  if (myRank > 0 && allOutcomes[myRank - 1]) {
-    neighbors.push({
-      rank: myRank,
-      name: 'You',
-      value: allOutcomes[myRank - 1].total_payout,
-      anonymous: false,
-    });
-  }
-
-  // 3 below (anonymized)
-  for (let i = myRank; i < Math.min(allOutcomes.length, myRank + 3); i++) {
-    if (allOutcomes[i]) {
-      neighbors.push({
-        rank: i + 1,
-        name: '\u00B7 \u00B7 \u00B7',
-        value: allOutcomes[i].total_payout,
-        anonymous: true,
-      });
-    }
-  }
-
-  return neighbors;
-}
+// HF-343: buildRelativeNeighbors (named/valued peer leaderboard rows) REMOVED \u2014 peer payout values
+// must not reach a member's browser (\u00A73.1/\u00A73.5). Relative position is now an anonymized quartile
+// derived from aggregate rank/total counts (see getRepDashboardData).
 
 async function getLifecycleState(tenantId: string, periodId: string): Promise<string | null> {
   const supabase = createClient();
