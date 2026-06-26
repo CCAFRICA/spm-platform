@@ -30,6 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
+import { ENTITY_SCOPE, TXN_SCOPE, IDENTIFIER_NATURE } from './scope-predicates';
 import type {
   AgentType,
   SemanticBinding,
@@ -143,9 +144,8 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // "identifies":"entity"; Folio "identifies":"transaction". The highest-confidence entity-scope
 // column wins. Scope words (entity/transaction/...) are read free-form — no quoted role literal.
 // HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC surface.
-const ENTITY_SCOPE = /\b(entity|entidad|seller|vendedor|employee|empleado|person|persona|account|cuenta|organization|organizaci[oó]n|member|miembro|rep|staff|worker|salesperson|agent|agente)\b/i;
-const TXN_SCOPE = /\b(transaction|transacci[oó]n|receipt|recibo|folio|invoice|factura|order|pedido|ticket|event|evento|record|registro|line|l[ií]nea)\b/i;
-const IDENTIFIER_NATURE = /\b(identifier|identif|\bid\b|document|documento|dni|code|c[oó]digo|n[uú]mero|key|clave)\b/i;
+// HF-341 R4: ENTITY_SCOPE / TXN_SCOPE / IDENTIFIER_NATURE moved to scope-predicates.ts (single source —
+// the sheet classifier reads the identical scope surface; no duplicated regex registry). Imported at top.
 
 export function findHcEntityIdColumn(
   classificationTrace: Record<string, unknown> | undefined,
@@ -156,20 +156,26 @@ export function findHcEntityIdColumn(
     | undefined;
   const interpretations = hcData?.interpretations;
   if (!interpretations) return null;
-  let best: { col: string; conf: number } | null = null;
+  // HF-341 R4 (C4 eradication): the entity-id is the column the LLM scoped as the ENTITY (referential
+  // resolution), NOT the highest-CONFIDENCE identifier. The prior `conf > best.conf` argmax was a
+  // registry of expectation (Folio@0.98 beating DNI_Vendedor@0.97 on 0.01 — confidence is not entity
+  // identity). With the OB-231 expression now surviving the cache (R4-1), the entity-scope `identifies`
+  // is the authoritative signal: the FIRST column the LLM scoped entity-and-not-transaction is the
+  // entity key. (A sheet with MULTIPLE entity-scope identifiers is a recognition ambiguity the
+  // plan-entity connection resolves — §6A residual #3; deterministic first-match here, no ranking.)
+  let chosen: string | null = null;
   for (const [colName, interp] of Object.entries(interpretations)) {
     const conf = typeof interp.confidence === 'number' ? interp.confidence : 0;
     if (conf < HC_IDENTIFIER_THRESHOLD) continue;
     const scope = `${interp.identifies ?? ''}`;
     const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-    const isEntity = ENTITY_SCOPE.test(scope);
-    const isTxn = TXN_SCOPE.test(scope);
     // Entity-scope identifier only. A transaction-scope id (folio/receipt) is never the entity key.
-    if (isEntity && !isTxn && IDENTIFIER_NATURE.test(natureText)) {
-      if (!best || conf > best.conf) best = { col: colName, conf };
+    if (ENTITY_SCOPE.test(scope) && !TXN_SCOPE.test(scope) && IDENTIFIER_NATURE.test(natureText)) {
+      chosen = colName;
+      break;
     }
   }
-  return best?.col ?? null;
+  return chosen;
 }
 
 function resolveEntityIdField(

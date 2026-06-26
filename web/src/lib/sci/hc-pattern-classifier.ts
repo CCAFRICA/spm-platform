@@ -26,6 +26,14 @@
 // zero field-name matching; zero value-content checks.
 
 import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
+import { TXN_SCOPE } from './scope-predicates';
+
+// HF-341 R4: does an identifier column carry a TRANSACTION scope (a per-row event id — folio/receipt/
+// invoice) in the LLM's free-form `identifies`? This is the expression that distinguishes an EVENT
+// sheet (rows are transactions) from a per-entity record sheet — replacing the idRepeatRatio heuristic.
+function isTxnScopeIdentifier(interp: HeaderInterpretation): boolean {
+  return TXN_SCOPE.test(`${interp.identifies ?? ''}`);
+}
 
 // ============================================================
 // HC PATTERN RESULT (interface preserved from HF-105)
@@ -143,10 +151,16 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // into the measure primitive), so the disjunction stays intact regardless of
   // how the LLM phrased a monetary column.
   const measurePresent = hasMeasure;
-  // HF-268 B: restore the target/transaction discriminant (Decision 108). idRepeatRatio is the
-  // structural signal HC's profile already encodes — > 1.5 means repeated entities over time
-  // (transaction); <= 1.5 means one row per entity (a per-period TARGET, e.g. a quota whose
-  // temporal column is an effective-date/period marker, not a transaction timestamp).
+  // HF-341 R4 (C2): the target/transaction discriminant reads the LLM's EXPRESSION FIRST. A sheet
+  // carrying a TRANSACTION-scope identifier (a per-row event id — folio/receipt, in the LLM's free-form
+  // `identifies`) records EVENTS → transaction; this PRECEDES (and on the MIR Folio case, replaces) the
+  // idRepeatRatio heuristic, which mis-read Folio's 1:1 ratio as "per-period target" AND flipped
+  // fresh-vs-cached because the cache dropped the scope (R4-1 fixes the cache). idRepeatRatio is RETAINED
+  // ONLY as a measured structural fallback for the events-over-time-WITHOUT-an-event-id class (monthly
+  // actuals: an entity that repeats across periods with no per-row id), which the per-column expression
+  // does not encode — deleting it outright regresses that class (Meridian/AUD-013). It is a measured
+  // property of the data, not a role-term registry; the expression takes precedence over it.
+  const hasTxnScopeIdentifier = roles.some(interp => isIdentifier(interp) && isTxnScopeIdentifier(interp));
   const idRepeatRatio = profile.structure.identifierRepeatRatio;
 
   // ── Branch 1: dimensional lookup ─────────────────────────
@@ -218,6 +232,24 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       ],
     };
   }
+  if (identifierCount >= 1 && hasTxnScopeIdentifier) {
+    return {
+      classification: 'transaction',
+      confidence: 0.85,
+      patternName: 'event_transactions_txnscope',
+      matchedConditions: [
+        'HAS measure',
+        'HAS a transaction-scope identifier (per-row event id) — the LLM expressed it records events',
+        hasTemporal ? 'HAS temporal — per-period event data' : 'event id present (temporal optional)',
+        `${identifierCount} identifier(s)`,
+        `${measureCount} measure column(s)`,
+      ],
+    };
+  }
+  // HF-341 R4: structural FALLBACK (not the expression — see the note above). An entity that REPEATS
+  // across periods (idRepeatRatio > 1.5) with a temporal column is events-over-time even when it carries
+  // no per-row event id (monthly actuals: employee_id + amount + month). The per-column expression does
+  // not encode this; deleting it regresses the class (Meridian/AUD-013). A measured structural property.
   if (identifierCount >= 1 && hasTemporal && idRepeatRatio > 1.5) {
     return {
       classification: 'transaction',
@@ -226,7 +258,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       matchedConditions: [
         'HAS measure',
         'HAS temporal — per-period event data',
-        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (>1.5 — repeated entities over time)`,
+        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (>1.5 — the entity repeats across periods; structural fallback)`,
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
       ],
@@ -237,12 +269,10 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // Has an identifier but NO reference key AND NO temporal — this IS the
   // entity record, not referencing another, and not per-period.
   // "One value set per entity — quotas, targets, thresholds, rates."
-  // HF-268 B: a per-entity record with measures and NO reference key is a target. This now
-  // INCLUDES per-period temporal targets: the high-repeat temporal case (idRepeatRatio > 1.5) was
-  // already classified transaction above, so any temporal file reaching here has idRepeatRatio <= 1.5
-  // — a quota whose effective-date is a period marker, one row per entity (idRepeatRatio=1.00) lands
-  // target, not transaction. Decision 108: HC's structural idRepeatRatio is authoritative.
-  if (identifierCount >= 1 && !hasReferenceKey) {
+  // HF-341 R4: a measure-bearing sheet with an identifier, NO reference key, and NO transaction-scope
+  // identifier (no per-row event id) is per-entity records — a target (quotas/thresholds). The event
+  // discriminant is the LLM's expressed scope (a transaction-scope id above), not a repeat ratio.
+  if (identifierCount >= 1 && !hasReferenceKey && !hasTxnScopeIdentifier) {
     return {
       classification: 'target',
       confidence: 0.85,
@@ -251,7 +281,7 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
         'HAS measure',
         'NO reference key — entity-level record',
         hasTemporal
-          ? `HAS temporal but idRepeatRatio=${idRepeatRatio.toFixed(2)} (<=1.5 — per-period target, not events)`
+          ? 'HAS temporal but NO transaction-scope identifier — the LLM expressed per-entity records (a per-period target), not events'
           : 'NO temporal — snapshot, not per-period',
         `${identifierCount} identifier(s)`,
         `${measureCount} measure column(s)`,
