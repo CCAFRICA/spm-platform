@@ -53,6 +53,7 @@ export default function InsightsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const theme = usePersonaTheme();
+  const isAdmin = theme.persona === 'admin'; // HF-344: tenant-wide intelligence is admin-only (display-layer scoping)
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
@@ -153,10 +154,16 @@ export default function InsightsPage() {
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Overview</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
-            Earnings analytics{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
+            {/* HF-344: whole-population entity count is admin-only */}
+            Earnings analytics{insights ? (isAdmin ? ` · ${insights.entityCount} entities · ${selectedLabel}` : (selectedLabel ? ` · ${selectedLabel}` : '')) : ''}
           </p>
         </header>
 
+        {/* HF-344: PeriodCards (per-period totals) + the entire tenant-wide composition below read
+            getEntityResults(ALL_INSIGHTS_SCOPE)/getComponentTotals → admin-only. Rep/manager get a
+            reduced state. Admin branch is byte-identical (DD-7). */}
+        {isAdmin ? (
+        <>
         {periods.length > 0 && (
           <PeriodCards
             periods={periods}
@@ -217,6 +224,15 @@ export default function InsightsPage() {
               </Panel>
             </DensityGate>
           </>
+        )}
+        </>
+        ) : (
+          <Panel>
+            <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+              Tenant-wide intelligence is available to administrators.{' '}
+              <Link href="/perform" className="underline">View your performance →</Link>
+            </div>
+          </Panel>
         )}
       </div>
     </PersonaAmbient>

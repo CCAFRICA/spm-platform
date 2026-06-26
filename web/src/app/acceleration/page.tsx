@@ -30,7 +30,7 @@ import {
   type ComponentTotal,
 } from '@/lib/insights';
 import { getEntityResults, type EntityResult } from '@/lib/drill-through';
-import { PeriodCards } from '@/components/insights';
+import { PeriodCards, PeriodSelector } from '@/components/insights';
 import {
   PersonaAmbient,
   DensityGate,
@@ -232,11 +232,14 @@ export default function AccelerationPage() {
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Acceleration</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
-            Recognition, movement &amp; coaching{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
+            {/* HF-344: whole-population entity count is admin-only */}
+            Recognition, movement &amp; coaching{insights ? (persona === 'admin' ? ` · ${insights.entityCount} entities · ${selectedLabel}` : (selectedLabel ? ` · ${selectedLabel}` : '')) : ''}
           </p>
         </header>
 
-        {periods.length > 0 && (
+        {/* HF-344: PeriodCards shows per-period tenant totals → admin only; rep/manager get the
+            amount-free PeriodSelector so My Rank keeps its period context. */}
+        {periods.length > 0 && (persona === 'admin' ? (
           <PeriodCards
             periods={periods}
             selectedPeriodId={selectedPeriodId}
@@ -244,18 +247,26 @@ export default function AccelerationPage() {
             accentColor={theme.accent}
             accentSoft={theme.accentSoft}
           />
-        )}
+        ) : (
+          <PeriodSelector
+            periods={periods}
+            selectedPeriodId={selectedPeriodId}
+            onPeriodChange={setSelectedPeriodId}
+          />
+        ))}
 
         {isLoading || !insights ? (
           <Panel><div className={`py-16 text-center text-sm ${TEXT.muted}`}>{isLoading ? 'Loading period…' : 'No outcomes for this period.'}</div></Panel>
         ) : (
           <>
-            {/* Supporting tiles */}
+            {/* Supporting tiles — HF-344: whole-population aggregates → admin only */}
+            {persona === 'admin' && (
             <div className="grid gap-4 sm:grid-cols-3">
               <Stat label="Entities Paid" value={String(insights.entityCount)} hint="with outcomes this period" icon={Users} />
               <Stat label="Average Payout" value={format(insights.avgPayout)} hint="per entity" icon={Target} />
               <Stat label="Top Performer" value={insights.top ? format(insights.top.totalPayout || 0) : '—'} hint={insights.top?.displayName ?? '—'} icon={Award} />
             </div>
+            )}
 
             {/* Rep relative rank — only when persona is rep and we know their entity (honest). */}
             {showMyRank && (
@@ -271,7 +282,8 @@ export default function AccelerationPage() {
               </DensityGate>
             )}
 
-            {/* Dominant: recognition (ranked vs population average). */}
+            {/* Dominant: recognition (ranked vs population average). HF-344: tenant-wide → admin only */}
+            {persona === 'admin' && (
             <Panel title="Top Performers" description="By total earnings this period, vs the population average">
               <HorizontalBar
                 items={insights.topFive.map((e) => ({ label: e.displayName || e.externalId, value: e.totalPayout || 0 }))}
@@ -279,8 +291,10 @@ export default function AccelerationPage() {
                 format={format}
               />
             </Panel>
+            )}
 
-            {/* Movement triage — split gainers / decliners (needs a prior calculated period). */}
+            {/* Movement triage — split gainers / decliners. HF-344: tenant-wide → admin only */}
+            {persona === 'admin' && (
             <Panel title="Top Movers" description={priorLabel ? `Change versus ${priorLabel}` : 'Change versus the prior period'}>
               {!insights.hasPrior ? (
                 <div className={`py-8 text-center text-sm ${TEXT.muted}`}>
@@ -294,8 +308,10 @@ export default function AccelerationPage() {
                 />
               )}
             </Panel>
+            )}
 
-            {/* Component coaching — admin/manager density. Coaching action is an honest stub. */}
+            {/* Component coaching — HF-344: was admin+manager (DensityGate medium); now admin only */}
+            {persona === 'admin' && (
             <DensityGate min="medium">
               <Panel
                 title="Component Coaching"
@@ -326,6 +342,7 @@ export default function AccelerationPage() {
                 )}
               </Panel>
             </DensityGate>
+            )}
 
             {/* Config-backed surfaces — honest empty (no SPIF / alert / tier / goal config in tenant data). */}
             <div className="grid gap-4 lg:grid-cols-2">

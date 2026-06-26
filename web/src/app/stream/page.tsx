@@ -742,7 +742,8 @@ function IcmStream({
         <header>
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Intelligence Stream</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
-            What matters most right now{derived ? ` · ${derived.entityCount} entities · ${selectedLabel}` : ''}
+            {/* HF-344: whole-population entity count is admin-only; rep/manager keep only the period name */}
+            What matters most right now{derived ? (isAdmin ? ` · ${derived.entityCount} entities · ${selectedLabel}` : (selectedLabel ? ` · ${selectedLabel}` : '')) : ''}
           </p>
         </header>
 
@@ -753,6 +754,21 @@ function IcmStream({
           </div>
         )}
 
+        {/* HF-344: the persona-scoped InsightNarrative above is the rep/manager surface (rep=own earnings,
+            manager=team health, from the persona-aware loadIntelligenceStream). Everything below — period
+            ribbon, System Health hero, trajectory/movers, admin-depth panels, drill — reads tenant-wide
+            ALL_INSIGHTS_SCOPE / getPopulationTrend, so it is admin-only. Admin subtree is byte-identical (DD-7). */}
+        {!isAdmin && (
+          <Panel>
+            <div className={`py-12 text-center text-sm ${TEXT.muted}`}>
+              Population-wide intelligence is available to administrators. Your own performance lives on{' '}
+              <a href="/perform" className="underline">Performance</a>.
+            </div>
+          </Panel>
+        )}
+
+        {isAdmin && (
+          <>
         <PeriodCards
           periods={periods}
           selectedPeriodId={selectedPeriodId}
@@ -895,6 +911,8 @@ function IcmStream({
           <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
             <DrillThroughPanel tenantId={tenantId} scope={ALL_SCOPE} periodId={selectedPeriodId} initialEntityId={drill.target?.entityId} showExport />
           </StreamDrillRegion>
+        )}
+          </>
         )}
 
         {/* HF-291 F-2: carrier admin governance cards (supplementary, below intelligence). */}

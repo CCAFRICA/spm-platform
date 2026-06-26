@@ -384,12 +384,13 @@ export default function PerformPage() {
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{performTitle}</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
             {currentTenant.name}
-            {insights ? ` · ${insights.entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ''}
+            {/* HF-344: whole-population entity count + selected period is admin-only (rep/manager scope their own dashboard below) */}
+            {insights && persona === 'admin' ? ` · ${insights.entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ''}
           </p>
         </header>
 
-        {/* Dual-module: preserve the financial banner above the compensation view */}
-        {hasFinancial && financialData && (
+        {/* Dual-module: network-wide financial banner. HF-344: admin-only — rep/manager see only their persona dashboard. */}
+        {hasFinancial && financialData && persona === 'admin' && (
           <FinancialPerformanceBanner
             data={financialData}
             persona={persona}
@@ -399,7 +400,8 @@ export default function PerformPage() {
           />
         )}
 
-        {hasICMResults && (
+        {/* HF-344: period ribbon renders per-period tenant payout totals (PeriodCards) → admin-only */}
+        {persona === 'admin' && hasICMResults && (
           <PeriodCards
             periods={periods}
             selectedPeriodId={selectedPeriodId}
@@ -419,6 +421,11 @@ export default function PerformPage() {
           </Panel>
         ) : (
           <>
+            {/* HF-344: every ICM panel below reads tenant-wide totals (getPeriodTotal / getComponentTotals /
+                getEntityResults(ALL_INSIGHTS_SCOPE)) → admin-only. Rep/manager fall through to their own
+                persona dashboard, which loads its OWN scoped data. Admin branch is byte-identical (DD-7). */}
+            {persona === 'admin' && (
+              <>
             {/* Dominant: authoritative Period Total + supporting tiles */}
             <div className="grid gap-4 lg:grid-cols-4">
               <div className="lg:col-span-1">
@@ -535,8 +542,12 @@ export default function PerformPage() {
                 />
               </Panel>
             </DensityGate>
+              </>
+            )}
 
-            {/* Persona dashboards — preserved drill-through / persona depth (null-data guard) */}
+            {/* Persona dashboards — preserved drill-through / persona depth (null-data guard).
+                HF-344: this block is the ONLY content rep/manager render in Branch 4. Each dashboard
+                loads its own scoped data (AdminDashboard tenant / ManagerDashboard scope.entityIds / RepDashboard entityId). */}
             {insights.total > 0 && (
               <DensityGate min="low">
                 {persona === 'admin' && <AdminDashboard />}

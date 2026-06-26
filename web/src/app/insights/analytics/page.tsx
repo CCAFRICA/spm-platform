@@ -207,6 +207,11 @@ export default function AnalyticsExplorePage() {
   return (
     <PersonaAmbient>
       <div className="space-y-6">
+        {/* HF-344: the entire Explore surface (pivot/trend/entity table, fed by
+            getEntityResults(ALL_INSIGHTS_SCOPE)/getPopulationTrend/getDimensions) is tenant-wide → admin-only.
+            Rep/manager get a reduced state. Admin branch byte-identical (DD-7). */}
+        {theme.persona === 'admin' ? (
+        <>
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Explore</h1>
@@ -322,6 +327,20 @@ export default function AnalyticsExplorePage() {
               ) : (
                 <div className={`py-12 text-center text-sm ${TEXT.muted}`}>No period selected.</div>
               )}
+            </Panel>
+          </>
+        )}
+        </>
+        ) : (
+          <>
+            <header>
+              <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Explore</h1>
+            </header>
+            <Panel>
+              <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+                Period totals, dimension pivots, and the full entity table are tenant-wide aggregates available to administrators.{' '}
+                <Link href="/perform" className="underline">View your performance →</Link>
+              </div>
             </Panel>
           </>
         )}

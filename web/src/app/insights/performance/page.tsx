@@ -386,10 +386,16 @@ export default function InsightsPerformancePage() {
           <header>
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Attainment</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>
-              Standings vs the population reference{insights ? ` · ${insights.entityCount} entities · ${selectedLabel}` : ''}
+              {/* HF-344: whole-population entity count is admin-only */}
+              Standings vs the population reference{insights ? (theme.persona === 'admin' ? ` · ${insights.entityCount} entities · ${selectedLabel}` : (selectedLabel ? ` · ${selectedLabel}` : '')) : ''}
             </p>
           </header>
 
+          {/* HF-344: PeriodCards (per-period totals) + the standings composition below read
+              getEntityResults(ALL_INSIGHTS_SCOPE)/getEntityTrajectory → admin-only. Rep/manager get a
+              reduced state. Admin branch byte-identical (DD-7). */}
+          {theme.persona === 'admin' ? (
+          <>
           {periods.length > 0 && (
             <PeriodCards
               periods={periods}
@@ -493,6 +499,15 @@ export default function InsightsPerformancePage() {
                 </Panel>
               </DensityGate>
             </>
+          )}
+          </>
+          ) : (
+            <Panel>
+              <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+                Population standings, period totals, and pacing are available to administrators.{' '}
+                <Link href="/perform" className="underline">View your performance →</Link>
+              </div>
+            </Panel>
           )}
         </div>
       </PersonaAmbient>

@@ -388,10 +388,16 @@ export default function CompensationPage() {
             <h1 className={`text-2xl font-bold ${TEXT.headline}`}>{t.heading}</h1>
             <p className={`mt-1 text-sm ${TEXT.body}`}>
               {t.sub}
-              {hasResults ? ` · ${entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : ''}
+              {/* HF-344: whole-population entity count is admin-only */}
+              {hasResults ? (theme.persona === 'admin' ? ` · ${entityCount} ${isSpanish ? 'entidades' : 'entities'} · ${selectedLabel}` : (selectedLabel ? ` · ${selectedLabel}` : '')) : ''}
             </p>
           </header>
 
+          {/* HF-344: PeriodCards (per-period totals) + the money-lens composition below read
+              getPeriodTotal/getComponentTotals/getEntityResults(ALL_INSIGHTS_SCOPE) → admin-only.
+              Rep/manager get a reduced state. Admin branch byte-identical (DD-7). */}
+          {theme.persona === 'admin' ? (
+          <>
           {periods.length > 0 && (
             <PeriodCards
               periods={periods}
@@ -490,6 +496,17 @@ export default function CompensationPage() {
                 </Panel>
               </DensityGate>
             </>
+          )}
+          </>
+          ) : (
+            <Panel>
+              <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+                {isSpanish
+                  ? 'Los totales de compensación de toda la organización están disponibles para administradores.'
+                  : 'Tenant-wide compensation totals are available to administrators.'}{' '}
+                <Link href="/perform" className="underline">{isSpanish ? 'Ver mi desempeño →' : 'View your performance →'}</Link>
+              </div>
+            </Panel>
           )}
         </div>
       </PersonaAmbient>

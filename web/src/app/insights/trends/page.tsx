@@ -232,10 +232,16 @@ export default function TrendsPage() {
           <h1 className={`text-2xl font-bold ${TEXT.headline}`}>Trends</h1>
           <p className={`mt-1 text-sm ${TEXT.body}`}>
             Cross-period trajectory across all {periodCount} calculated period{periodCount === 1 ? '' : 's'}
-            {pop ? ` · latest ${format(pop.latest)}` : ''}
+            {/* HF-344: latest tenant payout amount is admin-only */}
+            {pop && theme.persona === 'admin' ? ` · latest ${format(pop.latest)}` : ''}
           </p>
         </header>
 
+        {/* HF-344: the whole population-trend body (HeroMetric, trend area, trajectory, movers,
+            component trends, entity trajectory table) reads getPopulationTrend/getEntityTrajectory =
+            tenant-wide → admin-only. Rep/manager get a reduced state. Admin branch byte-identical (DD-7). */}
+        {theme.persona === 'admin' ? (
+        <>
         {singlePeriod || !pop ? (
           <Panel>
             <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
@@ -378,6 +384,15 @@ export default function TrendsPage() {
               </Panel>
             </DensityGate>
           </>
+        )}
+        </>
+        ) : (
+          <Panel>
+            <div className={`py-16 text-center text-sm ${TEXT.muted}`}>
+              Population-wide trends are available to administrators. Your own trajectory over time appears on{' '}
+              <Link href="/perform" className="underline">your dashboard →</Link>.
+            </div>
+          </Panel>
         )}
       </div>
     </PersonaAmbient>
