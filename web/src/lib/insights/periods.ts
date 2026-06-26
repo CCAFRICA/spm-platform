@@ -20,6 +20,7 @@ export const ALL_INSIGHTS_SCOPE: AuthScope = ALL_SCOPE;
 
 export async function getCalculatedPeriods(
   tenantId: string,
+  scope: AuthScope = ALL_INSIGHTS_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<PeriodSummary[]> {
   if (!tenantId) return [];
@@ -35,7 +36,7 @@ export async function getCalculatedPeriods(
 
   const summaries = await Promise.all(
     periods.map(async (p): Promise<PeriodSummary> => {
-      const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: p.id }, sb);
+      const rows = await getEntityResults(tenantId, scope, { periodId: p.id }, sb);
       const payouts = rows.map(r => r.totalPayout);
       const total = payouts.reduce((s, v) => s + v, 0);
       const count = rows.length;

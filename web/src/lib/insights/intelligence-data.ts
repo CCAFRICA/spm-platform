@@ -14,7 +14,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
-import { ALL_INSIGHTS_SCOPE } from './periods';
+import { type AuthScope, ALL_SCOPE, scopeCanViewAll } from '@/lib/auth/scope';
 import { discoverDimensions, type DiscoveredDimension } from './dimension-discovery';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -87,14 +87,20 @@ async function getPeriodRollup(
 export async function getPeriodTotal(
   tenantId: string,
   periodId: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<number> {
   if (!tenantId || !periodId) return 0;
   const sb = client ?? createClient();
-  const rollup = await getPeriodRollup(tenantId, periodId, sb);
-  if (rollup) return rollup.total_payout; // one row, no reduce
-  // graceful fallback: tenant/period without a materialized rollup
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  // OB-246: the period_outcomes rollup sentinel is TENANT-WIDE — valid ONLY for an 'all' scope. A
+  // scoped persona (team/own/deny) must SUM its own entity rows; reading the rollup would leak the
+  // whole-tenant total. Admin keeps the O(1) sentinel read (byte-identical).
+  if (scopeCanViewAll(scope)) {
+    const rollup = await getPeriodRollup(tenantId, periodId, sb);
+    if (rollup) return rollup.total_payout; // one row, no reduce
+  }
+  // per-entity path (scoped, or a tenant/period without a materialized rollup)
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   return rows.reduce((s, r) => s + (r.totalPayout ?? 0), 0);
 }
 
@@ -172,11 +178,12 @@ export interface EnrichedDimension extends DiscoveredDimension {
 export async function getDimensions(
   tenantId: string,
   periodId: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<EnrichedDimension[]> {
   if (!tenantId || !periodId) return [];
   const sb = client ?? createClient();
-  const dims = await discoverDimensions(tenantId, periodId, sb);
+  const dims = await discoverDimensions(tenantId, periodId, scope, sb);
   // comprehension characterizations (the OB-235 store) — match dimension key ↔ comprehended field name.
   const { data: comp } = await (sb as any).from('comprehension_artifacts')
     .select('field_name, characterization').eq('tenant_id', tenantId);
