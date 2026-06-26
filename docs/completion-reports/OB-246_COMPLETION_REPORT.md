@@ -122,6 +122,28 @@ Additional: `node --test` **294/294 pass** (no regression from the data-fn threa
 
 ---
 
+## 4a. Adversarial review (find → refute) — 4 confirmed defects fixed (commit `943bc144`)
+
+A 4-dimension adversarial review workflow (DD-7 / scope-correctness / AP-completeness / calc-safety), each
+finding then independently refutation-verified, surfaced **4 real fail-open leaks I had missed**. All fixed:
+
+1. **BLOCKER — `components/insights/EntityTable`** self-fetched `getEntityTableData` with NO scope arg →
+   defaulted to `ALL_SCOPE` → tenant-wide per-entity roster + CSV export on `/insights/analytics` +
+   `/insights/compensation` for non-admins (the page totals were narrowed but the entity TABLE leaked every
+   entity's name+payout). Added a `scope` prop, forwarded to the grid + CSV export, threaded `useAuth().scope`
+   from both callers. (`/operate/calculate` uses a different `components/results/EntityTable` — untouched.)
+   Admin (`all`) byte-identical.
+2. **MAJOR — `/approvals`** rendered a DrillThroughPanel hardcoded `{type:'all'}` with NO gate (absent from
+   middleware `WORKSPACE_CAPABILITIES`, no `RequireCapability`) → any authenticated user read tenant-wide batch
+   results. Wrapped in `RequireCapability('data.approve_results')` (propagates to `/operate/approve` +
+   `/govern/approvals` re-exports) + added `/approvals` to `WORKSPACE_CAPABILITIES` (middleware defense).
+3. **MAJOR — agent-inbox PATCH** was unauthenticated + tenant-unscoped (the GET pass hardened it, PATCH was
+   left open) → any caller could dismiss/act ANY tenant's items by id. Now `getUser` 401 + non-platform
+   mutation scoped to `.eq('tenant_id', sessionTenant)`; platform cross-tenant by design.
+
+Lesson captured: scope-threading a page's own reads is NOT sufficient — self-fetching CHILD components
+(`EntityTable`) and ungated sibling routes (`/approvals`) and the non-GET verbs (PATCH) are the fail-open tail.
+
 ## 5. Behavior preservation (DD-7) and the per-role delta
 
 | Role | Data | Menu | Dashboard |
