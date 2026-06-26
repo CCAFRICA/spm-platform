@@ -44,9 +44,8 @@ import {
   type PeriodState,
 } from '@/lib/navigation/compensation-clock-service';
 import { getWorkspaceForRoute, WORKSPACES } from '@/lib/navigation/workspace-config';
-import { getDefaultWorkspace, canAccessWorkspace, personaToRole } from '@/lib/navigation/role-workspaces';
+import { getDefaultWorkspace, canAccessWorkspace } from '@/lib/navigation/role-workspaces';
 import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
-import { usePersona } from './persona-context';
 
 // =============================================================================
 // STORAGE KEYS
@@ -102,14 +101,15 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   const pathname = usePathname();
   const { user } = useAuth();
   const { currentTenant } = useTenant();
-  const { persona } = usePersona();
 
   // Locale follows user's language selector (single source of truth)
   const { locale } = useLocale();
   const isSpanish = isSpanishLocale(locale);
   const userRole = user?.role || null;
-  // OB-94: Effective role from persona (override or derived) — drives all workspace access
-  const effectiveRole = persona ? personaToRole(persona) : userRole;
+  // OB-246 (Decision 39 / AP2): effectiveRole derives from the AUTHENTICATED role, NOT the cosmetic
+  // persona override. A VL admin previewing 'rep' still sees their full admin navigation — the override
+  // changes the persona token + dashboard content, never navigation or scope.
+  const effectiveRole = userRole;
   // Use the selected tenant's actual UUID — never a placeholder string.
   // VL admins: currentTenant is set after tenant selection, null before.
   // Non-admins: currentTenant comes from their profile's tenant_id.
