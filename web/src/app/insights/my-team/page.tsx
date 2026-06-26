@@ -46,7 +46,7 @@ interface TeamData {
 export default function MyTeamPage() {
   const { currentTenant } = useTenant();
   // OB-246: scope is the authenticated team scope (admin→all, manager→team, member→own, unlinked→deny).
-  const { scope: teamScope } = useAuth();
+  const { effectiveScope: teamScope } = useAuth();
   const { format } = useCurrency();
   const [data, setData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);

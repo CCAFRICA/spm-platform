@@ -52,7 +52,7 @@ function Stat({ label, value, hint, icon: Icon }: { label: string; value: string
 export default function InsightsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
   const theme = usePersonaTheme();
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);

@@ -31,7 +31,7 @@ export default function EmployeeTracePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentTenant } = useTenant();
-  const { scope } = useAuth(); // OB-246: admin→any, manager→team, member→own, unlinked→none
+  const { effectiveScope: scope } = useAuth(); // OB-246: admin→any, manager→team, member→own, unlinked→none
   const tenantId = currentTenant?.id;
   const entityId = params?.entityId as string;
   // OB-246: a viewer may only trace an entity inside their authenticated scope (admin = any).

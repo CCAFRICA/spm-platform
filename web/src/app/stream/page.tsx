@@ -447,7 +447,7 @@ function IcmStream({
   carrierAdminStack: ReactNode;
 }) {
   const { format } = useCurrency();
-  const { scope: authScope } = useAuth(); // OB-246: ICM render reads narrow by authenticated scope
+  const { effectiveScope: authScope } = useAuth(); // OB-246: ICM render reads narrow by authenticated scope
   const theme = usePersonaTheme();
   const isVialuce = useIsVialuce();
   const showHigh = useDensityAllows('high');

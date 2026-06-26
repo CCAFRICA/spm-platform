@@ -12,9 +12,10 @@
  *   2. AuthShellProtected — backup redirect if isAuthenticated becomes false
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { SessionExpiryWarning } from '@/components/session/SessionExpiryWarning';
 import { useRouter, usePathname } from 'next/navigation';
+import type { PersonaKey } from '@/lib/design/tokens';
 import type { User, TenantUser, VLAdminUser } from '@/types/auth';
 import { isVLAdmin } from '@/types/auth';
 import {
@@ -31,13 +32,30 @@ import {
 import {
   type AuthScope,
   resolveAuthScope,
+  resolveSampleScope,
   initialScopeFromRole,
   scopeCanViewAll,
   scopeCanViewTeam,
   scopeIsDenied,
   DENY_SCOPE,
 } from '@/lib/auth/scope';
-import { resolveRole, type Role } from '@/lib/auth/permissions';
+import { resolveRole, getCapabilities, type Role } from '@/lib/auth/permissions';
+
+// HF-345: the VL-admin selected tenant for persona-preview sample resolution. auth-context sits ABOVE
+// tenant-context, so it reads the selection from the same sessionStorage/cookie tenant-context uses for
+// VL admins (tenant-context.tsx:155-160). Only consulted for a VL admin override (real users never reach it).
+function readSelectedTenantId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const ss = sessionStorage.getItem('vialuce_admin_tenant');
+  if (ss) return ss;
+  const m = document.cookie.match(/vialuce-tenant-id=([^;]+)/);
+  return m ? m[1] : null;
+}
+
+// HF-345: persona override → its canonical role for the effective-capability set.
+function overrideRole(persona: PersonaKey): 'admin' | 'manager' | 'member' {
+  return persona === 'admin' ? 'admin' : persona === 'manager' ? 'manager' : 'member';
+}
 
 // ──────────────────────────────────────────────
 // Context Type
@@ -55,9 +73,19 @@ interface AuthContextType {
   isVLAdmin: boolean;
   capabilities: string[];
   profileLocale: string | null;
-  // OB-246: authorization scope — resolved from the authenticated profile.role (Decision 39), NOT
-  // from the cosmetic persona override. ONE isLoading governs user + capabilities + scope.
+  // OB-246: authorization scope — resolved from the authenticated profile.role (Decision 39). ONE
+  // isLoading governs user + capabilities + scope. `scope` is the REAL authenticated scope (used for any
+  // security check); never narrowed by the persona override.
   scope: AuthScope;
+  // HF-345: what DATA consumers read. = scope for real users / no override / admin-preview. For a VL admin
+  // previewing manager/rep, a representative narrowed scope (within entitlement — Decision 39, corrected).
+  effectiveScope: AuthScope;
+  // HF-345: capabilities the menu/UI gates against. = capabilities, except a VL-admin manager/rep preview
+  // uses that persona's ROLE_CAPABILITIES set.
+  effectiveCapabilities: string[];
+  // HF-345: the active VL-admin persona preview (null = none / not a VL admin). Hoisted from persona-context.
+  personaOverride: PersonaKey | null;
+  setPersonaOverride: (persona: PersonaKey | null) => void;
   /** Canonical resolved role of the authenticated user (null until resolved / unknown role). */
   viewRole: Role | null;
   /** entities.profile_id linkage for this profile (own-entity), null when unlinked. */
@@ -195,6 +223,24 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   const [profileId, setProfileId] = useState<string | null>(initialAuthState?.profile?.id ?? null);
   const [isLoading, setIsLoading] = useState(!initialAuthState);
 
+  // HF-345: computed early — drives the persona-override gate + effective scope/capabilities below.
+  const isUserVLAdmin = user ? isVLAdmin(user) : false;
+
+  // HF-345: the persona override is HOISTED here from persona-context — it now drives effectiveScope +
+  // effectiveCapabilities (a VL admin previewing a narrower persona narrows WITHIN entitlement — Decision 39,
+  // corrected). Gated to isVLAdmin: a real member/manager never carries an override, so their scope + menu
+  // remain exactly the authenticated values OB-246 built.
+  const [personaOverride, setPersonaOverrideState] = useState<PersonaKey | null>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('vl_persona_override');
+      if (stored === 'admin' || stored === 'manager' || stored === 'rep') return stored;
+    }
+    return null;
+  });
+  // effectiveScope: what DATA consumers read. Default = scope (real). A VL-admin manager/rep override
+  // resolves a representative sample below (the only async; inside the existing lifecycle — HALT-C).
+  const [effectiveScope, setEffectiveScope] = useState<AuthScope>(scope);
+
   // OB-246: set user + capabilities + locale + SCOPE together from one profile (one lifecycle). The
   // scope read awaits resolveAuthScope (≤1 indexed query; zero for admin) so the single isLoading that
   // clears in initAuth's finally also governs scope readiness — no intermediate wrong-render.
@@ -278,6 +324,34 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
     return () => unsubscribe?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // ── HF-345: persona override (hoisted) — gate, persist, and derive effective scope ──
+  // AP2: a non-VL-admin must never carry an override (a forged/stale key is cleared once auth resolves).
+  useEffect(() => {
+    if (personaOverride !== null && !isUserVLAdmin) setPersonaOverrideState(null);
+  }, [personaOverride, isUserVLAdmin]);
+
+  // Persist the override (survives navigation for a VL admin) — same sessionStorage key persona-context used.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (personaOverride) sessionStorage.setItem('vl_persona_override', personaOverride);
+    else sessionStorage.removeItem('vl_persona_override');
+  }, [personaOverride]);
+
+  // effectiveScope = scope for a real user / no override / admin preview (synchronous). A VL-admin
+  // manager/rep preview resolves a representative sample (the ONLY async — within this lifecycle, HALT-C).
+  useEffect(() => {
+    if (!isUserVLAdmin || !personaOverride || personaOverride === 'admin') {
+      setEffectiveScope(scope);
+      return;
+    }
+    let cancelled = false;
+    const tenantId = readSelectedTenantId();
+    resolveSampleScope(personaOverride, profileId, tenantId)
+      .then(s => { if (!cancelled) setEffectiveScope(s); })
+      .catch(() => { if (!cancelled) setEffectiveScope(DENY_SCOPE); });
+    return () => { cancelled = true; };
+  }, [isUserVLAdmin, personaOverride, scope, profileId]);
 
   // ── Login ──
   const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
@@ -370,16 +444,33 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
     return 'permissions' in user && (user as TenantUser).permissions.includes(permission);
   }, [user]);
 
+  // HF-345: only a VL admin may set the override (the gate persona-context used; now hoisted here).
+  const setPersonaOverride = useCallback((p: PersonaKey | null) => {
+    if (!isUserVLAdmin) return;
+    setPersonaOverrideState(p);
+  }, [isUserVLAdmin]);
+
+  // HF-345: capabilities the menu/UI gate against. For a VL admin previewing a narrower persona, the
+  // override role's capability set (from permissions.ts ROLE_CAPABILITIES) — narrowing within entitlement.
+  // Everyone else (real users, admin-preview, no override) = the authenticated capabilities (unchanged).
+  const effectiveCapabilities = useMemo(() => {
+    if (isUserVLAdmin && personaOverride && personaOverride !== 'admin') {
+      return Array.from(getCapabilities(overrideRole(personaOverride)));
+    }
+    return capabilities;
+  }, [isUserVLAdmin, personaOverride, capabilities]);
+
   // ── Capabilities (entity model check) ──
   const hasCapability = useCallback((capability: string): boolean => {
-    // OB-246 (DS-014 §4): platform/admin inherit ALL capabilities. The bypass keys off the REAL
-    // authenticated role (never the persona override — the HF-344 lesson), so a VL admin previewing
-    // a narrower persona still holds every capability.
+    // HF-345: a VL admin previewing a narrower persona is gated against THAT persona's capability set
+    // (narrowing within entitlement — always safe). Real users + admin-preview + no-override unchanged.
+    if (isUserVLAdmin && personaOverride && personaOverride !== 'admin') {
+      return effectiveCapabilities.includes(capability);
+    }
+    // OB-246 (DS-014 §4): platform/admin inherit ALL capabilities (the REAL authenticated role).
     if (user && (user.role === 'platform' || user.role === 'admin')) return true;
     return capabilities.includes(capability);
-  }, [user, capabilities]);
-
-  const isUserVLAdmin = user ? isVLAdmin(user) : false;
+  }, [isUserVLAdmin, personaOverride, effectiveCapabilities, user, capabilities]);
 
   return (
     <AuthContext.Provider
@@ -391,12 +482,17 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
         capabilities,
         profileLocale,
         scope,
+        effectiveScope,
+        effectiveCapabilities,
+        personaOverride,
+        setPersonaOverride,
         viewRole,
         ownEntityId,
         profileId,
-        canViewAll: scopeCanViewAll(scope),
-        canViewTeam: scopeCanViewTeam(scope),
-        isDenied: scopeIsDenied(scope),
+        // HF-345: convenience flags follow effectiveScope (= scope for real users) so preview UI is consistent.
+        canViewAll: scopeCanViewAll(effectiveScope),
+        canViewTeam: scopeCanViewTeam(effectiveScope),
+        isDenied: scopeIsDenied(effectiveScope),
         login,
         logout,
         hasPermission,

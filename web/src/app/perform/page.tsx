@@ -117,7 +117,7 @@ export default function PerformPage() {
   const theme = usePersonaTheme();
   const hasFinancial = useFeature('financial');
   const { locale } = useLocale();
-  const { user, scope } = useAuth(); // OB-246: hero/ICM reads narrow by authenticated scope
+  const { user, effectiveScope: scope } = useAuth(); // OB-246: hero/ICM reads narrow by authenticated scope
   const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasICM = ruleSetCount > 0;
   const tenantId = currentTenant?.id ?? '';

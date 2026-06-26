@@ -3,16 +3,16 @@
 /**
  * Persona Context — persona TOKEN (visual identity + intent framing) + the VL-admin demo override.
  *
- * OB-246: this context NO LONGER computes data scope. Scope is resolved ONCE in auth-context
- * (`useAuth().scope`, keyed off the authenticated profile.role — Decision 39, AP6 closure: one scope,
- * one lifecycle). persona-context exposes a backward-compatible `PersonaScope` MAPPED from
- * `useAuth().scope` (HALT-C) so existing consumers (the Financial surfaces, ManagerDashboard) keep
- * working unchanged. The override drives ONLY the persona token and is gated to `isVLAdmin` (AP2):
- * a manufactured/stale `vl_persona_override` sessionStorage key cannot widen a real user's view or
- * scope — it is inert at the point of use, cleared by effect, and rejected by the setter.
+ * OB-246: scope is resolved ONCE in auth-context (Decision 39, one lifecycle). HF-345: the persona override
+ * itself is now HOISTED into auth-context (it drives effectiveScope + effectiveCapabilities — auth concerns).
+ * persona-context therefore only DERIVES the persona token from the authenticated user + the hoisted override,
+ * and exposes a backward-compatible `PersonaScope` MAPPED from `useAuth().effectiveScope` so the Financial
+ * surfaces + ManagerDashboard + statements that read `usePersona().scope` narrow correctly in a VL-admin
+ * preview. The override is still gated to `isVLAdmin` (in auth-context) — a real user's persona/scope are
+ * entirely their authenticated values.
  */
 
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useAuth } from './auth-context';
 import { PERSONA_TOKENS, type PersonaKey } from '@/lib/design/tokens';
 import { authScopeToPersonaScope } from '@/lib/auth/scope';
@@ -68,58 +68,31 @@ function derivePersona(user: User | null, capabilities: string[]): PersonaKey {
 // ──────────────────────────────────────────────
 
 export function PersonaProvider({ children }: { children: ReactNode }) {
-  const { user, capabilities, isVLAdmin, scope: authScope, ownEntityId, profileId } = useAuth();
+  const { user, capabilities, isVLAdmin, effectiveScope, ownEntityId, profileId, personaOverride, setPersonaOverride } = useAuth();
 
-  // OB-89: persist persona override in sessionStorage so it survives navigation (VL admin only).
-  const [override, setOverride] = useState<PersonaKey | null>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem('vl_persona_override');
-      if (stored === 'admin' || stored === 'manager' || stored === 'rep') return stored;
-    }
-    return null;
-  });
-
-  // OB-246 AP2: a non-VL-admin must never carry an override — a forged/stale sessionStorage key is
-  // cleared as soon as auth resolves. (The render below ALSO ignores it; this keeps storage clean.)
-  useEffect(() => {
-    if (override !== null && !isVLAdmin) setOverride(null);
-  }, [override, isVLAdmin]);
-
-  // OB-89: sync override to sessionStorage.
-  useEffect(() => {
-    if (override) {
-      sessionStorage.setItem('vl_persona_override', override);
-    } else {
-      sessionStorage.removeItem('vl_persona_override');
-    }
-  }, [override]);
-
-  // OB-246 AP2: the override is applied ONLY for a VL admin, at the point of use — so even a
-  // first-paint forged key cannot change the rendered persona for a real member/manager.
-  const effectiveOverride = isVLAdmin ? override : null;
+  // HF-345: the override is hoisted to auth-context (already isVLAdmin-gated there). It drives ONLY the
+  // persona token here — a real user (override null) gets their derived persona.
+  const effectiveOverride = isVLAdmin ? personaOverride : null;
   const derivedPersona = useMemo(() => derivePersona(user, capabilities), [user, capabilities]);
   const persona = effectiveOverride ?? derivedPersona;
   const tokens = PERSONA_TOKENS[persona];
 
-  // OB-246 HALT-C: scope is a backward-compatible VIEW of the ONE auth-resolved scope. persona-context
-  // no longer runs its own async fetchScope lifecycle. The override changes the persona TOKEN, never
-  // data scope (Decision 39) — a VL admin previewing 'rep' still reads their authenticated (admin) scope.
-  const scope = useMemo<PersonaScope>(() => authScopeToPersonaScope(authScope), [authScope]);
+  // Backward-compatible PersonaScope mapped from the EFFECTIVE scope (narrows in a VL-admin preview;
+  // = the authenticated scope for every real user — Decision 39). The override changes the token, and
+  // (HF-345) the effectiveScope it drives, never the REAL `useAuth().scope` used for security checks.
+  const scope = useMemo<PersonaScope>(() => authScopeToPersonaScope(effectiveScope), [effectiveScope]);
 
-  // OB-246 AP2: only a VL admin may set the override.
-  const setPersonaOverride = useCallback((p: PersonaKey | null) => {
-    if (!isVLAdmin) return;
-    setOverride(p);
-  }, [isVLAdmin]);
+  // entityId: the effective own entity (the sample entity in a rep preview), else the real linkage.
+  const entityId = effectiveScope.type === 'own' ? effectiveScope.entityId : ownEntityId;
 
   const value = useMemo<PersonaContextValue>(() => ({
     persona,
     tokens,
     scope,
     profileId,
-    entityId: ownEntityId,
+    entityId,
     setPersonaOverride,
-  }), [persona, tokens, scope, profileId, ownEntityId, setPersonaOverride]);
+  }), [persona, tokens, scope, profileId, entityId, setPersonaOverride]);
 
   return (
     <PersonaContext.Provider value={value}>

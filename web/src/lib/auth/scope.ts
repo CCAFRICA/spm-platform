@@ -148,6 +148,79 @@ export async function resolveAuthScope(
   }
 }
 
+// ── HF-345: VL-admin persona PREVIEW sample scope ────────────────────────────────────────────────
+// When a VL admin (entitled to ALL) previews a narrower persona, resolve a representative scope so the
+// preview demonstrates what that role experiences (DS-014 §8.2). Narrowing within entitlement is always
+// safe (Decision 39, corrected). Runs ONLY for a VL admin override — real users never reach this.
+
+const SAMPLE_TTL = 300_000; // 5 min
+const sampleCache = new Map<string, { scope: AuthScope; ts: number }>();
+
+/**
+ * Representative scope for a VL admin previewing `persona` in `tenantId`. Fail-CLOSED to deny when the
+ * tenant has no usable entities. Cached by `tenantId:persona` (HALT-A — ≤3 indexed reads otherwise).
+ *   admin   → all (current behavior)
+ *   rep     → own linked entity, else highest-payout entity, else any individual, else deny
+ *   manager → profile_scope team, else first 10 individual entities, else deny
+ */
+export async function resolveSampleScope(
+  persona: 'admin' | 'manager' | 'rep',
+  profileId: string | null,
+  tenantId: string | null,
+  client?: SupabaseClient<Database>,
+): Promise<AuthScope> {
+  if (persona === 'admin' || !tenantId) return ALL_SCOPE;
+  const key = `${tenantId}:${persona}`;
+  const hit = sampleCache.get(key);
+  if (hit && Date.now() - hit.ts < SAMPLE_TTL) return hit.scope;
+
+  const sb = client ?? createClient();
+  let resolved: AuthScope = DENY_SCOPE;
+  try {
+    if (persona === 'rep') {
+      const own = profileId ? await readOwnEntityId(profileId, tenantId, sb) : null;
+      if (own) {
+        resolved = { type: 'own', entityId: own };
+      } else {
+        // highest-payout entity for the tenant (the getRepDashboardData null→top fallback)
+        const { data: top } = await sb
+          .from('entity_period_outcomes')
+          .select('entity_id, total_payout')
+          .eq('tenant_id', tenantId)
+          .order('total_payout', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const topId = (top?.entity_id as string | undefined) ?? null;
+        if (topId) {
+          resolved = { type: 'own', entityId: topId };
+        } else {
+          const { data: anyEnt } = await sb
+            .from('entities').select('id')
+            .eq('tenant_id', tenantId).eq('entity_type', 'individual').limit(1).maybeSingle();
+          const anyId = (anyEnt?.id as string | undefined) ?? null;
+          resolved = anyId ? { type: 'own', entityId: anyId } : DENY_SCOPE;
+        }
+      }
+    } else {
+      // manager
+      const team = profileId ? await resolveEntityScope(profileId, tenantId, sb) : DENY_SCOPE;
+      if (team.type === 'team') {
+        resolved = team;
+      } else {
+        const { data: ents } = await sb
+          .from('entities').select('id')
+          .eq('tenant_id', tenantId).eq('entity_type', 'individual').limit(10);
+        const ids = (ents ?? []).map(e => e.id as string);
+        resolved = ids.length ? { type: 'team', entityIds: ids } : DENY_SCOPE;
+      }
+    }
+  } catch {
+    resolved = DENY_SCOPE;
+  }
+  sampleCache.set(key, { scope: resolved, ts: Date.now() });
+  return resolved;
+}
+
 /**
  * Synchronous best-effort seed for the auth-context useState initializer (SSR fast path).
  * admin/platform → all (correct, no query needed); everyone else → deny until initAuth re-resolves

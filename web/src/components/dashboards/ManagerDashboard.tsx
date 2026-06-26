@@ -114,7 +114,7 @@ export function ManagerDashboard() {
   const { symbol: currencySymbol, format } = useCurrency();
   const { scope } = usePersona();
   // OB-246: drill-through scope comes straight from the authenticated scope (team/own/deny — fail-closed).
-  const { scope: authScope } = useAuth();
+  const { effectiveScope: authScope } = useAuth();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';

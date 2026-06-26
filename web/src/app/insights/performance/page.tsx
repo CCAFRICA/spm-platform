@@ -120,7 +120,7 @@ function Stat({ label, value, hint, icon: Icon }: { label: string; value: string
 export default function InsightsPerformancePage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all (ICM branch only)
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all (ICM branch only)
   const theme = usePersonaTheme();
 
   const isHospitality = currentTenant?.industry === 'Hospitality';

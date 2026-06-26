@@ -22,7 +22,7 @@ export default function TransactionsPage() {
   const { currentTenant } = useTenant();
   // OB-246: authenticated scope (admin→all, manager→team, member→own, unlinked→deny) — was the
   // fail-OPEN resolveEntityScope(user?.id) that rendered tenant-wide for every role (DIAG-077 §E).
-  const { scope } = useAuth();
+  const { effectiveScope: scope } = useAuth();
 
   const tenantId = currentTenant?.id ?? '';
 

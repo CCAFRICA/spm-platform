@@ -62,7 +62,7 @@ async function currentProfileId(supabase: ReturnType<typeof createClient>): Prom
 export default function AdjustmentsPage() {
   const { format: fmt } = useCurrency();
   const { currentTenant } = useTenant();
-  const { scope } = useAuth(); // OB-246: admin→all, manager→team, member→own disputes
+  const { effectiveScope: scope } = useAuth(); // OB-246: admin→all, manager→team, member→own disputes
   const tenantId = currentTenant?.id ?? '';
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [filter, setFilter] = useState<string>("all");

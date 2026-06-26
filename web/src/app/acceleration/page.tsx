@@ -61,7 +61,7 @@ export default function AccelerationPage() {
   const { format } = useCurrency();
   const theme = usePersonaTheme();
   const { persona, entityId } = usePersona();
-  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');

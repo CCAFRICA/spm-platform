@@ -77,7 +77,7 @@ function projectNext(values: number[]): number | null {
 export default function TrendsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
-  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
   const theme = usePersonaTheme();
 
   const [loading, setLoading] = useState(true);

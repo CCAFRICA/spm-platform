@@ -101,7 +101,7 @@ export default function CompensationPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const { locale } = useLocale(); // OB-226 Korean Test
-  const { user, scope } = useAuth(); // OB-246: scope (ICM branch); user for isSpanish ternary
+  const { user, effectiveScope: scope } = useAuth(); // OB-246: scope (ICM branch); user for isSpanish ternary
   const theme = usePersonaTheme();
 
   const [data, setData] = useState<HospitalityData | null>(null);
