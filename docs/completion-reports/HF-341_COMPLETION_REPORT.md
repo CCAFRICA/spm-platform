@@ -611,3 +611,122 @@ already produces; no enum constrains it.
 2. **Sheet-level expression completeness** — R5 covers transaction events, entity records, periodic
    records, reference tables (MIR + Meridian). Future sheet shapes (Robles relationship graph, CRP
    district-override) are described by the same open recognition — no enum constrains it.
+
+---
+
+## §R6 — Delete the Classification Producer
+
+**Predecessor verdict (VP):** R5 disconnected consumers from `data_type` but left the classification
+PRODUCER running as "inert provenance." R6 deletes the producer — the function body, the computation,
+the write-input — not behind a flag, not kept as provenance. `git diff` shows them removed.
+
+### §R6.0 — Premise correction + VP disposition (the one decision surfaced before coding)
+
+R6's directive D4 asserted `data_type` is "read by no behavioral path." That premise is **false**, and
+the grep proves it: `data_type` is the calc's **sheet-bucket partition key**, read in 8 behavioral sites —
+`run/route.ts:824/844/1099` and `run-calculation.ts:1054/1072/1152` (`sheetName = row.data_type`, the
+metric-derivation grouping), the HF-216 via-join `route.ts:1009` (`row.data_type !== rosterDataType`), and
+`convergence-service.ts:1083`. Deleting the `data_type` WRITE outright would collapse this grouping to
+`'_unknown'` and move a sealed figure — a HALT-CALC break the directive itself forbids, that CC cannot
+verify without the live calc.
+
+Because the demanded action collided with the directive's own HALT-CALC gate via a false premise, the
+choice was surfaced. **VP chose Option 1:** the partition key is a real behavioral need — keep it; the
+HEURISTIC that produces the value is the registry — delete it. **Produce `data_type` from the LLM
+expression**: a thin derivation reads the expression and writes the partition-key value. D4 (the write)
+stays; its INPUT changes from heuristic to expression. The calc grouping is unchanged → sealed figures
+byte-identical.
+
+### §R6.HALT-CALC — why this is byte-identical for every sealed-figure tenant
+
+The pre-R6 design ran the Bayesian Level-2 (`resolveClassification`) and then `classifyByHCPattern`
+**OVERRODE** its winner whenever HC coverage ≥ 50%. So for every sheet the LLM recognized — all
+BCL / Meridian / MIR sheets — the classification was **already** the expression-derived value; the
+Bayesian decided only low-coverage sheets the sealed tenants do not have. R6 promotes that expression
+override to the SOLE producer and deletes the now-unreachable Bayesian. Therefore `data_type`, and the
+calc partition key it feeds, is **byte-identical** for the sealed tenants. This is import/comprehension-path
+only — no evaluator, no persisted rule_set, no persisted `committed_data` touched. **BCL $312,033 /
+Meridian $556,985 / MIR Plan 2 = 210,000 hold until the architect re-imports (PG-R6-9/10/11).**
+
+### §R6.1 — D1–D7 deletion evidence
+
+**D1 — the pattern classifier (`classifyByHCPattern`).** `hc-pattern-classifier.ts` **deleted** (file gone).
+Replaced by `expression-classifier.ts::deriveClassificationFromExpression` — reads ONLY the LLM expression
+(`data_nature` / `characterization` / `identifies`), ALWAYS returns (no coverage gate, no `null`, no
+Level-2 hand-off, no `[SCI-HC-PATTERN]` log, no `patternName`/`AgentType` scoring scaffolding). Its two
+override call sites (`analyze/route.ts:539-642`, `process-job/route.ts:296-308`) deleted.
+
+**D2 — posteriors / scoring / winner.** `resolver.ts` gutted: `computePosteriors`,
+`extractClassificationSignals`, `determineDecisionSource`, `PosteriorResult`/`ClassificationSignal`,
+`EVIDENCE_SCALE`/`N_CLASSES`, the CRL lookups, the `[SCI-CRR-DIAG]` log — all **deleted**.
+`agents.ts` structural scoring **deleted**: `AGENT_WEIGHTS` (5 `WeightRule` registries), `scoreAgent`,
+`computeAdditiveScores`, `applyHeaderComprehensionSignals`, `negotiateRound2`, `scoreContentUnit`.
+Orphaned-by-deletion and removed: `seed-priors.ts` (Bayesian priors + `SignalSourceType` registry),
+`contextual-reliability.ts` (CRL), `weight-evolution.ts` (the learning loop that tuned the weights) with
+its Observatory display, `negotiation.ts::negotiateRound2`, `synaptic-ingestion-state.ts::classifyContentUnits`,
+and `workbook-graph.ts` (see §R6.2).
+
+**D3 — `idRepeatRatio`.** Already removed from the classifier in R5; R6 removes its last behavioral read.
+It survived in `workbook-graph.ts` (`if (s.idRepeatRatio > ...)`); deleting that module removes it.
+`grep idRepeatRatio` now matches only a provenance comment + the `[SCI-PROFILE-DIAG]` structural-fact log
+(read by no decision) + the `profile.structure.identifierRepeatRatio` field. Zero behavioral reads.
+
+**D4 — the `data_type` write.** **Kept** per VP Option 1 (it is the partition key). Its input is now the
+expression-derived classification: `deriveClassificationFromExpression` → `resolution.classification` →
+`confirmedClassification` → `commitContentUnit(classification)` → `resolveDataTypeFromClassification`
+(identity) → `committed_data.data_type` (`commit-content-unit.ts:467`). No heuristic in the chain.
+
+**D5 — behavioral reads of `data_type`.** Verified (R5 + the R6 workflow map): every surviving read is a
+sheet-bucket PARTITION KEY or a sheet-scope filter or a distinct-value collection (calc grouping, via-join,
+summary-engine group key, drill-through scope, agent-tool scope). **Zero** branch on the label value. All KEEP.
+
+**D6 — label-asserting tests.** The 5-test `hc-pattern-classifier.test.ts` **deleted**; replaced by
+`expression-classifier.test.ts` asserting BEHAVIOR (expression drives the data nature; ALWAYS returns;
+identical role assignments classify identically at any confidence — the R4/R5 cached===fresh guarantee).
+`workbook-graph.test.ts` deleted with its module. The pipeline-integration tests that assert a label
+(`comprehension-state`, `resolve-unit-signals`, …) verify the PIPELINE still produces a classification and
+**pass unchanged** — proof the expression-derivation reproduces the prior labels.
+
+**D7 — `hasTx` / plan-detection.** Already expression-derived in R5 (`analyze/route.ts` plan signature reads
+`hasTemporalColumns && hasEntityIdentifier`; the transaction discriminant reads `identifies` via `TXN_SCOPE`).
+KEEP. No derivation from the classification label remains.
+
+### §R6.2 — workbook-graph (a structural classifier) deleted
+
+`workbook-graph.ts` derived roster/fact/reference roles from `idRepeatRatio` + value-overlap and once
+informed the classification posteriors (the D15 graph prior). R6 severed that prior; its only residual was
+an **advisory proposal annotation** (`cu.graphEvidence`, shown in `SCIProposal.tsx`) — grep confirms NOTHING
+behavioral/calc/entity-creation reads it (the sci-types "commit guard" comment was aspirational; no consumer).
+Leaving a structural classifier alive "severed but advisory" is the exact pattern R1–R5 were faulted for, and
+its `idRepeatRatio` reads would fail PG-R6-3. Deleted: the module, its test, the `analyze` synthesis +
+annotation blocks, the `SCIProposal` display, the `graphEvidence` type. Safe — display-only, no calc dependency.
+
+### §R6.3 — latent bug fixed (the expression now reaches commit)
+
+`initializeTrace` (resolver + synaptic copies) narrowed the trace interpretations to
+`{characterization, data_nature, confidence}`, **dropping `identifies`** — but `findHcEntityIdColumn`
+(`commit-content-unit.ts:150`) reads `interp.identifies` FROM that trace to resolve the entity-id column.
+The R4 entity-scope resolution was therefore silently defeated at the trace layer. R6 widens the trace
+(and the `ClassificationTrace` type) to carry `identifies` + `relationships` — the expression now reaches
+commit intact, which is the whole point of "derive from the expression."
+
+### §R6.4 — Proof gates
+
+| Gate | Result |
+|---|---|
+| **PG-R6-1** `SCI-HC-PATTERN` zero non-comment | ✓ only provenance comments in `expression-classifier.ts` / `analyze` |
+| **PG-R6-2** `posteriors`/`SCI-CRR-DIAG`/`SCI-SCORES-DIAG` zero non-comment | ✓ only provenance comments |
+| **PG-R6-3** `idRepeatRatio` zero behavioral | ✓ provenance comment + `[SCI-PROFILE-DIAG]` structural log only |
+| **PG-R6-4** no heuristic `data_type` write | ✓ write KEPT (Option 1); input is expression-derived, no heuristic in chain |
+| **PG-R6-5** zero behavioral `data_type` reads | ✓ all reads are partition/scope keys |
+| **PG-R6-6** zero label-asserting classifier tests | ✓ classifier suite rewritten to behavioral |
+| **PG-R6-7** MIR `entity_id_field` = DNI_Vendedor | architect (re-import); trace now carries `identifies` (§R6.3) |
+| **PG-R6-8** MIR `source_dates` populated | architect (re-import) |
+| **PG-R6-9** Plan 2 = 210,000 | HALT-CALC — architect (byte-identical by §R6.HALT-CALC) |
+| **PG-R6-10** BCL = $312,033 | HALT-CALC — architect |
+| **PG-R6-11** Meridian = $556,985 | HALT-CALC — architect |
+| **PG-R6-12** tsc 0 · lint 0 · tests · build | ✓ tsc 0, lint 0 errors, 279 tests pass, build 210 routes |
+| **PG-R6-13** grep evidence IS the enforcement | ✓ §R6.4 greps are the evidence; ~1460 lines of producer deleted |
+
+**Scope:** 6 modules + 2 tests deleted, 2 added, 9 modified — net **93 insertions / 1556 deletions**.
+Code commit `741cf9d0`.
