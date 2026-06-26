@@ -15,6 +15,7 @@ export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 import { resolveReferenceJoinRows } from '@/lib/calculation/reference-join'; // HF-329: classified reference-sheet join
 import {
   aggregateMetrics,
@@ -84,11 +85,16 @@ import type { ConvergenceBindingEntry } from '@/types/convergence-bindings';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, periodId, ruleSetId } = body;
+  const { periodId, ruleSetId } = body;
 
-  if (!tenantId || !periodId || !ruleSetId) {
+  // OB-246 AP3: tenant from the authenticated session, never body.tenantId.
+  const auth = await resolveCallerTenant(body?.tenantId);
+  if (!auth.ok) return auth.response;
+  const tenantId = auth.caller.tenantId;
+
+  if (!periodId || !ruleSetId) {
     return NextResponse.json(
-      { error: 'Missing required fields: tenantId, periodId, ruleSetId' },
+      { error: 'Missing required fields: periodId, ruleSetId' },
       { status: 400 }
     );
   }

@@ -7,17 +7,30 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// OB-246 5c: a caller may read inbox items only for personas at or below their authenticated role —
+// a member cannot request the admin (or manager) inbox; a manager cannot request the admin inbox.
+function gateInboxPersona(requested: string, role: string): string {
+  if (['platform', 'vl_admin', 'admin'].includes(role)) return requested; // any
+  if (role === 'manager') return requested === 'admin' ? 'manager' : requested; // not admin
+  return 'rep'; // member / viewer / sales_rep → own only
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const tenantId = searchParams.get('tenantId');
-  const persona = searchParams.get('persona') || 'admin';
+  const requestedPersona = searchParams.get('persona') || 'admin';
 
-  if (!tenantId || !UUID_REGEX.test(tenantId)) {
+  // OB-246 AP3 + 5c: tenant from the authenticated session (never query tenantId); persona gated by role.
+  const auth = await resolveCallerTenant(searchParams.get('tenantId'));
+  if (!auth.ok) return auth.response;
+  const tenantId = auth.caller.tenantId;
+  if (!UUID_REGEX.test(tenantId)) {
     return NextResponse.json({ error: 'Valid tenantId (UUID) required' }, { status: 400 });
   }
+  const persona = gateInboxPersona(requestedPersona, auth.caller.role);
 
   const supabase = await createServiceRoleClient();
   // agent_inbox table created via SQL migration — not yet in generated types

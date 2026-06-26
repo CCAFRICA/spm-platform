@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAIService } from '@/lib/ai/ai-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 import { detectAnomalies } from '@/lib/intelligence/anomaly-detection';
 // OB-199 Phase 4: canonical writer migration.
 import { writeSignal, CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
@@ -40,7 +41,7 @@ function hashData(data: unknown): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { persona, data, locale, tenantId, anomalies: clientAnomalies } = await request.json();
+    const { persona, data, locale, tenantId: bodyTenantId, anomalies: clientAnomalies } = await request.json();
 
     if (!persona || !data) {
       return NextResponse.json(
@@ -48,6 +49,11 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // OB-246 AP3: tenant from the authenticated session — never trust body.tenantId.
+    const auth = await resolveCallerTenant(bodyTenantId);
+    if (!auth.ok) return auth.response;
+    const tenantId = auth.caller.tenantId;
 
     // OB-73 Mission 1 / F-38 / AP-18: SAFETY GATE — Never generate assessment on empty data.
     // If the tenant has zero calculation_results, return a structured "no data" response
