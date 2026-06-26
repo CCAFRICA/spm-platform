@@ -378,15 +378,6 @@ export interface ContentUnitProposal {
   // (comprehension cost). Additive/optional (Phase 1 failedInterpretation pattern); rendered only
   // when present (legacy-shaped units show nothing).
   recognitionProvenance?: { recognizedFraction: number; novelCount: number; llmCalled: boolean };
-  // OB-203 Phase 6: workbook-graph evidence (DERIVED, FLAG-ONLY). The relational role + reasoning are
-  // shown in the proposal; `nonFkReferenceKeys` carries the D3 contextual-role resolution to the commit
-  // layer — reference_key columns that reference NO roster identifier (not entity foreign keys), so
-  // entity creation is suppressed for them. Additive/optional; informs, never gates.
-  graphEvidence?: {
-    role: 'roster' | 'fact' | 'reference' | 'derived' | 'unknown';
-    reasoning: string;
-    nonFkReferenceKeys: string[];
-  };
 }
 
 // ============================================================

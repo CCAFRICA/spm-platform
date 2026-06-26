@@ -27,7 +27,6 @@ import {
   computeOverallHealth,
 } from '@/lib/intelligence/ai-metrics-service';
 import { computeSCIAccuracy, computeSCIFlywheelTrend, computeSCICostCurve } from '@/lib/sci/signal-capture-service';
-import { computeWeightEvolution } from '@/lib/sci/weight-evolution';
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>;
 
@@ -558,7 +557,7 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     })
   ) || tenantIds[0] || '';
 
-  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, sciWeightEvo, aiSubstrate, agentOps] = await Promise.all([
+  const [accuracy, calibration, flywheel, health, sciAccuracy, sciFlywheel, sciCostCurve, aiSubstrate, agentOps] = await Promise.all([
     computeAccuracyMetrics().catch(() => null),
     computeCalibrationMetrics().catch(() => null),
     computeFlywheelTrend().catch(() => null),
@@ -566,7 +565,6 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     sciTenantId ? computeSCIAccuracy(sciTenantId).catch(() => null) : Promise.resolve(null),
     sciTenantId ? computeSCIFlywheelTrend(sciTenantId).catch(() => null) : Promise.resolve(null),
     sciTenantId ? computeSCICostCurve(sciTenantId).catch(() => null) : Promise.resolve(null),
-    sciTenantId ? computeWeightEvolution(sciTenantId).catch(() => null) : Promise.resolve(null),
     computeAISubstrate(supabase).catch(() => null),
     computeAgentOps(supabase).catch(() => null),
   ]);
@@ -606,21 +604,9 @@ async function fetchAIIntelligence(supabase: ServiceClient): Promise<AIIntellige
     sciAccuracy: sciAccuracy ?? null,
     sciFlywheel: sciFlywheel ?? null,
     sciCostCurve: sciCostCurve ?? null,
-    sciWeightEvolution: sciWeightEvo ? {
-      proposedAdjustments: sciWeightEvo.proposedAdjustments.slice(0, 20).map(a => ({
-        agent: a.agent,
-        signal: a.signal,
-        currentWeight: a.currentWeight,
-        proposedWeight: a.proposedWeight,
-        delta: a.delta,
-        direction: a.direction,
-        basis: a.basis,
-      })),
-      sampleSize: sciWeightEvo.sampleSize,
-      overrideCount: sciWeightEvo.overrideCount,
-      confidence: sciWeightEvo.confidence,
-      hasEnoughData: sciWeightEvo.hasEnoughData,
-    } : null,
+    // HF-341 R6: SCI weight-evolution removed — the agent weight registry it analyzed
+    // is deleted (classification is expression-derived, not structurally scored).
+    sciWeightEvolution: null,
   };
 }
 
