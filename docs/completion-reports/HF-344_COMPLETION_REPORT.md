@@ -149,7 +149,7 @@ Server responds; routes resolve through middleware with no 500. Runtime page com
 
 ## PG-10 — PR created
 
-See PR link at the bottom of this report (filled on creation).
+**https://github.com/CCAFRICA/spm-platform/pull/603** — `HF-344: Persona-conditional panel rendering — display-layer scoping` (base `main`, head `hf-344-persona-conditional-panel-rendering`).
 
 ---
 
