@@ -27,14 +27,10 @@ import {
 import { Users, Search, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { DrillThroughPanel } from '@/components/drill-through';
 import { getPeriodsWithResults } from '@/lib/drill-through';
-import type { EntityScope } from '@/lib/drill-through';
+import { type AuthScope } from '@/lib/auth/scope';
 
-const ALL_SCOPE: EntityScope = {
-  visibleEntityIds: [],
-  visibleRuleSetIds: [],
-  visiblePeriodIds: [],
-  scopeType: 'all',
-};
+// /configure/people is view.all_entities-gated (admin/platform) — 'all' is the correct scope here.
+const ALL_SCOPE: AuthScope = { type: 'all' };
 
 const PAGE_SIZE = 25;
 

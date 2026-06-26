@@ -143,12 +143,8 @@ export default function ApprovalCenterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTenant?.id]);
 
-  const allScope = {
-    visibleEntityIds: [] as string[],
-    visibleRuleSetIds: [] as string[],
-    visiblePeriodIds: [] as string[],
-    scopeType: 'all' as const,
-  };
+  // OB-246: approver drill-through reads all results in the batch (approver is data.approve_results-gated).
+  const allScope = { type: 'all' as const };
 
   const currencyFmt = new Intl.NumberFormat(isSpanish ? 'es-MX' : 'en-US', {
     style: 'currency',

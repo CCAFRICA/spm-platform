@@ -43,7 +43,7 @@ import { CarrierImportHealth, CarrierPipelineReadiness } from '@/components/stre
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import { useDrillThrough } from '@/hooks/useDrillThrough';
 import { DrillThroughPanel } from '@/components/drill-through';
-import type { EntityScope } from '@/lib/drill-through';
+import type { AuthScope } from '@/lib/auth/scope';
 
 // REDESIGN — End-State A clean data layer (the only calc-data reads on the ICM render)
 import {
@@ -84,8 +84,8 @@ import {
   type PipelineStage,
 } from '@/components/insights/ds003';
 
-// Admin sees the whole tenant; manager/individual drill panels are scoped to on-screen entities.
-const ALL_SCOPE: EntityScope = { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' };
+// OB-246: Phase 1 retypes this to AuthScope (byte-identical 'all'); Phase 4 replaces it with useAuth().scope.
+const ALL_SCOPE: AuthScope = { type: 'all' };
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────────
 // OB-211 WS-2 / B2: the lead Insight narrative for /stream (preserved — same deterministic builder

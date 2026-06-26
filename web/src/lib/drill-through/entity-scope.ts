@@ -1,47 +1,37 @@
 /**
- * OB-224 — resolveEntityScope: the READ side of profile_scope.
+ * OB-224 / OB-246 — resolveEntityScope: the fail-CLOSED reader of profile_scope (a manager's team).
  *
- * profile_scope is WRITTEN by materializeProfileScope (lib/entities/profile-scope.ts, OB-204).
- * This is its long-deferred §9 successor: a thin reader. It deliberately adds NO third writer
- * (AP-17 — the two existing materializers are the writers). No row, or an empty visible set, or
- * an unreadable row all resolve to "all" (admin default), which is the only persona configured
- * today (substrate §3.1: profile_scope has 0 rows).
+ * OB-246 (AP4 closure): the prior version returned ALL_SCOPE (fail-OPEN) on no-profile / no-row /
+ * empty visible set — the single most dangerous pattern on the platform (a narrowed role silently
+ * widened to the whole tenant). It now returns `{ type: 'deny' }` (least privilege) on every failure
+ * path, and `{ type: 'team', entityIds }` only when profile_scope actually names a non-empty set.
+ * Consumed by resolveAuthScope (lib/auth/scope.ts) for the manager branch — the single resolver.
+ * `AuthScope` is a TYPE-only import here, so there is no runtime import cycle with lib/auth/scope.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
-import type { EntityScope } from './types';
-
-const ALL_SCOPE: EntityScope = {
-  visibleEntityIds: [],
-  visibleRuleSetIds: [],
-  visiblePeriodIds: [],
-  scopeType: 'all',
-};
+import type { AuthScope } from '@/lib/auth/scope';
 
 export async function resolveEntityScope(
   profileId: string | null | undefined,
+  tenantId?: string | null,
   client?: SupabaseClient<Database>,
-): Promise<EntityScope> {
-  if (!profileId) return ALL_SCOPE;
+): Promise<AuthScope> {
+  if (!profileId) return { type: 'deny' };
   const sb = client ?? createClient();
-  const { data, error } = await sb
+  let q = sb
     .from('profile_scope')
-    .select('scope_type, visible_entity_ids, visible_rule_set_ids, visible_period_ids')
-    .eq('profile_id', profileId)
-    .maybeSingle();
+    .select('visible_entity_ids')
+    .eq('profile_id', profileId);
+  if (tenantId) q = q.eq('tenant_id', tenantId);
+  const { data, error } = await q.maybeSingle();
 
-  if (error || !data) return ALL_SCOPE;
+  if (error || !data) return { type: 'deny' };
 
   const visibleEntityIds = (data.visible_entity_ids as string[] | null) ?? [];
-  // An explicit but empty scope row is still "all" per the §3.1 resolution rule.
-  if (visibleEntityIds.length === 0) return ALL_SCOPE;
+  // An explicit but empty scope row reads NOTHING (fail-closed), not everything.
+  if (visibleEntityIds.length === 0) return { type: 'deny' };
 
-  const rawType = (data.scope_type as string | null) ?? '';
-  return {
-    visibleEntityIds,
-    visibleRuleSetIds: (data.visible_rule_set_ids as string[] | null) ?? [],
-    visiblePeriodIds: (data.visible_period_ids as string[] | null) ?? [],
-    scopeType: rawType === 'graph_derived' ? 'graph_derived' : 'explicit',
-  };
+  return { type: 'team', entityIds: visibleEntityIds };
 }

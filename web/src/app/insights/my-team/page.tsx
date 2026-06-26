@@ -8,7 +8,7 @@ import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context'; // OB-224
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-313
 import { DrillThroughPanel } from '@/components/drill-through'; // OB-224
-import { resolveEntityScope, getPeriodsWithResults, type EntityScope } from '@/lib/drill-through'; // OB-224
+import { getPeriodsWithResults } from '@/lib/drill-through'; // OB-224
 import { getCheques, getMeseros, getFranquicias, getSalesByMesero, getSalesByFranquicia } from '@/lib/restaurant-service';
 import { GoalProgressBar } from '@/components/charts/goal-progress-bar';
 import { SalesHistoryChart } from '@/components/charts/sales-history-chart';
@@ -45,7 +45,8 @@ interface TeamData {
 
 export default function MyTeamPage() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth(); // OB-224
+  // OB-246: scope is the authenticated team scope (admin→all, manager→team, member→own, unlinked→deny).
+  const { scope: teamScope } = useAuth();
   const { format } = useCurrency();
   const [data, setData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,8 +55,7 @@ export default function MyTeamPage() {
   const isHospitality = currentTenant?.industry === 'Hospitality';
   const tenantId = currentTenant?.id ?? '';
 
-  // OB-224: manager-scoped drill-through for the non-hospitality (empty-state) branch (AP-11).
-  const [teamScope, setTeamScope] = useState<EntityScope | null>(null);
+  // OB-224 / OB-246: manager-scoped drill-through for the non-hospitality branch — scope from useAuth().
   const [latestPeriodId, setLatestPeriodId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -66,27 +66,23 @@ export default function MyTeamPage() {
     }
   }, [isHospitality]);
 
-  // OB-224: resolve scope + latest period for the non-hospitality team results panel.
+  // OB-224 / OB-246: latest period for the non-hospitality team results panel (scope from useAuth()).
   useEffect(() => {
     if (isHospitality || !tenantId) return;
     let cancelled = false;
     (async () => {
       try {
-        const [scope, periods] = await Promise.all([
-          resolveEntityScope(user?.id),
-          getPeriodsWithResults(tenantId),
-        ]);
+        const periods = await getPeriodsWithResults(tenantId);
         if (cancelled) return;
-        setTeamScope(scope);
         setLatestPeriodId(periods[0]?.id);
       } catch (error) {
-        console.error('Error resolving team drill-through scope:', error);
+        console.error('Error loading team period:', error);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isHospitality, tenantId, user?.id]);
+  }, [isHospitality, tenantId]);
 
   const loadHospitalityData = async () => {
     setIsLoading(true);
@@ -187,7 +183,7 @@ export default function MyTeamPage() {
     // empty-state. The panel themes itself (isVialuce internally) and shows emptyMessage when
     // there are genuinely no results. HF-313: Vialuce renders .page + .phead frame.
     const teamPanel =
-      teamScope && tenantId ? (
+      tenantId ? (
         <DrillThroughPanel
           tenantId={tenantId}
           scope={teamScope}

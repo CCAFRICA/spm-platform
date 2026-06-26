@@ -8,16 +8,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getPeriodsWithResults, getEntityResults } from '@/lib/drill-through';
-import type { EntityScope } from '@/lib/drill-through/types';
+import { type AuthScope, ALL_SCOPE } from '@/lib/auth/scope';
 import type { PeriodSummary } from './types';
 
-/** "All entities" scope — getEntityResults treats empty visibleEntityIds as admin/all. */
-export const ALL_INSIGHTS_SCOPE: EntityScope = {
-  visibleEntityIds: [],
-  visibleRuleSetIds: [],
-  visiblePeriodIds: [],
-  scopeType: 'all',
-};
+/**
+ * OB-246: "all entities" scope as an AuthScope discriminant. Was an empty-visibleEntityIds EntityScope
+ * (the AP1 empty-means-all overload); now an explicit {type:'all'}. Still the default for un-migrated
+ * page callsites (byte-identical: 'all' → no entity filter). Re-exported via the insights barrel.
+ */
+export const ALL_INSIGHTS_SCOPE: AuthScope = ALL_SCOPE;
 
 export async function getCalculatedPeriods(
   tenantId: string,

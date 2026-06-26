@@ -27,6 +27,17 @@ import {
   SESSION_ABSENT,
   type AuthProfile,
 } from '@/lib/supabase/auth-service';
+// OB-246: the ONE authorization scope, resolved in this lifecycle (no second context/hook — HF-343 lesson).
+import {
+  type AuthScope,
+  resolveAuthScope,
+  initialScopeFromRole,
+  scopeCanViewAll,
+  scopeCanViewTeam,
+  scopeIsDenied,
+  DENY_SCOPE,
+} from '@/lib/auth/scope';
+import { resolveRole, type Role } from '@/lib/auth/permissions';
 
 // ──────────────────────────────────────────────
 // Context Type
@@ -44,6 +55,18 @@ interface AuthContextType {
   isVLAdmin: boolean;
   capabilities: string[];
   profileLocale: string | null;
+  // OB-246: authorization scope — resolved from the authenticated profile.role (Decision 39), NOT
+  // from the cosmetic persona override. ONE isLoading governs user + capabilities + scope.
+  scope: AuthScope;
+  /** Canonical resolved role of the authenticated user (null until resolved / unknown role). */
+  viewRole: Role | null;
+  /** entities.profile_id linkage for this profile (own-entity), null when unlinked. */
+  ownEntityId: string | null;
+  /** profiles.id of the authenticated user (null until resolved). */
+  profileId: string | null;
+  canViewAll: boolean;
+  canViewTeam: boolean;
+  isDenied: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -162,7 +185,39 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   const [profileLocale, setProfileLocale] = useState<string | null>(
     initialAuthState?.profile?.locale || null
   );
+  // OB-246: scope seeded synchronously from the SSR role (admin/platform → all; everyone else → deny
+  // until initAuth re-resolves — a fail-closed transient that never over-shows). No second lifecycle.
+  const [scope, setScope] = useState<AuthScope>(() => initialScopeFromRole(initialAuthState?.profile?.role));
+  const [viewRole, setViewRole] = useState<Role | null>(() =>
+    initialAuthState?.profile?.role ? resolveRole(initialAuthState.profile.role) : null
+  );
+  const [ownEntityId, setOwnEntityId] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(initialAuthState?.profile?.id ?? null);
   const [isLoading, setIsLoading] = useState(!initialAuthState);
+
+  // OB-246: set user + capabilities + locale + SCOPE together from one profile (one lifecycle). The
+  // scope read awaits resolveAuthScope (≤1 indexed query; zero for admin) so the single isLoading that
+  // clears in initAuth's finally also governs scope readiness — no intermediate wrong-render.
+  async function applyProfileState(profile: AuthProfile) {
+    setUser(mapProfileToUser(profile));
+    setCapabilities(profile.capabilities || []);
+    setProfileLocale(profile.locale);
+    setProfileId(profile.id);
+    const resolved = await resolveAuthScope({ id: profile.id, role: profile.role, tenantId: profile.tenantId });
+    setScope(resolved.scope);
+    setOwnEntityId(resolved.ownEntityId);
+    setViewRole(resolved.viewRole);
+  }
+
+  function clearAuthState() {
+    setUser(null);
+    setCapabilities([]);
+    setProfileLocale(null);
+    setScope(DENY_SCOPE);
+    setOwnEntityId(null);
+    setViewRole(null);
+    setProfileId(null);
+  }
 
   // Initialize: check Supabase session + listen for auth changes
   useEffect(() => {
@@ -194,9 +249,7 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
         // 3. Both session AND user confirmed — NOW fetch profile.
         const profile = await fetchCurrentProfile();
         if (profile && profile !== SESSION_ABSENT) {
-          setUser(mapProfileToUser(profile));
-          setCapabilities(profile.capabilities || []);
-          setProfileLocale(profile.locale);
+          await applyProfileState(profile); // OB-246: resolves scope inside the single isLoading window
         }
         // If profile is null (missing row) or SESSION_ABSENT, user stays null.
         // AuthShellProtected will handle the redirect. Do NOT redirect here.
@@ -206,14 +259,10 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             const p = await fetchCurrentProfile();
             if (p && p !== SESSION_ABSENT) {
-              setUser(mapProfileToUser(p));
-              setCapabilities(p.capabilities || []);
-              setProfileLocale(p.locale);
+              await applyProfileState(p);
             }
           } else if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setCapabilities([]);
-            setProfileLocale(null);
+            clearAuthState();
             // Do NOT redirect here — AuthShellProtected handles navigation
           }
         });
@@ -258,9 +307,7 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
       }
 
       const mappedUser = mapProfileToUser(profile);
-      setUser(mappedUser);
-      setCapabilities(profile.capabilities || []);
-      setProfileLocale(profile.locale);
+      await applyProfileState(profile); // OB-246: user + caps + locale + scope set together
 
       if (isVLAdmin(mappedUser)) {
         router.push('/select-tenant');
@@ -285,8 +332,7 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
     } catch {
       // Continue with cleanup even if signOut fails
     }
-    setUser(null);
-    setCapabilities([]);
+    clearAuthState();
 
     // HF-043: Explicitly clear ALL auth-related cookies.
     if (typeof document !== 'undefined') {
@@ -326,8 +372,12 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
 
   // ── Capabilities (entity model check) ──
   const hasCapability = useCallback((capability: string): boolean => {
+    // OB-246 (DS-014 §4): platform/admin inherit ALL capabilities. The bypass keys off the REAL
+    // authenticated role (never the persona override — the HF-344 lesson), so a VL admin previewing
+    // a narrower persona still holds every capability.
+    if (user && (user.role === 'platform' || user.role === 'admin')) return true;
     return capabilities.includes(capability);
-  }, [capabilities]);
+  }, [user, capabilities]);
 
   const isUserVLAdmin = user ? isVLAdmin(user) : false;
 
@@ -340,6 +390,13 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
         isVLAdmin: isUserVLAdmin,
         capabilities,
         profileLocale,
+        scope,
+        viewRole,
+        ownEntityId,
+        profileId,
+        canViewAll: scopeCanViewAll(scope),
+        canViewTeam: scopeCanViewTeam(scope),
+        isDenied: scopeIsDenied(scope),
         login,
         logout,
         hasPermission,

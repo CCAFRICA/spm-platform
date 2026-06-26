@@ -12,11 +12,11 @@ import { useEffect } from 'react';
 import { useDrillThrough } from '@/hooks/useDrillThrough';
 import { EntityResultsList } from './EntityResultsList';
 import { ComponentCards } from './ComponentCards';
-import type { EntityScope } from '@/lib/drill-through';
+import type { AuthScope } from '@/lib/auth/scope';
 
 interface Props {
   tenantId: string;
-  scope: EntityScope;
+  scope: AuthScope;
   periodId?: string;
   batchId?: string;
   initialEntityId?: string;

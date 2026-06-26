@@ -1,22 +1,21 @@
 'use client';
 
 /**
- * Persona Context — Derives persona from authenticated user's profile.
+ * Persona Context — persona TOKEN (visual identity + intent framing) + the VL-admin demo override.
  *
- * The persona determines:
- *   - Visual identity (background gradient, accent colors)
- *   - Data scope (what entities the user can see)
- *   - Intent framing (governance vs acceleration vs growth)
- *
- * Persona is derived from the profile role + capabilities, NOT selected manually.
- * A demo override is available for persona switcher (OB-46C).
+ * OB-246: this context NO LONGER computes data scope. Scope is resolved ONCE in auth-context
+ * (`useAuth().scope`, keyed off the authenticated profile.role — Decision 39, AP6 closure: one scope,
+ * one lifecycle). persona-context exposes a backward-compatible `PersonaScope` MAPPED from
+ * `useAuth().scope` (HALT-C) so existing consumers (the Financial surfaces, ManagerDashboard) keep
+ * working unchanged. The override drives ONLY the persona token and is gated to `isVLAdmin` (AP2):
+ * a manufactured/stale `vl_persona_override` sessionStorage key cannot widen a real user's view or
+ * scope — it is inert at the point of use, cleared by effect, and rejected by the setter.
  */
 
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { useAuth } from './auth-context';
-import { useTenant } from './tenant-context';
-import { createClient } from '@/lib/supabase/client';
 import { PERSONA_TOKENS, type PersonaKey } from '@/lib/design/tokens';
+import { authScopeToPersonaScope } from '@/lib/auth/scope';
 import type { User } from '@/types/auth';
 
 // ──────────────────────────────────────────────
@@ -40,41 +39,7 @@ interface PersonaContextValue {
 const PersonaContext = createContext<PersonaContextValue | undefined>(undefined);
 
 // ──────────────────────────────────────────────
-// OB-150: Scope cache — persona scope rarely changes during a session
-// ──────────────────────────────────────────────
-
-interface ScopeCache {
-  key: string; // `${userId}:${tenantId}:${persona}`
-  scope: PersonaScope;
-  profileId: string | null;
-  entityId: string | null;
-  timestamp: number;
-}
-
-const SCOPE_CACHE_TTL = 300_000; // 5 minutes
-let scopeCache: ScopeCache | null = null;
-
-function getCachedScope(userId: string, tenantId: string, persona: PersonaKey): ScopeCache | null {
-  if (!scopeCache) return null;
-  const key = `${userId}:${tenantId}:${persona}`;
-  if (scopeCache.key === key && Date.now() - scopeCache.timestamp < SCOPE_CACHE_TTL) {
-    return scopeCache;
-  }
-  return null;
-}
-
-function setCachedScope(userId: string, tenantId: string, persona: PersonaKey, scope: PersonaScope, profileId: string | null, entityId: string | null) {
-  scopeCache = {
-    key: `${userId}:${tenantId}:${persona}`,
-    scope,
-    profileId,
-    entityId,
-    timestamp: Date.now(),
-  };
-}
-
-// ──────────────────────────────────────────────
-// Persona derivation
+// Persona derivation (visual/intent token only — NOT scope)
 // ──────────────────────────────────────────────
 
 function derivePersona(user: User | null, capabilities: string[]): PersonaKey {
@@ -103,10 +68,9 @@ function derivePersona(user: User | null, capabilities: string[]): PersonaKey {
 // ──────────────────────────────────────────────
 
 export function PersonaProvider({ children }: { children: ReactNode }) {
-  const { user, capabilities } = useAuth();
-  const { currentTenant } = useTenant();
+  const { user, capabilities, isVLAdmin, scope: authScope, ownEntityId, profileId } = useAuth();
 
-  // OB-89: Persist persona override in sessionStorage so it survives navigation
+  // OB-89: persist persona override in sessionStorage so it survives navigation (VL admin only).
   const [override, setOverride] = useState<PersonaKey | null>(() => {
     if (typeof window !== 'undefined') {
       const stored = sessionStorage.getItem('vl_persona_override');
@@ -114,11 +78,14 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
     return null;
   });
-  const [scope, setScope] = useState<PersonaScope>({ entityIds: [], canSeeAll: false });
-  const [profileId, setProfileId] = useState<string | null>(null);
-  const [entityId, setEntityId] = useState<string | null>(null);
 
-  // OB-89: Sync override to sessionStorage
+  // OB-246 AP2: a non-VL-admin must never carry an override — a forged/stale sessionStorage key is
+  // cleared as soon as auth resolves. (The render below ALSO ignores it; this keeps storage clean.)
+  useEffect(() => {
+    if (override !== null && !isVLAdmin) setOverride(null);
+  }, [override, isVLAdmin]);
+
+  // OB-89: sync override to sessionStorage.
   useEffect(() => {
     if (override) {
       sessionStorage.setItem('vl_persona_override', override);
@@ -127,221 +94,32 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
   }, [override]);
 
-  // Derive persona from user profile
+  // OB-246 AP2: the override is applied ONLY for a VL admin, at the point of use — so even a
+  // first-paint forged key cannot change the rendered persona for a real member/manager.
+  const effectiveOverride = isVLAdmin ? override : null;
   const derivedPersona = useMemo(() => derivePersona(user, capabilities), [user, capabilities]);
-  const persona = override ?? derivedPersona;
+  const persona = effectiveOverride ?? derivedPersona;
   const tokens = PERSONA_TOKENS[persona];
 
-  // Fetch scope from profile + override persona
-  // HF-060: Added `override` to deps so scope recalculates when PersonaSwitcher changes persona.
-  // Uses effective persona (override ?? derived) instead of user.role so that demo
-  // persona switching actually changes data scope, not just visual identity.
-  useEffect(() => {
-    if (!user || !currentTenant) {
-      setScope({ entityIds: [], canSeeAll: false });
-      setProfileId(null);
-      setEntityId(null);
-      return;
-    }
+  // OB-246 HALT-C: scope is a backward-compatible VIEW of the ONE auth-resolved scope. persona-context
+  // no longer runs its own async fetchScope lifecycle. The override changes the persona TOKEN, never
+  // data scope (Decision 39) — a VL admin previewing 'rep' still reads their authenticated (admin) scope.
+  const scope = useMemo<PersonaScope>(() => authScopeToPersonaScope(authScope), [authScope]);
 
-    const effectivePersona = override ?? derivePersona(user, capabilities);
-
-    async function fetchScope() {
-      // OB-150: Check scope cache before any DB queries
-      const cached = getCachedScope(user!.id, currentTenant!.id, effectivePersona);
-      if (cached) {
-        setScope(cached.scope);
-        setProfileId(cached.profileId);
-        setEntityId(cached.entityId);
-        return;
-      }
-
-      try {
-        const supabase = createClient();
-
-        // Get the user's profile row to find profile_id
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('auth_user_id', user!.id)
-          .eq('tenant_id', currentTenant!.id)
-          .maybeSingle();
-
-        let linkedEntityId: string | null = null;
-
-        if (profile) {
-          setProfileId(profile.id);
-
-          // Profile→entity linkage goes through entities.profile_id (not profiles.entity_id)
-          const { data: linkedEntity } = await supabase
-            .from('entities')
-            .select('id')
-            .eq('profile_id', profile.id)
-            .eq('tenant_id', currentTenant!.id)
-            .maybeSingle();
-
-          linkedEntityId = linkedEntity?.id ?? null;
-        }
-
-        // Admin persona sees all — no need to query profile_scope
-        if (effectivePersona === 'admin') {
-          const adminScope = { entityIds: [] as string[], canSeeAll: true };
-          setEntityId(linkedEntityId);
-          setScope(adminScope);
-          setCachedScope(user!.id, currentTenant!.id, effectivePersona, adminScope, profile?.id ?? null, linkedEntityId);
-          return;
-        }
-
-        // Rep persona: scope to a single server's store
-        if (effectivePersona === 'rep') {
-          // If the user has a linked individual entity, use it
-          if (linkedEntityId) {
-            const { data: linkedEnt } = await supabase
-              .from('entities')
-              .select('id, metadata')
-              .eq('id', linkedEntityId)
-              .maybeSingle();
-            const meta = (linkedEnt?.metadata || {}) as Record<string, unknown>;
-            const storeId = String(meta.store_id || meta.location_id || '');
-            const repScope = { entityIds: storeId ? [storeId] : [linkedEntityId!], canSeeAll: false };
-            setEntityId(linkedEntityId);
-            setScope(repScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, repScope, profile?.id ?? null, linkedEntityId);
-            return;
-          }
-
-          // VL Admin demo override: pick a sample individual entity from the tenant
-          const { data: sampleIndividual } = await supabase
-            .from('entities')
-            .select('id, metadata')
-            .eq('tenant_id', currentTenant!.id)
-            .eq('entity_type', 'individual')
-            .limit(1)
-            .maybeSingle();
-
-          if (sampleIndividual) {
-            const meta = (sampleIndividual.metadata || {}) as Record<string, unknown>;
-            const storeId = String(meta.store_id || meta.location_id || '');
-            const sampleScope = { entityIds: storeId ? [storeId] : [] as string[], canSeeAll: false };
-            setEntityId(sampleIndividual.id);
-            setScope(sampleScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, sampleScope, profile?.id ?? null, sampleIndividual.id);
-          } else {
-            const emptyScope = { entityIds: [] as string[], canSeeAll: false };
-            setEntityId(null);
-            setScope(emptyScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, emptyScope, profile?.id ?? null, null);
-          }
-          return;
-        }
-
-        // Manager persona: scope to one brand's locations
-        if (effectivePersona === 'manager') {
-          // OB-100: Run profile_scope + entities queries in parallel
-          const [scopeResult, orgsResult] = await Promise.all([
-            profile?.id
-              ? supabase
-                  .from('profile_scope')
-                  .select('visible_entity_ids')
-                  .eq('profile_id', profile.id)
-                  .eq('tenant_id', currentTenant!.id)
-                  .maybeSingle()
-              : Promise.resolve({ data: null }),
-            supabase
-              .from('entities')
-              .select('id, entity_type, metadata')
-              .eq('tenant_id', currentTenant!.id)
-              .in('entity_type', ['organization', 'location']),
-          ]);
-
-          // Check profile_scope first
-          const scopeData = scopeResult.data as { visible_entity_ids?: string[] } | null;
-          if (scopeData?.visible_entity_ids?.length) {
-            const mgrScope = { entityIds: scopeData.visible_entity_ids, canSeeAll: false };
-            setEntityId(linkedEntityId);
-            setScope(mgrScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, mgrScope, profile?.id ?? null, linkedEntityId);
-            return;
-          }
-
-          // VL Admin demo override: scope to first brand's locations
-          const allOrgs = orgsResult.data as Array<{ id: string; entity_type: string; metadata: unknown }> | null;
-
-          if (allOrgs) {
-            const brandEntities = allOrgs.filter(e =>
-              (e.metadata as Record<string, unknown>)?.role === 'brand'
-            );
-            const firstBrand = brandEntities[0];
-
-            if (firstBrand) {
-              const brandLocations = allOrgs.filter(e =>
-                e.entity_type === 'location' &&
-                String((e.metadata as Record<string, unknown>)?.brand_id || '') === firstBrand.id
-              );
-              const brandScope = { entityIds: brandLocations.map(l => l.id), canSeeAll: false };
-              setEntityId(linkedEntityId);
-              setScope(brandScope);
-              setCachedScope(user!.id, currentTenant!.id, effectivePersona, brandScope, profile?.id ?? null, linkedEntityId);
-              return;
-            }
-          }
-
-          // OB-211 WS7 Stage 1 (root SR-39 fix): a manager with NO derivable scope (no
-          // profile_scope row, no brand data) FAILS CLOSED — least privilege, not most. Was
-          // { canSeeAll: true } (fail-OPEN), which skipped every scope guard (the WS7-A
-          // membership check, buildManagerData's team filter, Simulate's teamResults, the
-          // financial pages) and let an unscoped manager view/aggregate the WHOLE tenant. This
-          // gap was surfaced twice (OB-211 Simulate sweep, WS7-A sweep) and is the root beneath
-          // WS7-A's surface closures. Absence of a derivable scope MUST default to least privilege.
-          // (HALT-SCOPE-DEMO: a demo manager relying on the old fail-open now sees only their own
-          // entity — the fix is to seed their profile_scope, NOT to restore fail-open.)
-          const mgrFallbackScope = { entityIds: [] as string[], canSeeAll: false };
-          setEntityId(linkedEntityId);
-          setScope(mgrFallbackScope);
-          setCachedScope(user!.id, currentTenant!.id, effectivePersona, mgrFallbackScope, profile?.id ?? null, linkedEntityId);
-          return;
-        }
-
-        // Fallback for any other persona: try profile_scope
-        if (profile?.id) {
-          const { data: scopeData } = await supabase
-            .from('profile_scope')
-            .select('visible_entity_ids')
-            .eq('profile_id', profile.id)
-            .eq('tenant_id', currentTenant!.id)
-            .maybeSingle();
-
-          if (scopeData?.visible_entity_ids) {
-            const fbScope = { entityIds: scopeData.visible_entity_ids, canSeeAll: false };
-            setScope(fbScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, fbScope, profile?.id ?? null, linkedEntityId);
-          } else {
-            const fbScope = { entityIds: linkedEntityId ? [linkedEntityId] : [] as string[], canSeeAll: false };
-            setScope(fbScope);
-            setCachedScope(user!.id, currentTenant!.id, effectivePersona, fbScope, profile?.id ?? null, linkedEntityId);
-          }
-        }
-      } catch (err) {
-        console.warn('[PersonaContext] Failed to fetch scope:', err);
-        if (effectivePersona === 'admin') {
-          setScope({ entityIds: [], canSeeAll: true });
-        } else {
-          setScope({ entityIds: [], canSeeAll: false });
-        }
-      }
-    }
-
-    fetchScope();
-  }, [user, currentTenant, override, capabilities]);
+  // OB-246 AP2: only a VL admin may set the override.
+  const setPersonaOverride = useCallback((p: PersonaKey | null) => {
+    if (!isVLAdmin) return;
+    setOverride(p);
+  }, [isVLAdmin]);
 
   const value = useMemo<PersonaContextValue>(() => ({
     persona,
     tokens,
     scope,
     profileId,
-    entityId,
-    setPersonaOverride: setOverride,
-  }), [persona, tokens, scope, profileId, entityId]);
+    entityId: ownEntityId,
+    setPersonaOverride,
+  }), [persona, tokens, scope, profileId, ownEntityId, setPersonaOverride]);
 
   return (
     <PersonaContext.Provider value={value}>
