@@ -21,6 +21,64 @@ not more.
 
 ---
 
+## 1b. HF-345 CORRECTIVE — persona override narrows scope + menu for VL-admin preview
+
+**Corrects OB-246 §3.1d/§3.3b** (the architect's earlier Decision-39 misread: OB-246 made the persona override
+cosmetic on data + navigation, so a VL admin saw tenant-wide data + the full sidebar for every persona — impossible
+to demo/verify what each role experiences). HF-345 makes the override **narrow within entitlement** (always safe —
+Decision 39 prohibits *widening* beyond authenticated entitlement, not an entitled admin *narrowing* their preview).
+**Everything OB-246 built for REAL users is preserved byte-identical.**
+
+**Design (ADR `docs/diagnostics/HF-345_ADR_G0.md`, commit `19f293b2`; impl `372e1f89`):** the persona override is
+**hoisted from persona-context INTO auth-context** (it now drives auth concerns), which exposes on `AuthContextType`:
+- `effectiveScope: AuthScope` — what DATA consumers read. State + ONE reactive effect: real user / no override /
+  admin-preview → `= scope` (sync); VL-admin manager/rep preview → `resolveSampleScope(...)` (the only async, inside
+  the existing lifecycle — HALT-C). Sample: rep → own-linked / highest-payout / any-individual / deny; manager →
+  `profile_scope` / first-10 entities / deny. Cached `tenantId:persona` 5 min (HALT-A). The VL-admin selected tenant
+  is read from `sessionStorage('vialuce_admin_tenant')`/cookie (auth-context is above tenant-context).
+- `effectiveCapabilities: string[]` — sync `useMemo`: VL-admin manager/rep preview → that role's `ROLE_CAPABILITIES`
+  set; else `capabilities`. `hasCapability` evaluates `effectiveCapabilities` when previewing a narrower persona
+  (admin/platform bypass fires only when NOT previewing narrower).
+- `personaOverride` + gated `setPersonaOverride` (the `isVLAdmin` gate, moved intact).
+
+`navigation-context.effectiveRole = (isVLAdmin && override) ? personaToRole(override) : userRole`. persona-context's
+second override lifecycle is gone (it reads the hoisted override; its `PersonaScope` maps from `effectiveScope` →
+Financial pages + ManagerDashboard + statements narrow in preview). 13 client `useAuth().scope` consumers aliased to
+`effectiveScope` (EntityTable narrows via its callers).
+
+**Real-user invariant (preserved):** a member/manager/admin LOGIN has `effectiveScope === scope`,
+`effectiveCapabilities === capabilities`, `effectiveRole === authenticated`, override `null` (gated + cleared) — exactly
+OB-246. **No API route / middleware reads `effectiveScope`** (PG-9 grep clean — security uses real `scope`/session/role;
+`scope` stays on the context).
+
+| HF-345 PG | Result |
+|---|---|
+| PG-1/2 `effectiveScope`/`effectiveCapabilities` on `AuthContextType` | ✅ pasted interface |
+| PG-3 VL-admin Rep → `effectiveScope = {type:'own'}` | ✅ `resolveSampleScope('rep',…)` |
+| PG-4 VL-admin Manager → `{type:'team'}` | ✅ `resolveSampleScope('manager',…)` |
+| PG-5 VL-admin no/admin override → `= scope` (ALL) | ✅ effect early-return |
+| PG-6 Real member → `effectiveScope = scope = own` | ✅ `!isUserVLAdmin` branch |
+| PG-7 `hasCapability` uses `effectiveCapabilities` when override active | ✅ pasted body |
+| PG-8 all data consumers read `effectiveScope` | ✅ 13 aliased; grep clean |
+| PG-9 API/middleware do NOT read `effectiveScope` | ✅ grep clean |
+| PG-10 VL-admin Rep → member sidebar | ✅ `effectiveRole = personaToRole(override)` |
+| PG-11 `npm run build` 0 + dev responds | ✅ build 0; `/login` 200 |
+| PG-12 PR #604 amended (same branch) | ✅ `372e1f89` on `ob-246-rbac-menu-data-access` |
+
+Gates: `tsc` 0 · `build` 0 (Korean Test PASS) · `node --test` **294/294** · HALT-D: engine/SCI untouched.
+
+**Adversarial review (commit `cc6d700a`):** a 3-dimension find→refute review (real-user byte-identical /
+narrow-only-no-widen / lifecycle-no-loop) raised 6 candidates; the verify phase confirmed 0, but applying judgment
+(the OB-246 lesson — don't rubber-stamp dismissals) **4 were genuinely real** and fixed: (1) `resolveSampleScope`
+failed OPEN to ALL on a null tenant → now fails CLOSED to deny for manager/rep preview; (2) sample cache key
+omitted `profileId` → added; (3) `effectiveScope` went stale across a VL-admin tenant switch (the `scope` dep is the
+stable `ALL_SCOPE` ref) → `selectedTenantId` captured into state + added to the effect deps; (4) the clear-forged-
+override effect could wipe a legitimate VL admin's preview during the auth-loading window → gated on `!isLoading`.
+The 2 dismissed were genuine non-issues (effectiveScope seeded to scope; the sessionStorage read is `window`-guarded).
+No WIDEN, no real-user divergence, no API/middleware `effectiveScope`, no render loop confirmed.
+
+---
+
 ## 2. HALT-B — DATA-STATE FINDING (surfaced; proceeded fail-closed; NO fabrication)
 
 Live service-role probe across all 12 tenants (`scripts/_ob246_haltb_probe.ts`, deleted before PR):
