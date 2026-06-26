@@ -521,3 +521,93 @@ sheet-level expression) — §6A residual.
 2. **Sheet-type downstream consumers** — `source-date-extraction` (a temporal-role whitelist) and `entity-resolution.isEventUnit` (reads `data_type`) consume *derived views* of the expression; they are now correct because the classification is correct (C2), not vestigial. Re-pointing them directly at the expression (dropping the temporal-role whitelist; `isEventUnit` from `identifies`-scope) is a follow-up.
 3. **Plan-entity connection generalization** — capturing "Identificación: DNI" into the plan + connecting it via convergence to the expression-matching column (for tenants where the surviving expression is ambiguous, e.g. Robles's Organigrama). The entity-id is referential today (the expression-scoped identifier); the plan-concept connection is the generalization.
 4. **`idRepeatRatio` full elimination** — see the C2 deviation; requires a sheet-level "records-over-time" expression.
+
+---
+
+## §R5 — Strict enforcement: the classification label is inert
+
+R4 left three things alive that violate "LLM expression is not classified": `idRepeatRatio` survived as a
+fallback, `data_type=target|transaction` still gated behavior, and two classifier tests asserted
+classification labels. **R5 completes the eradication, and corrects R4's deviation.** The reframe that
+makes it safe: *the only tenant-protection gate is the sealed calculation figure (HALT-CALC) — a label
+changing is not a break.* My R4 instinct to retain `idRepeatRatio` to "protect Meridian via the `target`
+label" was wrong: Meridian is protected by **$556,985**, not by a label. Once no behavioral path reads the
+label, the label is inert and its value cannot move any figure.
+
+### The three surviving registries, deleted
+
+1. **`idRepeatRatio` threshold (PG-R5-2)** — `hc-pattern-classifier.ts`: the `idRepeatRatio > 1.5 →
+   transaction` fallback branch + the `const idRepeatRatio` are **deleted**. The target/transaction
+   discriminant now reads ONLY the LLM's `identifies` scope (a transaction-scope per-row event id →
+   transaction; an entity-scoped identifier with no event id → target). Grep `idRepeatRatio` in the
+   classifier → zero code references.
+2. **`data_type` behavioral gates (PG-R5-1)** — the label no longer gates any *data-pipeline* decision:
+   - `entity-resolution.ts:92` `isEventUnit` — was `dataType === 'transaction' || 'target'`; now reads the
+     **expression** (`field_identities` carries a reference-key-natured column ⇒ the unit references
+     entities ⇒ discover from the reference key, not a per-row id). The label is not read.
+   - `analyze/route.ts:702` plan-detection `hasTransaction` — was `classification === 'transaction'`; now
+     reads the recognized profile (`hasTemporalColumns && hasEntityIdentifier` — "does any sheet carry
+     temporal events?"). The label is not read.
+   - **source_date extraction** carries no `data_type` gate (it reads the temporal column's recognized
+     role); **convergence / calc** carry no `data_type === 'target'/'transaction'` gate (verified by grep).
+   - Remaining `=== 'transaction'/'target'` reads are **classification PRODUCTION** (`analyze-document`
+     confidence, `agents.ts`/`synaptic` agent-score selection) or **DIAGNOSTIC logging**
+     (`hasReferenceOrTarget`) — they emit/score the (now-inert) provenance label; none gates a downstream
+     data decision. PG-R5-1 grep of the named decisions (source_date / entity-id / convergence) → clean.
+3. **Label-asserting tests (PG-R5-3)** — the two `hc-pattern-classifier.test.ts` cases that asserted
+   `classification === 'transaction'` are rewritten: (a) → asserts the **expression** discriminant (a
+   transaction-scope identifier → transaction) + a new (a2) asserting an entity-scoped-only sheet → target
+   (label inert); (c) → keeps the genuinely-protective invariant (cached/atom/fresh arms classify
+   **identically** — the R4 consistency guarantee) and drops the specific-label assertion. Zero tests now
+   fail because a label changed.
+
+### The Meridian proof (the deviation was unnecessary)
+
+Meridian's `Datos_Rendimiento` is monthly performance actuals by entity over time — `No_Empleado`
+(entity-scope identifier) + `Hub` (reference key) + measures + a month column, **no per-row event id**.
+- **Sheet expression / label:** with `idRepeatRatio` gone, the classifier reads the expression — `Hub`
+  is a reference-key-natured column (Branch 3a) → `transaction` (it references entities); even absent the
+  reference key it would fall to `target`. Either label is **inert**.
+- **Downstream behavior it drives:** entity-id = `No_Empleado`/the reference-key target (via the
+  expression, R4/R5), NOT the label; source_date = the recognized month column, NOT the label;
+  convergence binds via value-overlap, NOT the label.
+- **Sealed figure unchanged:** because no behavioral path reads `data_type`, the classification value is
+  irrelevant to the calc → **Meridian = $556,985** holds regardless of label (architect confirms on
+  re-import). This is the proof, not a label test.
+
+### The sheet-level expression (PG-R5-4)
+
+The downstream decisions are answered by the **per-column expression in aggregate** — no new closed
+vocabulary:
+- *"rows are transaction events"* → a column the LLM scoped `identifies:transaction` (a per-row event id).
+- *"rows are entity records"* → an entity-scoped identifier, no event id.
+- *"periodic records by entity over time"* (Meridian) → an entity-scoped identifier + a recognized
+  temporal column (the temporal column drives source_date; the entity-scoped id defines the entity).
+- *"reference table"* / *"relationship graph"* → reference-key-natured columns / declared relationships.
+Each downstream consumer reads the field it needs (`identifies` scope, temporal-column presence,
+reference-key nature) from the open recognition — never a classification term. An expression the LLM
+already produces; no enum constrains it.
+
+### PG evidence (R5)
+- **PG-R5-1 / R5-2 / R5-3:** greps + the rewritten tests above. **PG-R5-12:** `tsc` 0 · `lint` 0 ·
+  `build` 210/210 · `npm test` **283/283**.
+- **PG-R5-5 (entity_id=DNI_Vendedor) / R5-6 (source_dates) / R5-7 (Plan 1):** mechanism — R4's atom
+  expression (cached===fresh) + R5's expression-only classifier ⇒ correct entity-id + temporal role on
+  every Ventas/Cobranza sheet, warm or fresh; architect verifies on re-import.
+- **PG-R5-8/9/10/11 (Plan 2 = 210,000 / Plan 5 / BCL = $312,033 / Meridian = $556,985):** R5 is
+  import/comprehension-path-only — no evaluator, no persisted data, no rule_set touched → existing calc
+  byte-identical until re-import (the HALT-CALC gate). The label is inert, so its value cannot move any
+  sealed figure.
+
+### HALT outcomes (R5)
+- **HALT-CALC** — not triggered (import-path-only; the label is inert; the architect confirms the sealed
+  figures on re-import). **HALT-EXPRESSION** — not triggered (the per-column expression carries every
+  needed signal; no extension required). **HALT-COLLISION / HALT-API** — none.
+
+### Residuals (R5 §6A)
+1. **`data_type` as provenance** — it persists in stored data as a human-readable label (produced by
+   `analyze`/`agents`, logged diagnostically); it is read by no behavioral data path. Any future code
+   path that reads it to decide behavior is a regression against R5.
+2. **Sheet-level expression completeness** — R5 covers transaction events, entity records, periodic
+   records, reference tables (MIR + Meridian). Future sheet shapes (Robles relationship graph, CRP
+   district-override) are described by the same open recognition — no enum constrains it.
