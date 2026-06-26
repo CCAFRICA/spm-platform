@@ -115,7 +115,7 @@ caller broken. PG-15: `run-calculation.ts`/`convergence-service.ts`/SCI pipeline
 | PG-15 | Zero changes to calc engine / SCI | ✅ | `git diff --stat main...HEAD` — `run-calculation.ts`, `convergence-service.ts`, `/sci/`, `intent-executor.ts` ABSENT |
 | PG-16 | `npm run build` exits 0 | ✅ | Compiled successfully; `[korean-test-gate] PASS` |
 | PG-17 | `localhost:3000` responds | ✅ | `GET /login` → HTTP 200 |
-| PG-18 | PR created | ⏳ | (URL recorded post-creation below) |
+| PG-18 | PR created | ✅ | https://github.com/CCAFRICA/spm-platform/pull/604 |
 | PG-19 | Report in `docs/completion-reports/` | ✅ | this file |
 
 Additional: `node --test` **294/294 pass** (no regression from the data-fn threading or auth changes).
