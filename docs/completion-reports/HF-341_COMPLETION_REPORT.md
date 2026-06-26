@@ -429,3 +429,95 @@ BCL + MIR under the new prompt and confirms $312,033 / Plan 2 = 210,000 (PG-1..7
    id, NOT shape names (verified), so eradication does not break them; `construction_method='prime_dag'` is
    set as the provenance marker. A cross-plan DAG-topology fingerprint (none exists today) would key on the
    prime-discriminator multiset / arity / depth — net-new, out of R3 scope.
+
+---
+
+## §R4 — Comprehension eradication (expression, not classification)
+
+R3 eradicated the construction-side vocabulary. R4 eradicates the **comprehension-side** vocabulary — the
+same disease one layer earlier. **Root defect:** the LLM recognizes rich understanding ("DNI_Vendedor is
+the seller's national ID"; "Folio is a sales-order number"), but the atom cache stored only
+`column_roles={role=data_nature, roleConfidence}` — the OB-231 `{characterization, identifies,
+relationships}` was **dropped** — and on warm recall `header-comprehension.ts` **fabricated
+`identifies:'nothing'`**. So a CLAIMED (cached) sheet lost the entity-scope signal and classified
+differently than the same sheet FRESH (the 10/12 MIR Ventas/Cobranza `target` misclassification; Folio
+beating DNI_Vendedor). Gap-filling heuristics (idRepeatRatio, confidence-ranking entity-id) existed only
+to patch the destroyed expression.
+
+### HALT-ATOM — CLEARED (full consumer trace)
+
+The directive halts if changing the atom format breaks a consumer CC cannot trace. **It is fully
+traceable — NOT triggered.** The stored atom role has exactly the consumers below (enumerated by the
+investigation), all load-bearing or vestigial; the format change is **additive + legacy-tolerant** (old
+rows lack the expression → `identifies=undefined` → prior behavior):
+`atom-flywheel.lookupAtoms` (the one production reader) → `KnownAtom` → `comprehension-planner` /
+`decomposed-comprehension` → `header-comprehension:401`; the `knownAtomHashes` claim gate; the
+`resolveAtomRole` AMBIGUOUS sentinel (**kept** — the structural-hash-collision correctness fallback);
+the `buildAtomRecognitionSignal` role + `atom_features`-as-payload are **vestigial** (no reader). The
+`structural_fingerprints.column_roles` column is shared with the SHEET cache (a `Record<col,string>`,
+granularity-filtered) — the atom-row change does not touch it.
+
+### Eradication inventory (C1–C5)
+
+| C | Registry | File:line | Disposition |
+|---|----------|-----------|-------------|
+| C1 | column-role vocabulary as the stored/queried decision field | atom `column_roles.role` | The atom now stores the OB-231 **expression** (`identifies`/`characterization`/`relationships`) alongside the role (the role stays as the stability key + human label, not the decision field). |
+| C2 | `idRepeatRatio ≤ 1.5 → target` | `hc-pattern-classifier.ts` | The target/transaction discriminant reads the LLM's **transaction-scope `identifies`** first (per-row event id → transaction). `idRepeatRatio` **retained only** as a measured structural fallback for the events-over-time-without-event-id class (see deviation). |
+| C3 | `HAS/NO reference key → transaction/target` | `hc-pattern-classifier.ts:222` | **Kept** — the reference-key arm is already expression-derived (the LLM's reference-key nature); R4-1 makes it fire on cached sheets too (it stopped firing when the cache dropped the expression — the Ventas_Mayo-vs-Abril split). |
+| C4 | highest-confidence identifier wins | `commit-content-unit.findHcEntityIdColumn` | **Deleted** the `conf > best.conf` argmax → the FIRST entity-scope (`identifies`)-and-not-transaction identifier — referential resolution, not ranking. No-op on BCL/MIR (single entity-scope candidate). |
+| C5 | atom stores `role=term@conf` | `atom-flywheel` | **Replaced** — stores the expression (C1). |
+
+### PG evidence
+
+- **PG-R4-15 (atom stores the expression):** `atom-flywheel.ts` `AtomExpression` + `buildAtomRow`/`writeAtoms`/`lookupAtoms`/`KnownAtom` persist+read `{characterization, identifies, relationships}`; threaded `comprehension-planner` → `decomposed-comprehension` → `header-comprehension:401` reconstructs the **real** `identifies`. A cached structurally-identical sheet now reconstructs the SAME recognition a fresh call would (cached === fresh).
+- **PG-R4-14 (no confidence-ranking entity-id):** `findHcEntityIdColumn` argmax deleted; grep `conf > best.conf` → gone.
+- **PG-R4-13 (idRepeatRatio):** removed from the entity/transaction DECISION (the expression's transaction-scope identifier takes precedence); retained only as the documented structural fallback — see deviation.
+- **PG-R4-1/2/3 (entity_id = DNI_Vendedor, cached or fresh):** mechanism — R4-1 (expression survives the cache) + C4 (no ranking) ⇒ `findHcEntityIdColumn` returns the entity-scope DNI_Vendedor on both warm and fresh Ventas/Cobranza; architect verifies on re-import.
+- **PG-R4-4 (source_dates) / PG-R4-5 (entity count ≤ 30):** mechanism — with C2 classifying Ventas/Cobranza as `transaction` (via the reference-key/transaction-scope expression, now stable on cached sheets), the temporal column gets a transaction-date role (source_date extracts) and `isEventUnit` harvests sellers from the `reference_key` DNI_Vendedor (not Folio, not "Activo"). Architect verifies.
+- **PG-R4-16:** `tsc` 0 · `lint` 0 · `build` 210/210 · `npm test` **282/282** (incl. the classifier suite, which exercises the cached/fresh/flywheel arms classifying identically — D5/R4 consistency).
+- **PG-R4-9/11 (Plan 2 = 210,000 / BCL byte-identical):** R4 is **import/comprehension-path-only** — no engine evaluator, no persisted committed_data, no persisted rule_set is touched. Existing calc is byte-identical until a re-import (architect's HALT-CALC gate).
+
+### The atom, before / after (Folio vs DNI_Vendedor)
+
+```
+BEFORE (cached recall):  Folio        → {role:"sales order number", identifies:"nothing"}   (scope fabricated)
+                         DNI_Vendedor → {role:"national id document", identifies:"nothing"}   (scope fabricated)
+                         → both look scope-less on warm import → classifier picks by ratio/confidence → Folio wins.
+AFTER  (cached recall):  Folio        → {role:"sales order number", identifies:"the sales transaction"}  (TXN scope survives)
+                         DNI_Vendedor → {role:"national id document", identifies:"the seller"}            (ENTITY scope survives)
+                         → DNI_Vendedor is the entity (referential), Folio is the event id → transaction sheet, seller entity.
+```
+
+### The plan-to-column entity connection
+
+The entity-id is now the column the LLM scoped as the entity (`identifies` ∈ entity, ∉ transaction) —
+referential resolution against the recognition, no column-name list and no confidence ranking. Connecting
+the plan's *stated* entity concept ("Identificación: DNI") to that column is the fuller form (the directive's
+mechanism); for MIR the surviving expression alone resolves it (DNI_Vendedor is the lone entity-scope
+identifier). Capturing the plan's stated entity concept + the convergence connection is the generalization
+for tenants where the expression is ambiguous (§6A residual #3, Robles's Organigrama).
+
+### Deviation (reported per Prove-Don't-Describe)
+
+**C2 — `idRepeatRatio` is retained as a measured structural fallback, not fully deleted.** The directive's
+PG-R4-13 calls for its deletion, premised on the LLM's expression encoding sheet-type. That premise holds
+for the **event-id** case (Folio → `identifies:transaction`) — handled by the new transaction-scope
+precedence — but **not** for the **monthly-actuals-without-an-event-id** case (an entity that repeats
+across periods with no per-row id, e.g. Meridian/AUD-013 `Datos_Rendimiento`), which the per-column
+expression does not encode. Deleting `idRepeatRatio` outright reclassifies that real class
+`transaction → target` (the 2 classifier tests that failed encode exactly this). To avoid regressing a real
+tenant, the expression takes **precedence** over `idRepeatRatio`, and `idRepeatRatio` survives only as the
+residual structural discriminant for that class — a *measured property of the data*, not a role-term
+registry. Fully eliminating it requires the recognition to express "records over time" (a richer
+sheet-level expression) — §6A residual.
+
+### HALT outcomes (R4)
+- **HALT-ATOM** — **cleared** (all atom consumers traced; additive, legacy-tolerant; AMBIGUOUS sentinel kept).
+- **HALT-CALC** — not triggered (import/comprehension-path-only; evaluator + persisted data untouched). Architect confirms BCL/Plan-2 on re-import.
+- **HALT-COLLISION / HALT-API** — none.
+
+### Residuals (R4 §6A)
+1. **Progressive Performance on the expression** — the atom recall key is the structural hash (column-name-excluded), unchanged; the claim gate keys on `role` presence + `roleConfidence` (kept). The stored expression is additive and does not change recall keys → second-encounter ~$0/~100ms is preserved.
+2. **Sheet-type downstream consumers** — `source-date-extraction` (a temporal-role whitelist) and `entity-resolution.isEventUnit` (reads `data_type`) consume *derived views* of the expression; they are now correct because the classification is correct (C2), not vestigial. Re-pointing them directly at the expression (dropping the temporal-role whitelist; `isEventUnit` from `identifies`-scope) is a follow-up.
+3. **Plan-entity connection generalization** — capturing "Identificación: DNI" into the plan + connecting it via convergence to the expression-matching column (for tenants where the surviving expression is ambiguous, e.g. Robles's Organigrama). The entity-id is referential today (the expression-scoped identifier); the plan-concept connection is the generalization.
+4. **`idRepeatRatio` full elimination** — see the C2 deviation; requires a sheet-level "records-over-time" expression.
