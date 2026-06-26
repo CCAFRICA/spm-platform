@@ -43,7 +43,6 @@ import {
   getDimensions,
   aggregateByDimension,
   getPopulationTrend,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
   type EnrichedDimension,
@@ -102,7 +101,7 @@ export default function CompensationPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
   const { locale } = useLocale(); // OB-226 Korean Test
-  const { user } = useAuth(); // OB-226 isSpanish ternary
+  const { user, scope } = useAuth(); // OB-246: scope (ICM branch); user for isSpanish ternary
   const theme = usePersonaTheme();
 
   const [data, setData] = useState<HospitalityData | null>(null);
@@ -143,7 +142,7 @@ export default function CompensationPage() {
   useEffect(() => {
     if (isHospitality || !tenantId) return;
     let cancelled = false;
-    getCalculatedPeriods(tenantId)
+    getCalculatedPeriods(tenantId, scope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -156,17 +155,17 @@ export default function CompensationPage() {
         if (!cancelled) { setPeriodsLoaded(true); setCompLoading(false); }
       });
     return () => { cancelled = true; };
-  }, [isHospitality, tenantId]);
+  }, [isHospitality, tenantId, scope]);
 
   // OB-234: cumulative comp trend (cross-period) — loaded once for the cumulative stat tile.
   useEffect(() => {
     if (isHospitality || !tenantId) return;
     let cancelled = false;
-    getPopulationTrend(tenantId)
+    getPopulationTrend(tenantId, scope)
       .then((t) => { if (!cancelled) setTrend(t); })
       .catch((err) => console.warn('[Compensation] trend load failed:', err));
     return () => { cancelled = true; };
-  }, [isHospitality, tenantId]);
+  }, [isHospitality, tenantId, scope]);
 
   // OB-234: SELECTED-period money lens — total, per-entity outcomes, composition, dimension pivot.
   // ALL clean reads (getPeriodTotal / getEntityResults / getComponentTotals / getDimensions). No raw query.
@@ -177,10 +176,10 @@ export default function CompensationPage() {
     (async () => {
       try {
         const [total, results, components, dims] = await Promise.all([
-          getPeriodTotal(tenantId, selectedPeriodId),
-          getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-          getComponentTotals(tenantId, selectedPeriodId),
-          getDimensions(tenantId, selectedPeriodId),
+          getPeriodTotal(tenantId, selectedPeriodId, scope),
+          getEntityResults(tenantId, scope, { periodId: selectedPeriodId }),
+          getComponentTotals(tenantId, selectedPeriodId, scope),
+          getDimensions(tenantId, selectedPeriodId, scope),
         ]);
         if (cancelled) return;
         setPeriodTotal(total);
@@ -191,7 +190,7 @@ export default function CompensationPage() {
         const pivot: EnrichedDimension | undefined =
           dims.find((d) => d.source === 'attribute') ?? dims[0];
         if (pivot) {
-          const slices = await aggregateByDimension(tenantId, selectedPeriodId, pivot);
+          const slices = await aggregateByDimension(tenantId, selectedPeriodId, pivot, scope);
           if (cancelled) return;
           setDimensionSlices(slices);
           setDimensionLabel(pivot.label);
@@ -206,7 +205,7 @@ export default function CompensationPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isHospitality, tenantId, selectedPeriodId]);
+  }, [isHospitality, tenantId, selectedPeriodId, scope]);
 
   const loadHospitalityData = async () => {
     setIsLoading(true);

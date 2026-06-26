@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, Minus, Target, TrendingUp } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed reads
 import {
   getCalculatedPeriods,
   getPopulationTrend,
@@ -76,6 +77,7 @@ function projectNext(values: number[]): number | null {
 export default function TrendsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
+  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
   const theme = usePersonaTheme();
 
   const [loading, setLoading] = useState(true);
@@ -92,15 +94,15 @@ export default function TrendsPage() {
     setLoading(true);
     (async () => {
       const [cp, pt, tj] = await Promise.all([
-        getCalculatedPeriods(currentTenant.id),
-        getPopulationTrend(currentTenant.id),
-        getEntityTrajectory(currentTenant.id),
+        getCalculatedPeriods(currentTenant.id, scope),
+        getPopulationTrend(currentTenant.id, scope),
+        getEntityTrajectory(currentTenant.id, undefined, scope),
       ]);
       // per-component totals per period → chronological trend series.
       const periodsAsc = [...cp].sort((a, b) => a.start_date.localeCompare(b.start_date));
       const byComponent = new Map<string, { label: string; value: number }[]>();
       for (const p of periodsAsc) {
-        const comps = await getComponentTotals(currentTenant.id, p.period_id);
+        const comps = await getComponentTotals(currentTenant.id, p.period_id, scope);
         for (const c of comps) {
           const arr = byComponent.get(c.component_name) ?? [];
           arr.push({ label: p.label, value: c.total_amount });
@@ -119,7 +121,7 @@ export default function TrendsPage() {
       if (!cancelled) { setLoaded(true); setLoading(false); }
     });
     return () => { cancelled = true; };
-  }, [currentTenant]);
+  }, [currentTenant, scope]);
 
   // Derived temporal frame: population band (mean±std), velocity, projection.
   const pop = useMemo(() => {

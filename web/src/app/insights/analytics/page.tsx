@@ -22,12 +22,12 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { BarChart3, Download, Layers, Target, TrendingUp, Users } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed reads
 import {
   getCalculatedPeriods,
   getPopulationTrend,
   getDimensions,
   aggregateByDimension,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type PopulationTrendPoint,
   type EnrichedDimension,
@@ -61,6 +61,7 @@ function Stat({ label, value, hint, icon: Icon }: { label: string; value: string
 export default function AnalyticsExplorePage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
+  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
   const theme = usePersonaTheme();
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
@@ -77,7 +78,7 @@ export default function AnalyticsExplorePage() {
   useEffect(() => {
     if (!currentTenant) return;
     let cancelled = false;
-    Promise.all([getCalculatedPeriods(currentTenant.id), getPopulationTrend(currentTenant.id)])
+    Promise.all([getCalculatedPeriods(currentTenant.id, scope), getPopulationTrend(currentTenant.id, scope)])
       .then(([ps, tr]) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -88,7 +89,7 @@ export default function AnalyticsExplorePage() {
       })
       .catch((err) => { console.warn('[Explore] periods load failed:', err); setPeriodsLoaded(true); setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant]);
+  }, [currentTenant, scope]);
 
   // Selected-period outcomes + discovered dimensions (learning-loop enriched).
   useEffect(() => {
@@ -96,8 +97,8 @@ export default function AnalyticsExplorePage() {
     let cancelled = false;
     setIsLoading(true);
     Promise.all([
-      getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-      getDimensions(currentTenant.id, selectedPeriodId),
+      getEntityResults(currentTenant.id, scope, { periodId: selectedPeriodId }),
+      getDimensions(currentTenant.id, selectedPeriodId, scope),
     ])
       .then(([rs, dims]) => {
         if (cancelled) return;
@@ -108,18 +109,18 @@ export default function AnalyticsExplorePage() {
       })
       .catch((err) => { console.warn('[Explore] period data load failed:', err); if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant, selectedPeriodId]);
+  }, [currentTenant, selectedPeriodId, scope]);
 
   // Dimension pivot → slices (aggregateByDimension; clean-path read).
   useEffect(() => {
     const dim = dimensions.find((d) => d.key === activeDimensionKey);
     if (!currentTenant || !selectedPeriodId || !dim) { setSlices([]); return; }
     let cancelled = false;
-    aggregateByDimension(currentTenant.id, selectedPeriodId, dim)
+    aggregateByDimension(currentTenant.id, selectedPeriodId, dim, scope)
       .then((s) => { if (!cancelled) setSlices(s); })
       .catch((err) => { console.warn('[Explore] dimension aggregate failed:', err); if (!cancelled) setSlices([]); });
     return () => { cancelled = true; };
-  }, [currentTenant, selectedPeriodId, activeDimensionKey, dimensions]);
+  }, [currentTenant, selectedPeriodId, activeDimensionKey, dimensions, scope]);
 
   const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
   const selectedLabel = periods[selectedIdx]?.label ?? '';

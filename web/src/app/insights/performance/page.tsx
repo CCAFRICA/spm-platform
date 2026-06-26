@@ -58,11 +58,11 @@ import {
 } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { getCheques, getFranquicias, getFinancialSummary, getSalesByFranquicia } from '@/lib/restaurant-service';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed reads (ICM branch)
 import { getEntityResults, type EntityResult } from '@/lib/drill-through';
 import {
   getCalculatedPeriods,
   getEntityTrajectory,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type EntityTrajectory,
 } from '@/lib/insights';
@@ -120,6 +120,7 @@ function Stat({ label, value, hint, icon: Icon }: { label: string; value: string
 export default function InsightsPerformancePage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
+  const { scope } = useAuth(); // OB-246: member→own, manager→team, admin→all (ICM branch only)
   const theme = usePersonaTheme();
 
   const isHospitality = currentTenant?.industry === 'Hospitality';
@@ -153,7 +154,7 @@ export default function InsightsPerformancePage() {
       return;
     }
     let cancelled = false;
-    getCalculatedPeriods(tenantId)
+    getCalculatedPeriods(tenantId, scope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -163,7 +164,7 @@ export default function InsightsPerformancePage() {
       })
       .catch((err) => { console.warn('[Attainment] periods load failed:', err); setPeriodsLoaded(true); setIcmLoading(false); });
     return () => { cancelled = true; };
-  }, [isHospitality, tenantId]);
+  }, [isHospitality, tenantId, scope]);
 
   // ICM: selected-period entity outcomes + cross-period trajectory (for pacing sparklines).
   useEffect(() => {
@@ -171,13 +172,13 @@ export default function InsightsPerformancePage() {
     let cancelled = false;
     setIcmLoading(true);
     Promise.all([
-      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-      getEntityTrajectory(tenantId),
+      getEntityResults(tenantId, scope, { periodId: selectedPeriodId }),
+      getEntityTrajectory(tenantId, undefined, scope),
     ])
       .then(([rs, tr]) => { if (cancelled) return; setRows(rs); setTrajectories(tr); setIcmLoading(false); })
       .catch((err) => { console.warn('[Attainment] period data load failed:', err); if (!cancelled) setIcmLoading(false); });
     return () => { cancelled = true; };
-  }, [isHospitality, tenantId, selectedPeriodId]);
+  }, [isHospitality, tenantId, selectedPeriodId, scope]);
 
   const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
 

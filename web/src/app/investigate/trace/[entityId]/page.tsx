@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-gate which entity may be traced
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Layers } from 'lucide-react';
@@ -30,8 +31,14 @@ export default function EmployeeTracePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentTenant } = useTenant();
+  const { scope } = useAuth(); // OB-246: admin→any, manager→team, member→own, unlinked→none
   const tenantId = currentTenant?.id;
   const entityId = params?.entityId as string;
+  // OB-246: a viewer may only trace an entity inside their authenticated scope (admin = any).
+  const traceAllowed =
+    scope.type === 'all' ||
+    (scope.type === 'team' && scope.entityIds.includes(entityId)) ||
+    (scope.type === 'own' && scope.entityId === entityId);
   const fromParam = searchParams.get('from') || '';
   const fromConfig = FROM_LABELS[fromParam];
 
@@ -42,6 +49,8 @@ export default function EmployeeTracePage() {
 
   useEffect(() => {
     if (!tenantId || !entityId) return;
+    // OB-246: out-of-scope entity → render the honest "no trace" state, never the forensic detail.
+    if (!traceAllowed) { setLoading(false); return; }
 
     const loadTrace = async () => {
       try {
@@ -102,7 +111,7 @@ export default function EmployeeTracePage() {
     };
 
     loadTrace();
-  }, [tenantId, entityId]);
+  }, [tenantId, entityId, traceAllowed]);
 
   if (loading) {
     return (
