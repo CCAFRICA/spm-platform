@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useCurrency } from '@/contexts/tenant-context';
 import { getEntityTableData } from '@/lib/insights';
 import type { EntityTableResult, EntityTableOptions } from '@/lib/insights';
+import { type AuthScope, ALL_SCOPE, scopeKey } from '@/lib/auth/scope';
 import { ComponentCards } from '@/components/drill-through';
 
 interface EntityTableProps {
@@ -25,11 +26,13 @@ interface EntityTableProps {
   /** external filters from distribution/component clicks */
   filterComponent?: string | null;
   pageSize?: number;
+  /** OB-246: authenticated scope — the per-entity roster + CSV export narrow to it (member→own, manager→team). */
+  scope?: AuthScope;
 }
 
 type SortKey = NonNullable<EntityTableOptions['sortBy']>;
 
-export function EntityTable({ tenantId, periodId, periodLabel, showDrillThrough = true, showExport = true, filterComponent, pageSize = 25 }: EntityTableProps) {
+export function EntityTable({ tenantId, periodId, periodLabel, showDrillThrough = true, showExport = true, filterComponent, pageSize = 25, scope = ALL_SCOPE }: EntityTableProps) {
   const { format } = useCurrency();
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -47,11 +50,12 @@ export function EntityTable({ tenantId, periodId, periodLabel, showDrillThrough 
     if (!tenantId || !periodId) { setResult(null); return; }
     let cancelled = false;
     setLoading(true);
-    getEntityTableData(tenantId, periodId, { search: debounced, sortBy, sortOrder, componentName: filterComponent ?? undefined, page, pageSize })
+    getEntityTableData(tenantId, periodId, { search: debounced, sortBy, sortOrder, componentName: filterComponent ?? undefined, page, pageSize }, scope)
       .then(r => { if (!cancelled) setResult(r); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, periodId, debounced, sortBy, sortOrder, filterComponent, page, pageSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, periodId, debounced, sortBy, sortOrder, filterComponent, page, pageSize, scopeKey(scope)]);
 
   const toggleSort = useCallback((key: SortKey) => {
     if (sortBy === key) setSortOrder(o => (o === 'desc' ? 'asc' : 'desc'));
@@ -59,14 +63,15 @@ export function EntityTable({ tenantId, periodId, periodLabel, showDrillThrough 
   }, [sortBy]);
 
   const handleExport = useCallback(async () => {
-    const all = await getEntityTableData(tenantId, periodId, { search: debounced, sortBy, sortOrder, componentName: filterComponent ?? undefined, page: 1, pageSize: 100000 });
+    const all = await getEntityTableData(tenantId, periodId, { search: debounced, sortBy, sortOrder, componentName: filterComponent ?? undefined, page: 1, pageSize: 100000 }, scope);
     const header = ['Entity', 'Variant', 'Top Component', 'Top Amount', 'Delta Prior', 'Total Payout'];
     const lines = all.rows.map(r => [r.display_name, r.variant ?? '', r.top_component?.name ?? '', r.top_component?.amount ?? '', r.delta_prior ?? '', r.total_payout]
       .map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
     const csv = [header.join(','), ...lines].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = `entities-${periodLabel ?? periodId}.csv`; a.click(); URL.revokeObjectURL(url);
-  }, [tenantId, periodId, periodLabel, debounced, sortBy, sortOrder, filterComponent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, periodId, periodLabel, debounced, sortBy, sortOrder, filterComponent, scopeKey(scope)]);
 
   const totalPages = useMemo(() => (result ? Math.max(1, Math.ceil(result.total_count / pageSize)) : 1), [result, pageSize]);
   const SortIcon = ({ k }: { k: SortKey }) => sortBy === k ? (sortOrder === 'desc' ? <ChevronDown className="inline h-3 w-3" /> : <ChevronUp className="inline h-3 w-3" />) : <ArrowUpDown className="inline h-3 w-3 opacity-40" />;

@@ -319,6 +319,7 @@ export default function AnalyticsExplorePage() {
                   periodLabel={selectedLabel}
                   showDrillThrough
                   showExport
+                  scope={scope}
                 />
               ) : (
                 <div className={`py-12 text-center text-sm ${TEXT.muted}`}>No period selected.</div>

@@ -484,6 +484,7 @@ export default function CompensationPage() {
                       tenantId={tenantId}
                       periodId={selectedPeriodId}
                       periodLabel={selectedLabel !== '—' ? selectedLabel : undefined}
+                      scope={scope}
                     />
                   </div>
                 </Panel>

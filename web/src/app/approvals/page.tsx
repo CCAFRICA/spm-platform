@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { listCalculationBatches } from '@/lib/supabase/calculation-service';
 import { getPeriodsWithResults } from '@/lib/drill-through';
 import { DrillThroughPanel } from '@/components/drill-through';
+import { RequireCapability } from '@/components/auth/RequireCapability'; // OB-246: approver gate
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -61,7 +62,7 @@ const DOMAIN_LABELS: Record<ApprovalDomain, { en: string; es: string }> = {
   configuration_change: { en: 'Configuration', es: 'Configuración' },
 };
 
-export default function ApprovalCenterPage() {
+function ApprovalCenterPageInner() {
   const { locale } = useLocale();
   const { currentTenant } = useTenant();
   const { user } = useAuth();
@@ -570,5 +571,16 @@ export default function ApprovalCenterPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// OB-246: /approvals (and its /operate/approve + /govern/approvals re-exports) renders tenant-wide
+// pending-batch entity results via DrillThroughPanel — gate it to approvers (data.approve_results),
+// matching /govern/calculation-approvals. Was ungated at both middleware and page level (review finding).
+export default function ApprovalCenterPage() {
+  return (
+    <RequireCapability capability="data.approve_results">
+      <ApprovalCenterPageInner />
+    </RequireCapability>
   );
 }

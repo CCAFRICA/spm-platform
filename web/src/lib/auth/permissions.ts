@@ -322,6 +322,7 @@ export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
   '/govern': 'data.approve_results',
   '/data': 'data.import',
   '/financial': 'view.team_results',
+  '/approvals': 'data.approve_results', // OB-246: gate the approver hub at middleware too (defense-in-depth)
 };
 
 /**
