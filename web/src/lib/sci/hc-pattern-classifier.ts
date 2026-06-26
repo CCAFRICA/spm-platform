@@ -151,17 +151,16 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
   // into the measure primitive), so the disjunction stays intact regardless of
   // how the LLM phrased a monetary column.
   const measurePresent = hasMeasure;
-  // HF-341 R4 (C2): the target/transaction discriminant reads the LLM's EXPRESSION FIRST. A sheet
-  // carrying a TRANSACTION-scope identifier (a per-row event id — folio/receipt, in the LLM's free-form
-  // `identifies`) records EVENTS → transaction; this PRECEDES (and on the MIR Folio case, replaces) the
-  // idRepeatRatio heuristic, which mis-read Folio's 1:1 ratio as "per-period target" AND flipped
-  // fresh-vs-cached because the cache dropped the scope (R4-1 fixes the cache). idRepeatRatio is RETAINED
-  // ONLY as a measured structural fallback for the events-over-time-WITHOUT-an-event-id class (monthly
-  // actuals: an entity that repeats across periods with no per-row id), which the per-column expression
-  // does not encode — deleting it outright regresses that class (Meridian/AUD-013). It is a measured
-  // property of the data, not a role-term registry; the expression takes precedence over it.
+  // HF-341 R5 (C2 eradication, completed): the target/transaction discriminant reads ONLY the LLM's
+  // EXPRESSION — there is NO idRepeatRatio threshold. A sheet carrying a TRANSACTION-scope identifier (a
+  // per-row event id — folio/receipt, in the free-form `identifies`) records EVENTS → transaction; a
+  // measure-bearing sheet whose identifier is entity-scoped (no event id, no reference key) is per-entity
+  // records → target. The label is now INERT (no behavioral gate reads data_type==='target'/'transaction'
+  // — see R5 §1.1); it is provenance only, so this classification cannot move any sealed figure. R4's
+  // idRepeatRatio fallback (for monthly-actuals-without-an-event-id, e.g. Meridian Datos_Rendimiento) is
+  // DELETED: the label it produced is inert, so producing 'target' there breaks nothing (Meridian is
+  // protected by its sealed figure $556,985, not by a 'transaction' label — HALT-CALC, not a label test).
   const hasTxnScopeIdentifier = roles.some(interp => isIdentifier(interp) && isTxnScopeIdentifier(interp));
-  const idRepeatRatio = profile.structure.identifierRepeatRatio;
 
   // ── Branch 1: dimensional lookup ─────────────────────────
   // A categorical lookup key with no entity identifier — hub capacity,
@@ -246,24 +245,11 @@ export function classifyByHCPattern(profile: ContentProfile): HCPatternResult | 
       ],
     };
   }
-  // HF-341 R4: structural FALLBACK (not the expression — see the note above). An entity that REPEATS
-  // across periods (idRepeatRatio > 1.5) with a temporal column is events-over-time even when it carries
-  // no per-row event id (monthly actuals: employee_id + amount + month). The per-column expression does
-  // not encode this; deleting it regresses the class (Meridian/AUD-013). A measured structural property.
-  if (identifierCount >= 1 && hasTemporal && idRepeatRatio > 1.5) {
-    return {
-      classification: 'transaction',
-      confidence: 0.85,
-      patternName: 'event_transactions_temporal',
-      matchedConditions: [
-        'HAS measure',
-        'HAS temporal — per-period event data',
-        `idRepeatRatio=${idRepeatRatio.toFixed(2)} (>1.5 — the entity repeats across periods; structural fallback)`,
-        `${identifierCount} identifier(s)`,
-        `${measureCount} measure column(s)`,
-      ],
-    };
-  }
+  // HF-341 R5: the idRepeatRatio>1.5 fallback branch (R4) is DELETED — no cardinality threshold gates
+  // classification. A measure-bearing sheet with an entity-scoped identifier, no reference key and no
+  // per-row event id falls through to the target branch below. The label is inert (provenance only), so
+  // the monthly-actuals case carrying 'target' breaks nothing; its calc is driven by the expression
+  // (its temporal column drives source_date; its entity-scoped id defines the entity).
 
   // Branch 4: Target/reference data — entity-level records with measures.
   // Has an identifier but NO reference key AND NO temporal — this IS the

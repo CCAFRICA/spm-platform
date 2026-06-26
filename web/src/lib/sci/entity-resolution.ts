@@ -86,13 +86,18 @@ export async function resolveEntitiesFromCommittedData(
       if (!batchId || seenBatches.has(batchId)) continue;
       seenBatches.add(batchId);
 
-      // HF-268 A2: the batch's classification gates the idColumn FALLBACK. A transaction/target
-      // unit's identifier is the EVENT ID, not an entity — never discover entities from it.
-      const dataType = (row as { data_type?: string | null }).data_type ?? undefined;
-      const isEventUnit = dataType === 'transaction' || dataType === 'target';
-
+      // HF-341 R5 (PG-R5-1): the idColumn FALLBACK reads the LLM's EXPRESSION, not the data_type label.
+      // A unit that carries a reference-key-natured column is REFERENCING entities — discover entities
+      // from that reference key (the entity pointer), never from a per-row identifier (an event id). A
+      // unit with NO reference key discovers from its identifier (the identifier IS the entity). The prior
+      // `data_type === 'transaction' || 'target'` gate is removed — committed_data.data_type is inert
+      // provenance here; the reference-key nature in field_identities is the carried-reality signal.
       const meta = row.metadata as Record<string, unknown> | null;
       if (!meta) continue;
+      const fieldIdsForScope = meta.field_identities as Record<string, { structuralType?: string }> | undefined;
+      const isEventUnit = fieldIdsForScope
+        ? Object.values(fieldIdsForScope).some(fi => natureIsReferenceKey(fi.structuralType))
+        : false;
 
       const label = (meta.informational_label as string) || '';
       batchLabels.set(batchId, label);

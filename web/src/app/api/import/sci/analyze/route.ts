@@ -699,7 +699,13 @@ export async function POST(req: NextRequest) {
             const p = state.contentUnits.get(unitId);
             if (r && p) fileResolutions.push({ unitId, classification: r.classification, profile: p });
           }
-          const hasTransaction = fileResolutions.some(r => r.classification === 'transaction');
+          // HF-341 R5 (PG-R5-1): read the EXPRESSION — "does any sheet carry temporal events?" — not the
+          // classification label. A data workbook has a sheet the LLM recognized as a temporal column over
+          // an entity (events over time); a plan workbook does not. The `classification === 'transaction'`
+          // label gate is removed (the label is inert provenance).
+          const hasTransaction = fileResolutions.some(
+            r => !!r.profile?.patterns?.hasTemporalColumns && !!r.profile?.patterns?.hasEntityIdentifier,
+          );
           // HF-247: hasReferenceOrTarget retained for diagnostic logging only —
           // no longer in the matchesPlanSignature AND chain. A plan workbook
           // is a plan workbook because of what is IN it, not because of what
