@@ -240,6 +240,10 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   // effectiveScope: what DATA consumers read. Default = scope (real). A VL-admin manager/rep override
   // resolves a representative sample below (the only async; inside the existing lifecycle — HALT-C).
   const [effectiveScope, setEffectiveScope] = useState<AuthScope>(scope);
+  // HF-345 review: the VL-admin selected tenant captured into state so a tenant switch (which navigates →
+  // initAuth re-runs) RE-RUNS the sample resolution (the `scope` dep alone is the stable ALL_SCOPE ref for a
+  // VL admin, so it would not re-trigger). Real users never use this (effectiveScope = scope for them).
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(() => readSelectedTenantId());
 
   // OB-246: set user + capabilities + locale + SCOPE together from one profile (one lifecycle). The
   // scope read awaits resolveAuthScope (≤1 indexed query; zero for admin) so the single isLoading that
@@ -297,6 +301,9 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
         if (profile && profile !== SESSION_ABSENT) {
           await applyProfileState(profile); // OB-246: resolves scope inside the single isLoading window
         }
+        // HF-345 review: capture the (possibly newly-selected) VL-admin tenant — initAuth re-runs on every
+        // pathname change, so a tenant switch (which navigates) refreshes this → effectiveScope re-resolves.
+        setSelectedTenantId(readSelectedTenantId());
         // If profile is null (missing row) or SESSION_ABSENT, user stays null.
         // AuthShellProtected will handle the redirect. Do NOT redirect here.
 
@@ -326,10 +333,12 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   }, [pathname]);
 
   // ── HF-345: persona override (hoisted) — gate, persist, and derive effective scope ──
-  // AP2: a non-VL-admin must never carry an override (a forged/stale key is cleared once auth resolves).
+  // AP2: a non-VL-admin must never carry an override (a forged/stale key is cleared). Gated on !isLoading
+  // (review): during the auth-loading window `user` is null → isUserVLAdmin false, so clearing then would
+  // wipe a legitimate VL admin's persisted preview before auth resolves. Only clear once auth has settled.
   useEffect(() => {
-    if (personaOverride !== null && !isUserVLAdmin) setPersonaOverrideState(null);
-  }, [personaOverride, isUserVLAdmin]);
+    if (!isLoading && personaOverride !== null && !isUserVLAdmin) setPersonaOverrideState(null);
+  }, [personaOverride, isUserVLAdmin, isLoading]);
 
   // Persist the override (survives navigation for a VL admin) — same sessionStorage key persona-context used.
   useEffect(() => {
@@ -346,12 +355,11 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
       return;
     }
     let cancelled = false;
-    const tenantId = readSelectedTenantId();
-    resolveSampleScope(personaOverride, profileId, tenantId)
+    resolveSampleScope(personaOverride, profileId, selectedTenantId)
       .then(s => { if (!cancelled) setEffectiveScope(s); })
       .catch(() => { if (!cancelled) setEffectiveScope(DENY_SCOPE); });
     return () => { cancelled = true; };
-  }, [isUserVLAdmin, personaOverride, scope, profileId]);
+  }, [isUserVLAdmin, personaOverride, scope, profileId, selectedTenantId]);
 
   // ── Login ──
   const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {

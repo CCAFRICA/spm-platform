@@ -169,8 +169,12 @@ export async function resolveSampleScope(
   tenantId: string | null,
   client?: SupabaseClient<Database>,
 ): Promise<AuthScope> {
-  if (persona === 'admin' || !tenantId) return ALL_SCOPE;
-  const key = `${tenantId}:${persona}`;
+  if (persona === 'admin') return ALL_SCOPE;
+  // HF-345 review: a manager/rep preview with NO selected tenant fails CLOSED (deny) — never ALL (it cannot
+  // pick a representative entity without a tenant, and showing the whole tenant would not be a narrowed preview).
+  if (!tenantId) return DENY_SCOPE;
+  // Cache key includes profileId — the rep 'own' / manager profile_scope branches depend on it.
+  const key = `${tenantId}:${persona}:${profileId ?? ''}`;
   const hit = sampleCache.get(key);
   if (hit && Date.now() - hit.ts < SAMPLE_TTL) return hit.scope;
 
