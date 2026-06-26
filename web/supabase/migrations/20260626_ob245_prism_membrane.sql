@@ -70,10 +70,13 @@ USING (
     AND (
       owner_id = auth.uid()
       OR EXISTS (
+        -- Tenant admin sees all tenant files (DS-014). 'tenant_admin' is the DB
+        -- alias for the canonical 'admin' role; both are matched. VL/platform
+        -- (cross-tenant) is covered by the public.is_platform() branch above.
         SELECT 1 FROM public.profiles p
         WHERE p.auth_user_id = auth.uid()
           AND p.tenant_id = public.file_objects.tenant_id
-          AND p.role IN ('admin', 'finance')
+          AND p.role IN ('admin', 'tenant_admin')
       )
     )
   )

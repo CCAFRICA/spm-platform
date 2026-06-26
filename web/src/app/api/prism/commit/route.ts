@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
   // Authorization: the actor may only commit objects under their own owner prefix.
   const expectedPrefix = `${actor.tenantId}/${actor.authUserId}/`;
-  if (!path.startsWith(expectedPrefix)) {
+  if (!path.startsWith(expectedPrefix) || path.includes('..')) {
     return NextResponse.json({ error: 'path outside owner scope' }, { status: 403 });
   }
 

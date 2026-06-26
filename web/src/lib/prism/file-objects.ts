@@ -53,6 +53,26 @@ export async function insertFileObject(input: InsertFileObjectInput): Promise<Fi
   return data as FileObject;
 }
 
+/**
+ * Atomically claim a file for scanning: received|quarantined → scanning, but ONLY
+ * if it is still in one of those states. Postgres serializes concurrent UPDATEs on
+ * the row, so exactly one caller's WHERE matches → exactly one claim. Returns true
+ * if THIS call won the claim; false means another invocation already owns it (or it
+ * has moved past), in which case the caller must NOT scan/promote (prevents the
+ * commit fire-and-forget racing the webhook into a double-scan / state stomp).
+ */
+export async function claimForScanning(id: string): Promise<boolean> {
+  const sb = await srv();
+  const { data, error } = await sb
+    .from('file_objects')
+    .update({ state: 'scanning' satisfies FileObjectState })
+    .eq('id', id)
+    .in('state', ['received', 'quarantined'])
+    .select('id');
+  if (error) throw new Error(`claimForScanning failed: ${error.message}`);
+  return Array.isArray(data) && data.length > 0;
+}
+
 export async function getFileObject(id: string): Promise<FileObject | null> {
   const sb = await srv();
   const { data } = await sb.from('file_objects').select('*').eq('id', id).maybeSingle();

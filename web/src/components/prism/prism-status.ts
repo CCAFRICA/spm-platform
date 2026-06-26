@@ -99,6 +99,9 @@ export function stateSummary(state: FileObjectState): StateSummary {
       return { label: 'Promoted', tone: 'success', message: 'Cleared and ready for the platform' };
     case 'infected_held':
       return { label: 'Held', tone: 'danger', message: "Held for review — here's why" };
+    default:
+      // The DB `state` column is open text; an out-of-union value renders neutrally.
+      return { label: 'Processing', tone: 'neutral', message: 'In progress' };
   }
 }
 

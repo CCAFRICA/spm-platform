@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveActor } from '@/lib/prism/actor';
 import { getFileObject } from '@/lib/prism/file-objects';
 import { scanFileObject } from '@/lib/prism/scan-worker';
-import { hasCapability } from '@/lib/auth/permissions';
+import { hasCapability, resolveRole } from '@/lib/auth/permissions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     const file = await getFileObject(id);
     if (!file) return NextResponse.json({ error: 'not found' }, { status: 404 });
-    const elevated = ['platform', 'vl_admin'].includes(actor.role);
+    const elevated = resolveRole(actor.role) === 'platform'; // canonical platform predicate (incl. vl_admin alias)
     if (file.tenant_id !== actor.tenantId && !elevated) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }

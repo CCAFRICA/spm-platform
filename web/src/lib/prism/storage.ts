@@ -19,6 +19,20 @@ function sanitize(filename: string): string {
   return filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
 }
 
+/**
+ * Map a magic-byte-detected MIME to a content-type the clean boundary (ingestion-raw)
+ * accepts. Legacy OLE2 (.xls/.doc/.ppt) → vnd.ms-excel so clean legacy Office promotes.
+ * Common types (csv/zip/pdf/txt/gzip) pass through. A genuinely unknown binary keeps
+ * its detected type; if ingestion-raw rejects it the file holds at `clean` (never
+ * falsely promoted) — an honest pre-existing platform constraint (the bucket is §6
+ * out-of-scope, so its allowlist is not modified).
+ */
+export function toPromotableContentType(mime: string | null): string {
+  if (!mime) return 'application/octet-stream';
+  if (mime === 'application/x-ole-storage') return 'application/vnd.ms-excel';
+  return mime;
+}
+
 /** Owner-scoped quarantine path: <tenant_id>/<auth_uid>/<ts>_<file>. */
 export function buildQuarantinePath(tenantId: string, authUserId: string, filename: string, ts: number): string {
   return `${tenantId}/${authUserId}/${ts}_${sanitize(filename)}`;

@@ -9,20 +9,25 @@
  * fails CLOSED: nothing reaches the clean boundary without a recorded clean
  * verdict, regardless of what triggered the scan (Invariant 1).
  *
- * Invoked fire-and-forget by the commit route (the one intake path) and also
- * exposed as POST /api/prism/scan/[id] for a storage webhook / retry. It never
- * throws to its caller.
+ * Concurrency: the received|quarantined → scanning transition is an ATOMIC
+ * compare-and-swap (claimForScanning) so the commit fire-and-forget and the
+ * webhook/retry route cannot double-scan or stomp a promoted row. A file left
+ * at `clean` by a transient promote failure is recoverable via the promote-retry
+ * path below (re-invoking the gate re-attempts only the promotion).
+ *
+ * Invoked fire-and-forget by the commit route (the one intake path) and exposed
+ * as POST /api/prism/scan/[id] for a storage webhook / retry (the production
+ * trigger when fire-and-forget is unreliable, e.g. serverless). Never throws to
+ * its caller.
  */
 
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createScanProvider } from './scan-provider';
-import { downloadQuarantineBytes, promoteToClean, buildCleanPath } from './storage';
-import { getFileObject, patchFileObject } from './file-objects';
+import { downloadQuarantineBytes, promoteToClean, buildCleanPath, toPromotableContentType } from './storage';
+import { getFileObject, patchFileObject, claimForScanning } from './file-objects';
 import { writeFileAudit } from './audit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FileObject } from './types';
-
-const SCANNABLE_STATES = new Set(['received', 'quarantined', 'scanning']);
 
 export interface ScanWorkerResult {
   id: string;
@@ -32,23 +37,60 @@ export interface ScanWorkerResult {
   detail?: string;
 }
 
+/** Promote a clean file into ingestion-raw (the ONLY writer of the clean boundary). */
+async function promoteCleanFile(auditClient: SupabaseClient, file: FileObject): Promise<ScanWorkerResult> {
+  const cleanPath = buildCleanPath(file.tenant_id, file.id, file.original_filename);
+  const contentType = toPromotableContentType(file.mime_detected);
+  try {
+    await promoteToClean(file.quarantine_path!, cleanPath, contentType);
+  } catch (promoteErr) {
+    // Scanned clean but could not land — stay at `clean`, never falsely `promoted`.
+    // Recoverable: re-invoking scanFileObject re-attempts the promote (see below).
+    await patchFileObject(file.id, { metadata: { ...(file.metadata ?? {}), promote_error: String(promoteErr) } });
+    return { id: file.id, finalState: 'clean', verdict: 'clean', detail: `promote failed: ${String(promoteErr)}` };
+  }
+  await patchFileObject(file.id, {
+    state: 'promoted',
+    clean_path: cleanPath,
+    promoted_at: new Date().toISOString(),
+    import_batch_id: null, // hand-off to Import is Slice 2+; column laid down now
+  });
+  await writeFileAudit(auditClient, {
+    tenantId: file.tenant_id,
+    profileId: null,
+    action: 'file.promoted',
+    fileObjectId: file.id,
+    changes: { from: 'clean', to: 'promoted', clean_path: cleanPath },
+    metadata: { bucket: 'ingestion-raw', content_type: contentType },
+  });
+  return { id: file.id, finalState: 'promoted', verdict: 'clean' };
+}
+
 export async function scanFileObject(id: string): Promise<ScanWorkerResult> {
   const auditClient = (await createServiceRoleClient()) as unknown as SupabaseClient;
 
   const file = await getFileObject(id);
   if (!file) return { id, finalState: 'received', skipped: true, detail: 'file_object not found' };
+  if (!file.quarantine_path) {
+    return { id, finalState: file.state, skipped: true, detail: 'no quarantine_path' };
+  }
 
-  // Idempotency: never re-scan a file that already reached a terminal state.
-  if (!SCANNABLE_STATES.has(file.state) || !file.quarantine_path) {
-    return { id, finalState: file.state, skipped: true, detail: `not scannable from state=${file.state}` };
+  // Promote-retry: already scanned clean but never landed (transient promote failure).
+  if (file.state === 'clean' && !file.clean_path) {
+    return await promoteCleanFile(auditClient, file);
+  }
+
+  // Atomic claim: only one invocation transitions received|quarantined → scanning.
+  const claimed = await claimForScanning(id);
+  if (!claimed) {
+    const current = await getFileObject(id);
+    return { id, finalState: current?.state ?? file.state, skipped: true, detail: 'not claimable (already owned/terminal)' };
   }
 
   const tenantId = file.tenant_id;
   const auditBase = { tenantId, profileId: null as string | null, fileObjectId: id };
 
   try {
-    // ── quarantined → scanning ──
-    await patchFileObject(id, { state: 'scanning' });
     await writeFileAudit(auditClient, {
       ...auditBase,
       action: 'file.scan_started',
@@ -56,13 +98,11 @@ export async function scanFileObject(id: string): Promise<ScanWorkerResult> {
       metadata: { engine: 'clamav', detection: 'magic-byte', provider: process.env.PRISM_SCAN_PROVIDER ?? 'clamd' },
     });
 
-    // ── scan ──
     const provider = createScanProvider(downloadQuarantineBytes);
     const result = await provider.scan(file.quarantine_path);
     const scannedAt = new Date().toISOString();
 
     if (result.verdict === 'clean') {
-      // scanning → clean (scan_passed)
       await patchFileObject(id, {
         state: 'clean',
         scan_verdict: 'clean',
@@ -75,39 +115,20 @@ export async function scanFileObject(id: string): Promise<ScanWorkerResult> {
         changes: { verdict: 'clean', engine_version: result.engineVersion },
         metadata: { provider: provider.name, detail: result.detail },
       });
-
-      // ── clean → promoted (the ONLY write into ingestion-raw) ──
-      const cleanPath = buildCleanPath(tenantId, id, file.original_filename);
-      const contentType = file.mime_detected ?? 'application/octet-stream';
-      try {
-        await promoteToClean(file.quarantine_path, cleanPath, contentType);
-      } catch (promoteErr) {
-        // Scanned clean but could not land — stay at `clean`, never falsely `promoted`.
-        await patchFileObject(id, {
-          metadata: { ...(file.metadata ?? {}), promote_error: String(promoteErr) },
-        });
-        return { id, finalState: 'clean', verdict: 'clean', detail: `promote failed: ${String(promoteErr)}` };
-      }
-
-      await patchFileObject(id, {
-        state: 'promoted',
-        clean_path: cleanPath,
-        promoted_at: new Date().toISOString(),
-        import_batch_id: null, // hand-off to Import is Slice 2+; column laid down now
+      // The ONLY write into ingestion-raw — gated on the clean verdict above.
+      return await promoteCleanFile(auditClient, {
+        ...file,
+        state: 'clean',
+        scan_verdict: 'clean',
+        scan_engine_version: result.engineVersion,
+        scanned_at: scannedAt,
       });
-      await writeFileAudit(auditClient, {
-        ...auditBase,
-        action: 'file.promoted',
-        changes: { from: 'clean', to: 'promoted', clean_path: cleanPath },
-        metadata: { bucket: 'ingestion-raw' },
-      });
-      return { id, finalState: 'promoted', verdict: 'clean' };
     }
 
-    // ── infected OR error → infected_held (bytes RETAINED) ──
+    // infected OR error → infected_held (bytes RETAINED, Carry Everything).
     await patchFileObject(id, {
       state: 'infected_held',
-      scan_verdict: result.verdict, // 'infected' | 'error'
+      scan_verdict: result.verdict,
       scan_engine_version: result.engineVersion,
       scanned_at: scannedAt,
     });
@@ -127,11 +148,7 @@ export async function scanFileObject(id: string): Promise<ScanWorkerResult> {
   } catch (err) {
     // Fail closed: any unexpected failure holds the file; it is never promoted.
     try {
-      await patchFileObject(id, {
-        state: 'infected_held',
-        scan_verdict: 'error',
-        scanned_at: new Date().toISOString(),
-      });
+      await patchFileObject(id, { state: 'infected_held', scan_verdict: 'error', scanned_at: new Date().toISOString() });
       await writeFileAudit(auditClient, {
         ...auditBase,
         action: 'file.held',
