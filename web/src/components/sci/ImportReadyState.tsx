@@ -16,6 +16,7 @@ import { ComprehensionReport } from './ComprehensionReport';
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import type { AgentType, ContentUnitResult } from '@/lib/sci/sci-types';
 import type { SessionStateView, UnitStateView, ImportTelemetry } from '@/lib/sci/comprehension-state-service';
+import { deriveFileLabel } from '@/lib/sci/import-failure'; // HF-351 F1: source file label per content unit
 
 const CLASSIFICATION_LABELS: Record<AgentType, string> = {
   plan: 'Plan Rules', entity: 'Team Roster', target: 'Perf. Targets', transaction: 'Transaction Data', reference: 'Reference Data',
@@ -36,7 +37,7 @@ interface ImportReadyStateProps {
 }
 
 type Disposition = 'imported' | 'failed' | 'excluded' | 'resolved';
-interface CompletionRow { key: string; sheetName: string; disposition: Disposition; rows: number; classification?: AgentType; reason?: string | null; }
+interface CompletionRow { key: string; sheetName: string; fileName?: string; disposition: Disposition; rows: number; classification?: AgentType; reason?: string | null; }
 
 function Conclusion({ label, value, accent, isVialuce }: { label: string; value: string; accent?: boolean; isVialuce?: boolean }) {
   if (isVialuce) {
@@ -123,9 +124,12 @@ export function ImportReadyState({
         else disposition = 'excluded';
         // D18: rows from durable telemetry (by sheet); reason persists from the spine's failureClass.
         const sheetName = u.sheetName ?? sheetOf(u.unitId);
-        return { key: u.unitId, sheetName, disposition, rows: telRowsBySheet.get(sheetName) ?? r?.rowsProcessed ?? 0, classification: (r?.classification ?? u.classification ?? undefined) as AgentType | undefined, reason: u.failureClass };
+        // HF-351 F1: the source file name per content unit (durable sourceFileName,
+        // else derived from the unitId's `<file>::<sheet>::<idx>` prefix).
+        const fileName = u.sourceFileName ?? deriveFileLabel(u.unitId, '');
+        return { key: u.unitId, sheetName, fileName: fileName || undefined, disposition, rows: telRowsBySheet.get(sheetName) ?? r?.rowsProcessed ?? 0, classification: (r?.classification ?? u.classification ?? undefined) as AgentType | undefined, reason: u.failureClass };
       })
-    : results.map(r => ({ key: r.contentUnitId, sheetName: sheetOf(r.contentUnitId), disposition: (r.success ? 'imported' : 'failed') as Disposition, rows: r.rowsProcessed, classification: r.classification }));
+    : results.map(r => ({ key: r.contentUnitId, sheetName: sheetOf(r.contentUnitId), fileName: deriveFileLabel(r.contentUnitId, '') || undefined, disposition: (r.success ? 'imported' : 'failed') as Disposition, rows: r.rowsProcessed, classification: r.classification }));
 
   const importedRows = rows.filter(r => r.disposition === 'imported');
   const notImportedRows = rows.filter(r => r.disposition !== 'imported');
@@ -220,7 +224,10 @@ export function ImportReadyState({
                         <Check size={11} style={{ color: 'var(--vl-success)' }} />
                       </span>
                     </td>
-                    <td className="name">{r.sheetName}</td>
+                    <td className="name">
+                      {r.sheetName}
+                      {r.fileName && <span style={{ display: 'block', fontSize: '11px', fontWeight: 'normal', color: 'var(--vl-text-soft)', marginTop: 1 }}>{r.fileName}</span>}
+                    </td>
                     <td className="mut">{r.classification ? CLASSIFICATION_LABELS[r.classification] : ''}</td>
                     <td className="num">{r.rows > 0 ? `${r.rows.toLocaleString()} rows` : 'Acknowledged'}</td>
                   </tr>
@@ -236,6 +243,7 @@ export function ImportReadyState({
                       </td>
                       <td className="mut" style={r.disposition === 'excluded' ? { textDecoration: 'line-through' } : undefined}>
                         {r.sheetName}
+                        {r.fileName && <span style={{ display: 'block', fontSize: '11px', color: 'var(--vl-text-soft)', marginTop: 1 }}>{r.fileName}</span>}
                         {r.reason && <span style={{ display: 'block', fontSize: '11px', color: 'var(--vl-text-soft)', marginTop: 2 }}>{r.reason.replace(/_/g, ' ')}</span>}
                       </td>
                       <td><span className={pill.cls}>{pill.label}</span></td>
@@ -410,7 +418,10 @@ export function ImportReadyState({
               <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                 <Check className="w-2.5 h-2.5 text-emerald-400" />
               </div>
-              <span className="text-sm text-zinc-300 flex-1 min-w-0 truncate">{r.sheetName}</span>
+              <div className="flex-1 min-w-0">
+                <span className="text-sm text-zinc-300 block truncate">{r.sheetName}</span>
+                {r.fileName && <span className="text-[11px] text-zinc-500 block truncate">{r.fileName}</span>}
+              </div>
               {r.classification && <span className="text-xs text-zinc-600 flex-shrink-0">{CLASSIFICATION_LABELS[r.classification]}</span>}
               <span className="text-xs text-zinc-500 tabular-nums w-20 text-right flex-shrink-0">{r.rows > 0 ? `${r.rows.toLocaleString()} rows` : 'Acknowledged'}</span>
             </div>
@@ -424,7 +435,10 @@ export function ImportReadyState({
                   <div className="w-4 h-4 rounded-full bg-zinc-600/20 flex items-center justify-center flex-shrink-0">
                     {r.disposition === 'failed' ? <XCircle className="w-2.5 h-2.5 text-rose-400" /> : <MinusCircle className="w-2.5 h-2.5 text-zinc-400" />}
                   </div>
-                  <span className={cn('text-sm flex-1 min-w-0 truncate', r.disposition === 'excluded' ? 'text-zinc-500 line-through' : 'text-zinc-400')}>{r.sheetName}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className={cn('text-sm block truncate', r.disposition === 'excluded' ? 'text-zinc-500 line-through' : 'text-zinc-400')}>{r.sheetName}</span>
+                    {r.fileName && <span className="text-[11px] text-zinc-500 block truncate">{r.fileName}</span>}
+                  </div>
                   <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border flex-shrink-0', chip.cls)}>{chip.label}</span>
                   <span className="text-xs text-zinc-600 tabular-nums w-20 text-right flex-shrink-0">not committed</span>
                 </div>

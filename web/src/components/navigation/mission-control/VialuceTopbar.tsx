@@ -20,17 +20,13 @@
 import { useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  Zap, Search, HelpCircle, Bell, Globe, Landmark, ChevronDown, ChevronRight, Menu,
+  Search, HelpCircle, Bell, Globe, Landmark, ChevronDown, ChevronRight, Menu,
 } from 'lucide-react';
 import { useWorkspace, useCommandPalette } from '@/contexts/navigation-context';
 import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context';
 import { useLocale } from '@/contexts/locale-context';
 import { WORKSPACES } from '@/lib/navigation/workspace-config';
-import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
-import type { WorkspaceId } from '@/types/navigation';
-import type { UserRole } from '@/types/auth';
-import type { TenantFeatures } from '@/types/tenant';
 
 interface VialuceTopbarProps {
   onMenuToggle?: () => void;
@@ -39,10 +35,10 @@ interface VialuceTopbarProps {
 export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { activeWorkspace, navigateToWorkspace, isSpanish, effectiveRole } = useWorkspace();
+  const { activeWorkspace, isSpanish } = useWorkspace();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
-  const { isVLAdmin, hasCapability } = useAuth();
+  const { isVLAdmin } = useAuth();
   const { locale, setLocale } = useLocale();
 
   // Breadcrumb: Tenant › Section › Page. Find the section + route in the active workspace whose
@@ -63,25 +59,11 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
     return { tenantName, sectionLabel, pageLabel };
   }, [activeWorkspace, currentTenant?.displayName, pathname, isSpanish]);
 
-  const calcAccessible = useMemo(() => {
-    if (!effectiveRole) return false;
-    // HF-346 1c: hide the gold Calculate CTA from the rep — an IC who reaches the calculate workspace ONLY via
-    // /perform/statements (statement.view) and neither runs nor stewards a calculation. Gate on the STEWARDSHIP
-    // set (run OR approve OR adjust): platform/admin hold data.calculate; managers hold data.approve_results /
-    // dispute.resolve. This keeps managers + admin + platform byte-identical to main (DD-7) and subtracts ONLY
-    // the rep/viewer (statement.view-only). hasCapability honors the HF-345 preview persona, so a VL-admin Rep
-    // preview also hides it. (A plain data.calculate gate would have wrongly stripped the manager CTA.)
-    const canStewardCalc =
-      hasCapability('data.calculate') ||
-      hasCapability('data.approve_results') ||
-      hasCapability('dispute.resolve');
-    if (!canStewardCalc) return false;
-    if (!getAccessibleWorkspaces(effectiveRole as UserRole).includes('calculate' as WorkspaceId)) return false;
-    const ws = WORKSPACES['calculate' as WorkspaceId];
-    if (!ws?.featureFlag) return true;
-    const features = currentTenant?.features as TenantFeatures | undefined;
-    return features?.[ws.featureFlag as keyof TenantFeatures] === true;
-  }, [effectiveRole, currentTenant?.features, hasCapability]);
+  // HF-351 F6: the gold Calculate CTA was REMOVED from this persistent header. A
+  // calculation is a deliberate, surface-specific act (Lifecycle Cockpit / Calculate &
+  // Results), not a primary action that belongs on every page's top bar. Calculate stays
+  // reachable via the workspace nav / sidebar / command palette. (The `calcAccessible`
+  // stewardship gate + its imports were removed with the button — no orphan.)
 
   return (
     <div className="top">
@@ -99,12 +81,7 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
         {crumb.pageLabel && <><ChevronRight className="h-3.5 w-3.5" /><b>{crumb.pageLabel}</b></>}
       </div>
 
-      {/* Gold Calculate CTA — the platform's primary action (moved here from the sidebar). */}
-      {calcAccessible && (
-        <button className="btn-calc" onClick={() => navigateToWorkspace('calculate' as WorkspaceId)}>
-          <Zap className="h-4 w-4" /> {isSpanish ? 'Calcular' : 'Calculate'}
-        </button>
-      )}
+      {/* HF-351 F6: Calculate CTA removed from the persistent header. */}
 
       {/* Search → command palette (⌘K) */}
       <div className="top-search" onClick={() => setCommandPaletteOpen(true)} role="button">
