@@ -297,21 +297,55 @@ export async function POST(request: NextRequest) {
           // and Pass 4 became the sole filter-discovery surface.
           updatedBindings.convergence_version = 'HF-234';
 
+          // HF-341 R7 (A1/C1): when convergence reconciled DAG filter/compare
+          // literals to the data's carried domain ('ALI'→'Alimentos','Si'→'Sí'),
+          // persist the corrected components alongside the bindings so this run
+          // and every future run evaluate the grounded DAG.
+          const updatePayload: Record<string, unknown> = { input_bindings: updatedBindings as unknown as Json };
+          if (convResult.correctedComponents) {
+            updatePayload.components = convResult.correctedComponents as Json;
+          }
+
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
             .from('rule_sets')
-            .update({ input_bindings: updatedBindings as unknown as Json })
+            .update(updatePayload)
             .eq('id', ruleSetId);
 
-          // Re-read the updated rule_set so the engine uses the new bindings
+          // Re-read the updated rule_set so the engine uses the new bindings (and DAGs)
           const { data: updatedRS } = await supabase
             .from('rule_sets')
-            .select('input_bindings')
+            .select('input_bindings, components')
             .eq('id', ruleSetId)
             .single();
 
           if (updatedRS) {
             (ruleSet as Record<string, unknown>).input_bindings = updatedRS.input_bindings;
+            // HF-341 R7: re-derive the in-memory component views (captured at parse
+            // time, before convergence) from the reconciled components so THIS run
+            // evaluates the grounded DAG, not the stale pre-reconciliation literals.
+            if (convResult.correctedComponents && updatedRS.components) {
+              (ruleSet as Record<string, unknown>).components = updatedRS.components;
+              const cc = updatedRS.components;
+              if (Array.isArray(cc)) {
+                defaultComponents = cc as unknown as PlanComponent[];
+                variants = [];
+              } else {
+                const cj = cc as Record<string, unknown>;
+                if (Array.isArray(cj?.components)) {
+                  defaultComponents = cj.components as unknown as PlanComponent[];
+                  variants = [];
+                } else {
+                  variants = (cj?.variants as Array<Record<string, unknown>>) ?? [];
+                  defaultComponents = (variants[0]?.components as PlanComponent[]) ?? defaultComponents;
+                }
+              }
+              addLog(`HF-341 R7: reconciled ${convResult.literalRewrites?.length ?? 0} DAG literal(s) to the data domain${(convResult.literalRewrites?.length ?? 0) > 0 ? ` (${convResult.literalRewrites!.map(r => `${r.field}:'${r.from}'→'${r.to}'`).join(', ')})` : ''}`);
+            }
+          }
+
+          if ((convResult.literalFailures?.length ?? 0) > 0) {
+            addLog(`HF-341 R7: ${convResult.literalFailures!.length} filter/compare literal(s) could not be reconciled to the data domain (fail-loud, see gaps): ${convResult.literalFailures!.map(f => `'${f.value}'@${f.field}`).join(', ')}`);
           }
 
           addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);

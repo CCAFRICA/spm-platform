@@ -236,6 +236,13 @@ export interface ConvergenceResult {
     // path was eradicated PR #342; signal surface now operative per D153 B-E4.
     metricComprehension: MetricComprehensionSignal[];
   };
+  // HF-341 R7 (A1/C1): when DAG filter/compare equality literals were reconciled
+  // to the data's actual carried domain ('ALI'→'Alimentos', 'Si'→'Sí'), the
+  // rewritten components object (caller persists it + uses it for the run).
+  // Null/absent when no literal needed correction.
+  correctedComponents?: unknown;
+  literalRewrites?: Array<{ field: string; from: string; to: string }>;
+  literalFailures?: Array<{ field: string; value: string; domainSize: number; diagnostic: string }>;
 }
 
 // HF-196 Phase 3: shape of metric_comprehension signals consumed as operative
@@ -799,8 +806,66 @@ export async function convergeBindings(
     }
   }
 
+  // HF-341 R7 (A1/C1): reconcile DAG filter/compare equality literals against the
+  // carried data domain. The categorical/boolean distinct values inventoried by
+  // inventoryData are the fast path; a full committed_data read confirms true-
+  // absence before the LLM maps a plan literal ('ALI','Si') to the data value it
+  // means ('Alimentos','Sí'). A literal that matches no real value fails LOUD
+  // (recorded as a gap), never persisting as a zero-match silent $0.
+  let correctedComponents: unknown = null;
+  let literalRewrites: LiteralReconciliationOutcome['rewrites'] = [];
+  let literalFailures: LiteralReconciliationOutcome['failures'] = [];
+  try {
+    const sampleDomain = new Map<string, Set<string>>();
+    for (const capn of capabilities) {
+      for (const cf of capn.categoricalFields ?? []) {
+        const set = sampleDomain.get(cf.field) ?? new Set<string>();
+        for (const dv of cf.distinctValues) set.add(dv);
+        sampleDomain.set(cf.field, set);
+      }
+      for (const bf of capn.booleanFields ?? []) {
+        const set = sampleDomain.get(bf.field) ?? new Set<string>();
+        set.add(bf.trueValue); set.add(bf.falseValue);
+        sampleDomain.set(bf.field, set);
+      }
+    }
+    const componentsCopy = JSON.parse(JSON.stringify(ruleSet.components));
+    const recon = await reconcileComponentLiterals(componentsCopy, sampleDomain, tenantId, supabase);
+    literalRewrites = recon.rewrites;
+    literalFailures = recon.failures;
+    if (recon.changed) {
+      correctedComponents = componentsCopy;
+      console.log(`[Convergence] HF-341 R7: reconciled ${recon.rewrites.length} DAG literal(s) to the data domain: ${recon.rewrites.map(r => `${r.field}:'${r.from}'→'${r.to}'`).join(', ')}`);
+      // Apply the SAME field/value rewrites to the convergence-binding `filters`
+      // (e.g. Plan 4's component binding carries {Verificado:'Si'}) so the binding
+      // and the DAG agree on the data-domain value.
+      for (const compKey of Object.keys(componentBindings)) {
+        for (const role of Object.keys(componentBindings[compKey])) {
+          const b = componentBindings[compKey][role] as { filters?: Array<{ field: string; value: unknown; operator?: string }> };
+          if (!Array.isArray(b?.filters)) continue;
+          for (const f of b.filters) {
+            const hit = recon.rewrites.find(r => r.field === f.field && r.from === f.value);
+            if (hit) f.value = hit.to;
+          }
+        }
+      }
+    }
+    for (const f of recon.failures) {
+      gaps.push({
+        component: 'literal_reconciliation',
+        componentIndex: -1,
+        requiredMetrics: [f.field],
+        calculationOp: 'filter',
+        reason: f.diagnostic,
+        resolution: `The plan's literal '${f.value}' for column '${f.field}' corresponds to no value the data carries; correct the plan literal or the data.`,
+      });
+    }
+  } catch (reconErr) {
+    console.error('[Convergence] HF-341 R7 literal reconciliation error (non-blocking):', reconErr);
+  }
+
   console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations, ${gaps.length} gaps, ${Object.keys(componentBindings).length} component bindings`);
-  return { derivations, matchReport, signals, gaps, componentBindings, observations };
+  return { derivations, matchReport, signals, gaps, componentBindings, observations, correctedComponents, literalRewrites, literalFailures };
 }
 
 // ──────────────────────────────────────────────
@@ -1576,6 +1641,198 @@ export function extractReferencesFromDAG(node: unknown): string[] {
   };
   walk(node);
   return Array.from(refs);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HF-341 R7 (A1/C1): Literal-domain reconciliation
+// ──────────────────────────────────────────────────────────────────────────────
+// A filter/compare EQUALITY literal in a component's PrimeNode DAG must be a
+// MEMBER of its target column's ACTUAL carried domain. The plan author's
+// vocabulary ('ALI', 'Si') — transcribed at emission from the plan document — is
+// reconciled to the data's actual value ('Alimentos', 'Sí') by the LLM against
+// the real distinct values it is shown; an irreconcilable literal fails LOUD
+// (C2), it never persists as a zero-match silent $0. No code-side mapping table
+// and no accent-folding heuristic (Korean Test / Decision 158): the only
+// completeness lives in the data's own domain, and the LLM — not a local regex —
+// performs the code→value recognition. Membership is pure set-containment over
+// carried reality (Validation Premise Law).
+
+interface DagLiteralSite {
+  field: string;
+  value: string;
+  set: (v: string) => void;
+}
+
+// Walk a PrimeNode DAG, collecting every EQUALITY literal a node tests against a
+// column: a `filter` predicate {operator:'eq', field, value:<string>}, and a
+// `compare` {op:'eq', inputs:[reference(field), constant(<string>)]}. Purely
+// structural — keys on prime kind + presence of a STRING literal, never on a
+// field name or a value (Korean Test). `set` mutates the literal in place.
+function collectEqualityLiteralSites(node: unknown): DagLiteralSite[] {
+  const sites: DagLiteralSite[] = [];
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+    if (prime === 'filter' && obj.predicate && typeof obj.predicate === 'object') {
+      const pred = obj.predicate as Record<string, unknown>;
+      if (pred.operator === 'eq' && typeof pred.field === 'string' && typeof pred.value === 'string') {
+        sites.push({ field: pred.field, value: pred.value, set: (v) => { pred.value = v; } });
+      }
+    }
+    if (prime === 'compare' && obj.op === 'eq' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const refSide = a?.prime === 'reference' ? a : b?.prime === 'reference' ? b : null;
+      const constSide = a?.prime === 'constant' ? a : b?.prime === 'constant' ? b : null;
+      if (refSide && constSide && typeof refSide.field === 'string' && typeof constSide.value === 'string') {
+        sites.push({ field: String(refSide.field), value: String(constSide.value), set: (v) => { constSide.value = v; } });
+      }
+    }
+    if (Array.isArray(obj.inputs)) for (const c of obj.inputs) walk(c);
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return sites;
+}
+
+// Read the FULL set of distinct string values a column actually carries in
+// committed_data (paginated). Used only to confirm a literal is truly absent
+// before reconciling — so a value the 50-row capability sample happened to miss
+// is never mis-mapped. Structural: collects whatever strings the column holds.
+async function readColumnStringDomain(
+  field: string, tenantId: string, supabase: SupabaseClient,
+): Promise<Set<string>> {
+  const domain = new Set<string>();
+  const PAGE = 1000;
+  for (let page = 0; page <= 20; page++) {
+    const { data } = await supabase
+      .from('committed_data')
+      .select('row_data')
+      .eq('tenant_id', tenantId)
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (!data || data.length === 0) break;
+    for (const r of data) {
+      const rd = (r as { row_data?: Record<string, unknown> | null }).row_data;
+      const v = rd?.[field];
+      if (typeof v === 'string' && v.trim().length > 0) domain.add(v.trim());
+    }
+    if (data.length < PAGE) break;
+  }
+  return domain;
+}
+
+export interface LiteralReconciliationOutcome {
+  changed: boolean;
+  rewrites: Array<{ field: string; from: string; to: string }>;
+  failures: Array<{ field: string; value: string; domainSize: number; diagnostic: string }>;
+}
+
+// One LLM call per column: given the column's REAL distinct values and the plan's
+// non-matching literals, return {literal: data-value-it-means | null}. The LLM does
+// the code→value / spelling / accent recognition; code only checks set-membership
+// of the result. No developer mapping table, no accent-folding (D158 / Korean Test).
+async function reconcileLiteralsViaAI(
+  field: string, literals: string[], domain: string[],
+): Promise<Record<string, string | null>> {
+  const userPrompt = `A compensation plan filters the data column "${field}" using these literal values, which are NOT among the column's actual values:
+${literals.map(l => `  - ${JSON.stringify(l)}`).join('\n')}
+
+The column "${field}" ACTUALLY contains exactly these distinct values in the data:
+${domain.map(d => `  - ${JSON.stringify(d)}`).join('\n')}
+
+For EACH plan literal, return the SINGLE actual data value it refers to — recognizing codes, abbreviations, spelling, or accent differences BY MEANING (e.g. a category code maps to its full category name; an unaccented affirmative maps to the accented one). If no actual value corresponds, return null for that literal.
+Return ONLY JSON: { "<plan literal>": "<actual data value>" | null, ... }. Use the EXACT actual data value spelling.`;
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
+      options: { maxTokens: 600, responseFormat: 'json' as const },
+    }, false);
+    const result = response.result as Record<string, unknown>;
+    const out: Record<string, string | null> = {};
+    for (const lit of literals) {
+      const v = result[lit];
+      out[lit] = typeof v === 'string' && v.trim() !== '' ? v : null;
+    }
+    return out;
+  } catch (err) {
+    console.error('[Convergence] HF-341 R7 literal reconciliation LLM call failed:', err);
+    return Object.fromEntries(literals.map(l => [l, null]));
+  }
+}
+
+// Reconcile every equality literal in a plan's component DAGs against the carried
+// data domain. Mutates `componentsRoot` IN PLACE; returns the rewrites + loud
+// failures. `sampleDomain` is the fast path (categorical/boolean distinct values
+// already inventoried by inventoryData); a full committed_data read confirms
+// true-absence before an LLM reconciliation is attempted. `reconciler` is
+// injectable for deterministic testing (defaults to the LLM call).
+export async function reconcileComponentLiterals(
+  componentsRoot: unknown,
+  sampleDomain: Map<string, Set<string>>,
+  tenantId: string,
+  supabase: SupabaseClient | null,
+  reconciler: (field: string, literals: string[], domain: string[]) => Promise<Record<string, string | null>> = reconcileLiteralsViaAI,
+): Promise<LiteralReconciliationOutcome> {
+  const out: LiteralReconciliationOutcome = { changed: false, rewrites: [], failures: [] };
+  if (!componentsRoot || typeof componentsRoot !== 'object') return out;
+
+  // Gather every component DAG (calculationIntent + the metadata.intent copy).
+  const root = componentsRoot as Record<string, unknown>;
+  const variants = Array.isArray(root.variants)
+    ? (root.variants as Array<Record<string, unknown>>)
+    : Array.isArray(root.components) ? [root]
+    : Array.isArray(componentsRoot) ? [{ components: componentsRoot }] : [root];
+  const dags: unknown[] = [];
+  for (const v of variants) {
+    const comps = (v.components as Array<Record<string, unknown>>) ?? [];
+    for (const c of comps) {
+      if (c.calculationIntent) dags.push(c.calculationIntent);
+      const meta = c.metadata as Record<string, unknown> | undefined;
+      if (meta?.intent) dags.push(meta.intent);
+    }
+  }
+
+  // Collect literal sites across all DAGs, group by field.
+  const sites: DagLiteralSite[] = [];
+  for (const d of dags) sites.push(...collectEqualityLiteralSites(d));
+  if (sites.length === 0) return out;
+  const byField = new Map<string, DagLiteralSite[]>();
+  for (const s of sites) { if (!byField.has(s.field)) byField.set(s.field, []); byField.get(s.field)!.push(s); }
+
+  for (const [field, fieldSites] of Array.from(byField.entries())) {
+    const sample = sampleDomain.get(field) ?? new Set<string>();
+    const literals = Array.from(new Set(fieldSites.map(s => s.value)));
+    const suspect = literals.filter(l => !sample.has(l));
+    if (suspect.length === 0) continue; // all literals already valid against the sampled domain
+
+    // Confirm true-absence against the FULL carried domain (the sample may be partial).
+    const fullDomain = supabase ? await readColumnStringDomain(field, tenantId, supabase) : new Set<string>();
+    const effectiveDomain = fullDomain.size > 0 ? fullDomain : sample;
+    const trulyAbsent = suspect.filter(l => !effectiveDomain.has(l));
+    if (trulyAbsent.length === 0) continue; // sample was incomplete; literals are valid
+    if (effectiveDomain.size === 0) continue; // no string domain (numeric/empty col) — not a categorical literal
+
+    const domainList = Array.from(effectiveDomain);
+    const mapping = await reconciler(field, trulyAbsent, domainList);
+    for (const lit of trulyAbsent) {
+      const mapped = mapping[lit];
+      if (mapped && effectiveDomain.has(mapped)) {
+        for (const s of fieldSites) if (s.value === lit) s.set(mapped);
+        out.rewrites.push({ field, from: lit, to: mapped });
+        out.changed = true;
+      } else {
+        const diagnostic = `[Convergence] HF-341 R7 C2: filter/compare literal '${lit}' on column '${field}' is absent from its actual data domain (${domainList.length} value(s): ${domainList.slice(0, 8).map(d => JSON.stringify(d)).join(', ')}${domainList.length > 8 ? ', …' : ''}) and could not be reconciled — a zero-match predicate must fail loud, not silently yield $0.`;
+        console.error(diagnostic);
+        out.failures.push({ field, value: lit, domainSize: effectiveDomain.size, diagnostic });
+      }
+    }
+  }
+  return out;
 }
 
 /**
