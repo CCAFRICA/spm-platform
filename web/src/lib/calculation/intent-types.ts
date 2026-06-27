@@ -200,11 +200,27 @@ export interface PiecewiseLinearOp {
 // Modifiers — applied after base calculation
 // ──────────────────────────────────────────────
 
-export type IntentModifier =
-  | { modifier: 'cap'; maxValue: number; scope: 'per_period' | 'per_entity' | 'total' }
-  | { modifier: 'floor'; minValue: number; scope: 'per_period' | 'per_entity' | 'total' }
-  | { modifier: 'proration'; numerator: IntentSource; denominator: IntentSource }
-  | { modifier: 'temporal_adjustment'; lookbackPeriods: number; triggerCondition: IntentSource; adjustmentType: 'full_reversal' | 'partial' | 'prorated' };
+// HF-341 (RA-5 / Validation Premise Law): the modifier SHAPE is an OPEN-VOCABULARY string, not a
+// closed `{cap, floor, proration, temporal_adjustment}` enum. Robles introduces shapes the prior
+// enum cannot express (cross-recipient `tope`, cross-period `streak`, cascade-wide `devolución`);
+// they must be representable in the contract before the engine supports them (the modifier engine is
+// the §6A Robles arc). Known shapes carry their typed fields (optional); any other shape carries
+// `params` openly. `wrapModifier` (legacy-intent-to-dag.ts) validates each shape's required fields
+// structurally and fails loud (UntranslatableLegacyIntentError) on an unknown shape with no
+// structural basis (C2) — no modifier-name→behavior map (Korean Test). Mirrors the already-open
+// `ExecutionTrace.modifiers[].modifier: string`.
+export interface IntentModifier {
+  modifier: string;
+  maxValue?: number;                                  // cap
+  minValue?: number;                                  // floor
+  scope?: 'per_period' | 'per_entity' | 'total';      // cap / floor scope (structural bound, not a shape)
+  numerator?: IntentSource;                           // proration
+  denominator?: IntentSource;                         // proration
+  lookbackPeriods?: number;                           // temporal_adjustment
+  triggerCondition?: IntentSource;                    // temporal_adjustment
+  adjustmentType?: 'full_reversal' | 'partial' | 'prorated';  // temporal_adjustment kind (structural)
+  params?: Record<string, unknown>;                   // open carrier for shapes beyond the known set
+}
 
 // ──────────────────────────────────────────────
 // Variant Routing — route to different operations

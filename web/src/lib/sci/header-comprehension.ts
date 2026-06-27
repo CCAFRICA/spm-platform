@@ -16,7 +16,7 @@ import type {
 import { getAIService } from '@/lib/ai/ai-service';
 // OB-215 (Agent D): telemetry labels reflect the resolver's decision, not a stale literal.
 import { resolveModel } from '@/lib/ai/model-policy';
-import { lookupAtoms, writeAtoms } from './atom-flywheel';
+import { lookupAtoms, writeAtoms, type AtomExpression } from './atom-flywheel';
 import { computeAtomFingerprint } from './atom-fingerprint';
 import { decomposeComprehension, type ResidueComprehender, type ComprehendedInterpretation } from './decomposed-comprehension';
 // OB-203 Phase 4 (R3): atom recognition-confidence signals (fire-and-forget).
@@ -508,7 +508,7 @@ export async function runDecomposedComprehension(
   // 5. reconstruct headerComprehension + enhance; collect failures, provenance, atoms-to-write.
   const perSheetFailure = new Map<string, ComprehensionFailureClass>();
   const provenance = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
-  const atomsToWrite: Array<{ atom: ReturnType<typeof computeAtomFingerprint>; role: string; roleConfidence: number }> = [];
+  const atomsToWrite: Array<{ atom: ReturnType<typeof computeAtomFingerprint>; role: string; roleConfidence: number } & AtomExpression> = [];
   let columnsInterpreted = 0, confTotal = 0, confCount = 0;
 
   for (const r of results) {
@@ -521,10 +521,22 @@ export async function runDecomposedComprehension(
     if (!profile) continue;
 
     const interpretations = new Map<string, HeaderInterpretation>();
-    // Deviation 1: known atoms -> recalled data-nature label (OB-231: the stored atom "role" is the
-    // free-form data_nature; characterization echoes it; scope is unknown for atom-recognized columns).
+    // HF-341 R4 (the core comprehension-eradication fix): a CLAIMED (cached) atom reconstructs the LLM's
+    // FULL recognition from the stored OB-231 EXPRESSION — `identifies` (entity-scope), `characterization`,
+    // `relationships` — NOT a fabricated `identifies:'nothing'`. The prior hard-coded 'nothing' destroyed
+    // the entity-scope signal on warm imports, so a cached sheet classified differently than the same sheet
+    // fresh (the 10/12 MIR Ventas/Cobranza target misclassification). Legacy atoms (no stored expression)
+    // fall back to the old behavior: identifies undefined → 'nothing', characterization → the role label.
     for (const k of r.knownColumns) {
-      interpretations.set(k.columnName, { columnName: k.columnName, characterization: k.role, dataExpectation: '', data_nature: k.role, identifies: 'nothing', relationships: [], confidence: k.confidence });
+      interpretations.set(k.columnName, {
+        columnName: k.columnName,
+        characterization: k.characterization ?? k.role,
+        dataExpectation: '',
+        data_nature: k.role,
+        identifies: k.identifies ?? 'nothing',
+        relationships: k.relationships ?? [],
+        confidence: k.confidence,
+      });
     }
     // novel atoms -> full LLM interpretation (characterization text present -> currency suppression can fire here).
     for (const c of (r.comprehendedColumns ?? [])) {
@@ -556,7 +568,8 @@ export async function runDecomposedComprehension(
     // hold (a): succeeded units only — recompute the full atom (with features) on full rows for the write.
     const sheet = sheets.find(s => s.sheetName === r.sheetName)!;
     for (const a of r.atomsToWrite) {
-      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence });
+      // HF-341 R4: carry the OB-231 expression into the atom write so the recognition survives the cache.
+      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships });
     }
   }
 

@@ -9,9 +9,20 @@ import { createClient } from '@supabase/supabase-js';
 import { ATOM_ALGORITHM_VERSION, type AtomFingerprint } from './atom-fingerprint';
 import { writeSignal } from '@/lib/intelligence/canonical-signal-writer';
 
-export interface KnownAtom {
+// HF-341 R4 (Carry Everything / OB-231): the LLM's full recognition EXPRESSION carried through the
+// atom cache so a CLAIMED (cached) column reconstructs the SAME recognition a fresh LLM call would —
+// the entity-scope signal (`identifies`) no longer vanishes on replay (header-comprehension.ts used to
+// hard-code identifies:'nothing' for cached columns, the 10/12 MIR target-misclassification root).
+// Legacy atom rows lack these fields → undefined (the consumer falls back to today's behavior).
+export interface AtomExpression {
+  identifies?: string;        // the scope the column identifies, in the LLM's own words ("the seller")
+  characterization?: string;  // what the column IS, free-form
+  relationships?: string[];   // OB-231 relationships
+}
+
+export interface KnownAtom extends AtomExpression {
   hash: string;
-  role: string;             // accumulated structural role label
+  role: string;             // = the LLM's data_nature; kept as the role-STABILITY key + human label
   confidence: number;       // RECOGNITION confidence (match-count Bayesian) — gates whether to claim
   roleConfidence: number;   // ROLE confidence (from comprehension) — STABLE; fed to downstream gates (D5 fix)
   matchCount: number;
@@ -26,7 +37,7 @@ export const RECOGNIZED_ROLE_CONFIDENCE = 0.9;
  * buckets/flags only; `column_roles` carries a structural role label; no file identifier, no raw
  * value, no header text in the identity (the hash already excludes the name).
  */
-export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: string, roleConfidence: number): Record<string, unknown> {
+export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: string, roleConfidence: number, expr?: AtomExpression): Record<string, unknown> {
   return {
     tenant_id: tenantId,
     fingerprint_hash: atom.hash,
@@ -35,7 +46,9 @@ export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: stri
     algorithm_version: ATOM_ALGORITHM_VERSION,
     scope: 'tenant',
     atom_features: atom.features as unknown as Record<string, unknown>,
-    column_roles: { role, roleConfidence },
+    // HF-341 R4: store the OB-231 EXPRESSION alongside the role-stability label (additive; legacy rows
+    // carry only {role,roleConfidence} and read back with identifies=undefined).
+    column_roles: { role, roleConfidence, ...(expr ? { identifies: expr.identifies, characterization: expr.characterization, relationships: expr.relationships } : {}) },
     // structural_fingerprints.classification_result is NOT NULL; an atom row has no sheet
     // classification, so an empty object is the benign placeholder (EPG-2.4 RUN-1 fix). For
     // tenant scope the DI-10 CHECK is satisfied by scope='tenant'. Foundational/vertical atoms
@@ -105,6 +118,10 @@ export async function lookupAtoms(
       confidence: Number(r.confidence),
       roleConfidence,
       matchCount: r.match_count as number,
+      // HF-341 R4: carry the stored EXPRESSION (legacy rows → undefined).
+      identifies: typeof cr.identifies === 'string' ? cr.identifies : undefined,
+      characterization: typeof cr.characterization === 'string' ? cr.characterization : undefined,
+      relationships: Array.isArray(cr.relationships) ? (cr.relationships as string[]) : undefined,
     });
   }
   return out;
@@ -118,13 +135,13 @@ export async function lookupAtoms(
  */
 export async function writeAtoms(
   tenantId: string,
-  atomsWithRoles: Array<{ atom: AtomFingerprint; role: string; roleConfidence: number }>,
+  atomsWithRoles: Array<{ atom: AtomFingerprint; role: string; roleConfidence: number } & AtomExpression>,
   supabaseUrl: string,
   supabaseServiceKey: string,
 ): Promise<void> {
   if (atomsWithRoles.length === 0) return;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  for (const { atom, role, roleConfidence } of atomsWithRoles) {
+  for (const { atom, role, roleConfidence, identifies, characterization, relationships } of atomsWithRoles) {
     try {
       const { data: existing } = await supabase
         .from('structural_fingerprints')
@@ -148,19 +165,26 @@ export async function writeAtoms(
         if (resolvedRole === AMBIGUOUS_ROLE && existingRole !== AMBIGUOUS_ROLE) {
           console.warn(`[OB-203][atom-flywheel] role AMBIGUOUS hash=${atom.hash.slice(0, 12)} (was '${existingRole}', now '${role}') — will route to comprehension`);
         }
+        // HF-341 R4: store the EXPRESSION when the role AGREES (the latest coherent recognition); on
+        // AMBIGUOUS (a genuine structural-hash collision of two differently-scoped columns) keep the
+        // existing expression — the atom routes to comprehension anyway, so the stale expression is
+        // never claimed. This preserves the structural-collision correctness the AMBIGUOUS sentinel gives.
+        const exprToStore: AtomExpression = resolvedRole === AMBIGUOUS_ROLE
+          ? { identifies: cr.identifies as string | undefined, characterization: cr.characterization as string | undefined, relationships: Array.isArray(cr.relationships) ? cr.relationships : undefined }
+          : { identifies, characterization, relationships };
         await supabase
           .from('structural_fingerprints')
           .update({
             match_count: newMatchCount,
             confidence: Number(newConfidence.toFixed(4)),
-            column_roles: { role: resolvedRole, roleConfidence: resolvedRoleConf },
+            column_roles: { role: resolvedRole, roleConfidence: resolvedRoleConf, ...exprToStore },
             atom_features: atom.features as unknown as Record<string, unknown>,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existing.id)
           .eq('match_count', existing.match_count); // optimistic lock (mirrors sheet path)
       } else {
-        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence));
+        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence, { identifies, characterization, relationships }));
       }
     } catch (err) {
       // Finding-A follow-through: a blocked atom-learning write must NOT be silent (DI-4/DI-7 spirit).

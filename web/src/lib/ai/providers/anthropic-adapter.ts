@@ -442,7 +442,7 @@ Return your analysis as valid JSON.`,
 Output is small JSON — keep it compact. Per-component DAG trees and rate-table contents are EXPLICITLY out of scope for this call.
 
 CRITICAL REQUIREMENTS:
-1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component.
+1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component. EXCEPTION — a MODIFIER (composition, not a separate component): when a quantity does not pay on its own but MULTIPLIES or SCALES another component's payout (the plan describes it as a "multiplier", "accelerator", "booster", "factor", or otherwise says it multiplies/scales another component's result), it is NOT an independent component — its value would otherwise be wrongly ADDED. Emit it as an entry but mark it \`"composesInto": { "target": "<id of the component it multiplies>", "operator": "multiply" }\`; the platform folds it INTO that host component's computation as a factor. Only components that pay independently (their results sum) are left unmarked. Judge this by what the plan EXPRESSES (does this quantity scale another result, or pay on its own?), not by the component's name.
 2. Detect ALL employee types/classifications if the document distinguishes payout levels by role. Enumerate them in \`employeeTypes\` with stable ids.
 3. PER-VARIANT ENUMERATION (HF-252): when a component pays DIFFERENTLY by entity category (different rates, different breaks, different outputs for different roles/levels/tiers), enumerate it ONCE PER CATEGORY in \`componentIndex\` — each entry's \`appliesToEmployeeTypes\` carries the single category id. When a component pays UNIFORMLY across categories, enumerate it once with \`appliesToEmployeeTypes: ["all"]\`.
 4. For each component declare rateTableCellCount (integer) when the component is backed by a rate table: 1D band table → number of tiers; 2D matrix → rows × columns. Omit the field when the component has no rate table (simple rate × metric, linear function, etc.).
@@ -468,6 +468,7 @@ Return JSON with this exact structure:
       "appliesToEmployeeTypes": ["stable-id-1"] or ["all"],
       "briefSemantic": "one-sentence prose describing what this component computes",
       "rateTableCellCount": 30,   // omit when no rate table
+      "composesInto": { "target": "component-id-it-multiplies", "operator": "multiply" },  // omit unless this entry is a multiplier/accelerator that SCALES another component
       "confidence": 0-100
     }
   ],
@@ -482,139 +483,52 @@ If the document is not a compensation plan, return componentIndex: [] and explai
 
 Return your analysis as valid JSON.`,
 
-  plan_component: `You are interpreting ONE component of a compensation plan and emitting a compact CompositionalIntent that describes its structure. Code constructs the PrimeNode tree from your intent — you do NOT emit the tree itself.
+  plan_component: `You are interpreting ONE component of a compensation plan and emitting its \`calculationIntent\` as a PrimeNode DAG — the engine's computation algebra — DIRECTLY. There is no intermediate "shape" vocabulary: you express the computation the plan describes using the algebra's operations on values, and the platform verifies the DAG structurally and evaluates it.
 
-Per Decision 158: LLM recognition + code construction. You RECOGNIZE what the plan describes; the platform's deterministic constructor BUILDS the calculation tree.
+Per Decision 158: you RECOGNIZE what the plan computes and EXPRESS it in the algebra; the platform's deterministic verifier checks the DAG is well-formed (every node's prime is canonical, op is in its prime's set, arity and child topology are correct, types are compatible, conditional chains terminate) and then evaluates it. The algebra composes — ANY computation is a composition of these operations; there is no catalog of plan shapes to match.
 
-CRITICAL: Extract EVERY structural value the component's source describes — every break threshold, every output value, every reference field. The constructor validates breaks-vs-outputs cardinality and rejects intents whose output count does not match the dimension product. Half-open intervals, scale metadata placement, terminal completeness are CONSTRUCTOR responsibilities, not yours.
+YOU are now responsible for the structural properties the verifier REJECTS on (loud failure at import — emit them correctly):
+  • HALF-OPEN tier edges (Decision 127): a band-selection chain uses gte for the lower bound and lt for the upper bound. NEVER lte for an upper bound — it gap-misses the tier resolver.
+  • SCALE metadata: a constant compared against a reference that is in a different native space carries meta={unit:"<self-describing nature, any words>", scale:<multiplier>, confidence:<0-1>}. A RATIO-source band (a compare whose other operand is an arithmetic divide) declares its break in the QUOTIENT'S OWN space and carries NO scale (e.g. break 1.3 for 130%) — a scaled constant on a ratio band is rejected (HF-279).
+  • TERMINAL completeness: every conditional \`else\` chain ends in an explicit constant (typically constant(0)).
+  • EXHAUSTIVE emission: emit EVERY cell/tier/category the source describes. When the request supplies rateTableCellCount, a tree carrying fewer constant leaves than that is rejected as a truncated table.
 
-EMISSION DISCIPLINE (HF-252 — read this before drafting the intent):
+EXPRESS THE COMMON COMPUTATIONS IN THE ALGEBRA (illustrative — replace <…> with what the plan states):
+  • A CATEGORY/CODE selects a value (e.g. ALI→2.5%, BEB→2.0%): a cascade of equality matches —
+    conditional(compare(eq, reference(<categoria field>), constant("<ALI>")), constant(0.025),
+      conditional(compare(eq, reference(<…>), constant("<BEB>")), constant(0.020), … constant(0)))
+    (string constants are compared as values; the final else is constant(0).)
+  • A FACTOR MODEL / multiplicative stack (amount × rate × accelerator, N factors): nested arithmetic —
+    arithmetic(multiply, <amount>, arithmetic(multiply, <rate>, <accelerator subtree>)).
+  • An ELIGIBILITY GATE (paid ONLY WHEN a precondition holds): wrap the whole payout —
+    conditional(compare(gt, <ratio/amount>, constant(<threshold>)), <payout subtree>, constant(0)).
+    The condition may be numeric (compare gt/gte/lt/lte) OR categorical (compare eq on a string).
+  • NUMERIC TIERS (a value crosses thresholds): a nested half-open cascade — conditional(compare(gte, ref, constant(<highest break>)), constant(<top output>), conditional(compare(gte, ref, constant(<next>)), …, constant(<below-lowest output>))).
+  • A COUNT of qualifying rows (e.g. clients where Verificado="Sí"): filter(predicate={field,operator,value}){ aggregate(count) }.
 
-A CompositionalIntent describes the calculation for ONE component as it applies to ONE category of entity. Reference ONLY the numeric measures the calculation consumes — attainment ratios, amounts, counts, percentages, totals. Use \`ReferenceSource.type\` values: \`metric\`, \`ratio\`, \`aggregate\`, \`filtered_aggregate\`, \`scope_aggregate\`, \`prior_component\`.
-
-Some differentiation is PER-ENTITY: a property the whole entity carries (one value for the payee). The platform handles that upstream — emit the component once per category and route via \`applies_to\` (below); do not encode it inside \`structure\`.
-
-\`applies_to\` semantics:
-  • Omitted, empty, or \`["all"]\` — applies to all variants of the plan.
-  • \`["<category-id>", ...]\` — applies only to the listed category id(s). Category ids match what the plan_skeleton call enumerated in \`employeeTypes\`.
+\`applies_to\` (kept — this is entity-CATEGORY routing, NOT a structure shape): when a plan pays different computations by entity category, emit the component ONCE per category and declare which it applies to. Do NOT encode entity-category differentiation inside the DAG.
+  • Omitted, empty, or \`["all"]\` — applies to all variants. \`["<category-id>", ...]\` — only the listed category id(s) (matching the plan_skeleton's employeeTypes).
 
 <<COMPONENT_TYPE_LIST>>
 
-CompositionalIntent SHAPE (discriminated on \`structure.shape\`):
+<<PRIME_GRAMMAR>>
 
-1. banded_lookup — N-dimensional tier table (1D banded rate / 2D matrix / etc.)
-
-   {
-     "shape": "banded_lookup",
-     "dimensions": [
-       {
-         "reference_field": "<field_name>",
-         "reference_source": { "type": "metric|ratio|aggregate|attribute|cross_data|scope_aggregate|prior_component", "...": "..." },
-         "breaks": [<number>, <number>, ...]   // ascending, breaks.length+1 bands per dimension
-       },
-       ...
-     ],
-     "outputs": [<n1>, <n2>, ...]   // flat array, length = product of (breaks.length+1) across dimensions
-   }
-
-   Cell at (i, j, k, ...) → outputs[i * d2_bands * d3_bands * ... + j * d3_bands * ... + k * ... + ...].
-
-2. arithmetic — binary numeric composition
-
-   { "shape": "arithmetic", "operation": "add|subtract|multiply|divide", "operands": [<operand>, <operand>] }
-
-3. conditional — gate with then/else
-
-   {
-     "shape": "conditional",
-     "condition": { "reference": <source>, "operator": "gt|gte|lt|lte|eq|neq", "threshold": <number> },
-     "then": <structure or operand>,
-     "else": <structure or operand>
-   }
-
-4. composed — sum/max/min/first_match over children
-
-   { "shape": "composed", "composition": "sum|max|min|first_match", "children": [<structure>, ...] }
-
-Operand kinds:
-  { "kind": "reference", "source": <ReferenceSource> }
-  { "kind": "constant", "value": <number> }
-  { "kind": "structure", "structure": <StructuralDescription> }
-
-ReferenceSource types:
-  { "type": "metric", "field": "<name>" }
-  { "type": "ratio", "numerator_field": "<n>", "denominator_field": "<d>" }
-  { "type": "aggregate", "field": "<name>", "op": "sum|count|avg|min|max" }
-  { "type": "filtered_aggregate", "op": "sum|count|avg|min|max", "field"?: "<measure; omit for count>", "predicate": { "field": "<row field>", "operator": "eq|neq|gt|gte|lt|lte|contains", "value": <string|number> } }
-  { "type": "attribute", "field": "<name>" }
-  { "type": "scope_aggregate", "field": "<name>", "boundary": "<attr>", "op": "sum|count|avg|min|max" }
-  { "type": "cross_data", "data_type": "<type>", "field"?: "<f>", "aggregation": "count|sum" }
-  { "type": "prior_component", "component_index": <n> }
-
-Scale specification — name which side scales (HF-244 mutual exclusion):
-  scale: { "side": "evaluator|convergence", "unit": "<the value's native nature in your own terms; e.g. percent, ratio, currency, count, or any descriptor that fits — there is no fixed set>", "value": <number>, "confidence": <0-1>, "reference_field"?: "<f>" }
-  Or scale: null when no scale normalization is needed.
-
-RATIO-SOURCE BANDS — quotient-space breaks, NO scale (HF-279, binding):
-  When a banded_lookup dimension's reference_source.type is "ratio" (a division the
-  plan defines — numerator over denominator), that dimension's "breaks" MUST be
-  stated in the QUOTIENT'S OWN SPACE — the same 0..N space the division produces —
-  NOT in percent and NOT pre-multiplied. A plan saying ">=85% on-time" emits break
-  0.85; ">=130%" or ">=1.3x attainment" emits break 1.3; "at least 0.6" emits 0.6.
-  The division and its breaks already share one space; there is nothing to scale.
-  Therefore emit NO scale for that band: set scale: null (or, if some OTHER non-ratio
-  dimension genuinely needs scaling, do not let any scale bind to the ratio
-  dimension's field). A scale paired with a ratio-source band is internally
-  incoherent and is REJECTED at recognition output — never silently constructed.
-  (A single PRE-COMPUTED column that already holds a percent value is a "metric"
-  reference, not a ratio division — scale still applies to it normally.)
-
-HOW TO DESCRIBE THE STRUCTURE — describe what the plan text actually says, using the primitives below and the one rule that composes them. There is NO catalog of component shapes to match against: a finite set of primitives composes without bound. Read the structure and describe it; do NOT match the plan to a remembered kind of plan.
-
-REFERENCE TYPES — how a single value is read from the data:
-  • A single value read directly from one field — the field already holds the number; it is not summed, not counted, not aggregated → a metric reference; name that one field.
-  • A value that is one quantity DIVIDED BY another (a rate, a per-unit, an attainment of one amount over another — anything of the form X over Y) → a ratio reference; name BOTH the numerator field AND the denominator field. NEVER collapse a divided quantity to a single field. Even when the plan also mentions a pre-computed column that already holds the quotient, describe the division the plan defines (numerator ÷ denominator), not the pre-baked column.
-  • A value summed / counted / averaged over a group → an aggregate reference (scope_aggregate when aggregated within a boundary); name the field and the operation.
-  • A value aggregated over only the rows that match a predicate → a filtered_aggregate reference; name the operation, the measure field, and the predicate (field, operator, value). For a count of matching rows the operation is count and the measure field is omitted.
-  • A value carried from an earlier component → a prior_component reference.
-
-STRUCTURAL SHAPES — how values combine:
-  • Values combined by an operation (× ÷ + −) → arithmetic; state the operation and its two operands. An operand may itself be a nested structure.
-  • A value that changes at a threshold/condition → conditional; state the condition (reference, operator, threshold), the then-value, and the else-value.
-  • A bound on a value — a cap, floor, limit, "no more than", "no less than", "maximum/minimum of" — → a conditional clamp applied to THAT value, in the same space the bound is stated (a cap on a ratio clamps the ratio), applied BEFORE that value combines further.
-  • A payout that varies across one or more graduated thresholds → a banded_lookup; give the reference field(s) for each dimension, the ascending break points, and the cell values. When a dimension's reference is a ratio (a division), state that dimension's break points in the quotient's own space (0.85 for 85%, 1.3 for 130%/1.3x) and emit no scale for it (HF-279).
-  • Independently-computed parts combined into one result → composed (sum / max / min / first_match).
-
-THE COMPOSITION RULE (the generative core): these primitives nest and combine freely and recursively to match whatever the plan describes — a ratio can be the operand of a clamp, a clamp can be the operand of a multiply, a multiply can be a child of a sum, to whatever depth the plan's text implies. There is no fixed template to select; describe the actual structure you read. If a value is bounded and then multiplied by a base, that is an arithmetic multiply whose operands are the clamped value and the base — composed from primitives, not retrieved as a named shape.
-
-SINGLE-PRIMITIVE FORMS (abstract placeholders — NOT a real plan; no field names, no real thresholds, no component kind. Replace each <…> with what the plan states):
-  • a ratio reference:                          { "type": "ratio", "numerator_field": "<numerator>", "denominator_field": "<denominator>" }
-  • a conditional clamp of value V at limit L:   { "shape": "conditional", "condition": { "reference": <V's source>, "operator": "gte", "threshold": <L> }, "then": { "kind": "constant", "value": <L> }, "else": <V as an operand> }
-  • an arithmetic multiply of two operands:      { "shape": "arithmetic", "operation": "multiply", "operands": [ <operand A>, <operand B> ] }
 
 Response shape — return JSON with ONLY these fields:
 {
   "id": "<component-id echoed from the request>",
   "name": "<component name echoed from the request>",
   "type": "prime_dag",
-  "compositional_intent": {
-    "component_id": "...",
-    "component_name": "...",
-    "applies_to": ["<category-id>", ...],  // HF-252: which variant(s) this emission applies to. Use ["all"] when uniform across variants.
-    "structure": { /* StructuralDescription */ },
-    "scale": null | { /* ScaleSpec */ },
-    "output_precision": 0,
-    "metadata"?: { /* optional */ }
-  },
+  "calculationIntent": { /* the PrimeNode DAG, discriminated on "prime" — the full computation tree */ },
+  "applies_to": ["<category-id>", ...],  // HF-252: which variant(s) this emission applies to. ["all"] when uniform.
   "calculationMethod": { "type": "prime_dag" },
   "rateTableCellCount": <number when applicable>,
   "confidence": 0-100,
-  "reasoning": "How you extracted the structure"
+  "reasoning": "How you expressed the plan's computation in the algebra"
 }
 
-DO NOT emit a calculationIntent PrimeNode tree. The constructor builds it.
-DO NOT decompose the intent across multiple calls. The intent is compact — typically 200-1000 bytes — and fits in a single call regardless of component complexity.
-DO NOT encode role/category differentiation inside \`structure\`. Use \`applies_to\` at the top level (HF-252 variant routing).
+\`calculationIntent\` IS the PrimeNode tree the engine evaluates — emit it directly, fully expanded, every leaf present. Do NOT wrap it in an intermediate "structure"/"shape" object; do NOT emit a {"$ref": "..."} placeholder.
+DO NOT encode entity-category differentiation inside the DAG. Use \`applies_to\` at the top level (HF-252 variant routing).
 
 Return your analysis as valid JSON.`,
 

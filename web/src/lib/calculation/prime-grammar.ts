@@ -374,10 +374,43 @@ export function validatePrimeTree(
           violations.push({
             check: 'scale_annotation',
             nodePath: path,
+            // HF-341 R3: ELEVATED warning→critical. With direct PrimeNode-DAG emission (the shape
+            // layer + intent-constructor.buildConstantWithScale are gone), a malformed scale carrier is
+            // no longer fixed deterministically by construction — a meta present without a
+            // self-describing nature is a structurally malformed scale and is rejected loudly (C2).
             message: 'Compare-constant carries scale metadata without a self-describing nature (meta.unit). Open-vocabulary nature required; no enumerated unit set.',
-            severity: 'warning',
+            severity: 'critical',
           });
         }
+      }
+    }
+
+    // HF-341 R3 (re-expresses the deleted CI-side assertRatioBandScaleCoherence at the DAG level): a
+    // ratio-source band declares its break in the QUOTIENT'S OWN space, so a `compare` whose one
+    // operand is a DAG-divide (arithmetic op:divide — a ratio) and whose other operand is a `constant`
+    // carrying a non-identity scale (meta.scale ≠ 1) is incoherent — the BCL-c1 overpay class (a 1.03
+    // quotient ×100 = 103 clears a 1.3 break → top tier). constructTree guaranteed this by omitting
+    // scale on ratio bands; with direct emission it is a CRITICAL structural rejection (C2). Korean
+    // Test: keys on node TOPOLOGY (divide + scaled-constant), no field literals or magnitudes.
+    if (prime === 'compare' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const isRatio = (n: unknown): boolean => {
+        const r = n as Record<string, unknown> | undefined;
+        return !!r && r.prime === 'arithmetic' && r.op === 'divide';
+      };
+      const isScaledConstant = (n: unknown): boolean => {
+        const r = n as Record<string, unknown> | undefined;
+        if (!r || r.prime !== 'constant') return false;
+        const m = r.meta as { scale?: unknown } | null | undefined;
+        return !!m && typeof m.scale === 'number' && m.scale !== 1;
+      };
+      const [a, b] = obj.inputs as unknown[];
+      if ((isRatio(a) && isScaledConstant(b)) || (isRatio(b) && isScaledConstant(a))) {
+        violations.push({
+          check: 'scale_annotation',
+          nodePath: path,
+          message: 'HF-279: a ratio-source band (compare against a DAG-divide) must NOT carry a scale on its constant — the break is in the quotient\'s own space. Emit the break unscaled (e.g. 1.3 for 130%).',
+          severity: 'critical',
+        });
       }
     }
 
@@ -396,7 +429,10 @@ export function validatePrimeTree(
               check: 'decision_127',
               nodePath: `${path}.condition`,
               message: `Decision 127: tier-selection conditional must use gte+lt (half-open), found ${JSON.stringify(ops)}.`,
-              severity: 'warning',
+              // HF-341 R3: ELEVATED warning→critical. constructTree built half-open band edges
+              // deterministically; with direct DAG emission an lte upper bound gap-misses the tier
+              // resolver → wrong tier → BCL/MIR drift. Rejected loudly at import (C2).
+              severity: 'critical',
             });
           }
         }
@@ -425,7 +461,10 @@ export function validatePrimeTree(
           check: 'terminal_completeness',
           nodePath: `${path}.else`,
           message: 'Conditional else chain does not terminate in an explicit constant. Add constant(0) as the final fallback.',
-          severity: 'warning',
+          // HF-341 R3: ELEVATED warning→critical. constructTree always emitted a terminal constant(0);
+          // with direct DAG emission a non-terminating else chain is a structural hole (undefined
+          // fallback) and is rejected loudly at import (C2).
+          severity: 'critical',
         });
       }
     }

@@ -552,6 +552,12 @@ function translateOperation(op: IntentOperation): PrimeNode {
 function wrapModifier(value: PrimeNode, mod: IntentModifier): PrimeNode {
   switch (mod.modifier) {
     case 'cap': {
+      // HF-341 (RA-5): IntentModifier shape is open-vocab; required field validated loudly (C2).
+      if (typeof mod.maxValue !== 'number') {
+        throw new UntranslatableLegacyIntentError(
+          `[legacyIntentToDAG] 'cap' modifier requires numeric maxValue. Emission preserved: ${JSON.stringify(mod)}.`
+        );
+      }
       // result = min(value, maxValue)
       return {
         prime: 'conditional',
@@ -565,6 +571,11 @@ function wrapModifier(value: PrimeNode, mod: IntentModifier): PrimeNode {
       };
     }
     case 'floor': {
+      if (typeof mod.minValue !== 'number') {
+        throw new UntranslatableLegacyIntentError(
+          `[legacyIntentToDAG] 'floor' modifier requires numeric minValue. Emission preserved: ${JSON.stringify(mod)}.`
+        );
+      }
       return {
         prime: 'conditional',
         condition: {
@@ -577,6 +588,11 @@ function wrapModifier(value: PrimeNode, mod: IntentModifier): PrimeNode {
       };
     }
     case 'proration': {
+      if (!mod.numerator || !mod.denominator) {
+        throw new UntranslatableLegacyIntentError(
+          `[legacyIntentToDAG] 'proration' modifier requires numerator and denominator. Emission preserved: ${JSON.stringify(mod)}.`
+        );
+      }
       // result = value × (numerator / denominator), zero-guarded on denominator
       const num = translateSource(mod.numerator);
       const den = translateSource(mod.denominator);

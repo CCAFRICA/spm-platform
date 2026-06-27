@@ -8,9 +8,9 @@
 // dissolving the HF-247 all-or-nothing dead-end.
 
 import { computeAtomFingerprint } from './atom-fingerprint';
-import { knownAtomHashes, type KnownAtom } from './atom-flywheel';
+import { knownAtomHashes, type KnownAtom, type AtomExpression } from './atom-flywheel';
 
-export interface PlannedAtom {
+export interface PlannedAtom extends AtomExpression {
   columnName: string;
   hash: string;
   known: boolean;
@@ -21,8 +21,9 @@ export interface PlannedAtom {
 export interface SheetComprehensionPlan {
   sheetName: string;
   atoms: PlannedAtom[];
-  /** Columns claimed from prior signal — no LLM. */
-  knownColumns: Array<{ columnName: string; role: string; confidence: number }>;
+  /** Columns claimed from prior signal — no LLM. Carry the OB-231 expression (HF-341 R4) so a claimed
+   *  column reconstructs the SAME recognition (incl. `identifies` scope) a fresh LLM call would. */
+  knownColumns: Array<{ columnName: string; role: string; confidence: number } & AtomExpression>;
   /** Columns with no sufficient prior — the comprehension residue. */
   novelColumns: string[];
   /** Fraction of columns recognized (provenance for the experience surface). */
@@ -47,8 +48,10 @@ export function planSheetComprehension(
       const k = known.get(fp.hash)!;
       // D5 fix: claim at the STABLE role confidence (from comprehension), NOT the maturing recognition
       // confidence — so downstream pattern thresholds (e.g. temporal ≥0.80) don't flip by maturation.
-      atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.roleConfidence });
-      knownColumns.push({ columnName, role: k.role, confidence: k.roleConfidence });
+      // HF-341 R4: carry the stored EXPRESSION (identifies/characterization/relationships) through.
+      const expr = { identifies: k.identifies, characterization: k.characterization, relationships: k.relationships };
+      atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.roleConfidence, ...expr });
+      knownColumns.push({ columnName, role: k.role, confidence: k.roleConfidence, ...expr });
       console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> CLAIMED role=${k.role}@${k.roleConfidence.toFixed(2)} (stable role-conf; recog=${k.confidence.toFixed(2)})`);
     } else {
       atoms.push({ columnName, hash: fp.hash, known: false });

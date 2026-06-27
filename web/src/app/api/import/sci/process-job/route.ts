@@ -19,7 +19,6 @@ import { generateContentProfileStats, generateContentProfilePatterns } from '@/l
 import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
-import { classifyByHCPattern } from '@/lib/sci/hc-pattern-classifier';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
 import { computeStructuralFingerprint, lookupPriorSignals, lookupLexicalPrior, writeClassificationSignal, emitComprehensionFailureSignals, emitReinforcementBlockedSignal, shouldReinforceUnit } from '@/lib/sci/classification-signal-service';
 import { CanonicalWriteError } from '@/lib/intelligence/canonical-signal-writer';
@@ -286,26 +285,10 @@ export async function POST(req: NextRequest) {
       console.warn(`[SCI-OVERLAP] Computation failed (non-blocking):`, overlapErr instanceof Error ? overlapErr.message : 'unknown');
     }
 
-    await resolveClassification(
-      state,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    );
-
-    // HC pattern classification
-    for (const [unitId, profile] of Array.from(state.contentUnits.entries())) {
-      const hcResult = classifyByHCPattern(profile);
-      if (hcResult) {
-        const resolution = state.resolutions.get(unitId);
-        if (resolution) {
-          resolution.classification = hcResult.classification;
-          resolution.confidence = hcResult.confidence;
-          resolution.decisionSource = 'hc_pattern';
-          resolution.claimType = 'FULL';
-          resolution.requiresHumanReview = false;
-        }
-      }
-    }
+    // HF-341 R6: classification is derived from the LLM expression per sheet by
+    // resolveClassification (the Bayesian scoring + the classifyByHCPattern override
+    // are deleted). Same authority as the analyze route.
+    resolveClassification(state);
 
     // Build proposal units
     const contentUnits = buildProposalFromState(state, fileSheets)

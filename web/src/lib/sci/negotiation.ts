@@ -9,15 +9,12 @@ import type {
   FieldProfile,
   AgentType,
   AgentScore,
-  ContentClaim,
   SemanticBinding,
   FieldAffinity,
-  NegotiationResult,
   NegotiationLogEntry,
   HeaderInterpretation,
 } from './sci-types';
 import { isEntityIdentifierAgent } from './sci-types'; // HF-285-B (value import)
-import { scoreContentUnit, resolveClaimsPhase1, requiresHumanReview } from './agents';
 
 // ============================================================
 // OB-231 — CHARACTERIZATION READERS (file-local, free-form; no shared enum utility).
@@ -449,101 +446,3 @@ function inferRoleForAgent(
       return { role: 'unknown', context: `${field.fieldName} — unclassified reference field`, confidence: 0.30 };
   }
 }
-
-// ============================================================
-// MAIN NEGOTIATION ENGINE
-// ============================================================
-
-export function negotiateRound2(profile: ContentProfile): NegotiationResult {
-  const log: NegotiationLogEntry[] = [];
-
-  // OB-159: scoreContentUnit now includes signatures + round 2 negotiation
-  const round1Scores = scoreContentUnit(profile);
-  log.push({
-    stage: 'round1',
-    message: `Scores: ${round1Scores.map(s => `${s.agent}=${(s.confidence * 100).toFixed(0)}%`).join(', ')}`,
-    data: Object.fromEntries(round1Scores.map(s => [s.agent, s.confidence])),
-  });
-
-  // Field affinity analysis
-  const fieldAffinities = computeFieldAffinities(profile);
-
-  const fieldsByWinner = new Map<AgentType, number>();
-  for (const fa of fieldAffinities) {
-    fieldsByWinner.set(fa.winner, (fieldsByWinner.get(fa.winner) || 0) + 1);
-  }
-  log.push({
-    stage: 'field_analysis',
-    message: `Field affinities: ${Array.from(fieldsByWinner.entries()).map(([a, n]) => `${a}=${n}`).join(', ')}`,
-    data: Object.fromEntries(fieldsByWinner),
-  });
-
-  // Split decision
-  const splitAnalysis = analyzeSplit(fieldAffinities, round1Scores, log);
-
-  // Build claims
-  const claims: ContentClaim[] = [];
-  const round2Scores = round1Scores;
-
-  if (splitAnalysis.shouldSplit && splitAnalysis.secondaryAgent) {
-    const primaryBindings = generatePartialBindings(
-      profile, splitAnalysis.primaryAgent,
-      splitAnalysis.primaryFields, splitAnalysis.sharedFields
-    );
-    const secondaryBindings = generatePartialBindings(
-      profile, splitAnalysis.secondaryAgent,
-      splitAnalysis.secondaryFields, splitAnalysis.sharedFields
-    );
-
-    const primaryScore = round1Scores.find(s => s.agent === splitAnalysis.primaryAgent);
-    const secondaryScore = round1Scores.find(s => s.agent === splitAnalysis.secondaryAgent);
-
-    claims.push({
-      contentUnitId: profile.contentUnitId,
-      agent: splitAnalysis.primaryAgent,
-      claimType: 'PARTIAL',
-      confidence: primaryScore?.confidence || 0,
-      fields: splitAnalysis.primaryFields,
-      sharedFields: splitAnalysis.sharedFields,
-      semanticBindings: primaryBindings,
-      reasoning: `${splitAnalysis.primaryAgent}: owns ${splitAnalysis.primaryFields.length} fields (PARTIAL)`,
-    });
-
-    claims.push({
-      contentUnitId: `${profile.contentUnitId}::split`,
-      agent: splitAnalysis.secondaryAgent,
-      claimType: 'PARTIAL',
-      confidence: secondaryScore?.confidence || 0,
-      fields: splitAnalysis.secondaryFields,
-      sharedFields: splitAnalysis.sharedFields,
-      semanticBindings: secondaryBindings,
-      reasoning: `${splitAnalysis.secondaryAgent}: owns ${splitAnalysis.secondaryFields.length} fields (PARTIAL)`,
-    });
-
-    log.push({
-      stage: 'round2',
-      message: `PARTIAL: ${splitAnalysis.primaryAgent} (${splitAnalysis.primaryFields.length} fields) + ${splitAnalysis.secondaryAgent} (${splitAnalysis.secondaryFields.length} fields), shared: [${splitAnalysis.sharedFields.join(', ')}]`,
-    });
-  } else {
-    const fullClaim = resolveClaimsPhase1(profile, round1Scores);
-    claims.push(fullClaim);
-
-    log.push({
-      stage: 'round2',
-      message: `FULL: ${fullClaim.agent} wins at ${(fullClaim.confidence * 100).toFixed(0)}%`,
-    });
-  }
-
-  return {
-    contentUnitId: profile.contentUnitId,
-    round1Scores,
-    round2Scores,
-    fieldAffinities,
-    claims,
-    isSplit: splitAnalysis.shouldSplit,
-    log,
-  };
-}
-
-// Re-export for convenience
-export { requiresHumanReview };

@@ -303,21 +303,55 @@ export async function POST(request: NextRequest) {
           // and Pass 4 became the sole filter-discovery surface.
           updatedBindings.convergence_version = 'HF-234';
 
+          // HF-341 R7 (A1/C1): when convergence reconciled DAG filter/compare
+          // literals to the data's carried domain ('ALI'→'Alimentos','Si'→'Sí'),
+          // persist the corrected components alongside the bindings so this run
+          // and every future run evaluate the grounded DAG.
+          const updatePayload: Record<string, unknown> = { input_bindings: updatedBindings as unknown as Json };
+          if (convResult.correctedComponents) {
+            updatePayload.components = convResult.correctedComponents as Json;
+          }
+
           // Persist to rule_set for reuse on subsequent calculations
           await supabase
             .from('rule_sets')
-            .update({ input_bindings: updatedBindings as unknown as Json })
+            .update(updatePayload)
             .eq('id', ruleSetId);
 
-          // Re-read the updated rule_set so the engine uses the new bindings
+          // Re-read the updated rule_set so the engine uses the new bindings (and DAGs)
           const { data: updatedRS } = await supabase
             .from('rule_sets')
-            .select('input_bindings')
+            .select('input_bindings, components')
             .eq('id', ruleSetId)
             .single();
 
           if (updatedRS) {
             (ruleSet as Record<string, unknown>).input_bindings = updatedRS.input_bindings;
+            // HF-341 R7: re-derive the in-memory component views (captured at parse
+            // time, before convergence) from the reconciled components so THIS run
+            // evaluates the grounded DAG, not the stale pre-reconciliation literals.
+            if (convResult.correctedComponents && updatedRS.components) {
+              (ruleSet as Record<string, unknown>).components = updatedRS.components;
+              const cc = updatedRS.components;
+              if (Array.isArray(cc)) {
+                defaultComponents = cc as unknown as PlanComponent[];
+                variants = [];
+              } else {
+                const cj = cc as Record<string, unknown>;
+                if (Array.isArray(cj?.components)) {
+                  defaultComponents = cj.components as unknown as PlanComponent[];
+                  variants = [];
+                } else {
+                  variants = (cj?.variants as Array<Record<string, unknown>>) ?? [];
+                  defaultComponents = (variants[0]?.components as PlanComponent[]) ?? defaultComponents;
+                }
+              }
+              addLog(`HF-341 R7: reconciled ${convResult.literalRewrites?.length ?? 0} DAG literal(s) to the data domain${(convResult.literalRewrites?.length ?? 0) > 0 ? ` (${convResult.literalRewrites!.map(r => `${r.field}:'${r.from}'→'${r.to}'`).join(', ')})` : ''}`);
+            }
+          }
+
+          if ((convResult.literalFailures?.length ?? 0) > 0) {
+            addLog(`HF-341 R7: ${convResult.literalFailures!.length} filter/compare literal(s) could not be reconciled to the data domain (fail-loud, see gaps): ${convResult.literalFailures!.map(f => `'${f.value}'@${f.field}`).join(', ')}`);
           }
 
           addLog(`HF-165: Convergence complete — ${derivationCount} derivations, ${bindingCount} component bindings, ${gapCount} gaps`);
@@ -1146,25 +1180,12 @@ export async function POST(request: NextRequest) {
   for (const [empNum, uuidSet] of Array.from(employeeToEntityIds.entries())) {
     if (uuidSet.size <= 1) continue; // No siblings to merge
 
-    // Find the "primary" entity — the one with roster sheet (Datos Colaborador)
-    let primaryId: string | null = null;
-    for (const uuid of Array.from(uuidSet)) {
-      const sheets = dataByEntity.get(uuid);
-      if (sheets) {
-        for (const sheetName of Array.from(sheets.keys())) {
-          if (['datos colaborador', 'roster', 'employee', 'empleados'].some(r => sheetName.toLowerCase().includes(r))) {
-            primaryId = uuid;
-            break;
-          }
-        }
-      }
-      if (primaryId) break;
-    }
-
-    // Fallback: use the entity that's in the extIdToAssignedId map
-    if (!primaryId) {
-      primaryId = extIdToAssignedId.get(empNum) ?? null;
-    }
+    // HF-341 (D4b): the roster-keyword primary-selection registry is REMOVED (Korean Test). That
+    // keyword (['datos colaborador',…]) never matched the data_type-keyed sheet names, so primaryId
+    // always fell through to the extIdToAssignedId fallback below — removing it is byte-identical.
+    // (A structural data_type='entity' primary preference is deferred with the roster-filter
+    // activation above, HALT-CALC.)
+    const primaryId: string | null = extIdToAssignedId.get(empNum) ?? null;
     if (!primaryId) continue;
 
     // Merge all sibling data into the primary entity
@@ -1202,10 +1223,20 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4a. Population filter: only calculate entities on the roster ──
-  // OB-147: Enhanced roster identification — three-tier detection:
-  //   1. AI context: sheet classified as 'roster' or 'entity_data'
-  //   2. Parent sheet heuristic: sheet whose name is a prefix of others (via __ separator)
-  //   3. Keyword fallback: sheet name contains known roster terms
+  // HF-341 (D4b): the prior Tier-3 keyword list (['datos colaborador','roster','employee','empleados'])
+  // is a closed developer value-set (Korean-Test violation) AND was DEAD: dataByEntity is keyed by
+  // row.data_type (route.ts:835), whose keys are the SCI classifications — the keyword list could never
+  // match them. It is REMOVED. The `__` parent-sheet heuristic (Tier A) is retained verbatim.
+  //
+  // HALT-CALC NOTE: a STRUCTURAL roster (rows classified data_type === 'entity') would be the natural
+  // replacement, but ACTIVATING a population filter from it changes behavior platform-wide — no roster
+  // was EVER detected for SCI tenants before (both prior tiers are inert against data_type-keyed sheets),
+  // so every SCI tenant currently calculates ALL assigned entities. Turning the filter on could drop a
+  // paid entity from an existing tenant's grand total (BCL $312,033 / MIR Plan 2 210,000). The directive's
+  // PG-5 ("Activo" not an entity, count < 35) is already met by the D4a entity-id fix (entity_id_field no
+  // longer resolves to a categorical status, so "Activo" is never harvested) — the roster-based population
+  // FILTER is therefore deferred to an architect-verified follow-up (confirm BCL/Meridian-neutral before
+  // activating). Roster detection stays inert here, byte-identical to current behavior.
   const allSheetNames = new Set<string>();
   for (const [, sheetMap] of Array.from(dataByEntity.entries())) {
     for (const sheetName of Array.from(sheetMap.keys())) {
@@ -1215,8 +1246,8 @@ export async function POST(request: NextRequest) {
 
   let rosterSheetName: string | null = null;
 
-  // Tier 2: Parent sheet heuristic — a sheet is a "parent" if other sheets
-  // start with its name + "__". This is the import convention for multi-tab files.
+  // Tier A (retained verbatim): Parent sheet heuristic — a sheet is a "parent" if other sheets start
+  // with its name + "__". Byte-identical for any tenant already relying on it (PG-8 / HALT-CALC).
   if (!rosterSheetName && allSheetNames.size > 1) {
     for (const candidate of Array.from(allSheetNames)) {
       const prefix = candidate + '__';
@@ -1224,18 +1255,6 @@ export async function POST(request: NextRequest) {
       if (isParent) {
         rosterSheetName = candidate;
         addLog(`Roster detected via parent-sheet heuristic: "${rosterSheetName}"`);
-        break;
-      }
-    }
-  }
-
-  // Tier 3: Keyword fallback
-  if (!rosterSheetName) {
-    const rosterKeywords = ['datos colaborador', 'roster', 'employee', 'empleados'];
-    for (const sheetName of Array.from(allSheetNames)) {
-      if (rosterKeywords.some(r => sheetName.toLowerCase().includes(r))) {
-        rosterSheetName = sheetName;
-        addLog(`Roster detected via keyword match: "${rosterSheetName}"`);
         break;
       }
     }
@@ -1496,6 +1515,8 @@ export async function POST(request: NextRequest) {
       isTemporalBinding(b) ? (tbPeriodKey ? (resolveTemporalColumn(b.columnMap, tbPeriodKey) ?? undefined) : undefined) : b?.column || undefined;
     const effRed = (b: ConvergenceBindingEntry | undefined): string | undefined =>
       isTemporalBinding(b) ? ((b as { reduction?: string }).reduction ?? 'snapshot') : b?.reduction;
+    // HF-341 (D2b): the per-sub-entity grouping key for a snapshot/last/first reduction (e.g. client id).
+    const effKey = (b: ConvergenceBindingEntry | undefined): string | undefined => b?.key_column;
 
     // HF-216: If entity_identifier carries a via-clause, translate entityExternalId
     // through the roster-join index to produce the lookup key against the measure
@@ -1546,7 +1567,7 @@ export async function POST(request: NextRequest) {
         // per-entity skip on purpose (per-entity data absence, NOT a binding gap — DD-7).
         const fbCol = effCol(fieldBinding); // OB-220: temporal-aware column resolution
         if (!fbCol) continue;
-        const rawValue = resolveColumnFromBatch(fbCol, lookupKey, fieldBinding?.filters, effRed(fieldBinding));
+        const rawValue = resolveColumnFromBatch(fbCol, lookupKey, fieldBinding?.filters, effRed(fieldBinding), effKey(fieldBinding));
         if (rawValue === null) continue;
         const scaled = fieldBinding?.scale_factor ? rawValue * fieldBinding.scale_factor : rawValue;
         dagMetrics[field] = scaled;
@@ -1601,8 +1622,8 @@ export async function POST(request: NextRequest) {
         : null;
 
       // HF-227: filters read from the binding entry, not from metric_derivations.
-      const rawNumValue = resolveColumnFromBatch(effCol(numBinding)!, lookupKey, numBinding!.filters, effRed(numBinding));
-      const rawDenValue = resolveColumnFromBatch(effCol(denBinding)!, lookupKey, denBinding!.filters, effRed(denBinding));
+      const rawNumValue = resolveColumnFromBatch(effCol(numBinding)!, lookupKey, numBinding!.filters, effRed(numBinding), effKey(numBinding));
+      const rawDenValue = resolveColumnFromBatch(effCol(denBinding)!, lookupKey, denBinding!.filters, effRed(denBinding), effKey(denBinding));
 
       let numValue = rawNumValue;
       let denValue = rawDenValue;
@@ -1631,7 +1652,7 @@ export async function POST(request: NextRequest) {
     if (effCol(actualBinding)) {
       // HF-227: filters live on the binding entry (Decision 111 single-
       // structure completion; replaces HF-226's findMetricFilters bridge).
-      const rawActualValue = resolveColumnFromBatch(effCol(actualBinding)!, lookupKey, actualBinding!.filters, effRed(actualBinding));
+      const rawActualValue = resolveColumnFromBatch(effCol(actualBinding)!, lookupKey, actualBinding!.filters, effRed(actualBinding), effKey(actualBinding));
       if (rawActualValue === null) {
         if (shouldEmitTrace(entityExternalId)) {
           bufferTrace(`[CalcTrace] resolveMetricsFromConvergenceBindings:exit entity=${entityExternalId} componentIdx=${componentIdx ?? 'n/a'} | path=single_actual_null | returnedNull=true`);
@@ -1653,7 +1674,7 @@ export async function POST(request: NextRequest) {
       // HF-222 Phase 3: gate on column.
       if (effCol(targetBinding)) {
         // HF-227: filters read from the binding entry directly.
-        const rawTargetValue = resolveColumnFromBatch(effCol(targetBinding)!, lookupKey, targetBinding!.filters, effRed(targetBinding));
+        const rawTargetValue = resolveColumnFromBatch(effCol(targetBinding)!, lookupKey, targetBinding!.filters, effRed(targetBinding), effKey(targetBinding));
         let targetValue = rawTargetValue;
         if (targetBinding?.scale_factor && targetValue !== null) targetValue *= targetBinding.scale_factor;
 
@@ -1700,6 +1721,7 @@ export async function POST(request: NextRequest) {
     entityExternalId: string,
     filters?: MetricDerivationRule['filters'],
     reduction: string = 'sum',  // OB-216 §2 (Phase 3'): binding-recognised reduction; default flow-sum
+    keyColumn?: string,  // HF-341 (D2b): per-sub-entity grouping key for snapshot/last/first (Σ of per-key values)
   ): number | null {
     // HF-302 (RC-2, DIAG-072): select the batch whose rows actually CARRY `column` (non-null) for this
     // entity — not merely the first batch with ANY rows. After RC-3 an entity can have rows in multiple
@@ -1793,6 +1815,50 @@ export async function POST(request: NextRequest) {
       return matched;
     }
 
+    // HF-341 (D2b): per-sub-entity key-grouped snapshot/last/first. When the binding carries a
+    // key_column (e.g. the client id), a snapshot/last/first reduction is taken ONCE PER SUB-ENTITY
+    // and the per-sub-entity values are SUMMED — i.e. Σ over clients of the per-client Saldo_Pendiente,
+    // NOT a raw sum over every collection-event row (which N× inflates the denominator). 'last'/'snapshot'
+    // keep the last value in the entity's row order per client; 'first' the first. (Cross-page row
+    // ordering is non-deterministic at the fetch — a deterministic-order fetch is a separate OB-237-class
+    // follow-up; the per-client roll-up here removes the N× inflation regardless.) Absent key_column ⇒
+    // the single-value path below is byte-identical. Korean Test: key_column is a structural grouping
+    // column, no name registry.
+    // C2: the key_column is a free-form field from the LLM; if NO row actually carries it, the grouping
+    // would silently collapse to one bucket (a single value, not Σ-per-sub-entity). Detect that
+    // structurally and fall through loudly to the non-keyed path rather than silently mis-reduce.
+    const keyColumnPresent = !!keyColumn && entityRows.some(rd => keyColumn in rd);
+    if (keyColumn && !keyColumnPresent && shouldEmitTrace(entityExternalId)) {
+      bufferTrace(`[CalcTrace] HF-341 D2b: key_column='${keyColumn}' is absent from entity=${entityExternalId} rows for column='${column}' — falling through to the non-keyed '${reduction}' reduction (loud, not a silent single-bucket collapse).`);
+    }
+    if (keyColumn && keyColumnPresent && (reduction === 'snapshot' || reduction === 'last' || reduction === 'first')) {
+      const byKey = new Map<unknown, number>();
+      let groupedFilteredOut = 0;
+      for (const rd of entityRows) {
+        if (hasActiveFilters && !rowMatchesFilters(rd, filters!)) { groupedFilteredOut += 1; continue; }
+        const v = rd[column];
+        let num: number | null = null;
+        if (typeof v === 'number') num = v;
+        else if (typeof v === 'string') { const p = parseFloat(v.replace(/[,$\s]/g, '')); if (!isNaN(p)) num = p; }
+        if (num === null) continue;
+        const k = rd[keyColumn];
+        if (reduction === 'first') { if (!byKey.has(k)) byKey.set(k, num); }
+        else { byKey.set(k, num); }  // snapshot/last → overwrite → last-in-row-order wins
+      }
+      if (byKey.size === 0) {
+        if (shouldEmitTrace(entityExternalId)) {
+          bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=${reduction} | key_column=${keyColumn} | groups=0 | returned=null`);
+        }
+        return null;
+      }
+      let groupedSum = 0;
+      for (const val of Array.from(byKey.values())) groupedSum += val;
+      if (shouldEmitTrace(entityExternalId)) {
+        bufferTrace(`[CalcTrace] resolveColumnFromBatch:exit entity=${entityExternalId} | column=${column} | reduction=${reduction} | key_column=${keyColumn} | groups=${byKey.size} | filteredOut=${groupedFilteredOut} | Σ(per-key)=${groupedSum}`);
+      }
+      return groupedSum;
+    }
+
     // OB-216 §2 (Phase 3'): apply the BINDING-RECOGNISED reduction over the entity's rows. Default
     // 'sum' is byte-identical to pre-OB-216 (a flow / per-transaction amount). 'snapshot'/'last'/
     // 'first' take a single value — a stock/balance repeated across the entity's rows, where summing
@@ -1817,8 +1883,18 @@ export async function POST(request: NextRequest) {
         case 'min': result = Math.min(...nums); break;
         case 'average': result = nums.reduce((a, b) => a + b, 0) / nums.length; break;
         case 'distinct_count': result = new Set(nums).size; break;
-        case 'sum':
-        default: result = nums.reduce((a, b) => a + b, 0); break;
+        case 'sum': result = nums.reduce((a, b) => a + b, 0); break;
+        default:
+          // HF-341 R3 (V3 / C2): the reduction op is carried VERBATIM from recognition (no whitelist).
+          // An op that no case here can execute is a structural failure — fail LOUD rather than silently
+          // summing it (the prior `default: sum` silently mis-reduced an unrecognized op). Live tenants
+          // use known ops (sum/snapshot/last/first/max/min/average/distinct_count/count) → byte-identical;
+          // only a genuinely-unrecognized op throws.
+          throw new Error(
+            `[resolveColumnFromBatch] unexecutable reduction op "${reduction}" for column "${column}" ` +
+            `(entity ${entityExternalId}). Known ops: sum, count, snapshot, last, first, max, min, average, ` +
+            `distinct_count. The op was carried verbatim from recognition; emit one the engine can execute.`,
+          );
       }
     }
 

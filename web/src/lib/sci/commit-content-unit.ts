@@ -30,6 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
+import { ENTITY_SCOPE, TXN_SCOPE, IDENTIFIER_NATURE } from './scope-predicates';
 import type {
   AgentType,
   SemanticBinding,
@@ -143,9 +144,8 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // "identifies":"entity"; Folio "identifies":"transaction". The highest-confidence entity-scope
 // column wins. Scope words (entity/transaction/...) are read free-form — no quoted role literal.
 // HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC surface.
-const ENTITY_SCOPE = /\b(entity|entidad|seller|vendedor|employee|empleado|person|persona|account|cuenta|organization|organizaci[oó]n|member|miembro|rep|staff|worker|salesperson|agent|agente)\b/i;
-const TXN_SCOPE = /\b(transaction|transacci[oó]n|receipt|recibo|folio|invoice|factura|order|pedido|ticket|event|evento|record|registro|line|l[ií]nea)\b/i;
-const IDENTIFIER_NATURE = /\b(identifier|identif|\bid\b|document|documento|dni|code|c[oó]digo|n[uú]mero|key|clave)\b/i;
+// HF-341 R4: ENTITY_SCOPE / TXN_SCOPE / IDENTIFIER_NATURE moved to scope-predicates.ts (single source —
+// the sheet classifier reads the identical scope surface; no duplicated regex registry). Imported at top.
 
 export function findHcEntityIdColumn(
   classificationTrace: Record<string, unknown> | undefined,
@@ -156,20 +156,26 @@ export function findHcEntityIdColumn(
     | undefined;
   const interpretations = hcData?.interpretations;
   if (!interpretations) return null;
-  let best: { col: string; conf: number } | null = null;
+  // HF-341 R4 (C4 eradication): the entity-id is the column the LLM scoped as the ENTITY (referential
+  // resolution), NOT the highest-CONFIDENCE identifier. The prior `conf > best.conf` argmax was a
+  // registry of expectation (Folio@0.98 beating DNI_Vendedor@0.97 on 0.01 — confidence is not entity
+  // identity). With the OB-231 expression now surviving the cache (R4-1), the entity-scope `identifies`
+  // is the authoritative signal: the FIRST column the LLM scoped entity-and-not-transaction is the
+  // entity key. (A sheet with MULTIPLE entity-scope identifiers is a recognition ambiguity the
+  // plan-entity connection resolves — §6A residual #3; deterministic first-match here, no ranking.)
+  let chosen: string | null = null;
   for (const [colName, interp] of Object.entries(interpretations)) {
     const conf = typeof interp.confidence === 'number' ? interp.confidence : 0;
     if (conf < HC_IDENTIFIER_THRESHOLD) continue;
     const scope = `${interp.identifies ?? ''}`;
     const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-    const isEntity = ENTITY_SCOPE.test(scope);
-    const isTxn = TXN_SCOPE.test(scope);
     // Entity-scope identifier only. A transaction-scope id (folio/receipt) is never the entity key.
-    if (isEntity && !isTxn && IDENTIFIER_NATURE.test(natureText)) {
-      if (!best || conf > best.conf) best = { col: colName, conf };
+    if (ENTITY_SCOPE.test(scope) && !TXN_SCOPE.test(scope) && IDENTIFIER_NATURE.test(natureText)) {
+      chosen = colName;
+      break;
     }
   }
-  return best?.col ?? null;
+  return chosen;
 }
 
 function resolveEntityIdField(
@@ -358,51 +364,28 @@ export async function commitContentUnit(
   // Decision 108 — HC role @ >= 0.80 overrides structural binding.
   // HF-233 — Classification-aware resolution: transaction reads reference_key,
   // entity/target reads identifier, reference is null.
-  let entityIdField = resolveEntityIdField(
+  // HF-341 R3: const — the entity-id is the recognized identifies-scope column, never reassigned by a
+  // cardinality override (deleted). The structural existence check below verifies it, not overrides it.
+  const entityIdField = resolveEntityIdField(
     unit.confirmedBindings,
     unit.classificationTrace,
     classification,
   );
 
-  // OB-231 §5.2: structural sanity signal (NOT a gate). The LLM's entity-scope assessment is
-  // authoritative (Decision 158); but an entity identifier should REPEAT across rows (e.g. ~30
-  // sellers across thousands of transactions). If the resolved column is ~1:1 distinct-to-row
-  // (the per-row-transaction-id shape the MIR Folio bug produced), log a warning and proceed —
-  // the semantic assessment still wins, this only surfaces a possible mis-characterization.
+  // HF-341 R3 (V8 eradication): the entity-id is the column the LLM scoped as the entity identity
+  // (resolveEntityIdField → findHcEntityIdColumn reads the free-form `identifies` channel; a
+  // transaction/event id is already rejected by TXN_SCOPE). The prior OB-231/HF-333 CARDINALITY
+  // HEURISTIC — a developer rule (lowest-cardinality repeating identifier) that OVERRODE the recognized
+  // answer — is DELETED (Validation Premise Law: a heuristic standing in front of recognition's output;
+  // it can be made "more complete" by editing the ratio threshold → it is a registry of expectation).
+  // Construction VERIFIES STRUCTURALLY instead: the resolved column must EXIST in the rows. A column
+  // recognition named that the data does not carry is surfaced loudly (C2); recognition is trusted,
+  // never overridden by cardinality (Decision 158).
   if (entityIdField && rows.length >= 20) {
-    const seen = new Set<unknown>();
-    for (const r of rows) if (entityIdField in (r as Record<string, unknown>)) seen.add((r as Record<string, unknown>)[entityIdField]);
-    if (seen.size > 0) {
-      const distinctRatio = seen.size / rows.length;
-      if (distinctRatio > 0.95) {
-        // HF-333 §4.3: the resolved id is ~1:1 (transaction-shaped — the MIR Folio bug). The LLM
-        // recognizes; the construction layer VERIFIES and corrects when demonstrably inconsistent
-        // (Decision 158). Prefer another IDENTIFIER-nature column that REPEATS (many rows per distinct
-        // value — the entity shape). Korean Test: candidates come from the LLM's HC interpretations
-        // (data_nature/characterization), matched by the IDENTIFIER_NATURE predicate, never a field name.
-        const hc = (unit.classificationTrace?.headerComprehension as
-          | { interpretations?: Record<string, { data_nature?: string; characterization?: string }> }
-          | undefined)?.interpretations;
-        let bestAlt: { col: string; ratio: number } | null = null;
-        if (hc) {
-          for (const [col, interp] of Object.entries(hc)) {
-            if (col === entityIdField) continue;
-            const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-            if (!IDENTIFIER_NATURE.test(natureText)) continue;
-            const s = new Set<unknown>();
-            for (const r of rows) if (col in (r as Record<string, unknown>)) s.add((r as Record<string, unknown>)[col]);
-            if (s.size === 0) continue;
-            const ratio = s.size / rows.length;
-            if (ratio < 0.5 && (!bestAlt || ratio < bestAlt.ratio)) bestAlt = { col, ratio };
-          }
-        }
-        if (bestAlt) {
-          console.warn(`[HF-333][entity-id] resolved "${entityIdField}" is ~1:1 (${seen.size}/${rows.length}) on "${tabName}"; preferring repeating identifier "${bestAlt.col}" (${Math.round(bestAlt.ratio * 100)}% distinct) — structural disambiguation (Decision 158: LLM recognizes, construction verifies).`);
-          entityIdField = bestAlt.col;
-        } else {
-          console.warn(`[OB-231][entity-id-sanity] resolved entity_id_field="${entityIdField}" is ~1:1 across rows (${seen.size}/${rows.length} distinct) on "${tabName}" — looks per-row (transaction-shaped), not a repeating entity. No repeating identifier alternative found; proceeding on the LLM's semantic assessment (Decision 158); flag for review if numbers look mis-attributed.`);
-        }
-      }
+    let presentCount = 0;
+    for (const r of rows) if (entityIdField in (r as Record<string, unknown>)) presentCount += 1;
+    if (presentCount === 0) {
+      console.warn(`[entity-id] resolved entity_id_field="${entityIdField}" on "${tabName}" is absent from all ${rows.length} rows — recognition named a column the data does not carry; flag for review (no cardinality override; Decision 158).`);
     }
   }
 

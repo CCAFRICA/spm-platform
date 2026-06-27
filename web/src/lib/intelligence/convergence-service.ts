@@ -118,7 +118,14 @@ interface DataCapability {
 // (convergence-bindings.ts) and the resolver, which already implement count. Purely additive — no
 // existing tenant relied on count being silently defaulted to 'sum' (that would be wrong today). The
 // full structural {aggregation:{op}} binding migration (directive §5.1) is deferred (§6A residual).
-export type ReductionKind = 'sum' | 'snapshot' | 'last' | 'first' | 'max' | 'min' | 'average' | 'distinct_count' | 'count';
+// HF-341 R3 (V3 eradication): the reduction is an OPEN-VOCABULARY operation string — the aggregation
+// the LLM expressed for collapsing an entity's rows to one value. The prior closed union + the
+// `validReductions` runtime whitelist (which defaulted any unrecognized op to 'sum' — a silent wrong
+// answer) are gone (Validation Premise Law: a set a developer extends by editing). The op is carried
+// VERBATIM and validated STRUCTURALLY at the consumer (resolveColumnFromBatch) — it executes the op or
+// FAILS LOUD (C2) on one it cannot, never silently sums. The engine's aggregate ops {sum,count,avg,min,max}
+// remain the executable algebra; snapshot/last/first/distinct_count/count are convergence collapse ops.
+export type ReductionKind = string;
 
 export interface ComponentBinding {
   column: string;
@@ -131,6 +138,11 @@ export interface ComponentBinding {
   // LLM-recognized from the column's nature (contextualIdentity / value-shape) + the field's intent
   // role, deterministically applied by resolveColumnFromBatch. Absent ⇒ 'sum' (legacy flow behavior).
   reduction?: ReductionKind;
+  // HF-341 (D2b): per-sub-entity grouping key for a snapshot/last/first reduction (e.g. the client id
+  // for "last Saldo_Pendiente per client per period"). When present, resolveColumnFromBatch groups the
+  // entity's rows by this column, takes one value per group (deterministic order), then SUMS across
+  // groups. Absent ⇒ single-value snapshot/last (byte-identical). Mirrors ConvergenceBindingEntry.key_column.
+  key_column?: string;
   // OB-223 §1.3: wide-format temporal binding (periodKey "YYYY-MM" → source column). When present the
   // binding resolves the period's column at calc time (resolveTemporalColumn, route.ts) instead of a
   // single `column`. Produced when the LLM abstains and detectTemporalColumnMap finds a month-column set.
@@ -224,6 +236,13 @@ export interface ConvergenceResult {
     // path was eradicated PR #342; signal surface now operative per D153 B-E4.
     metricComprehension: MetricComprehensionSignal[];
   };
+  // HF-341 R7 (A1/C1): when DAG filter/compare equality literals were reconciled
+  // to the data's actual carried domain ('ALI'→'Alimentos', 'Si'→'Sí'), the
+  // rewritten components object (caller persists it + uses it for the run).
+  // Null/absent when no literal needed correction.
+  correctedComponents?: unknown;
+  literalRewrites?: Array<{ field: string; from: string; to: string }>;
+  literalFailures?: Array<{ field: string; value: string; domainSize: number; diagnostic: string }>;
 }
 
 // HF-196 Phase 3: shape of metric_comprehension signals consumed as operative
@@ -787,8 +806,66 @@ export async function convergeBindings(
     }
   }
 
+  // HF-341 R7 (A1/C1): reconcile DAG filter/compare equality literals against the
+  // carried data domain. The categorical/boolean distinct values inventoried by
+  // inventoryData are the fast path; a full committed_data read confirms true-
+  // absence before the LLM maps a plan literal ('ALI','Si') to the data value it
+  // means ('Alimentos','Sí'). A literal that matches no real value fails LOUD
+  // (recorded as a gap), never persisting as a zero-match silent $0.
+  let correctedComponents: unknown = null;
+  let literalRewrites: LiteralReconciliationOutcome['rewrites'] = [];
+  let literalFailures: LiteralReconciliationOutcome['failures'] = [];
+  try {
+    const sampleDomain = new Map<string, Set<string>>();
+    for (const capn of capabilities) {
+      for (const cf of capn.categoricalFields ?? []) {
+        const set = sampleDomain.get(cf.field) ?? new Set<string>();
+        for (const dv of cf.distinctValues) set.add(dv);
+        sampleDomain.set(cf.field, set);
+      }
+      for (const bf of capn.booleanFields ?? []) {
+        const set = sampleDomain.get(bf.field) ?? new Set<string>();
+        set.add(bf.trueValue); set.add(bf.falseValue);
+        sampleDomain.set(bf.field, set);
+      }
+    }
+    const componentsCopy = JSON.parse(JSON.stringify(ruleSet.components));
+    const recon = await reconcileComponentLiterals(componentsCopy, sampleDomain, tenantId, supabase);
+    literalRewrites = recon.rewrites;
+    literalFailures = recon.failures;
+    if (recon.changed) {
+      correctedComponents = componentsCopy;
+      console.log(`[Convergence] HF-341 R7: reconciled ${recon.rewrites.length} DAG literal(s) to the data domain: ${recon.rewrites.map(r => `${r.field}:'${r.from}'→'${r.to}'`).join(', ')}`);
+      // Apply the SAME field/value rewrites to the convergence-binding `filters`
+      // (e.g. Plan 4's component binding carries {Verificado:'Si'}) so the binding
+      // and the DAG agree on the data-domain value.
+      for (const compKey of Object.keys(componentBindings)) {
+        for (const role of Object.keys(componentBindings[compKey])) {
+          const b = componentBindings[compKey][role] as { filters?: Array<{ field: string; value: unknown; operator?: string }> };
+          if (!Array.isArray(b?.filters)) continue;
+          for (const f of b.filters) {
+            const hit = recon.rewrites.find(r => r.field === f.field && r.from === f.value);
+            if (hit) f.value = hit.to;
+          }
+        }
+      }
+    }
+    for (const f of recon.failures) {
+      gaps.push({
+        component: 'literal_reconciliation',
+        componentIndex: -1,
+        requiredMetrics: [f.field],
+        calculationOp: 'filter',
+        reason: f.diagnostic,
+        resolution: `The plan's literal '${f.value}' for column '${f.field}' corresponds to no value the data carries; correct the plan literal or the data.`,
+      });
+    }
+  } catch (reconErr) {
+    console.error('[Convergence] HF-341 R7 literal reconciliation error (non-blocking):', reconErr);
+  }
+
   console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations, ${gaps.length} gaps, ${Object.keys(componentBindings).length} component bindings`);
-  return { derivations, matchReport, signals, gaps, componentBindings, observations };
+  return { derivations, matchReport, signals, gaps, componentBindings, observations, correctedComponents, literalRewrites, literalFailures };
 }
 
 // ──────────────────────────────────────────────
@@ -1566,6 +1643,198 @@ export function extractReferencesFromDAG(node: unknown): string[] {
   return Array.from(refs);
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HF-341 R7 (A1/C1): Literal-domain reconciliation
+// ──────────────────────────────────────────────────────────────────────────────
+// A filter/compare EQUALITY literal in a component's PrimeNode DAG must be a
+// MEMBER of its target column's ACTUAL carried domain. The plan author's
+// vocabulary ('ALI', 'Si') — transcribed at emission from the plan document — is
+// reconciled to the data's actual value ('Alimentos', 'Sí') by the LLM against
+// the real distinct values it is shown; an irreconcilable literal fails LOUD
+// (C2), it never persists as a zero-match silent $0. No code-side mapping table
+// and no accent-folding heuristic (Korean Test / Decision 158): the only
+// completeness lives in the data's own domain, and the LLM — not a local regex —
+// performs the code→value recognition. Membership is pure set-containment over
+// carried reality (Validation Premise Law).
+
+interface DagLiteralSite {
+  field: string;
+  value: string;
+  set: (v: string) => void;
+}
+
+// Walk a PrimeNode DAG, collecting every EQUALITY literal a node tests against a
+// column: a `filter` predicate {operator:'eq', field, value:<string>}, and a
+// `compare` {op:'eq', inputs:[reference(field), constant(<string>)]}. Purely
+// structural — keys on prime kind + presence of a STRING literal, never on a
+// field name or a value (Korean Test). `set` mutates the literal in place.
+function collectEqualityLiteralSites(node: unknown): DagLiteralSite[] {
+  const sites: DagLiteralSite[] = [];
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const obj = n as Record<string, unknown>;
+    const prime = typeof obj.prime === 'string' ? obj.prime : null;
+    if (prime === 'filter' && obj.predicate && typeof obj.predicate === 'object') {
+      const pred = obj.predicate as Record<string, unknown>;
+      if (pred.operator === 'eq' && typeof pred.field === 'string' && typeof pred.value === 'string') {
+        sites.push({ field: pred.field, value: pred.value, set: (v) => { pred.value = v; } });
+      }
+    }
+    if (prime === 'compare' && obj.op === 'eq' && Array.isArray(obj.inputs) && obj.inputs.length === 2) {
+      const [a, b] = obj.inputs as Array<Record<string, unknown>>;
+      const refSide = a?.prime === 'reference' ? a : b?.prime === 'reference' ? b : null;
+      const constSide = a?.prime === 'constant' ? a : b?.prime === 'constant' ? b : null;
+      if (refSide && constSide && typeof refSide.field === 'string' && typeof constSide.value === 'string') {
+        sites.push({ field: String(refSide.field), value: String(constSide.value), set: (v) => { constSide.value = v; } });
+      }
+    }
+    if (Array.isArray(obj.inputs)) for (const c of obj.inputs) walk(c);
+    if (obj.downstream) walk(obj.downstream);
+    if (obj.condition) walk(obj.condition);
+    if (obj.then) walk(obj.then);
+    if (obj.else) walk(obj.else);
+  };
+  walk(node);
+  return sites;
+}
+
+// Read the FULL set of distinct string values a column actually carries in
+// committed_data (paginated). Used only to confirm a literal is truly absent
+// before reconciling — so a value the 50-row capability sample happened to miss
+// is never mis-mapped. Structural: collects whatever strings the column holds.
+async function readColumnStringDomain(
+  field: string, tenantId: string, supabase: SupabaseClient,
+): Promise<Set<string>> {
+  const domain = new Set<string>();
+  const PAGE = 1000;
+  for (let page = 0; page <= 20; page++) {
+    const { data } = await supabase
+      .from('committed_data')
+      .select('row_data')
+      .eq('tenant_id', tenantId)
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (!data || data.length === 0) break;
+    for (const r of data) {
+      const rd = (r as { row_data?: Record<string, unknown> | null }).row_data;
+      const v = rd?.[field];
+      if (typeof v === 'string' && v.trim().length > 0) domain.add(v.trim());
+    }
+    if (data.length < PAGE) break;
+  }
+  return domain;
+}
+
+export interface LiteralReconciliationOutcome {
+  changed: boolean;
+  rewrites: Array<{ field: string; from: string; to: string }>;
+  failures: Array<{ field: string; value: string; domainSize: number; diagnostic: string }>;
+}
+
+// One LLM call per column: given the column's REAL distinct values and the plan's
+// non-matching literals, return {literal: data-value-it-means | null}. The LLM does
+// the code→value / spelling / accent recognition; code only checks set-membership
+// of the result. No developer mapping table, no accent-folding (D158 / Korean Test).
+async function reconcileLiteralsViaAI(
+  field: string, literals: string[], domain: string[],
+): Promise<Record<string, string | null>> {
+  const userPrompt = `A compensation plan filters the data column "${field}" using these literal values, which are NOT among the column's actual values:
+${literals.map(l => `  - ${JSON.stringify(l)}`).join('\n')}
+
+The column "${field}" ACTUALLY contains exactly these distinct values in the data:
+${domain.map(d => `  - ${JSON.stringify(d)}`).join('\n')}
+
+For EACH plan literal, return the SINGLE actual data value it refers to — recognizing codes, abbreviations, spelling, or accent differences BY MEANING (e.g. a category code maps to its full category name; an unaccented affirmative maps to the accented one). If no actual value corresponds, return null for that literal.
+Return ONLY JSON: { "<plan literal>": "<actual data value>" | null, ... }. Use the EXACT actual data value spelling.`;
+  try {
+    const aiService = getAIService();
+    const response = await aiService.execute({
+      task: 'convergence_mapping',
+      input: { userMessage: userPrompt },
+      options: { maxTokens: 600, responseFormat: 'json' as const },
+    }, false);
+    const result = response.result as Record<string, unknown>;
+    const out: Record<string, string | null> = {};
+    for (const lit of literals) {
+      const v = result[lit];
+      out[lit] = typeof v === 'string' && v.trim() !== '' ? v : null;
+    }
+    return out;
+  } catch (err) {
+    console.error('[Convergence] HF-341 R7 literal reconciliation LLM call failed:', err);
+    return Object.fromEntries(literals.map(l => [l, null]));
+  }
+}
+
+// Reconcile every equality literal in a plan's component DAGs against the carried
+// data domain. Mutates `componentsRoot` IN PLACE; returns the rewrites + loud
+// failures. `sampleDomain` is the fast path (categorical/boolean distinct values
+// already inventoried by inventoryData); a full committed_data read confirms
+// true-absence before an LLM reconciliation is attempted. `reconciler` is
+// injectable for deterministic testing (defaults to the LLM call).
+export async function reconcileComponentLiterals(
+  componentsRoot: unknown,
+  sampleDomain: Map<string, Set<string>>,
+  tenantId: string,
+  supabase: SupabaseClient | null,
+  reconciler: (field: string, literals: string[], domain: string[]) => Promise<Record<string, string | null>> = reconcileLiteralsViaAI,
+): Promise<LiteralReconciliationOutcome> {
+  const out: LiteralReconciliationOutcome = { changed: false, rewrites: [], failures: [] };
+  if (!componentsRoot || typeof componentsRoot !== 'object') return out;
+
+  // Gather every component DAG (calculationIntent + the metadata.intent copy).
+  const root = componentsRoot as Record<string, unknown>;
+  const variants = Array.isArray(root.variants)
+    ? (root.variants as Array<Record<string, unknown>>)
+    : Array.isArray(root.components) ? [root]
+    : Array.isArray(componentsRoot) ? [{ components: componentsRoot }] : [root];
+  const dags: unknown[] = [];
+  for (const v of variants) {
+    const comps = (v.components as Array<Record<string, unknown>>) ?? [];
+    for (const c of comps) {
+      if (c.calculationIntent) dags.push(c.calculationIntent);
+      const meta = c.metadata as Record<string, unknown> | undefined;
+      if (meta?.intent) dags.push(meta.intent);
+    }
+  }
+
+  // Collect literal sites across all DAGs, group by field.
+  const sites: DagLiteralSite[] = [];
+  for (const d of dags) sites.push(...collectEqualityLiteralSites(d));
+  if (sites.length === 0) return out;
+  const byField = new Map<string, DagLiteralSite[]>();
+  for (const s of sites) { if (!byField.has(s.field)) byField.set(s.field, []); byField.get(s.field)!.push(s); }
+
+  for (const [field, fieldSites] of Array.from(byField.entries())) {
+    const sample = sampleDomain.get(field) ?? new Set<string>();
+    const literals = Array.from(new Set(fieldSites.map(s => s.value)));
+    const suspect = literals.filter(l => !sample.has(l));
+    if (suspect.length === 0) continue; // all literals already valid against the sampled domain
+
+    // Confirm true-absence against the FULL carried domain (the sample may be partial).
+    const fullDomain = supabase ? await readColumnStringDomain(field, tenantId, supabase) : new Set<string>();
+    const effectiveDomain = fullDomain.size > 0 ? fullDomain : sample;
+    const trulyAbsent = suspect.filter(l => !effectiveDomain.has(l));
+    if (trulyAbsent.length === 0) continue; // sample was incomplete; literals are valid
+    if (effectiveDomain.size === 0) continue; // no string domain (numeric/empty col) — not a categorical literal
+
+    const domainList = Array.from(effectiveDomain);
+    const mapping = await reconciler(field, trulyAbsent, domainList);
+    for (const lit of trulyAbsent) {
+      const mapped = mapping[lit];
+      if (mapped && effectiveDomain.has(mapped)) {
+        for (const s of fieldSites) if (s.value === lit) s.set(mapped);
+        out.rewrites.push({ field, from: lit, to: mapped });
+        out.changed = true;
+      } else {
+        const diagnostic = `[Convergence] HF-341 R7 C2: filter/compare literal '${lit}' on column '${field}' is absent from its actual data domain (${domainList.length} value(s): ${domainList.slice(0, 8).map(d => JSON.stringify(d)).join(', ')}${domainList.length > 8 ? ', …' : ''}) and could not be reconciled — a zero-match predicate must fail loud, not silently yield $0.`;
+        console.error(diagnostic);
+        out.failures.push({ field, value: lit, domainSize: effectiveDomain.size, diagnostic });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * HF-243: Walk a PrimeNode DAG and collect every numeric `constant` that
  * appears alongside `reference(fieldName)` inside a `compare` node. The
@@ -1813,7 +2082,7 @@ type LabeledCandidate = {
 // OB-216 §2-S4: one field's LLM binding proposal — a resolved column on a named sheet with a
 // confidence, OR an explicit abstention (insufficient evidence). Optional categorical filters.
 type BindingProposal =
-  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind; columnMap?: Record<string, string> }
+  | { column: string; partitionKey: string; confidence: number; filters: ColumnMappingFilter[]; reduction: ReductionKind; columnMap?: Record<string, string>; key_column?: string }
   | { abstain: true; reason: string };
 
 // OB-216 §2-S4: ONE LLM binding pass over the labeled candidate set. Returns a proposal per field —
@@ -1897,11 +2166,12 @@ ${candidateList}
 For each required field above, return {"column","sheet","confidence","reduction"} choosing "column" and "sheet" strictly from the candidates listed, or {"abstain":true,"reason"} when no candidate is a sound fit.
 
 "reduction" = HOW this column's MULTIPLE ROWS for one entity over the period collapse to ONE value for this field's role:
-- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction).
+- "sum": a FLOW / per-transaction amount — each row is a distinct event to add up (e.g. an amount collected per transaction). A "sum" is only valid for a NUMERIC column.
+- "count": the COUNT of the rows that QUALIFY a condition — use this when the field's role is "HOW MANY" (e.g. number of NEW clients, number of VERIFIED sales). A CATEGORICAL / FLAG / yes-no column (type names it a "categorical"/"binary flag"/"status") is NEVER summed — its text sums to 0; if the plan counts the rows where the flag holds, return "reduction":"count" AND a "filters" entry naming that column and its AFFIRMATIVE value (e.g. {"field":"<flag column>","operator":"eq","value":"<the value that means yes, read from the data>"}).
 - "snapshot": a STOCK / balance / point-in-time value that is THE SAME on every row of the entity (a running balance, an assigned quota). Take it ONCE — NEVER sum it (summing multiplies it by the row count).
-- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period.
-- "last" / "first": the latest / earliest value. "distinct_count": the count of distinct values.
-Infer it from the column's contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when it is genuinely a flow.`;
+- "last" / "first": the latest / earliest value. For a STOCK that is per-SUB-ENTITY (e.g. an outstanding balance per CLIENT, where one seller owns many clients), return "reduction":"last" (or "snapshot") AND "key_column":"<the sub-entity id column, e.g. the client id>" so the value is taken ONCE per sub-entity (last record per client per period) and the per-sub-entity values are summed — never summed raw across all rows.
+- "max" / "min" / "average": when the field's role calls for the peak / floor / mean over the period. "distinct_count": the count of distinct values.
+Infer it from the column's structural type + contextual identity (an "...balance"/"outstanding" reads as a stock → "snapshot"; a "categorical"/"flag" reads as a count-of-qualifying → "count"+filter; an "amount_collected"/per-event amount reads as a flow → "sum") and the field's role in the plan intent. Default to "sum" only when the column is genuinely a NUMERIC flow.`;
 
   try {
     const aiService = getAIService();
@@ -1948,9 +2218,16 @@ Infer it from the column's contextual identity (an "...balance"/"outstanding" re
               value: f.value as string | number | boolean,
             }))
         : [];
-      const validReductions = ['sum', 'snapshot', 'last', 'first', 'max', 'min', 'average', 'distinct_count', 'count']; // OB-225: align with ReductionKind + resolver
-      const reduction: ReductionKind = (typeof obj.reduction === 'string' && validReductions.includes(obj.reduction)) ? obj.reduction as ReductionKind : 'sum';
-      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction };
+      // HF-341 R3 (V3): carry the LLM's reduction op VERBATIM (open-vocabulary) — no membership
+      // whitelist. 'sum' is the default only when the op is ABSENT (a genuinely numeric flow); an
+      // unrecognized op is NOT coerced to 'sum' here — it flows to the consumer, which executes it or
+      // fails loud (C2).
+      const reduction: ReductionKind = (typeof obj.reduction === 'string' && obj.reduction.trim() !== '') ? obj.reduction : 'sum';
+      // HF-341 (D2b): per-sub-entity grouping key for a snapshot/last/first reduction (e.g. client id
+      // for "last Saldo_Pendiente per client per month"). Free-form column name from the LLM; the
+      // resolver validates it exists at calc time (no column-name registry).
+      const key_column = typeof obj.key_column === 'string' && obj.key_column.trim() !== '' ? obj.key_column : undefined;
+      proposals[field] = { column: col, partitionKey: pk, confidence: conf, filters, reduction, key_column };
     }
     const summary = Object.entries(proposals).map(([k, v]) => 'abstain' in v ? `${k}:ABSTAIN` : `${k}->${v.column}@${labelByKey.get(v.partitionKey)}/${v.reduction}`).join(', ');
     console.log(`[Convergence] OB-216 §2-S4 LLM binding proposals: {${summary}}`);
@@ -2957,6 +3234,36 @@ async function generateAllComponentBindings(
       // all batches by column name, so a column resolves from its own sheet's rows — and a component
       // whose fields bind on different sheets unions those sheets implicitly (§E batchIds union).
       const stats = sheetCap.columnStats[proposal.column];
+
+      // HF-341 (C2 fail-loud): a NUMERIC aggregation (sum/average/min/max) over a structurally
+      // NON-NUMERIC column silently yields 0/null — the D1 defect (Verificado "Sí"/"No" summed → 0).
+      // Detect it STRUCTURALLY with POSITIVE non-numeric evidence: the column has NO numeric columnStats
+      // (columnStats is populated only for majority-numeric columns) AND it was recorded as a string
+      // column (categoricalFields / booleanFields — >50% of its sampled values are strings). Requiring
+      // positive string evidence (not merely absent stats) means a SPARSE numeric column (all-null in
+      // the sample → in none of these sets) is NEVER flagged — so this cannot misfire on a BCL/Meridian
+      // numeric column (HALT-CALC / PG-8). NO nature string is read → no nature→operation map.
+      // count / distinct_count / snapshot / last / first are value-type-agnostic and are NOT gated here.
+      const numericAgg = proposal.reduction === 'sum' || proposal.reduction === 'average'
+        || proposal.reduction === 'min' || proposal.reduction === 'max';
+      const positivelyNonNumeric = !stats && (
+        (sheetCap.categoricalFields ?? []).some(c => c.field === proposal.column)
+        || (sheetCap.booleanFields ?? []).some(b => b.field === proposal.column)
+      );
+      if (numericAgg && positivelyNonNumeric) {
+        bindings[compKey][req.role] = {
+          column: '', field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
+          match_pass: 'failed', confidence: 0,
+          resolutionFailure: {
+            token: req.metricField,
+            reason: `numeric_reduction_'${proposal.reduction}'_on_nonnumeric_column:${proposal.column}`,
+            candidatesConsidered: labeledCandidates.length,
+          },
+        };
+        console.log(`[Convergence] HF-341 C2 ${comp.name}:${req.role} → ${proposal.column}: reduction='${proposal.reduction}' is a numeric aggregation but the column is structurally non-numeric (no numeric columnStats) → loud failure, not silent $0 (a categorical/flag must bind via 'count' + a filter, or 'snapshot'/'last')`);
+        continue;
+      }
+
       const scaleFactor = stats ? scoreColumnForRequirement(proposal.column, stats, req).scaleFactor : 1;
       bindings[compKey][req.role] = {
         column: proposal.column,
@@ -2965,10 +3272,11 @@ async function generateAllComponentBindings(
         confidence: proposal.confidence,
         scale_factor: scaleFactor !== 1 ? scaleFactor : undefined,
         reduction: proposal.reduction !== 'sum' ? proposal.reduction : undefined,
+        key_column: proposal.key_column,  // HF-341 (D2b): per-sub-entity grouping for snapshot/last/first
         filters: proposal.filters,
         learning_provenance: { batch_id: sheetCap.batchIds[0] || '', learned_at: new Date().toISOString() },
       };
-      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, conf=${proposal.confidence.toFixed(2)}, validated)`);
+      console.log(`[Convergence] OB-216 §2-S5 ${comp.name}:${req.role} → ${proposal.column} (sheet=${proposal.partitionKey.split('␟')[0]}, type=${colFi.structuralType}, reduction=${proposal.reduction}${proposal.key_column ? `, key_column=${proposal.key_column}` : ''}, conf=${proposal.confidence.toFixed(2)}, validated)`);
     }
 
     // HF-218 Component 1 — Entity identifier self-verification.

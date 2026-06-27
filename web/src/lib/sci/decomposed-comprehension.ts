@@ -17,7 +17,7 @@
 import pLimit from 'p-limit';
 import { planSheetComprehension, buildBoundedComprehensionInput } from './comprehension-planner';
 import { computeAtomFingerprint } from './atom-fingerprint';
-import type { KnownAtom } from './atom-flywheel';
+import type { KnownAtom, AtomExpression } from './atom-flywheel';
 import type { ComprehensionFailureClass } from './sci-types';
 
 // HF-285-C: per-sheet residue comprehension is INDEPENDENT (Decision 158 — concurrency
@@ -65,14 +65,15 @@ export type ResidueComprehender = (
 export interface UnitComprehensionResult {
   sheetName: string;
   status: 'recognized' | 'comprehended' | 'failed_interpretation';
-  /** Columns claimed from prior atom signal (no LLM) — structural role labels (DI-10). */
-  knownColumns: Array<{ columnName: string; role: string; confidence: number }>;
+  /** Columns claimed from prior atom signal (no LLM). HF-341 R4: carry the OB-231 expression so a
+   *  claimed column reconstructs the same recognition (incl. `identifies`) a fresh LLM call would. */
+  knownColumns: Array<{ columnName: string; role: string; confidence: number } & AtomExpression>;
   /** Novel columns comprehended by the LLM (present on 'comprehended') — full interpretation. */
   comprehendedColumns?: Array<{ columnName: string; interpretation: ComprehendedInterpretation }>;
   failure?: { failureClass: ComprehensionFailureClass };
   recognizedFraction: number;
   /** Atoms to accumulate — EMPTY for failed units (hold a). Caller writes these (gated). */
-  atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }>;
+  atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number } & AtomExpression>;
 }
 
 export async function decomposeComprehension(
@@ -101,10 +102,11 @@ export async function decomposeComprehension(
       const plan = planSheetComprehension(sheet.sheetName, sheet.columns, sheet.rows, known, minConfidence);
 
       // claimed-from-prior atoms (always safe to re-accumulate — they comprehended before)
-      const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number }> = [];
+      // HF-341 R4: carry the OB-231 expression through (identifies/characterization/relationships).
+      const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number } & AtomExpression> = [];
       for (const a of plan.atoms) {
         // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
-        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9 });
+        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships });
       }
 
       if (plan.novelColumns.length === 0) {
@@ -141,10 +143,11 @@ export async function decomposeComprehension(
           characterization: 'unknown', dataExpectation: 'unknown', data_nature: 'unknown', identifies: 'nothing', relationships: [], confidence: 0.5,
         };
         comprehendedColumns.push({ columnName: col, interpretation: interp });
-        // OB-231: the accumulated atom "role" label carries the free-form data_nature.
+        // OB-231: the accumulated atom "role" label carries the free-form data_nature; HF-341 R4 also
+        // carries the full EXPRESSION (identifies/characterization/relationships) into the atom.
         if (interp.data_nature && interp.data_nature !== 'unknown') {
           const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence });
+          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence, identifies: interp.identifies, characterization: interp.characterization, relationships: interp.relationships });
         }
       }
 
