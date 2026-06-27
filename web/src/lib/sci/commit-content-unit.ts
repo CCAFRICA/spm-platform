@@ -48,6 +48,15 @@ import { computeContentUnitHashSha256 } from './content-unit-hash';
 import { supersedePriorBatchOnContentMatch } from './import-batch-supersession';
 import { extractFieldIdentitiesFromTrace } from './header-comprehension';
 import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
+// OB-249 — Remediation Stage (the mandatory gate before committed_data, I7). Deterministic
+// CONSTRUCT only here; the LLM express ran at proposal time (process-job).
+import {
+  runRemediationConstruct,
+  computeRemediationExclusions,
+  dataColumns,
+  dbRecall,
+  emitStageRunSignal,
+} from '@/lib/remediation/remediation-stage';
 
 // ============================================================
 // PUBLIC SHAPE — minimal common surface both callers can satisfy
@@ -434,6 +443,44 @@ export async function commitContentUnit(
     }
   }
 
+  // OB-249 — REMEDIATION STAGE (mandatory gate, I7/I9). This is the committed_data writer for the
+  // membrane/SCI import path (execute-bulk + execute both route here, HF-231); it routes every row
+  // through remediation BEFORE promotion. Clean data passes through as identity and is still STAMPED
+  // (_stageRan) so P8 ("clean cannot bypass") is query-provable. (Two PRE-EXISTING non-SCI writers
+  // exist — the product-orphaned legacy api/import/commit route and the dead data-service helper;
+  // remediation/__tests__/p8-sole-writer.test.ts fails on any NEW writer, and those two are flagged
+  // for the architect to 410/route-through — out of OB-249 scope.) CONSTRUCT
+  // only (deterministic, no LLM — the express ran at proposal time in process-job, off this 300s
+  // atomic-rollback path). The stage NEVER throws: any failure degrades to identity (raw rows
+  // committed) + a degraded signal. Ordering (the I3/HF-213 fix): this runs AFTER
+  // content_unit_hash_sha256 (:294, raw-row supersession identity) and AFTER entity_id_field
+  // resolution; the exclusion set protects the calc join key + identifiers + measure/temporal
+  // columns by NATURE, and source_date below is still extracted over the ORIGINAL row.
+  const allDataColumns = dataColumns(rows);
+  const remediationExclusions = computeRemediationExclusions(allDataColumns, semanticRoles, fieldIdentities, entityIdField);
+  const allowedColumns = allDataColumns.filter((c) => !remediationExclusions.has(c));
+  const remediation = await runRemediationConstruct({
+    tenantId,
+    rows,
+    columns: allDataColumns,
+    allowedColumns,
+    recall: dbRecall(supabase, tenantId),
+  });
+  const correctedRows = remediation.correctedRows;
+  const changesByRow = new Map<number, Record<string, { original: unknown; canonical: unknown; basis: string; agent: string }>>();
+  for (const ch of remediation.changes) {
+    const m = changesByRow.get(ch.rowIndex) ?? {};
+    m[ch.column] = { original: ch.original, canonical: ch.canonical, basis: ch.basis, agent: ch.agent };
+    changesByRow.set(ch.rowIndex, m);
+  }
+  if (remediation.changes.length > 0) {
+    console.log(
+      `[commitContentUnit] OB-249 remediation: ${remediation.changes.length} cell(s) canonicalized across ` +
+        `${Object.keys(remediation.report.changesByColumn).length} column(s) on "${tabName}" ` +
+        `(agents: ${remediation.report.agentsRun.join(',') || 'none'}; degraded: ${remediation.report.degradedAgents.join(',') || 'none'})`,
+    );
+  }
+
   // OB-152/OB-157 — source_date extraction with period marker composition.
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
@@ -458,6 +505,13 @@ export async function commitContentUnit(
       if (!latestDate || sourceDate > latestDate) latestDate = sourceDate;
     }
 
+    // OB-249: the CANONICAL (remediated) row is what gets promoted — downstream raw-key readers
+    // (run-calculation, entity-resolution) see congruent values automatically. The ORIGINAL is
+    // retained per-cell in metadata.remediation.changes (I3/P4 — never a destructive overwrite).
+    // source_date above was extracted over the ORIGINAL `row` (date columns are nature-excluded
+    // from remediation anyway), so temporal extraction is unaffected.
+    const correctedRow = correctedRows[i] ?? row;
+    const rowChanges = changesByRow.get(i);
     return {
       tenant_id: tenantId,
       import_batch_id: batchId,
@@ -465,7 +519,7 @@ export async function commitContentUnit(
       period_id: null as string | null,
       source_date: sourceDate,
       data_type: dataType,
-      row_data: { ...row, _sheetName: tabName, _rowIndex: i },
+      row_data: { ...correctedRow, _sheetName: tabName, _rowIndex: i },
       metadata: {
         source,
         proposalId,
@@ -474,6 +528,14 @@ export async function commitContentUnit(
         entity_id_field: entityIdField,
         informational_label: classification,
         field_identities: fieldIdentities,
+        // OB-249 (P8/P4): _stageRan stamped on EVERY committed row (even zero-change) so a clean
+        // import that traversed the stage is provably distinct from a bypass; per-cell originals
+        // retained alongside the committed canonical (Carry Everything, I3).
+        remediation: {
+          _stageRan: true,
+          agents: remediation.report.agentsRun,
+          ...(rowChanges ? { changes: rowChanges } : {}),
+        },
       },
     };
   });
@@ -594,6 +656,20 @@ export async function commitContentUnit(
     unitId: unit.contentUnitId,
     fields: { rowsCommitted: totalInserted, batchCommitted: true },
   }, supabase);
+
+  // OB-249 (P8): per-unit stage-run marker on the canonical signal surface — emitted after a
+  // successful commit, even on a zero-change (clean) import, so "the stage ran on this data" is
+  // query-provable, not merely asserted. Non-throwing.
+  await emitStageRunSignal(supabase, {
+    tenantId,
+    unitId: unit.contentUnitId,
+    sheetName: tabName,
+    agentsRun: remediation.report.agentsRun,
+    columnsConsidered: allowedColumns.length,
+    changeCount: remediation.report.changeCount,
+    changesByColumn: remediation.report.changesByColumn,
+    degradedAgents: remediation.report.degradedAgents,
+  });
 
   console.log(
     `[commitContentUnit] ${classification} (${source}): ${totalInserted} rows committed, ` +

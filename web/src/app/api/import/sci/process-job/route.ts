@@ -16,7 +16,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateContentProfileStats, generateContentProfilePatterns } from '@/lib/sci/content-profile';
-import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
+import { runDecomposedComprehension, extractFieldIdentitiesFromTrace } from '@/lib/sci/header-comprehension';
+// OB-249 — Remediation EXPRESS (propose) at proposal time, off the atomic commit path.
+import { runRemediationPropose, computeRemediationExclusions, dataColumns, dbRecall } from '@/lib/remediation/remediation-stage';
+import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
+import { findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
@@ -328,7 +332,11 @@ export async function POST(req: NextRequest) {
       recognitionTier,
     };
 
-    // Update job with classification result
+    // Update job with classification result FIRST — OB-249 review BLOCKER fix. The remediation
+    // EXPRESS (below, before the response) makes LLM calls; persisting 'classified' HERE guarantees
+    // a slow/timed-out express (a wide first import × intermittent Anthropic) can only lose
+    // remediation signals for THIS import (re-expressed next time), never strand the job in
+    // 'classifying'. CONSTRUCT in commitContentUnit re-reads whatever signals exist.
     await supabase.from('processing_jobs').update({
       status: 'classified',
       recognition_tier: recognitionTier,
@@ -410,6 +418,58 @@ export async function POST(req: NextRequest) {
           console.warn('[SCIProcessJob] classification:outcome unexpected error:', err instanceof Error ? err.message : String(err));
         }
       });
+    }
+
+    // OB-249 — Remediation EXPRESS (Decision 158), AFTER the status write and BOUNDED (review
+    // BLOCKER fix). The LLM proposes variant→canonical groupings at proposal time (off the
+    // execute-bulk atomic path), reading prior signals first (read-before-express, I6) and
+    // persisting each proposal to the ONE canonical signal surface (durable memory + P5 + the P7
+    // render source). The deterministic CONSTRUCT runs later in commitContentUnit (the mandatory
+    // gate) and re-reads whatever was expressed. BOUNDED by a wall-clock budget that leaves
+    // headroom under maxDuration; on budget-exceed OR any failure it degrades to identity — the
+    // remaining columns are simply re-expressed on the next import. The job is already 'classified',
+    // so nothing here can strand the import.
+    const remediationReports: Record<string, unknown> = {};
+    const REMEDIATION_BUDGET_MS = 90_000;
+    const remediationStart = Date.now();
+    try {
+      for (const unit of contentUnits) {
+        if (unit.classification === 'plan') continue;
+        if (Date.now() - remediationStart > REMEDIATION_BUDGET_MS) {
+          console.warn(`[SCI-WORKER] OB-249 remediation budget (${REMEDIATION_BUDGET_MS}ms) exceeded — remaining units degrade to identity (re-expressed next import)`);
+          break;
+        }
+        const sheetForUnit = sheets.find(s => s.sheetName === unit.tabName);
+        if (!sheetForUnit || sheetForUnit.rows.length === 0) continue;
+        const bindings = unit.fieldBindings ?? [];
+        const semanticRoles: Record<string, { role?: string }> = {};
+        for (const b of bindings) semanticRoles[b.sourceField] = { role: b.semanticRole };
+        const fieldIdentities = extractFieldIdentitiesFromTrace(unit.classificationTrace as Record<string, unknown> | undefined)
+          ?? buildFieldIdentitiesFromBindings(bindings);
+        const entityIdField = findHcEntityIdColumn(unit.classificationTrace as Record<string, unknown> | undefined)
+          ?? (bindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField ?? null);
+        const allCols = dataColumns(sheetForUnit.rows);
+        const exclusions = computeRemediationExclusions(allCols, semanticRoles, fieldIdentities, entityIdField);
+        const allowedColumns = allCols.filter(c => !exclusions.has(c));
+        if (allowedColumns.length === 0) continue;
+        const reports = await runRemediationPropose(supabase, {
+          tenantId,
+          rows: sheetForUnit.rows,
+          columns: allCols,
+          allowedColumns,
+          recall: dbRecall(supabase, tenantId),
+        });
+        remediationReports[unit.contentUnitId] = reports;
+      }
+      // Attach the reports for the P7 render (best-effort; the job is already 'classified', and P7
+      // also reads committed_data.metadata after commit, so this is non-load-bearing).
+      if (Object.keys(remediationReports).length > 0) {
+        await supabase.from('processing_jobs').update({
+          proposal: { contentUnits, remediation: remediationReports },
+        }).eq('id', jobId);
+      }
+    } catch (remErr) {
+      console.warn('[SCI-WORKER] OB-249 remediation propose failed (non-blocking):', remErr instanceof Error ? remErr.message : String(remErr));
     }
 
     return NextResponse.json({
