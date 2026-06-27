@@ -14,6 +14,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // Vercel Pro max
 
 import { NextRequest, NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 import { resolveReferenceJoinRows } from '@/lib/calculation/reference-join'; // HF-329: classified reference-sheet join
@@ -3656,6 +3657,62 @@ export async function POST(request: NextRequest) {
     addLog(`WARNING: Failed to materialize outcomes: ${outcomeWriteErr}`);
   } else {
     addLog(`Materialized ${outcomeRows.length} entity_period_outcomes (in ${Math.ceil(outcomeRows.length / WRITE_BATCH)} batches)`);
+  }
+
+  // ── 9b. OB-237 T-AGG / OB-248: write-time period-rollup sentinel ──
+  // The O(1) period rollup the serving layer reads (summary_artifacts data_type='period_outcomes';
+  // getPeriodTotal / getComponentTotals / getPeriodRollup, intelligence-data.ts:58). It was previously
+  // populated ONLY by per-tenant scripts (ob237-populate-period-rollup-*.ts) with a per-entity fallback,
+  // so a fresh calc (per-entity OR distribution) served O(n) until the script ran. Materializing it HERE
+  // makes EVERY calc serve O(1) with no separate script, and fixes the OB-248 ARTIFACT-SYNC gap:
+  // DISTRIBUTION recipients are entities — their per-sale payouts already summed to ONE outcomeRow each
+  // (runDistributionFanOut.perRecipientPeriodTotal), so this rolls them up into the one sentinel exactly
+  // as the per-entity path does. Computed from `outcomeRows` — the SAME source the script reads from
+  // entity_period_outcomes, with the identical aggregation — so served values are byte-identical
+  // (serving-neutral; proven equivalent to the script in _ob248_blocker2_sentinel_verify.ts). HALT-CALC
+  // anchors (calc_results) are untouched; this is a derived serving row only.
+  if (!outcomeWriteErr && outcomeRows.length > 0) {
+    let sentinelTotal = 0;
+    const componentTotals: Record<string, number> = {};            // by componentId
+    const componentTotalsByName: Record<string, number> = {};      // by componentName (getComponentTotals contract)
+    const componentEntityCountsByName: Record<string, number> = {}; // entities per component name
+    for (const o of outcomeRows) {
+      sentinelTotal += Number(o.total_payout) || 0;
+      const bd = o.component_breakdown as unknown as Array<{ componentId?: string; componentName?: string; payout?: number }>;
+      for (const c of Array.isArray(bd) ? bd : []) {
+        const payout = Number(c?.payout) || 0;
+        if (c?.componentId) componentTotals[c.componentId] = (componentTotals[c.componentId] ?? 0) + payout;
+        const name = c?.componentName;
+        if (name) {
+          componentTotalsByName[name] = (componentTotalsByName[name] ?? 0) + payout;
+          componentEntityCountsByName[name] = (componentEntityCountsByName[name] ?? 0) + 1;
+        }
+      }
+    }
+    const sentinelRow = {
+      tenant_id: tenantId,
+      entity_id: outcomeRows[0].entity_id,   // FK host: a real entity in the period (entity_id NOT NULL)
+      summary_date: null as string | null,   // informational; getPeriodRollup selects by (period_id, data_type)
+      period_id: periodId,
+      data_type: 'period_outcomes',
+      metrics: {
+        total_payout: sentinelTotal,
+        entity_count: outcomeRows.length,
+        component_totals: componentTotals,
+        component_totals_by_name: componentTotalsByName,
+        component_entity_counts_by_name: componentEntityCountsByName,
+      } as unknown as Json,
+      row_count: outcomeRows.length,
+    };
+    // idempotent per-period replace — does NOT touch other periods or the data_type='transaction' namespace.
+    // (summary_artifacts is not in the generated Database types — use an untyped client, the
+    // summary-engine.ts pattern, so any table name resolves without an `any` cast.)
+    const saTable = supabase as unknown as SupabaseClient;
+    await saTable.from('summary_artifacts').delete()
+      .eq('tenant_id', tenantId).eq('data_type', 'period_outcomes').eq('period_id', periodId);
+    const { error: sentErr } = await saTable.from('summary_artifacts').insert(sentinelRow as unknown as Json);
+    if (sentErr) addLog(`WARNING: period_outcomes sentinel write failed: ${sentErr.message}`);
+    else addLog(`OB-237/OB-248: period_outcomes sentinel materialized (total=${sentinelTotal}, entities=${outcomeRows.length}, components=${Object.keys(componentTotalsByName).length})`);
   }
 
   // ── 10. Metering ──
