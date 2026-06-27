@@ -156,7 +156,7 @@ byte-identical. (Adversarial-review R1 confirmed the original `data.calculate`-o
 (The "Dynamic server usage" lines are the pre-existing expected logs for cookie-using API routes; build exit is 0.)
 
 ### PG-17 — PR
-(URL recorded on creation below.)
+**PR #607** — https://github.com/CCAFRICA/spm-platform/pull/607 (base `main`, head `hf-346-rep-surface-experience`). OPEN.
 
 ---
 
