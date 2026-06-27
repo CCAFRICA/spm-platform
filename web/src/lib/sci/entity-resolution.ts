@@ -42,6 +42,86 @@ function natureIsAttribute(dataNature: string | null | undefined): boolean {
   return /\b(attribute|property|trait)\b/i.test(dataNature ?? '');
 }
 
+// HF-341 R7 (D1): value-overlap entity-key reconciliation. An entity is identified
+// by ONE value-domain per tenant — the value-domain the transactions reference (the
+// plan's declared identity, routed by VALUE). An entity/roster batch whose recorded
+// key column does NOT overlap that domain (a roster keyed by a NAME because the
+// per-sheet recognition favored the prominent person column) but which HAS a column
+// that DOES overlap (its DNI) is re-keyed to the overlapping column — so the roster's
+// people resolve to the SAME external_ids as the transactions instead of minting a
+// private name namespace (the 34 name-entities + 34 DNI-entities = 68 defect).
+// Korean Test: pure set-overlap of row VALUES — no column names, no nature reading,
+// no accent-folding. GUARDED: switches ONLY when the current key has near-zero
+// overlap and another column has substantial overlap, so a tenant whose roster key
+// already overlaps the transaction domain (BCL/Meridian) is byte-identical.
+type BatchKeyInfo = { idColumn: string; nameColumn: string | null; attributeColumns: string[]; isEventUnit: boolean };
+export async function reconcileEntityKeysByValueOverlap(
+  supabase: SupabaseClient,
+  tenantId: string,
+  batchIdentifiers: Map<string, BatchKeyInfo>,
+  readBatchRows?: (batchId: string) => Promise<Array<Record<string, unknown>>>,
+): Promise<Array<{ batchId: string; from: string; to: string; fromOverlap: number; toOverlap: number }>> {
+  const OVERLAP_MIN = 0.5;
+  const SAMPLE_CAP = 3000;
+  const reader = readBatchRows ?? (async (batchId: string) => {
+    const rows: Array<Record<string, unknown>> = [];
+    let off = 0;
+    while (rows.length < SAMPLE_CAP) {
+      const { data } = await supabase.from('committed_data').select('row_data')
+        .eq('tenant_id', tenantId).eq('import_batch_id', batchId).range(off, off + 999);
+      if (!data || data.length === 0) break;
+      for (const r of data) rows.push((r.row_data ?? {}) as Record<string, unknown>);
+      if (data.length < 1000) break;
+      off += 1000;
+    }
+    return rows;
+  });
+
+  const batchRows = new Map<string, Array<Record<string, unknown>>>();
+  for (const batchId of Array.from(batchIdentifiers.keys())) batchRows.set(batchId, await reader(batchId));
+
+  // canonical identity domain = the values event/transaction batches REFERENCE (their idColumn)
+  const canonical = new Set<string>();
+  for (const [batchId, info] of Array.from(batchIdentifiers.entries())) {
+    if (!info.isEventUnit) continue;
+    for (const rd of batchRows.get(batchId) ?? []) { const v = rd[info.idColumn]; if (v != null && String(v).trim()) canonical.add(String(v).trim()); }
+  }
+  const switches: Array<{ batchId: string; from: string; to: string; fromOverlap: number; toOverlap: number }> = [];
+  if (canonical.size === 0) return switches; // no transaction-anchored identity domain → nothing to reconcile
+
+  const overlapFrac = (vals: Set<string>): number => {
+    if (vals.size === 0) return 0;
+    let hit = 0; for (const v of Array.from(vals)) if (canonical.has(v)) hit++;
+    return hit / vals.size;
+  };
+  for (const [batchId, info] of Array.from(batchIdentifiers.entries())) {
+    if (info.isEventUnit) continue; // only re-key entity/roster batches (events already key by the reference)
+    const rows = batchRows.get(batchId) ?? [];
+    if (rows.length === 0) continue;
+    const valsOf = (col: string): Set<string> => {
+      const s = new Set<string>();
+      for (const rd of rows) { const v = rd[col]; if (v != null && String(v).trim()) s.add(String(v).trim()); }
+      return s;
+    };
+    const curOverlap = overlapFrac(valsOf(info.idColumn));
+    if (curOverlap >= OVERLAP_MIN) continue; // current key already overlaps the identity domain → leave it (BCL/Meridian)
+    const cols = new Set<string>();
+    for (const rd of rows.slice(0, 50)) for (const k of Object.keys(rd)) if (!k.startsWith('_')) cols.add(k);
+    let best: { col: string; frac: number } | null = null;
+    for (const col of Array.from(cols)) {
+      if (col === info.idColumn) continue;
+      const frac = overlapFrac(valsOf(col));
+      if (!best || frac > best.frac) best = { col, frac };
+    }
+    if (best && best.frac >= OVERLAP_MIN && best.frac > curOverlap) {
+      console.log(`[Entity Resolution] HF-341 R7 D1: batch ${batchId} entity-key '${info.idColumn}' (overlap ${(curOverlap * 100).toFixed(0)}% with the transaction identity domain) → re-keyed to '${best.col}' (overlap ${(best.frac * 100).toFixed(0)}%); the roster's people now resolve to the same external_ids as the transactions.`);
+      switches.push({ batchId, from: info.idColumn, to: best.col, fromOverlap: curOverlap, toOverlap: best.frac });
+      info.idColumn = best.col;
+    }
+  }
+  return switches;
+}
+
 export async function resolveEntitiesFromCommittedData(
   supabase: SupabaseClient,
   tenantId: string,
@@ -201,6 +281,13 @@ export async function resolveEntitiesFromCommittedData(
   }
 
   if (batchIdentifiers.size === 0) return { created: 0, updated: 0, linked: 0 };
+
+  // HF-341 R7 (D1): before discovery, re-key any entity/roster batch whose key column
+  // does not overlap the transaction identity value-domain to the column that does
+  // (the roster's DNI over its name) — so the roster's people resolve to the same
+  // external_ids as the transactions (eliminates the name-namespace duplicate set).
+  // No-op (byte-identical) when the roster key already overlaps (BCL/Meridian).
+  const keySwitches = await reconcileEntityKeysByValueOverlap(supabase, tenantId, batchIdentifiers);
 
   // HF-117: Use ALL batches with identifier columns for entity discovery.
   // The field_identities metadata (from HC/DS-009) marks which columns are
@@ -494,6 +581,41 @@ export async function resolveEntitiesFromCommittedData(
 
       if (unlinkeds.length < 500) break;
     }
+  }
+
+  // Step 7 (HF-341 R7 D1): purge the now-orphaned entities minted under a re-keyed
+  // batch's OLD key (the roster's name-keyed entities, superseded by the DNI key after
+  // value-overlap re-keying + backfill). Only entities with ZERO committed_data
+  // references (genuinely orphaned post-backfill) are removed, and ONLY for re-keyed
+  // batches — so a tenant that never re-keyed (BCL/Meridian) deletes nothing. This is
+  // what makes the entity count collapse (68 → 34) instead of leaving the duplicate set.
+  let purged = 0;
+  for (const sw of keySwitches) {
+    const oldVals = new Set<string>();
+    let off = 0;
+    while (true) {
+      const { data } = await supabase.from('committed_data').select('row_data')
+        .eq('tenant_id', tenantId).eq('import_batch_id', sw.batchId).range(off, off + 999);
+      if (!data || data.length === 0) break;
+      for (const r of data) { const v = (r.row_data as Record<string, unknown> | null)?.[sw.from]; if (v != null && String(v).trim()) oldVals.add(String(v).trim()); }
+      if (data.length < 1000) break;
+      off += 1000;
+    }
+    const oldList = Array.from(oldVals);
+    for (let i = 0; i < oldList.length; i += BATCH_SIZE) {
+      const slice = oldList.slice(i, i + BATCH_SIZE);
+      const { data: ents } = await supabase.from('entities').select('id, external_id').eq('tenant_id', tenantId).in('external_id', slice);
+      for (const e of ents ?? []) {
+        // orphan signal: no committed_data row references this entity after the re-key/backfill.
+        const { count: cdRefs } = await supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('entity_id', e.id);
+        if ((cdRefs ?? 0) > 0) continue; // still referenced → a real entity, never delete
+        const { error: delErr } = await supabase.from('entities').delete().eq('id', e.id);
+        if (!delErr) purged++;
+      }
+    }
+  }
+  if (purged > 0) {
+    console.log(`[Entity Resolution] HF-341 R7 D1: purged ${purged} orphaned old-key entity(ies) superseded by value-overlap re-keying (${keySwitches.map(s => `${s.from}→${s.to}`).join(', ')}).`);
   }
 
   console.log(`[Entity Resolution] DS-009 3.3: ${created} created, ${linked} rows linked across ${batchIdentifiers.size} batches${suppressedSpurious > 0 ? ` · ${suppressedSpurious} spurious entity(ies) suppressed (D3: non-FK reference_key)` : ''}`);
