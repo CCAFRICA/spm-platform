@@ -16,6 +16,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MetricDerivationRule } from '@/lib/calculation/run-calculation';
+import type {
+  DistributionIntent, DistributionDerivation, DistributionRecipientSpec,
+  DistributionFactorRef, DistributionModifier, DistributionInclusion,
+} from '@/lib/calculation/intent-types';
 import { detectTemporalColumnMap } from '@/lib/calculation/temporal-binding'; // OB-223 §1.3
 import type { FieldIdentity } from '@/lib/sci/sci-types';
 import { getAIService } from '@/lib/ai';
@@ -864,8 +868,225 @@ export async function convergeBindings(
     console.error('[Convergence] HF-341 R7 literal reconciliation error (non-blocking):', reconErr);
   }
 
+  // OB-248 (P-V1/V2/V3): bind recognized distribution intents → metric_derivations.
+  // Gated on a recognized distribution being PRESENT (Decision 158) → no-op for
+  // every non-distribution tenant (derivations byte-identical — neutrality).
+  try {
+    const distIntents = extractDistributionIntents(ruleSet.components);
+    if (distIntents.length > 0) {
+      const availableColumns = new Set<string>();
+      const dataTypesWithRows = new Set<string>();
+      for (const cap of capabilities) {
+        if (cap.rowCount > 0) dataTypesWithRows.add(cap.dataType);
+        for (const nf of cap.numericFields) availableColumns.add(nf.field);
+        for (const cf of cap.categoricalFields) availableColumns.add(cf.field);
+      }
+      // transaction sheet = the highest-row-count capability; originator column =
+      // the entity_identifier convergence already bound for any component.
+      const txnCap = capabilities.slice().sort((a, b) => b.rowCount - a.rowCount)[0] ?? null;
+      let originatorColumn: string | null = null;
+      for (const compBindings of Object.values(componentBindings)) {
+        const ent = (compBindings as Record<string, { column?: string }>)['entity_identifier'];
+        if (ent?.column) { originatorColumn = ent.column; break; }
+      }
+      // edge types present in the tenant graph (active edges) — for P-V3 referential.
+      let edgeTypesAvailable = new Set<string>();
+      try {
+        const { data: edgeRows } = await supabase.from('entity_relationships')
+          .select('relationship_type').eq('tenant_id', tenantId).is('effective_to', null);
+        edgeTypesAvailable = new Set<string>((edgeRows ?? []).map(e => String((e as { relationship_type: string }).relationship_type)));
+      } catch { /* graph read best-effort; referential gap surfaces if absent */ }
+
+      const ctx: DistributionBindingContext = {
+        transactionDataType: txnCap?.dataType ?? null,
+        originatorColumn,
+        availableColumns,
+        availableDataTypes: dataTypesWithRows,
+      };
+      for (const { componentName, intent } of distIntents) {
+        const { derivation, gaps: bindGaps } = bindDistributionIntent(intent, ctx);
+        for (const g of bindGaps) gaps.push({ component: componentName, componentIndex: -1, requiredMetrics: [], calculationOp: 'distribution', reason: g, resolution: 'Correct the plan literal or import the referenced data/graph.' });
+        if (derivation) {
+          const v3 = validateDistributionContract(derivation, edgeTypesAvailable, dataTypesWithRows);
+          for (const g of v3) gaps.push({ component: componentName, componentIndex: -1, requiredMetrics: [], calculationOp: 'distribution', reason: g, resolution: 'Import the referenced reference table / hierarchy edges.' });
+          derivations.push({
+            metric: `__distribution__:${componentName}`,
+            operation: 'distribution',
+            source_pattern: derivation.saleSourcePattern,
+            filters: [],
+            distribution: derivation,
+          });
+          // Fingerprinted Level-3 signal (Progressive Performance) — a recognized
+          // distribution SHAPE is cached under this structural fingerprint for reuse.
+          try {
+            await writeSignal({
+              tenantId,
+              signalType: 'convergence:distribution_binding',
+              signalValue: {
+                component: componentName,
+                recipient_roles: derivation.recipients.map(r => r.role),
+                modifier_kinds: derivation.modifiers.map(m => m.kind),
+                v3_gaps: v3.length,
+              },
+              confidence: v3.length === 0 ? 0.95 : 0.5,
+              source: 'convergence_validation',
+              decisionSource: 'distribution_binding',
+              ruleSetId,
+              calculationRunId,
+              structuralFingerprint: {
+                recipients: derivation.recipients.map(r => ({ role: r.role, hops: r.hops, edges: r.edgeTypes })),
+                factors: derivation.factorModel.factors.length,
+                base_rate: !!derivation.factorModel.baseRate,
+                modifiers: derivation.modifiers.map(m => m.kind),
+              },
+            }, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          } catch (sigErr) {
+            console.error('[Convergence] OB-248 distribution signal write failed (non-blocking):', sigErr);
+          }
+          console.log(`[Convergence] OB-248: bound distribution "${componentName}" — ${derivation.recipients.length} recipients, ${derivation.modifiers.length} modifiers, ${v3.length} P-V3 gaps`);
+        }
+      }
+    }
+  } catch (distErr) {
+    console.error('[Convergence] OB-248 distribution binding error (non-blocking):', distErr);
+  }
+
   console.log(`[Convergence] ${ruleSet.name}: ${derivations.length} derivations, ${gaps.length} gaps, ${Object.keys(componentBindings).length} component bindings`);
   return { derivations, matchReport, signals, gaps, componentBindings, observations, correctedComponents, literalRewrites, literalFailures };
+}
+
+// ──────────────────────────────────────────────
+// OB-248: Distribution binding (P-V1/V2/V3) — pure, testable
+// ──────────────────────────────────────────────
+//
+// Decision 158 CONSTRUCTION side: the LLM RECOGNIZED a distribution intent
+// (carried on rule_sets.components[].metadata.distribution); these deterministic
+// functions BIND it against carried data capabilities (P-V2) and VALIDATE it
+// structurally (P-V3, Validation Premise Law — referential + conservation). No
+// role/product/edge-type literal: every identifier is read from the recognized
+// intent or the data, never declared here (Korean Test).
+
+export interface DistributionBindingContext {
+  /** The committed_data data_type carrying the sale transactions. */
+  transactionDataType: string | null;
+  /** The sale-row column identifying the originator entity. */
+  originatorColumn: string | null;
+  /** All committed_data column names available (across data types). */
+  availableColumns: Set<string>;
+  /** All committed_data data_type identifiers available (candidate reference tables). */
+  availableDataTypes: Set<string>;
+}
+
+/**
+ * P-V2: construct a bound DistributionDerivation from the recognized intent +
+ * data capabilities. Structural resolution only — a recognized identifier must
+ * resolve against carried data; anything unresolved is a gap (C2 fail-loud),
+ * never fabricated. Returns the derivation when the irreducible core (originator
+ * + sale amount + ≥1 recipient) resolves, plus gaps for partial unresolved refs.
+ */
+export function bindDistributionIntent(
+  intent: DistributionIntent,
+  ctx: DistributionBindingContext,
+): { derivation: DistributionDerivation | null; gaps: string[] } {
+  const gaps: string[] = [];
+  const has = (c?: string) => !!c && ctx.availableColumns.has(c);
+  const hasTable = (t?: string) => !!t && ctx.availableDataTypes.has(t);
+
+  const originatorColumn = ctx.originatorColumn;
+  if (!originatorColumn) gaps.push('distribution: no originator entity column resolved in the transaction data');
+  const saleAmountColumn = has(intent.factorModel.transactionBasis) ? intent.factorModel.transactionBasis! : null;
+  if (!saleAmountColumn) gaps.push(`distribution: transaction amount column "${intent.factorModel.transactionBasis ?? ''}" not present in data`);
+
+  const recipients: DistributionRecipientSpec[] = [];
+  for (const r of intent.recipients) {
+    let inclusion: DistributionInclusion = { kind: 'always' };
+    if (r.inclusion === 'attribute_conditioned') {
+      if (has(r.conditionAttribute)) inclusion = { kind: 'attribute_match', rowAttributeColumn: r.conditionAttribute! };
+      else { gaps.push(`distribution: overlay recipient "${r.role}" condition attribute "${r.conditionAttribute ?? ''}" not present in data`); continue; }
+    }
+    const edgeTypes = (r.hops === 0 || r.edgeKind === 'self') ? [] : [r.edgeKind];
+    recipients.push({ role: r.role, edgeTypes, hops: r.hops, inclusion });
+  }
+  if (recipients.length === 0) gaps.push('distribution: no recipient roles resolved');
+
+  let baseRate: DistributionFactorRef | undefined;
+  const factors: DistributionFactorRef[] = [];
+  for (const f of intent.factorModel.factors) {
+    if (f.recipientKeyed) {
+      if (hasTable(f.referenceCategory)) baseRate = { referenceTable: f.referenceCategory!, factorColumn: '', keyedByRecipient: true };
+      else gaps.push(`distribution: recipient base-rate reference "${f.referenceCategory ?? ''}" not present in data`);
+    } else if (hasTable(f.referenceCategory) && has(f.attribute)) {
+      factors.push({ referenceTable: f.referenceCategory!, factorColumn: '', rowAttributeColumn: f.attribute! });
+    } else {
+      gaps.push(`distribution: factor (attribute "${f.attribute ?? ''}", reference "${f.referenceCategory ?? ''}") did not resolve against data`);
+    }
+  }
+
+  const modifiers: DistributionModifier[] = [];
+  for (const m of intent.modifiers) {
+    if (m.shape === 'cross_recipient_cap' && typeof m.capFraction === 'number') modifiers.push({ kind: 'cross_recipient_cap', capFraction: m.capFraction });
+    else if (m.shape === 'volume_cliff' && typeof m.threshold === 'number' && typeof m.multiplier === 'number') modifiers.push({ kind: 'volume_cliff', aggregateColumn: saleAmountColumn ?? '', threshold: m.threshold, multiplier: m.multiplier });
+    else if (m.shape === 'component_floor' && typeof m.floorValue === 'number') modifiers.push({ kind: 'component_floor', floorValue: m.floorValue, appliesToRole: m.appliesToRole });
+    else if (m.shape === 'consecutive_streak' && typeof m.periodCount === 'number' && typeof m.threshold === 'number' && typeof m.bonus === 'number') modifiers.push({ kind: 'consecutive_streak', periodCount: m.periodCount, threshold: m.threshold, bonus: m.bonus });
+    else if (m.shape === 'cascade_reversal') modifiers.push({ kind: 'cascade_reversal' });
+  }
+
+  if (!originatorColumn || !saleAmountColumn || recipients.length === 0) {
+    return { derivation: null, gaps };
+  }
+  return {
+    derivation: {
+      originatorColumn, saleSourcePattern: ctx.transactionDataType ?? '',
+      recipients, factorModel: { saleAmountColumn, baseRate, factors }, modifiers,
+    },
+    gaps,
+  };
+}
+
+/**
+ * P-V3: structural contract validation against carried reality. Referential —
+ * every recipient edge type resolves to ≥1 graph edge. Conservation — every
+ * factor / base-rate reference table is present with rows. (Value-level coverage
+ * — each product/channel value covered — is enforced at calc time by the engine's
+ * missing-reference C2 diagnostic.) Returns gaps; empty = valid.
+ */
+export function validateDistributionContract(
+  derivation: DistributionDerivation,
+  edgeTypesAvailable: Set<string>,
+  dataTypesWithRows: Set<string>,
+): string[] {
+  const gaps: string[] = [];
+  for (const r of derivation.recipients) {
+    for (const t of r.edgeTypes) {
+      if (!edgeTypesAvailable.has(t)) gaps.push(`distribution P-V3 referential: recipient role "${r.role}" edge type "${t}" resolves to no graph edge`);
+    }
+  }
+  if (derivation.factorModel.baseRate && !dataTypesWithRows.has(derivation.factorModel.baseRate.referenceTable)) {
+    gaps.push(`distribution P-V3 conservation: base-rate reference "${derivation.factorModel.baseRate.referenceTable}" has no rows`);
+  }
+  for (const f of derivation.factorModel.factors) {
+    if (!dataTypesWithRows.has(f.referenceTable)) gaps.push(`distribution P-V3 conservation: factor reference "${f.referenceTable}" has no rows`);
+  }
+  return gaps;
+}
+
+/** Walk rule_sets.components for recognized distribution intents (metadata.distribution). */
+export function extractDistributionIntents(componentsJson: unknown): Array<{ componentName: string; intent: DistributionIntent }> {
+  const out: Array<{ componentName: string; intent: DistributionIntent }> = [];
+  const root = componentsJson as { variants?: Array<{ components?: Array<Record<string, unknown>> }> } | null;
+  const seen = new Set<string>();
+  for (const v of root?.variants ?? []) {
+    for (const c of v.components ?? []) {
+      const meta = c.metadata as Record<string, unknown> | undefined;
+      const dist = meta?.distribution as DistributionIntent | undefined;
+      const name = String(c.name ?? c.id ?? 'component');
+      if (dist && Array.isArray(dist.recipients) && dist.recipients.length > 0 && !seen.has(name)) {
+        seen.add(name);
+        out.push({ componentName: name, intent: dist });
+      }
+    }
+  }
+  return out;
 }
 
 // ──────────────────────────────────────────────

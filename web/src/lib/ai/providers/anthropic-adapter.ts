@@ -433,6 +433,30 @@ IMPORTANT GUIDELINES:
 3. Return confidence scores (0-100) for each component and overall.
 4. If a table has different values for different employee types/classifications, create SEPARATE components for each.
 
+DISTRIBUTION RECOGNITION (only when the plan describes one):
+Most plans pay ONE amount per person per period. SOME plans instead describe a DISTRIBUTION: a single transaction (a sale/deal/order) is shared among MULTIPLE recipients identified by walking an organizational hierarchy — the person who originated the transaction, plus their chain of supervisors, plus (sometimes) extra recipients that participate only when an attribute of the transaction matches a category. When — and ONLY when — the plan expresses this shape, mark the component with a "distributesTo" object describing the STRUCTURE (never the names):
+- recipients: an ordered list. Each entry: { "role": "<stable label>", "edgeKind": "<the relationship the plan says links them, in the plan's own words>", "hops": <how many steps up the hierarchy from the originator; 0 = the originator themselves>, "inclusion": "always" | "attribute_conditioned", and when attribute_conditioned a "conditionAttribute": "<the transaction attribute that gates this recipient>" }.
+- factorModel: how each recipient's share is computed as a PRODUCT of a transaction amount and one or more rates/multipliers: { "transactionBasis": "<the amount each share multiplies>", "factors": [ { "recipientKeyed": true } for a per-recipient base rate read from a reference table, or { "attribute": "<the transaction attribute>", "referenceCategory": "<the reference table of multipliers it indexes>" } for a category multiplier ] }.
+- modifiers: structural adjustments the plan describes, each { "shape": "..." } with its parameters:
+  "cross_recipient_cap" (the combined shares cannot exceed a fraction of the transaction → capFraction),
+  "volume_cliff" (a rate changes once the originator's own period total crosses a threshold → threshold, multiplier),
+  "component_floor" (a guaranteed minimum per originator per period → floorValue),
+  "consecutive_streak" (a bonus after N consecutive periods meeting a threshold → periodCount, threshold, bonus),
+  "cascade_reversal" (returns/corrections reverse or recompute the whole shared payout).
+Express ONLY what the plan states. Do NOT invent recipients, factors, thresholds, or modifiers. A plan that pays one amount per person has NO distributesTo. Worked example of the SHAPE (placeholders — your output uses the plan's own words):
+  "distributesTo": {
+    "recipients": [
+      { "role": "originator", "edgeKind": "self", "hops": 0, "inclusion": "always" },
+      { "role": "level_1_manager", "edgeKind": "reports_to", "hops": 1, "inclusion": "always" },
+      { "role": "level_2_manager", "edgeKind": "reports_to", "hops": 2, "inclusion": "always" },
+      { "role": "top_manager", "edgeKind": "reports_to", "hops": 3, "inclusion": "always" },
+      { "role": "category_specialist", "edgeKind": "advises", "hops": 1, "inclusion": "attribute_conditioned", "conditionAttribute": "<transaction category attribute>" }
+    ],
+    "factorModel": { "transactionBasis": "<net transaction amount attribute>",
+      "factors": [ { "recipientKeyed": true }, { "attribute": "<category attribute>", "referenceCategory": "<category-multiplier reference table>" } ] },
+    "modifiers": [ { "shape": "cross_recipient_cap", "capFraction": 0.0 } ]
+  }
+
 <<PRIME_GRAMMAR>>
 
 Return your analysis as valid JSON.`,

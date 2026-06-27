@@ -20,7 +20,7 @@ import {
   findSheetForComponent,
 } from '@/lib/orchestration/metric-resolver';
 import { evaluate, buildEvalContext, type EntityData } from '@/lib/calculation/intent-executor';
-import { isIntentOperation, type IntentOperation, type PrimePredicate, type EvalContext } from '@/lib/calculation/intent-types';
+import { isIntentOperation, type IntentOperation, type PrimePredicate, type EvalContext, type DistributionDerivation } from '@/lib/calculation/intent-types';
 import { legacyIntentToDAG, legacyDerivationToDAG, type LegacyDerivation } from '@/lib/calculation/legacy-intent-to-dag';
 import { toNumber, roundComponentOutput, inferOutputPrecision } from '@/lib/calculation/decimal-precision';
 
@@ -69,7 +69,11 @@ export interface CalculationRunResult {
  */
 export interface MetricDerivationRule {
   metric: string;          // Target metric name (from plan configuration)
-  operation: 'count' | 'sum' | 'delta' | 'ratio';  // Derivation operation
+  // OB-248: 'distribution' is a STRUCTURAL discriminator (like a PrimeNode.prime),
+  // not a domain taxonomy. A distribution rule carries no per-entity metric — the
+  // engine's distribution branch reads `distribution` and fans one sale → N rows.
+  // applyMetricDerivations (the per-entity metric path) SKIPS it (see below).
+  operation: 'count' | 'sum' | 'delta' | 'ratio' | 'distribution';  // Derivation operation
   source_pattern: string;  // Regex pattern to match data_type/sheet name
   filters: Array<{
     field: string;         // Field name in row_data (discovered at runtime)
@@ -91,6 +95,12 @@ export interface MetricDerivationRule {
     temporal_range?: { offset: number; length: number };  // prior-period window
     aggregation_function?: 'sum' | 'count' | 'avg' | 'min' | 'max';
   };
+  // OB-248: when operation==='distribution', the bound fan-out spec
+  // (recipient resolution + factor model + modifiers). Read by the engine's
+  // distribution branch (route.ts), never by applyMetricDerivations. Kept as a
+  // typed field (not buried in ai_context) for type safety, and as an entry in
+  // the SAME metric_derivations array (no parallel JSONB key — §0.2).
+  distribution?: DistributionDerivation;
   // HF-226 Phase 2C — Carry Everything (T1-E902). Unenumerated AI-emitted
   // fields are spread into ai_context by generateAISemanticDerivations so
   // downstream intelligence consumers (signals, observatory, debugging) can
@@ -169,6 +179,13 @@ export function applyMetricDerivations(
   }
 
   for (const rule of derivations) {
+    // OB-248: a distribution derivation is NOT a per-entity metric — it is read
+    // by the engine's distribution branch (route.ts) to fan one sale → N payout
+    // rows. It carries no source_field/operation legacyDerivationToDAG can
+    // translate, so the per-entity metric path skips it (byte-identical for every
+    // non-distribution tenant — there are no distribution rules in their arrays).
+    if (rule.operation === 'distribution') continue;
+
     // HF-238 R2 Closure 5: delta hybrid block deleted. Delta derivations now
     // flow through the same legacyDerivationToDAG → evaluate() pipeline as
     // every other operation; the prior_period prime switches activeRows to

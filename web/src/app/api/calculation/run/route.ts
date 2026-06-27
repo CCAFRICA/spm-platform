@@ -33,6 +33,7 @@ import { inferSemanticType } from '@/lib/orchestration/metric-resolver';
 import { transformVariant } from '@/lib/calculation/intent-transformer';
 import { groundComponentDags } from '@/lib/intelligence/category-grounding'; // OB-223 §1.7
 import { executeIntent, type EntityData } from '@/lib/calculation/intent-executor';
+import { runDistributionFanOut, type FactorResolver, type DistributionSaleRow } from '@/lib/calculation/intent-executor';
 import type { ComponentIntent, RoundingTrace } from '@/lib/calculation/intent-types';
 import type { PlanComponent } from '@/types/compensation-plan';
 // OB-217: per-transaction trace substrate.
@@ -2140,7 +2141,149 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  for (const entityId of calculationEntityIds) {
+  // ════════════════════════════════════════════════════════════════════════
+  // OB-248: DISTRIBUTION MODE (P-E1..E3). The singular entry point (this POST)
+  // DISPATCHES on the convergence contract's content: when a distribution
+  // derivation is present, one committed sale fans out to N recipient payout
+  // rows via the graph; otherwise the per-entity loop below runs unchanged.
+  // Strictly gated → BYTE-IDENTICAL for every non-distribution tenant
+  // (evalEntityIds === calculationEntityIds when absent). §0.2: the heavy logic
+  // is the pure runDistributionFanOut; this block only wires DB data → it →
+  // writes (the SAME entityResults / perRowTraceAccumulator the writes consume).
+  // ════════════════════════════════════════════════════════════════════════
+  const distributionDerivation = metricDerivations.find(d => d.operation === 'distribution')?.distribution ?? null;
+  if (distributionDerivation) {
+    addLog(`OB-248 DISTRIBUTION MODE: contract has a distribution derivation (${distributionDerivation.recipients.length} recipient roles, ${distributionDerivation.modifiers.length} modifiers)`);
+
+    // 1. Edge adjacency in EXTERNAL-ID space (the originator/recipient identity
+    //    domain the factor lookups use). entity_relationships is UUID-keyed.
+    const adjacency = new Map<string, Array<{ target: string; type: string }>>();
+    try {
+      const { data: edgeRows } = await supabase.from('entity_relationships')
+        .select('source_entity_id, target_entity_id, relationship_type')
+        .eq('tenant_id', tenantId).is('effective_to', null);
+      for (const e of edgeRows ?? []) {
+        const src = entityMap.get(String((e as { source_entity_id: string }).source_entity_id))?.external_id;
+        const tgt = entityMap.get(String((e as { target_entity_id: string }).target_entity_id))?.external_id;
+        const type = String((e as { relationship_type: string }).relationship_type);
+        if (!src || !tgt) continue;
+        if (!adjacency.has(String(src))) adjacency.set(String(src), []);
+        adjacency.get(String(src))!.push({ target: String(tgt), type });
+      }
+      addLog(`OB-248: loaded ${edgeRows?.length ?? 0} active graph edges → ${adjacency.size} source nodes`);
+    } catch (gErr) {
+      addLog(`OB-248: entity_relationships load failed: ${gErr instanceof Error ? gErr.message : String(gErr)}`);
+    }
+
+    // 2. Reference maps from committed_data (value-overlap keyed — Korean Test).
+    const entityExternalIds = new Set<string>();
+    for (const e of Array.from(entityMap.values())) if (e.external_id) entityExternalIds.add(String(e.external_id).trim());
+    const firstNumeric = (rd: Record<string, unknown>, prefer?: string): number | null => {
+      if (prefer && rd[prefer] != null) { const n = Number(String(rd[prefer]).replace(/[$,%\s]/g, '')); if (Number.isFinite(n)) return n; }
+      for (const [k, v] of Object.entries(rd)) { if (k.startsWith('_')) continue; const n = Number(String(v ?? '').replace(/[$,%\s]/g, '')); if (String(v ?? '').trim() !== '' && Number.isFinite(n) && !entityExternalIds.has(String(v).trim())) return n; }
+      return null;
+    };
+    // base rate (per recipient external_id)
+    const baseRateMap = new Map<string, number>();
+    if (distributionDerivation.factorModel.baseRate) {
+      const rt = distributionDerivation.factorModel.baseRate.referenceTable;
+      const fc = distributionDerivation.factorModel.baseRate.factorColumn;
+      for (const cd of committedData) {
+        if (cd.data_type !== rt) continue;
+        const rd = (cd.row_data && typeof cd.row_data === 'object' && !Array.isArray(cd.row_data)) ? cd.row_data as Record<string, unknown> : {};
+        let key: string | null = null;
+        for (const [k, v] of Object.entries(rd)) { if (k.startsWith('_')) continue; const s = String(v ?? '').trim(); if (s && entityExternalIds.has(s)) { key = s; break; } }
+        const val = firstNumeric(rd, fc || undefined);
+        if (key && val !== null) baseRateMap.set(key, val);
+      }
+      addLog(`OB-248: base-rate reference "${rt}" → ${baseRateMap.size} per-recipient rates`);
+    }
+    // category factors (per attribute value), one map per factor reference table
+    const factorMaps = new Map<string, Map<string, number>>();
+    for (const f of distributionDerivation.factorModel.factors) {
+      const m = new Map<string, number>();
+      for (const cd of committedData) {
+        if (cd.data_type !== f.referenceTable) continue;
+        const rd = (cd.row_data && typeof cd.row_data === 'object' && !Array.isArray(cd.row_data)) ? cd.row_data as Record<string, unknown> : {};
+        // key = the first non-numeric, non-underscore column value (the category)
+        let key: string | null = null;
+        for (const [k, v] of Object.entries(rd)) { if (k.startsWith('_')) continue; const s = String(v ?? '').trim(); const n = Number(s.replace(/[$,%\s]/g, '')); if (s && !Number.isFinite(n)) { key = s; break; } }
+        const val = firstNumeric(rd, f.factorColumn || undefined);
+        if (key && val !== null) m.set(key, val);
+      }
+      factorMaps.set(f.referenceTable, m);
+      addLog(`OB-248: factor reference "${f.referenceTable}" → ${m.size} category multipliers`);
+    }
+
+    const resolveFactor: FactorResolver = (ref, recipientExternalId, row) => {
+      if (ref.keyedByRecipient) return baseRateMap.get(recipientExternalId) ?? null;
+      const attrVal = ref.rowAttributeColumn ? String(row[ref.rowAttributeColumn] ?? '').trim() : '';
+      const m = factorMaps.get(ref.referenceTable);
+      return m ? (m.get(attrVal) ?? null) : null;
+    };
+
+    // 3. Sale rows (committed_data matching the source pattern).
+    const saleRows: DistributionSaleRow[] = [];
+    let saleRe: RegExp | null = null;
+    try { saleRe = new RegExp(distributionDerivation.saleSourcePattern); } catch { saleRe = null; }
+    for (const cd of committedData) {
+      const dt = cd.data_type ?? '';
+      const matches = dt === distributionDerivation.saleSourcePattern || (saleRe ? saleRe.test(dt) : false);
+      if (!matches) continue;
+      const rd = (cd.row_data && typeof cd.row_data === 'object' && !Array.isArray(cd.row_data)) ? cd.row_data as Record<string, unknown> : {};
+      saleRows.push({ committedDataId: cd.id, rowData: rd, transactionRef: String((cd.metadata as Record<string, unknown> | null)?.transaction_ref ?? cd.id) });
+    }
+    addLog(`OB-248: ${saleRows.length} sale rows for source "${distributionDerivation.saleSourcePattern}"`);
+
+    // 4. Own-period aggregate (volume cliff) + period history (streak).
+    const ownPeriodAggregate = new Map<string, number>();
+    for (const s of saleRows) {
+      const o = String(s.rowData[distributionDerivation.originatorColumn] ?? '').trim();
+      const amt = Number(String(s.rowData[distributionDerivation.factorModel.saleAmountColumn] ?? '').replace(/[$,%\s]/g, '')) || 0;
+      if (o) ownPeriodAggregate.set(o, (ownPeriodAggregate.get(o) ?? 0) + amt);
+    }
+    const periodHistory = new Map<string, number[]>();
+    for (const [uuid, arr] of Array.from(periodHistoryMap.entries())) {
+      const ext = entityMap.get(uuid)?.external_id; if (ext) periodHistory.set(String(ext), arr);
+    }
+
+    // 5. Run the pure fan-out.
+    const fan = runDistributionFanOut({ derivation: distributionDerivation, saleRows, adjacency, resolveFactor, ownPeriodAggregate, periodHistory });
+    for (const d of fan.diagnostics) addLog(`OB-248 C2 [${d.kind}]: ${d.detail}${d.saleCommittedDataId ? ` (sale ${d.saleCommittedDataId})` : ''}`);
+
+    // 6. Aggregate per recipient → entityResults (one per recipient per period, for
+    //    calc_results + entity_period_outcomes), granular per-sale detail → traces.
+    const rowsByRecipient = new Map<string, typeof fan.payoutRows>();
+    for (const p of fan.payoutRows) { if (!rowsByRecipient.has(p.recipientExternalId)) rowsByRecipient.set(p.recipientExternalId, []); rowsByRecipient.get(p.recipientExternalId)!.push(p); }
+    for (const [recipientExtId, total] of Array.from(fan.perRecipientPeriodTotal.entries())) {
+      const recipientUuid = extIdToUuid.get(String(recipientExtId).trim());
+      if (!recipientUuid) { addLog(`OB-248 C2 [unknown_recipient_entity]: external_id "${recipientExtId}" maps to no entity — share ${total} not posted`); continue; }
+      entityResults.push({
+        entity_id: recipientUuid, rule_set_id: ruleSetId, period_id: periodId, total_payout: total,
+        components: [{ componentId: 'distribution', componentName: 'Distribution', componentType: 'distribution', payout: total, metricValues: {}, details: { roles: Array.from(new Set((rowsByRecipient.get(recipientExtId) ?? []).map(r => r.role))) } }],
+        metrics: {}, attainment: { overall: 0 },
+        metadata: { distribution: true, externalId: recipientExtId, payoutCount: (rowsByRecipient.get(recipientExtId) ?? []).length },
+      });
+      grandTotal += total;
+      // granular per-(recipient, sale) attribution — PG-4 cardinality, in the trace surface
+      const traceRows = (rowsByRecipient.get(recipientExtId) ?? []).filter(r => r.saleCommittedDataId);
+      if (traceRows.length > 0) {
+        perRowTraceAccumulator.push({ entityId: recipientUuid, componentName: 'Distribution', traces: traceRows.map(r => ({
+          committedDataId: r.saleCommittedDataId, transactionRef: r.transactionRef,
+          formula: `${r.role}: share of sale via ${r.viaEdgeType ?? 'self'}${r.capped ? ' (tope-capped)' : ''}`,
+          inputs: { originator: r.originatorExternalId, role: r.role, via: r.viaEdgeType } as unknown as Json,
+          output: r.amount as unknown as Json,
+        })) });
+      }
+    }
+    addLog(`OB-248: distribution produced ${entityResults.length} recipient rows, grandTotal=${grandTotal}, ${fan.payoutRows.length} per-sale shares`);
+  }
+
+  // Distribution mode evaluates above; the per-entity loop is then a no-op
+  // (empty) — every non-distribution run iterates the full set unchanged.
+  const evalEntityIds = distributionDerivation ? [] : calculationEntityIds;
+
+  for (const entityId of evalEntityIds) {
     const entityInfo = entityMap.get(entityId);
     const entityRowsFlat = flatDataByEntity.get(entityId) || [];
 
