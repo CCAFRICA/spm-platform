@@ -220,11 +220,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     roles: ['platform', 'admin'],
     sections: [
       // OB-213 Phase 1: Data Integration (Import moved here from Calculation per §1A) + Quarantine (KEEP).
+      // OB-245 Prism Slice 1: Submit + In Progress (the acquisition membrane front door). Gated on the
+      // EXISTING data.import capability — no new auth path (OB-246 Invariant 9). Flagged for OB-246
+      // persona enrollment (set 35 → 37). Icons (Upload/Clock) are already in ChromeSidebar ROUTE_ICONS.
       {
         id: 'data-integration',
         label: 'Data Integration',
         labelEs: 'Integración de Datos',
         routes: [
+          { path: '/data/submit', label: 'Submit', labelEs: 'Enviar', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/data/in-progress', label: 'In Progress', labelEs: 'En Progreso', icon: 'Clock', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import/quarantine', label: 'Quarantine Resolution', labelEs: 'Resolución de Cuarentena', icon: 'ShieldAlert', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
