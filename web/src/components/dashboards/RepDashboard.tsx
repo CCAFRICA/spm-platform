@@ -3,19 +3,24 @@
 /**
  * RepDashboard — HF-346 rebuild around the DS-015 §5.3 Earnings Hero (Individual).
  *
- * The individual contributor's /perform surface. Five elements, hero dominant, everything else on
+ * The individual contributor's /perform surface. Four elements, hero dominant, drill-through on
  * interaction (Performance Intelligence Research §4.1). Every element passes the DS-013 §7 test battery
- * (IAP Gate, Five Elements, Thermostat, Action Proximity, Reference Frame, Cognitive Fit).
+ * (IAP Gate, Five Elements, Thermostat, Action Proximity, Reference Frame, Cognitive Fit) on REAL data —
+ * no fabricated reference frames.
  *
  *   1. EARNINGS HERO   — Value + Context + Comparison + Reference frame + Action + Impact (dominant)
  *   2. COMPONENT BREAKDOWN — $ per component, click a row → inline transaction drill-through (Action
  *                            Proximity: OB-224 ComponentCards = getEntityStatement, no navigation away)
  *   3. TRAJECTORY      — period-over-period sparkline + projection (MSP entity_period_outcomes)
  *   4. INTELLIGENCE    — ONE section: Focus / Trend / Action (Thermostat — what to DO)
- *   5. WHAT-IF         — inline, on demand (hidden until requested)
+ *
+ * A what-if simulator is intentionally NOT shipped: an honest simulation needs the rep's real plan tier
+ * structure, which is not on the MSP serving path (only the realized attainment + payout are). A fabricated
+ * tier ladder fails the DS-013 Reference-Frame test (EECI: an element passes on real data or is removed) —
+ * see HF-346 completion report Residual. The reference frame here uses ONLY the real attainment toward 100%.
  *
  * All reads route through getRepDashboardData (MSP entity_period_outcomes) + ComponentCards
- * (getEntityStatement). Zero raw calculation_results on the render path (OB-237).
+ * (getEntityStatement). Zero raw calculation_results on the aggregate render path (OB-237).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,7 +33,6 @@ import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { getRepDashboardData, type RepDashboardData } from '@/lib/data/persona-queries';
 import { ComponentCards } from '@/components/drill-through';
 import { Sparkline } from '@/components/design-system/Sparkline';
-import { WhatIfSlider, type TierConfig } from '@/components/design-system/WhatIfSlider';
 
 // Lifecycle state → a single payout-status word for an individual (DS-013 Thermostat — not a pipeline diagram).
 function payoutStatus(state: string | null, es: boolean): { label: string; tone: 'review' | 'approved' | 'paid' } {
@@ -44,13 +48,6 @@ const STATUS_CLASS: Record<string, string> = {
   paid: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
 };
 
-// Tier ladder for the reference frame + what-if (only meaningful when attainment is assigned).
-const TIER_LADDER: TierConfig[] = [
-  { min: 0, max: 80, rate: 0.5, label: 'Base' },
-  { min: 80, max: 120, rate: 1.0, label: 'Standard' },
-  { min: 120, max: 250, rate: 1.5, label: 'Premium' },
-];
-
 export function RepDashboard() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
@@ -61,9 +58,7 @@ export function RepDashboard() {
 
   const [data, setData] = useState<RepDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showWhatIf, setShowWhatIf] = useState(false);
   const componentsRef = useRef<HTMLDivElement>(null);
-  const whatIfRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return; }
@@ -79,7 +74,12 @@ export function RepDashboard() {
   const derived = useMemo(() => {
     if (!data) return null;
     const hist = data.history;
-    const prior = hist.length >= 2 ? hist[hist.length - 2].payout : null;
+    // prior = the period immediately BEFORE the current one. Match the current period by label (history is
+    // chronologically sorted by start_date in getRepDashboardData); fall back to the penultimate entry. This
+    // keeps the hero delta and the trajectory consistent even if the current period is not the last entry.
+    const curIdx = data.periodLabel ? hist.findIndex(h => h.period === data.periodLabel) : -1;
+    const priorIdx = curIdx > 0 ? curIdx - 1 : hist.length >= 2 ? hist.length - 2 : -1;
+    const prior = priorIdx >= 0 ? hist[priorIdx].payout : null;
     const deltaPct = prior && prior > 0 ? ((data.totalPayout - prior) / prior) * 100 : null;
     // projection: average period-over-period step over the trajectory
     let step = 0;
@@ -88,23 +88,25 @@ export function RepDashboard() {
       step = deltas.reduce((s, d) => s + d, 0) / deltas.length;
     }
     const projection = hist.length >= 2 ? data.totalPayout + step : null;
-    // focus = the smallest non-zero component (most growth headroom) — honest without per-component targets
-    const ranked = [...data.components].filter(c => c.value > 0).sort((a, b) => a.value - b.value);
-    const focus = ranked[0] ?? null;
-    const top = [...data.components].sort((a, b) => b.value - a.value)[0] ?? null;
+    // concentration: the largest component + its share of total — a TRUE, orienting fact (no fabricated
+    // per-component targets; "smallest = growth headroom" was a speculative heuristic and was removed).
+    const ranked = [...data.components].filter(c => c.value > 0).sort((a, b) => b.value - a.value);
+    const top = ranked[0] ?? null;
+    const topShare = top && data.totalPayout > 0 ? Math.round((top.value / data.totalPayout) * 100) : null;
     // relative position as anonymized percentile (OB-246 — never "#1 of 85")
     const pct = data.totalEntities > 0 && data.rank > 0
       ? Math.round(((data.totalEntities - data.rank + 1) / data.totalEntities) * 100)
       : null;
     const hasTarget = data.attainment > 0;
-    const tier = !hasTarget ? null : data.attainment >= 120 ? 'Premium' : data.attainment >= 80 ? 'Standard' : 'Base';
-    return { prior, deltaPct, step, projection, focus, top, pct, hasTarget, tier };
+    return { prior, deltaPct, step, projection, top, topShare, pct, hasTarget };
   }, [data]);
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><div className="animate-spin h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full" /></div>;
   }
-  if (!data || data.totalPayout === 0 || !derived) {
+  // Empty state = NO calculated outcome for this entity/period (periodId null). A real $0 net payout
+  // (e.g. fully clawed back) IS a result and must render — gate on the absence of an outcome, not on $0.
+  if (!data || data.periodId == null || !derived) {
     return (
       <div className="text-center py-16 space-y-2">
         <p className="text-sm text-muted-foreground">{isEs ? 'No hay resultados para este periodo.' : 'No results for this period.'}</p>
@@ -116,15 +118,6 @@ export function RepDashboard() {
   const status = payoutStatus(data.lifecycleState, isEs);
   const periodLabel = data.periodLabel || (isEs ? 'Periodo actual' : 'Current period');
   const scrollTo = (r: React.RefObject<HTMLElement>) => r.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  // scaled what-if tiers (only when a target exists)
-  let whatIfTiers: TierConfig[] = TIER_LADDER;
-  if (derived.hasTarget) {
-    let rawPay = 0;
-    for (const t of TIER_LADDER) { const a = Math.min(data.attainment, t.max) - t.min; if (a > 0) rawPay += a * t.rate; }
-    const sf = rawPay > 0 ? data.totalPayout / rawPay : 1;
-    whatIfTiers = TIER_LADDER.map(t => ({ ...t, rate: t.rate * sf }));
-  }
 
   const Delta = ({ pct }: { pct: number | null }) => {
     if (pct == null) return <span className="text-muted-foreground">{isEs ? 'primer periodo' : 'first period'}</span>;
@@ -158,37 +151,34 @@ export function RepDashboard() {
           <span aria-hidden>·</span>
           <span>{data.components.length} {isEs ? 'componentes' : 'components'}</span>
         </div>
-        {/* Reference frame: attainment tier, or honest "target not assigned" */}
+        {/* Reference frame: REAL attainment toward the 100% target, or an honest "target not assigned". */}
         <div className="mt-4">
           {derived.hasTarget ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-foreground">{Math.round(data.attainment)}% {isEs ? 'cumplimiento' : 'attainment'} · {derived.tier}</span>
-                <span className="text-muted-foreground">{isEs ? 'tope' : 'cap'} 120%</span>
+                <span className="font-medium text-foreground">{Math.round(data.attainment)}% {isEs ? 'de cumplimiento de meta' : 'of target attainment'}</span>
+                <span className="text-muted-foreground">{isEs ? 'meta 100%' : 'target 100%'}</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, (data.attainment / 120) * 100)}%` }} />
+                <div className={`h-full rounded-full ${data.attainment >= 100 ? 'bg-emerald-500' : 'bg-emerald-500/70'}`} style={{ width: `${Math.min(100, data.attainment)}%` }} />
               </div>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">{isEs ? 'Meta no asignada para esta entidad — se muestra el pago realizado.' : 'No target assigned for this entity — showing earned payout.'}</p>
           )}
         </div>
-        {/* Impact: focus component */}
-        {derived.focus && (
+        {/* Impact: the largest component + its share (a true, orienting fact) */}
+        {derived.top && (
           <p className="mt-3 text-sm text-foreground">
             <Target className="mr-1 inline h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            {isEs ? 'Mayor oportunidad de crecimiento: ' : 'Biggest growth opportunity: '}
-            <span className="font-semibold">{derived.focus.name}</span> ({format(derived.focus.value)})
+            {isEs ? 'Mayor componente: ' : 'Largest component: '}
+            <span className="font-semibold">{derived.top.name}</span> ({format(derived.top.value)}{derived.topShare != null && <>{' · '}{derived.topShare}% {isEs ? 'de tu pago' : 'of your payout'}</>})
           </p>
         )}
         {/* Action */}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4">
           <button onClick={() => scrollTo(componentsRef)} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted">
             {isEs ? 'Ver Componentes' : 'View Components'} <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={() => { setShowWhatIf(true); setTimeout(() => scrollTo(whatIfRef), 50); }} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted">
-            {isEs ? 'Simular Escenario' : 'Simulate What-If'} <TrendingUp className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -212,7 +202,7 @@ export function RepDashboard() {
         )}
       </div>
 
-      {/* ── 3. TRAJECTORY ── */}
+      {/* ── 3. TRAJECTORY (context: where the rep is trending) ── */}
       {data.history.length >= 2 && (
         <div className="rounded-2xl border border-border bg-card p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -234,12 +224,14 @@ export function RepDashboard() {
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Sparkles className="h-4 w-4 text-muted-foreground" /> {isEs ? 'Inteligencia' : 'Intelligence'}
         </div>
-        {derived.focus && (
+        {derived.top && (
           <div className="flex gap-3">
             <Target className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <p className="text-sm text-foreground">
-              <span className="font-semibold">{isEs ? 'Enfoque: ' : 'Focus: '}{derived.focus.name}</span>{' '}
-              {isEs ? `tu componente con más margen de crecimiento (${format(derived.focus.value)} este periodo).` : `your component with the most growth headroom (${format(derived.focus.value)} this period).`}
+              <span className="font-semibold">{isEs ? 'Enfoque: ' : 'Focus: '}{derived.top.name}</span>{' '}
+              {isEs
+                ? `es tu mayor componente${derived.topShare != null ? ` (${derived.topShare}% de tu pago)` : ''} — ${format(derived.top.value)} este periodo.`
+                : `is your largest component${derived.topShare != null ? ` (${derived.topShare}% of your payout)` : ''} — ${format(derived.top.value)} this period.`}
             </p>
           </div>
         )}
@@ -253,12 +245,12 @@ export function RepDashboard() {
             {derived.pct != null && <> {isEs ? `Posición: percentil ${derived.pct}.` : `Position: ${derived.pct}th percentile.`}</>}
           </p>
         </div>
-        {derived.focus && (
+        {derived.top && (
           <div className="flex gap-3">
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <p className="text-sm text-foreground">
               <span className="font-semibold">{isEs ? 'Acción: ' : 'Action: '}</span>
-              {isEs ? `abre ${derived.focus.name} para ver las transacciones que lo generaron.` : `open ${derived.focus.name} to see the transactions behind it.`}{' '}
+              {isEs ? `abre ${derived.top.name} para ver las transacciones que lo generaron.` : `open ${derived.top.name} to see the transactions behind it.`}{' '}
               {/* Action Proximity (DS-013 §4.3): scroll to the inline Component Breakdown drill-through —
                   NOT a navigation to /data/transactions (which a member/rep cannot access — OB-246 view.team_results). */}
               <button onClick={() => componentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="font-medium text-emerald-600 underline-offset-2 hover:underline dark:text-emerald-400">{isEs ? 'Ver Componentes ↓' : 'View Components ↓'}</button>
@@ -266,20 +258,6 @@ export function RepDashboard() {
           </div>
         )}
       </div>
-
-      {/* ── 5. WHAT-IF (inline, on demand) ── */}
-      {showWhatIf && (
-        <div ref={whatIfRef} className="rounded-2xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-            <TrendingUp className="h-4 w-4 text-muted-foreground" /> {isEs ? '¿Qué pasaría si…?' : 'What-If'}
-          </div>
-          {derived.hasTarget ? (
-            <WhatIfSlider currentValue={data.attainment} currentPayout={data.totalPayout} tiers={whatIfTiers} formatCurrency={format} />
-          ) : (
-            <p className="text-sm text-muted-foreground">{isEs ? 'La simulación requiere una meta asignada para esta entidad.' : 'Simulation requires a target assignment for this entity.'}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

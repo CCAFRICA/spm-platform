@@ -65,10 +65,17 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
 
   const calcAccessible = useMemo(() => {
     if (!effectiveRole) return false;
-    // HF-346 1c: the Calculate ACTION is data.calculate-gated — NOT mere calculate-workspace accessibility
-    // (a rep reaches that workspace via /perform/statements but cannot run a calculation). hasCapability
-    // honors the HF-345 preview persona, so a VL-admin Rep preview correctly hides the CTA. Admin unchanged.
-    if (!hasCapability('data.calculate')) return false;
+    // HF-346 1c: hide the gold Calculate CTA from the rep — an IC who reaches the calculate workspace ONLY via
+    // /perform/statements (statement.view) and neither runs nor stewards a calculation. Gate on the STEWARDSHIP
+    // set (run OR approve OR adjust): platform/admin hold data.calculate; managers hold data.approve_results /
+    // dispute.resolve. This keeps managers + admin + platform byte-identical to main (DD-7) and subtracts ONLY
+    // the rep/viewer (statement.view-only). hasCapability honors the HF-345 preview persona, so a VL-admin Rep
+    // preview also hides it. (A plain data.calculate gate would have wrongly stripped the manager CTA.)
+    const canStewardCalc =
+      hasCapability('data.calculate') ||
+      hasCapability('data.approve_results') ||
+      hasCapability('dispute.resolve');
+    if (!canStewardCalc) return false;
     if (!getAccessibleWorkspaces(effectiveRole as UserRole).includes('calculate' as WorkspaceId)) return false;
     const ws = WORKSPACES['calculate' as WorkspaceId];
     if (!ws?.featureFlag) return true;

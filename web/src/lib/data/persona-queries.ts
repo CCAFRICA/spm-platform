@@ -483,28 +483,47 @@ function normalizeAttainment(val: number): number {
 
 function parseComponents(components: Json | null): ComponentItem[] {
   if (!components) return [];
+  let raw: ComponentItem[];
   if (!Array.isArray(components)) {
     if (typeof components === 'object' && components !== null) {
-      // Handle object format: { componentName: value }
-      return Object.entries(components as Record<string, Json | undefined>).map(([name, value]) => ({
-        name,
-        value: typeof value === 'number' ? value : 0,
-      }));
+      // Object format: { componentName: value } OR { componentName: { payout: n } }. HF-346 F12: read
+      // `payout` first here too (the array branch's bug also lived here) so an object-of-objects shape
+      // does not silently return $0.
+      raw = Object.entries(components as Record<string, Json | undefined>).map(([name, value]) => {
+        const dollars = typeof value === 'number' ? value
+          : value && typeof value === 'object'
+            ? (typeof (value as Record<string, Json>).payout === 'number' ? (value as Record<string, number>).payout
+              : typeof (value as Record<string, Json>).value === 'number' ? (value as Record<string, number>).value : 0)
+            : 0;
+        return { name, value: dollars };
+      });
+    } else {
+      return [];
     }
-    return [];
+  } else {
+    raw = components.map((c) => {
+      const comp = c as Record<string, Json | undefined>;
+      return {
+        name: String(comp.name ?? comp.componentName ?? 'Unknown'),
+        // HF-346 F12: the materialized entity_period_outcomes.component_breakdown carries the dollar amount in
+        // `payout` (calculation_results.components uses the same). The prior value/outputValue-only read returned
+        // $0 for every component. Open-vocab: payout first, then value/outputValue fallbacks for other tenants.
+        value: typeof comp.payout === 'number' ? comp.payout
+          : typeof comp.value === 'number' ? comp.value
+          : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
+      };
+    });
   }
-  return components.map((c) => {
-    const comp = c as Record<string, Json | undefined>;
-    return {
-      name: String(comp.name ?? comp.componentName ?? 'Unknown'),
-      // HF-346 F12: the materialized entity_period_outcomes.component_breakdown carries the dollar amount in
-      // `payout` (calculation_results.components uses the same). The prior value/outputValue-only read returned
-      // $0 for every component. Open-vocab: payout first, then value/outputValue fallbacks for other tenants.
-      value: typeof comp.payout === 'number' ? comp.payout
-        : typeof comp.value === 'number' ? comp.value
-        : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
-    };
-  });
+  // HF-346: component_breakdown is written as results.flatMap(r => r.components) (calculation-service), so a
+  // multi-rule-set entity yields the SAME component name across plans. Aggregate by name → one card per
+  // component, dollars summed (the component count + breakdown then reconcile to total_payout).
+  const byName = new Map<string, ComponentItem>();
+  for (const c of raw) {
+    const existing = byName.get(c.name);
+    if (existing) existing.value += c.value;
+    else byName.set(c.name, { name: c.name, value: c.value });
+  }
+  return Array.from(byName.values());
 }
 
 function aggregateComponents(

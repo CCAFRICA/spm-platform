@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { useCurrency } from '@/contexts/tenant-context';
-import { useLocale } from '@/contexts/locale-context';
+import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { StatusPill } from '@/components/design-system';
 import { getEntityStatement, type CommissionStatement, type StatementComponent } from '@/lib/drill-through';
 import { TransactionRows } from './TransactionRows';
@@ -40,7 +40,20 @@ export function ComponentCards(props: Props) {
   const { tenantId, entityId, periodId, batchId, comparisonData, onTransactionDrill, onDispute } = props;
   const isVialuce = useIsVialuce();
   const { format } = useCurrency();
-  const { formatDate } = useLocale();
+  const { formatDate, locale } = useLocale();
+  const isEs = isSpanishLocale(locale);
+  // HF-346 PG-11: this is the rep's PRIMARY breakdown surface; localize its chrome (Spanish tenants
+  // BCL/MIR/Sabor were seeing English-only labels here).
+  const L = {
+    loading: isEs ? 'Cargando desglose…' : 'Loading breakdown…',
+    none: isEs ? 'No hay desglose de cálculo disponible para esta entidad y periodo.' : 'No calculation breakdown available for this entity and period.',
+    txns: (n: number) => isEs ? `${n} ${n === 1 ? 'transacción' : 'transacciones'}` : `${n} transaction${n === 1 ? '' : 's'}`,
+    traced: isEs ? 'trazado' : 'traced',
+    entityLevel: isEs ? 'Resultado a nivel de entidad — sin desglose por transacción para este componente.' : 'Entity-level result — no per-transaction breakdown for this component.',
+    source: isEs ? 'Datos fuente' : 'Source data',
+    dispute: isEs ? 'Disputar' : 'Dispute',
+    ref: 'Ref', date: isEs ? 'Fecha' : 'Date', detail: isEs ? 'Detalle' : 'Detail', contribution: isEs ? 'Contribución' : 'Contribution',
+  };
   const [stmt, setStmt] = useState<CommissionStatement | null | undefined>(undefined);
   const [openTraces, setOpenTraces] = useState<Record<string, boolean>>({});
   const [openSource, setOpenSource] = useState<string | null>(null);   // self-managed source rows
@@ -59,10 +72,10 @@ export function ComponentCards(props: Props) {
   const periodLabel = props.periodLabel ?? stmt?.period.label;
 
   if (stmt === undefined) {
-    return <p className={isVialuce ? 'mut' : 'text-xs text-zinc-500'} style={isVialuce ? { padding: '12px 4px', fontSize: 12, color: 'var(--vl-text-soft)' } : undefined}>Loading breakdown…</p>;
+    return <p className={isVialuce ? 'mut' : 'text-xs text-zinc-500'} style={isVialuce ? { padding: '12px 4px', fontSize: 12, color: 'var(--vl-text-soft)' } : undefined}>{L.loading}</p>;
   }
   if (stmt === null || stmt.components.length === 0) {
-    return <p className={isVialuce ? 'mut' : 'text-xs text-zinc-500'} style={isVialuce ? { padding: '12px 4px', fontSize: 12, color: 'var(--vl-text-soft)' } : undefined}>No calculation breakdown available for this entity and period.</p>;
+    return <p className={isVialuce ? 'mut' : 'text-xs text-zinc-500'} style={isVialuce ? { padding: '12px 4px', fontSize: 12, color: 'var(--vl-text-soft)' } : undefined}>{L.none}</p>;
   }
 
   const fmtInputs = (inputs: Record<string, unknown>): string =>
@@ -102,12 +115,12 @@ export function ComponentCards(props: Props) {
             <div>
               <button onClick={() => setOpenTraces(p => ({ ...p, [c.name]: !p[c.name] }))} className="gbtn" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {traceOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                {c.transactions.length} transaction{c.transactions.length === 1 ? '' : 's'} · traced {format(c.tracedSubtotal)}
+                {L.txns(c.transactions.length)} · {L.traced} {format(c.tracedSubtotal)}
               </button>
               {traceOpen && (
                 <div className="card flush" style={{ marginTop: 8, overflowX: 'auto' }}>
                   <table className="tbl">
-                    <thead><tr><th>Ref</th><th>Date</th><th>Detail</th><th className="r">Contribution</th></tr></thead>
+                    <thead><tr><th>{L.ref}</th><th>{L.date}</th><th>{L.detail}</th><th className="r">{L.contribution}</th></tr></thead>
                     <tbody>
                       {c.transactions.map(t => (
                         <tr key={t.committedDataId + (t.transactionRef ?? '')}>
@@ -123,12 +136,12 @@ export function ComponentCards(props: Props) {
               )}
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: 'var(--vl-text-soft)', margin: 0 }}>Entity-level result — no per-transaction breakdown for this component.</p>
+            <p style={{ fontSize: 12, color: 'var(--vl-text-soft)', margin: 0 }}>{L.entityLevel}</p>
           )}
 
           <div className="pactions" style={{ marginTop: 10 }}>
-            <button onClick={() => handleSource(c.name)} className="btn-sec">Source data</button>
-            <button onClick={() => handleDispute(c)} className="btn-sec">Dispute</button>
+            <button onClick={() => handleSource(c.name)} className="btn-sec">{L.source}</button>
+            <button onClick={() => handleDispute(c)} className="btn-sec">{L.dispute}</button>
           </div>
 
           {!onTransactionDrill && openSource === c.name && (
@@ -161,16 +174,16 @@ export function ComponentCards(props: Props) {
           <div className="mt-2">
             <button onClick={() => setOpenTraces(p => ({ ...p, [c.name]: !p[c.name] }))} className="inline-flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200">
               {traceOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              {c.transactions.length} transaction{c.transactions.length === 1 ? '' : 's'} · traced {format(c.tracedSubtotal)}
+              {L.txns(c.transactions.length)} · {L.traced} {format(c.tracedSubtotal)}
             </button>
             {traceOpen && (
               <div className="mt-2 rounded-lg border border-zinc-800 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-zinc-800">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">Ref</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">Date</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">Detail</th>
-                    <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-zinc-500">Contribution</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">{L.ref}</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">{L.date}</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-zinc-500">{L.detail}</th>
+                    <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-zinc-500">{L.contribution}</th>
                   </tr></thead>
                   <tbody>
                     {c.transactions.map(t => (
@@ -187,12 +200,12 @@ export function ComponentCards(props: Props) {
             )}
           </div>
         ) : (
-          <p className="mt-2 text-xs text-zinc-500">Entity-level result — no per-transaction breakdown for this component.</p>
+          <p className="mt-2 text-xs text-zinc-500">{L.entityLevel}</p>
         )}
 
         <div className="mt-3 flex gap-2">
-          <button onClick={() => handleSource(c.name)} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-zinc-800">Source data</button>
-          <button onClick={() => handleDispute(c)} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-zinc-800">Dispute</button>
+          <button onClick={() => handleSource(c.name)} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-zinc-800">{L.source}</button>
+          <button onClick={() => handleDispute(c)} className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-zinc-800">{L.dispute}</button>
         </div>
 
         {!onTransactionDrill && openSource === c.name && (
