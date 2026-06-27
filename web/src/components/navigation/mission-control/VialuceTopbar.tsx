@@ -42,7 +42,7 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
   const { activeWorkspace, navigateToWorkspace, isSpanish, effectiveRole } = useWorkspace();
   const { setOpen: setCommandPaletteOpen } = useCommandPalette();
   const { currentTenant } = useTenant();
-  const { isVLAdmin } = useAuth();
+  const { isVLAdmin, hasCapability } = useAuth();
   const { locale, setLocale } = useLocale();
 
   // Breadcrumb: Tenant › Section › Page. Find the section + route in the active workspace whose
@@ -65,12 +65,16 @@ export function VialuceTopbar({ onMenuToggle }: VialuceTopbarProps) {
 
   const calcAccessible = useMemo(() => {
     if (!effectiveRole) return false;
+    // HF-346 1c: the Calculate ACTION is data.calculate-gated — NOT mere calculate-workspace accessibility
+    // (a rep reaches that workspace via /perform/statements but cannot run a calculation). hasCapability
+    // honors the HF-345 preview persona, so a VL-admin Rep preview correctly hides the CTA. Admin unchanged.
+    if (!hasCapability('data.calculate')) return false;
     if (!getAccessibleWorkspaces(effectiveRole as UserRole).includes('calculate' as WorkspaceId)) return false;
     const ws = WORKSPACES['calculate' as WorkspaceId];
     if (!ws?.featureFlag) return true;
     const features = currentTenant?.features as TenantFeatures | undefined;
     return features?.[ws.featureFlag as keyof TenantFeatures] === true;
-  }, [effectiveRole, currentTenant?.features]);
+  }, [effectiveRole, currentTenant?.features, hasCapability]);
 
   return (
     <div className="top">

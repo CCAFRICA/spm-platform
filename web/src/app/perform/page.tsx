@@ -111,6 +111,9 @@ export default function PerformPage() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: preserved for non-DS-003 branches (financial-only cards)
   const { persona } = usePersona();
+  // HF-346: a rep (member / VL-admin Rep preview) sees the redesigned RepDashboard Earnings Hero — NOT the
+  // page-level admin ICM panels. Admin/manager unchanged (DD-7).
+  const isRep = persona === 'rep';
   const { currentTenant } = useTenant();
   const { format: formatCurrency } = useCurrency();
   const { ruleSetCount, entityCount: sessionEntityCount } = useSession();
@@ -418,6 +421,11 @@ export default function PerformPage() {
           </Panel>
         ) : (
           <>
+            {/* HF-346: the page-level admin ICM panels (Period Total tile, Entities Paid, Average Payout,
+                Top Result, Period Finding, Data Quality, Compensation-by-Component, Payout Distribution,
+                Period Lifecycle, AI Findings) are gated OFF for a rep — the redesigned RepDashboard below IS
+                the rep Earnings Hero surface (DS-015 §5.3). Admin/manager unchanged (DD-7). */}
+            {!isRep && (<>
             {/* Dominant: authoritative Period Total + supporting tiles */}
             <div className="grid gap-4 lg:grid-cols-4">
               <div className="lg:col-span-1">
@@ -534,6 +542,7 @@ export default function PerformPage() {
                 />
               </Panel>
             </DensityGate>
+            </>)}
 
             {/* OB-246: dashboard selection follows `persona`, which Phase 1d GATES to the authenticated
                 identity — for a real user `persona === derive(authenticated role)` (a forged override is
