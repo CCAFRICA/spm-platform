@@ -29,7 +29,7 @@
 // BCL $312,033 / Meridian $556,985 / MIR Plan 2 210,000 until the architect re-imports.
 
 import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
-import { TXN_SCOPE } from './scope-predicates';
+import { TXN_SCOPE, ENTITY_SCOPE } from './scope-predicates';
 
 export interface ExpressionClassification {
   classification: AgentType;
@@ -113,6 +113,10 @@ export function deriveClassificationFromExpression(profile: ContentProfile): Exp
   const hasName = interps.some(isName);
   const hasTemporal = interps.some(isTemporal);
   const hasTxnScopeIdentifier = interps.some(i => isIdentifier(i) && isTxnScopeIdentifier(i));
+  // HF-351 F2: an identifier the LLM scoped as the ENTITY itself (a recurring person/
+  // account), not a per-row event id. Distinguishes a per-entity record from an event.
+  const hasEntityScopeIdentifier = interps.some(i =>
+    isIdentifier(i) && ENTITY_SCOPE.test(`${i.identifies ?? ''}`) && !TXN_SCOPE.test(`${i.identifies ?? ''}`));
 
   // ── Branch 1: dimensional lookup ──
   // A categorical lookup key with no entity identifier (hub capacity, product
@@ -129,6 +133,26 @@ export function deriveClassificationFromExpression(profile: ContentProfile): Exp
     if (identifierCount > 0) conds.push(`${identifierCount} identifier(s)`);
     if (hasName) conds.push('HAS name');
     return { classification: 'entity', confidence: 0.90, matchedConditions: conds };
+  }
+
+  // ── Branch 2.5: roster / entity master (HF-351 F2) ──
+  // A per-entity record — the LLM scoped an identifier as the ENTITY, the sheet HAS a
+  // name column (entities have names), and there is NO transaction-scope event id — is
+  // an `entity`, NOT a transaction, EVEN WHEN it carries a measure (a salary) and a
+  // categorical reference-key dimension (a branch/department the LLM reads as a lookup).
+  // Without this, a salaried roster (Personal) with a branch column over-fired Branch 3
+  // (`identifier + reference-key → transaction`) → no entity domain was created for the
+  // people, poisoning entity-id selection downstream (F5). Decision 158: the LLM scoped
+  // the id as the entity; the code must not re-call it an event on a reference-key alone.
+  // Korean Test: reads the LLM's identifies-scope + name nature, never a column name.
+  // Neutral: a transaction sheet (has a folio/receipt event id → hasTxnScopeIdentifier)
+  // and a target/quota sheet (no name column) both skip this branch.
+  if (hasEntityScopeIdentifier && hasName && !hasTxnScopeIdentifier) {
+    return {
+      classification: 'entity',
+      confidence: 0.88,
+      matchedConditions: ['entity-scope identifier', 'HAS name', 'NO transaction-scope event id', 'per-entity record (roster/master) — not a transaction despite a measure / reference-key'],
+    };
   }
 
   // ── Branch 3: transaction — events that REFERENCE entities ──
