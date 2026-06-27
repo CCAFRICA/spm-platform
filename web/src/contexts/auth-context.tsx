@@ -351,16 +351,12 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
   // manager/rep preview resolves a representative sample (the ONLY async — within this lifecycle, HALT-C).
   useEffect(() => {
     if (!isUserVLAdmin || !personaOverride || personaOverride === 'admin') {
-      // eslint-disable-next-line no-console
-      console.log('[HF-345] effectiveScope effect → REAL scope', { isUserVLAdmin, personaOverride, scope });
       setEffectiveScope(scope);
       return;
     }
     let cancelled = false;
-    // eslint-disable-next-line no-console
-    console.log('[HF-345] effectiveScope effect → resolving SAMPLE', { isUserVLAdmin, personaOverride, profileId, selectedTenantId });
     resolveSampleScope(personaOverride, profileId, selectedTenantId)
-      .then(s => { if (!cancelled) { /* eslint-disable-next-line no-console */ console.log('[HF-345] effectiveScope RESOLVED →', s); setEffectiveScope(s); } })
+      .then(s => { if (!cancelled) setEffectiveScope(s); })
       .catch(() => { if (!cancelled) setEffectiveScope(DENY_SCOPE); });
     return () => { cancelled = true; };
   }, [isUserVLAdmin, personaOverride, scope, profileId, selectedTenantId]);
@@ -477,10 +473,7 @@ export function AuthProvider({ children, initialAuthState }: AuthProviderProps) 
     // HF-345: a VL admin previewing a narrower persona is gated against THAT persona's capability set
     // (narrowing within entitlement — always safe). Real users + admin-preview + no-override unchanged.
     if (isUserVLAdmin && personaOverride && personaOverride !== 'admin') {
-      const r = effectiveCapabilities.includes(capability);
-      // eslint-disable-next-line no-console
-      console.log('[HF-345] hasCapability(PREVIEW)', { capability, personaOverride, result: r, effectiveCapabilities });
-      return r;
+      return effectiveCapabilities.includes(capability);
     }
     // OB-246 (DS-014 §4): platform/admin inherit ALL capabilities (the REAL authenticated role).
     if (user && (user.role === 'platform' || user.role === 'admin')) return true;

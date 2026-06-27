@@ -111,8 +111,6 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
   // rep→reduced) — narrowing within entitlement is safe (Decision 39, corrected). The override is gated to
   // isVLAdmin in auth-context, so a real member/manager always gets their authenticated navigation.
   const effectiveRole = (isVLAdmin && personaOverride) ? personaToRole(personaOverride) : userRole;
-  // eslint-disable-next-line no-console
-  if (typeof window !== 'undefined') console.log('[HF-345] navigation effectiveRole', { isVLAdmin, personaOverride, userRole, effectiveRole });
   // Use the selected tenant's actual UUID — never a placeholder string.
   // VL admins: currentTenant is set after tenant selection, null before.
   // Non-admins: currentTenant comes from their profile's tenant_id.
