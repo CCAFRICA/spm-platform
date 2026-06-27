@@ -355,13 +355,12 @@ export async function getRepDashboardData(
     .eq('period_id', periodId)
     .maybeSingle();
 
-  // Detailed component breakdown from calculation_results
-  const { data: myResults } = await supabase
-    .from('calculation_results')
-    .select('components, total_payout, period_id, batch_id')
+  // HF-346 / OB-237 MSP: per-entity history (trajectory) from entity_period_outcomes — NOT raw calculation_results.
+  const { data: myHistory } = await supabase
+    .from('entity_period_outcomes')
+    .select('total_payout, period_id')
     .eq('tenant_id', tenantId)
-    .eq('entity_id', resolvedEntityId)
-    .order('created_at', { ascending: false });
+    .eq('entity_id', resolvedEntityId);
 
   // All outcomes for relative ranking
   const { data: allOutcomes } = await supabase
@@ -375,32 +374,35 @@ export async function getRepDashboardData(
   const myRank = safeAll.findIndex(o => o.entity_id === resolvedEntityId) + 1;
   const neighbors = buildRelativeNeighbors(safeAll, resolvedEntityId, myRank);
 
-  // Resolve period IDs to human-readable labels
-  const resultPeriodIds = Array.from(new Set((myResults ?? []).map(r => r.period_id).filter(Boolean)));
-  let periodLabelMap = new Map<string, string>();
-  if (resultPeriodIds.length > 0) {
+  // Resolve period IDs to human-readable labels + chronological order (start_date).
+  const histPeriodIds = Array.from(new Set((myHistory ?? []).map(r => r.period_id).filter(Boolean)));
+  const periodLabelMap = new Map<string, string>();
+  const periodDateMap = new Map<string, string>();
+  if (histPeriodIds.length > 0) {
     const { data: periodRows } = await supabase
       .from('periods')
       .select('id, canonical_key, label, start_date')
-      .in('id', resultPeriodIds as string[]);
-    if (periodRows) {
-      periodLabelMap = new Map(periodRows.map(p => {
-        const label = formatPeriodLabelFromDate(p.start_date);
-        return [p.id, label];
-      }));
+      .in('id', histPeriodIds as string[]);
+    for (const p of periodRows ?? []) {
+      periodLabelMap.set(p.id, formatPeriodLabelFromDate(p.start_date));
+      periodDateMap.set(p.id, (p.start_date as string) ?? '');
     }
   }
 
   return {
     totalPayout: myOutcome?.total_payout ?? 0,
-    components: parseComponents(myResults?.[0]?.components ?? null),
+    // HF-346 F12: component dollars from the MSP component_breakdown (reconciles to total_payout, same period).
+    components: parseComponents(myOutcome?.component_breakdown ?? null),
     rank: myRank > 0 ? myRank : 0,
     totalEntities: safeAll.length,
     neighbors,
-    history: (myResults ?? []).map(r => ({
-      period: periodLabelMap.get(r.period_id ?? '') ?? r.period_id ?? '',
-      payout: r.total_payout,
-    })),
+    history: (myHistory ?? [])
+      .slice()
+      .sort((a, b) => (periodDateMap.get(a.period_id ?? '') ?? '').localeCompare(periodDateMap.get(b.period_id ?? '') ?? ''))
+      .map(r => ({
+        period: periodLabelMap.get(r.period_id ?? '') ?? r.period_id ?? '',
+        payout: r.total_payout,
+      })),
     attainment: extractAttainment(myOutcome?.attainment_summary ?? null),
   };
 }
@@ -485,7 +487,12 @@ function parseComponents(components: Json | null): ComponentItem[] {
     const comp = c as Record<string, Json | undefined>;
     return {
       name: String(comp.name ?? comp.componentName ?? 'Unknown'),
-      value: typeof comp.value === 'number' ? comp.value : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
+      // HF-346 F12: the materialized entity_period_outcomes.component_breakdown carries the dollar amount in
+      // `payout` (calculation_results.components uses the same). The prior value/outputValue-only read returned
+      // $0 for every component. Open-vocab: payout first, then value/outputValue fallbacks for other tenants.
+      value: typeof comp.payout === 'number' ? comp.payout
+        : typeof comp.value === 'number' ? comp.value
+        : typeof comp.outputValue === 'number' ? comp.outputValue : 0,
     };
   });
 }
