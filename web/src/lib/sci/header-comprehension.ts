@@ -66,7 +66,7 @@ ${sampleStr}`;
 // LLM CALL VIA AISERVICE
 // ============================================================
 
-interface LLMHeaderResponse {
+export interface LLMHeaderResponse {
   sheets: Record<string, { columns: Record<string, {
     // OB-231: free-form characterization channels (no enumeration, no validation).
     characterization?: string;
@@ -83,10 +83,76 @@ interface LLMHeaderResponse {
 // the result; failure carries a NAMED structural class + duration. `null` (silent
 // fallback) is retired here.
 type LLMHeaderOutcome =
-  | { ok: true; result: LLMHeaderResponse; duration: number }
+  // HF-350: `failedColumns` lists columns whose batch permanently failed (after retry)
+  // when comprehension proceeded with the rest (partial success). Absent/undefined on a
+  // clean single-call or all-batches-succeeded result. Consumers that ignore it are
+  // unaffected (the failed columns are simply absent from `result` → re-attempted next import).
+  | { ok: true; result: LLMHeaderResponse; duration: number; failedColumns?: string[] }
   | { ok: false; failureClass: ComprehensionFailureClass; duration: number };
 
-async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<LLMHeaderOutcome> {
+// ── HF-350: Header Comprehension column batching (P-HC-BATCH) ───────────────────────
+// `callLLMForHeadersSingle` sends ALL of a call's columns to the LLM at once with
+// maxTokens 8192. Each column's free-form interpretation is ~130 output tokens, so the
+// response truncates into malformed JSON at ~63+ columns (production: 87 cols → parse
+// failure + ~116s → Vercel 300s timeout). `HC_COLUMN_BATCH_SIZE` bounds the per-call
+// column count so the output always fits with valid JSON; it scales to any column count
+// by adding batches (SR-2). 25 leaves a ~2.5× token margin (~3000 tokens/batch) and runs
+// ~15-20s/batch. It is a tuning constant (telemetry in the diagnostic log lets the
+// architect retune from production), NOT a magic number, and is STRUCTURAL — by column
+// count only, never by column name or type (Korean Test).
+const HC_COLUMN_BATCH_SIZE = 25;
+// Bounded parallelism for the batch calls: wall-clock ≈ slowest batch while staying
+// within the Anthropic concurrency/rate budget.
+const HC_BATCH_CONCURRENCY = 4;
+
+type HeaderSingleCaller = (input: HeaderComprehensionInput) => Promise<LLMHeaderOutcome>;
+
+// Split a (possibly multi-sheet) input into batches of at most `batchSize` columns TOTAL,
+// preserving each column's sheet + sampleRows context. Structural: chunks (sheet,column)
+// pairs by count — no column-name or type logic (Korean Test). Each column lands in exactly
+// one batch.
+export function splitIntoColumnBatches(input: HeaderComprehensionInput, batchSize: number): HeaderComprehensionInput[] {
+  const pairs: Array<{ sheetName: string; column: string }> = [];
+  const sheetMeta = new Map<string, { sampleRows: Record<string, unknown>[]; rowCount: number }>();
+  for (const s of input.sheets) {
+    sheetMeta.set(s.sheetName, { sampleRows: s.sampleRows, rowCount: s.rowCount });
+    for (const c of s.columns) pairs.push({ sheetName: s.sheetName, column: c });
+  }
+  const batches: HeaderComprehensionInput[] = [];
+  for (let i = 0; i < pairs.length; i += batchSize) {
+    const chunk = pairs.slice(i, i + batchSize);
+    const bySheet = new Map<string, string[]>();
+    for (const p of chunk) {
+      if (!bySheet.has(p.sheetName)) bySheet.set(p.sheetName, []);
+      bySheet.get(p.sheetName)!.push(p.column);
+    }
+    batches.push({
+      sheets: Array.from(bySheet.entries()).map(([sheetName, columns]) => ({
+        sheetName, columns, sampleRows: sheetMeta.get(sheetName)!.sampleRows, rowCount: sheetMeta.get(sheetName)!.rowCount,
+      })),
+    });
+  }
+  return batches;
+}
+
+// Shallow-merge K batch responses into one, keyed by (sheet, column). Each column appears
+// in exactly one batch → no dedup, no conflict resolution. crossSheetInsights concatenated.
+// The merged structure is identical to a hypothetical single-call result.
+export function mergeBatchResults(results: LLMHeaderResponse[]): LLMHeaderResponse {
+  const merged: LLMHeaderResponse = { sheets: {}, crossSheetInsights: [] };
+  for (const r of results) {
+    for (const [sheetName, sheetData] of Object.entries(r.sheets ?? {})) {
+      if (!merged.sheets[sheetName]) merged.sheets[sheetName] = { columns: {} };
+      Object.assign(merged.sheets[sheetName].columns, sheetData?.columns ?? {});
+    }
+    if (Array.isArray(r.crossSheetInsights)) merged.crossSheetInsights.push(...r.crossSheetInsights);
+  }
+  return merged;
+}
+
+// HF-350: the per-call LLM body (formerly `callLLMForHeaders`). One LLM call for the
+// columns in `input`. `callLLMForHeaders` (below) keeps each call's column count bounded.
+async function callLLMForHeadersSingle(input: HeaderComprehensionInput): Promise<LLMHeaderOutcome> {
   const startTime = Date.now();
   try {
     const sheetsDescription = buildSheetsDescription(input);
@@ -120,6 +186,66 @@ async function callLLMForHeaders(input: HeaderComprehensionInput): Promise<LLMHe
     console.log(`[SCI] Header comprehension error (${failureClass}, falling back to heuristics):`, error instanceof Error ? error.message : String(error));
     return { ok: false, failureClass, duration };
   }
+}
+
+// HF-350: header-comprehension entry — bounds the per-LLM-call column count by batching.
+// ≤ HC_COLUMN_BATCH_SIZE columns → ONE call (byte-identical to the pre-HF-350 path; small
+// files / single-column SQL sheets are untouched). More → split into column batches, call
+// each (bounded-parallel) with one retry, and shallow-merge. A batch that permanently fails
+// (after its retry) does not abort the others (C2 error isolation): its columns are reported
+// and absent from the merged result (re-attempted next import). `ok:false` only if EVERY
+// batch failed. `singleCaller` is injectable for deterministic testing. The result is
+// structurally identical to what a single call would return if the LLM could handle it.
+export async function callLLMForHeaders(
+  input: HeaderComprehensionInput,
+  singleCaller: HeaderSingleCaller = callLLMForHeadersSingle,
+): Promise<LLMHeaderOutcome> {
+  const totalCols = input.sheets.reduce((n, s) => n + s.columns.length, 0);
+  if (totalCols <= HC_COLUMN_BATCH_SIZE) {
+    // Small input: one call. The residue path's own retry loop still applies (unchanged).
+    return singleCaller(input);
+  }
+
+  const batches = splitIntoColumnBatches(input, HC_COLUMN_BATCH_SIZE);
+  const start = Date.now();
+
+  // Each batch: one call, one retry on failure (P4). Independent — a batch failure is local.
+  const callBatchWithRetry = async (b: HeaderComprehensionInput): Promise<{ ok: boolean; result?: LLMHeaderResponse; columns: string[] }> => {
+    const columns = b.sheets.flatMap(s => s.columns);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const outcome = await singleCaller(b);
+      if (outcome.ok) return { ok: true, result: outcome.result, columns };
+    }
+    return { ok: false, columns };
+  };
+
+  // Bounded-parallel pool (P5): a shared cursor hands batches to HC_BATCH_CONCURRENCY workers.
+  const results: Array<{ ok: boolean; result?: LLMHeaderResponse; columns: string[] }> = new Array(batches.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= batches.length) return;
+      results[i] = await callBatchWithRetry(batches[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(HC_BATCH_CONCURRENCY, batches.length) }, () => worker()));
+  const duration = Date.now() - start;
+
+  const okResults = results.filter(r => r.ok).map(r => r.result!);
+  const failedColumns = results.filter(r => !r.ok).flatMap(r => r.columns);
+
+  if (okResults.length === 0) {
+    // Every batch failed — fail loud (the caller writes one failed_interpretation).
+    console.log(`[SCI] Header comprehension: ALL ${batches.length} column-batch(es) failed (${totalCols} cols, ${duration}ms).`);
+    return { ok: false, failureClass: 'parse_failure', duration };
+  }
+  if (failedColumns.length > 0) {
+    // C2: report the gap; proceed with the comprehended columns (no atoms for the failed ones).
+    console.log(`[SCI] Header comprehension: ${failedColumns.length} column(s) in failed batch(es) NOT comprehended (proceeding with ${totalCols - failedColumns.length}/${totalCols}): ${failedColumns.join(', ')}`);
+  }
+  console.log(`[SCI] Header comprehension completed in ${duration}ms via ${batches.length} column-batch(es) of ≤${HC_COLUMN_BATCH_SIZE} (${totalCols} cols${failedColumns.length ? `, ${failedColumns.length} failed` : ''})`);
+  return { ok: true, result: mergeBatchResults(okResults), duration, failedColumns: failedColumns.length ? failedColumns : undefined };
 }
 
 // ============================================================
