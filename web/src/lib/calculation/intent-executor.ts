@@ -784,3 +784,165 @@ export function recomputeCascadeDelta(originalCascade: CascadeRow[], recomputedC
   }
   return out;
 }
+
+// ──────────────────────────────────────────────
+// OB-248: Distribution fan-out ORCHESTRATION (pure) — P-E1..E3 composed
+// ──────────────────────────────────────────────
+//
+// `runDistributionFanOut` is the engine's distribution computation, factored out
+// of route.ts as a PURE function so it is unit-testable without a live tenant
+// (the route.ts branch supplies DB data + the resolveFactor closure and writes
+// the results). §0.2: a utility function inside an existing file, not a new
+// execution surface. Composes the helpers above: resolve recipients → evaluate
+// each factor model → volume cliff (on the originator) → cross-recipient tope
+// (per sale) → per-recipient period aggregation → component floor + streak (per
+// originator). Every unresolved recipient / missing reference / empty cascade is
+// reported in `diagnostics` (C2 fail-loud — never a silent $0).
+
+import type { DistributionDerivation, DistributionModifier } from './intent-types';
+
+export interface DistributionSaleRow {
+  /** committed_data.id — the source-sale lineage for traces / reversal. */
+  committedDataId: string;
+  rowData: Record<string, unknown>;
+  /** optional explicit transaction reference (else derived/absent). */
+  transactionRef?: string | null;
+}
+
+export interface DistributionFanOutInput {
+  derivation: DistributionDerivation;
+  saleRows: DistributionSaleRow[];
+  /** Directed adjacency in EXTERNAL-ID space: sourceExternalId → outbound edges. */
+  adjacency: Map<string, Array<{ target: string; type: string }>>;
+  resolveFactor: FactorResolver;
+  /** originator external_id → own-period aggregate (volume cliff input). */
+  ownPeriodAggregate?: Map<string, number>;
+  /** originator external_id → prior-period outcomes, most-recent-first (streak input). */
+  periodHistory?: Map<string, number[]>;
+}
+
+export interface DistributionPayoutRow {
+  recipientExternalId: string;
+  role: string;
+  amount: number;
+  saleCommittedDataId: string;
+  transactionRef: string | null;
+  originatorExternalId: string;
+  viaEdgeType: string | null;
+  /** true when this sale's cascade was reduced by the cross-recipient cap. */
+  capped: boolean;
+}
+
+export interface DistributionDiagnostic {
+  kind: 'unresolved_recipient' | 'missing_reference' | 'empty_cascade';
+  detail: string;
+  saleCommittedDataId?: string;
+}
+
+export interface DistributionFanOutResult {
+  /** One row per (recipient, sale) — PG-4 cardinality. */
+  payoutRows: DistributionPayoutRow[];
+  /** recipient external_id → Σ amount over the period (feeds entity_period_outcomes). */
+  perRecipientPeriodTotal: Map<string, number>;
+  diagnostics: DistributionDiagnostic[];
+}
+
+export function runDistributionFanOut(input: DistributionFanOutInput): DistributionFanOutResult {
+  const { derivation, saleRows, adjacency, resolveFactor, ownPeriodAggregate, periodHistory } = input;
+  const payoutRows: DistributionPayoutRow[] = [];
+  const diagnostics: DistributionDiagnostic[] = [];
+
+  const cap = derivation.modifiers.find((m): m is Extract<DistributionModifier, { kind: 'cross_recipient_cap' }> => m.kind === 'cross_recipient_cap');
+  const cliff = derivation.modifiers.find((m): m is Extract<DistributionModifier, { kind: 'volume_cliff' }> => m.kind === 'volume_cliff');
+  const floor = derivation.modifiers.find((m): m is Extract<DistributionModifier, { kind: 'component_floor' }> => m.kind === 'component_floor');
+  const streak = derivation.modifiers.find((m): m is Extract<DistributionModifier, { kind: 'consecutive_streak' }> => m.kind === 'consecutive_streak');
+
+  for (const sale of saleRows) {
+    const originator = String(sale.rowData[derivation.originatorColumn] ?? '').trim();
+    if (!originator) continue;
+    const { resolved, unresolved } = resolveDistributionRecipients(adjacency, originator, derivation.recipients, sale.rowData);
+    for (const u of unresolved) {
+      diagnostics.push({ kind: 'unresolved_recipient', detail: `${u.role}: ${u.reason}`, saleCommittedDataId: sale.committedDataId });
+    }
+
+    // Evaluate each recipient's factor model; cliff scales the originator's (hops:0) rate.
+    const evaluated: Array<{ rec: ResolvedRecipient; amount: number }> = [];
+    for (const rec of resolved) {
+      const res = evaluateRecipientAmount(derivation.factorModel, rec.entityExternalId, sale.rowData, resolveFactor);
+      if (res.amount === null) {
+        diagnostics.push({ kind: 'missing_reference', detail: `${rec.role} (${rec.entityExternalId}): ${res.missing.join(', ')}`, saleCommittedDataId: sale.committedDataId });
+        continue; // C2: recorded, not fabricated, not silent 0
+      }
+      let amount = res.amount;
+      if (cliff && rec.hops === 0 && ownPeriodAggregate) {
+        const agg = ownPeriodAggregate.get(originator) ?? 0;
+        // amount = sale × rate × factors; scaling amount by the cliff multiplier == scaling the rate.
+        amount = applyVolumeCliff(amount, agg, { threshold: cliff.threshold, multiplier: cliff.multiplier });
+      }
+      evaluated.push({ rec, amount });
+    }
+
+    // Cross-recipient cap (tope) over THIS sale's cascade.
+    let capped = false;
+    if (cap) {
+      if (evaluated.length === 0) {
+        diagnostics.push({ kind: 'empty_cascade', detail: 'cross-recipient cap on a sale that resolved zero recipients', saleCommittedDataId: sale.committedDataId });
+      } else {
+        const saleAmount = (() => { const v = sale.rowData[derivation.factorModel.saleAmountColumn]; return typeof v === 'number' ? v : parseFloat(String(v ?? '')) || 0; })();
+        const capResult = applyCrossRecipientCap(evaluated.map(e => e.amount), cap.capFraction * saleAmount);
+        capped = capResult.applied;
+        capResult.amounts.forEach((a, i) => { evaluated[i].amount = a; });
+      }
+    }
+
+    for (const e of evaluated) {
+      payoutRows.push({
+        recipientExternalId: e.rec.entityExternalId,
+        role: e.rec.role,
+        amount: e.amount,
+        saleCommittedDataId: sale.committedDataId,
+        transactionRef: sale.transactionRef ?? null,
+        originatorExternalId: originator,
+        viaEdgeType: e.rec.viaEdgeType,
+        capped,
+      });
+    }
+  }
+
+  // ── Per-originator period passes: component floor + consecutive streak ──
+  // The floor/streak apply to the ORIGINATOR's own component (the hops:0 / self
+  // role), summed across the period. We add adjustment rows so per-recipient
+  // totals reflect them without disturbing the per-sale cascade rows.
+  if (floor || streak) {
+    // sum each originator's own-role (hops:0) amount across the period
+    const ownRoleByOriginator = new Map<string, number>();
+    for (const p of payoutRows) {
+      if (p.viaEdgeType === null && p.recipientExternalId === p.originatorExternalId) {
+        ownRoleByOriginator.set(p.originatorExternalId, (ownRoleByOriginator.get(p.originatorExternalId) ?? 0) + p.amount);
+      }
+    }
+    for (const [originator, ownTotal] of Array.from(ownRoleByOriginator.entries())) {
+      if (floor && (!floor.appliesToRole || true)) {
+        const topUp = applyComponentFloor(ownTotal, floor.floorValue) - ownTotal;
+        if (topUp > 0) {
+          payoutRows.push({ recipientExternalId: originator, role: '__floor__', amount: topUp, saleCommittedDataId: '', transactionRef: null, originatorExternalId: originator, viaEdgeType: null, capped: false });
+        }
+      }
+      if (streak && periodHistory) {
+        const hist = periodHistory.get(originator) ?? [];
+        const s = computeConsecutiveStreak(hist, streak.periodCount, streak.threshold, streak.bonus);
+        if (s.bonus > 0) {
+          payoutRows.push({ recipientExternalId: originator, role: '__streak__', amount: s.bonus, saleCommittedDataId: '', transactionRef: null, originatorExternalId: originator, viaEdgeType: null, capped: false });
+        }
+      }
+    }
+  }
+
+  // Per-recipient period aggregation (feeds entity_period_outcomes).
+  const perRecipientPeriodTotal = new Map<string, number>();
+  for (const p of payoutRows) {
+    perRecipientPeriodTotal.set(p.recipientExternalId, (perRecipientPeriodTotal.get(p.recipientExternalId) ?? 0) + p.amount);
+  }
+
+  return { payoutRows, perRecipientPeriodTotal, diagnostics };
+}
