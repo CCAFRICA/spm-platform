@@ -156,23 +156,22 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // HF-341 R4: ENTITY_SCOPE / TXN_SCOPE / IDENTIFIER_NATURE moved to scope-predicates.ts (single source —
 // the sheet classifier reads the identical scope surface; no duplicated regex registry). Imported at top.
 
-export function findHcEntityIdColumn(
+/**
+ * HF-351 F5: ALL columns the LLM scoped as entity-scope identifiers (≥ threshold),
+ * in emission order. The entity-id is one of these; when there are ≥2 the selection
+ * is by value-domain overlap (selectEntityIdFieldByOverlap), never positional.
+ * Korean Test: reads the LLM's free-form `identifies`/`data_nature` scope, no names.
+ */
+export function findHcEntityIdCandidates(
   classificationTrace: Record<string, unknown> | undefined,
-): string | null {
-  if (!classificationTrace) return null;
+): string[] {
+  if (!classificationTrace) return [];
   const hcData = classificationTrace.headerComprehension as
     | { interpretations?: Record<string, { identifies?: string; data_nature?: string; characterization?: string; confidence?: number }> }
     | undefined;
   const interpretations = hcData?.interpretations;
-  if (!interpretations) return null;
-  // HF-341 R4 (C4 eradication): the entity-id is the column the LLM scoped as the ENTITY (referential
-  // resolution), NOT the highest-CONFIDENCE identifier. The prior `conf > best.conf` argmax was a
-  // registry of expectation (Folio@0.98 beating DNI_Vendedor@0.97 on 0.01 — confidence is not entity
-  // identity). With the OB-231 expression now surviving the cache (R4-1), the entity-scope `identifies`
-  // is the authoritative signal: the FIRST column the LLM scoped entity-and-not-transaction is the
-  // entity key. (A sheet with MULTIPLE entity-scope identifiers is a recognition ambiguity the
-  // plan-entity connection resolves — §6A residual #3; deterministic first-match here, no ranking.)
-  let chosen: string | null = null;
+  if (!interpretations) return [];
+  const candidates: string[] = [];
   for (const [colName, interp] of Object.entries(interpretations)) {
     const conf = typeof interp.confidence === 'number' ? interp.confidence : 0;
     if (conf < HC_IDENTIFIER_THRESHOLD) continue;
@@ -180,17 +179,87 @@ export function findHcEntityIdColumn(
     const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
     // Entity-scope identifier only. A transaction-scope id (folio/receipt) is never the entity key.
     if (ENTITY_SCOPE.test(scope) && !TXN_SCOPE.test(scope) && IDENTIFIER_NATURE.test(natureText)) {
-      chosen = colName;
-      break;
+      candidates.push(colName);
     }
   }
-  return chosen;
+  return candidates;
+}
+
+/**
+ * Backward-compatible single-result accessor (execute-bulk gate, HF-285-A). Returns
+ * the FIRST entity-scope identifier — the entity-id for the single-candidate case
+ * (BCL/Meridian — byte-identical). Multi-candidate disambiguation happens at commit
+ * time via selectEntityIdFieldByOverlap (value-domain overlap), not here.
+ */
+export function findHcEntityIdColumn(
+  classificationTrace: Record<string, unknown> | undefined,
+): string | null {
+  return findHcEntityIdCandidates(classificationTrace)[0] ?? null;
+}
+
+/** R7 D1 thresholds (entity-resolution.ts:58-135) reused for the commit-time tie-break. */
+const F5_OVERLAP_MIN = 0.5;
+
+/**
+ * HF-351 F5 (THE CLASS FIX): select the entity_id_field among ≥2 entity-scope
+ * identifier candidates by VALUE-DOMAIN OVERLAP against the tenant's entity domain,
+ * never by emission order / confidence (the deleted first-match). Korean Test: ranks
+ * by the columns' VALUES only — no column-name matching.
+ *
+ *  (a) entity domain non-empty → the candidate whose row values most overlap the
+ *      existing entity external_ids wins (a branch/grouping column like `sucursal`
+ *      has ~0% overlap and loses to the real seller id — proven on MIR: DNI 100%
+ *      vs Almacen 0%, though Almacen out-REPEATS DNI, defeating cardinality alone).
+ *  (b) cold start (empty domain — the entity sheet not yet committed) → among the
+ *      REPEATING candidates (a transaction sheet's entity id repeats), prefer the
+ *      finest-grained one (most distinct values) — a coarse grouping dimension has
+ *      far fewer distinct values than the entity it groups.
+ *  (c) still ambiguous → C2: warn, name the competitors, fall back to first-match
+ *      (never silently worse than the prior behavior). Decision 158 / Validation
+ *      Premise Law: this VALIDATES the recognized candidates against carried reality.
+ */
+export function selectEntityIdFieldByOverlap(
+  candidates: string[],
+  rows: Array<Record<string, unknown>>,
+  entityDomain: Set<string>,
+): { chosen: string; reason: string } {
+  if (candidates.length === 0) return { chosen: '', reason: 'no candidates' };
+  if (candidates.length === 1) return { chosen: candidates[0], reason: 'single entity-scope identifier' };
+
+  const stats = candidates.map(col => {
+    const vals = new Set<string>();
+    for (const r of rows) { const v = r[col]; if (v == null) continue; const s = String(v).trim(); if (s) vals.add(s); }
+    let overlap = 0; for (const v of Array.from(vals)) if (entityDomain.has(v)) overlap++;
+    const distinct = vals.size;
+    return { col, distinct, overlapFrac: distinct > 0 ? overlap / distinct : 0, repeatRatio: distinct > 0 ? rows.length / distinct : 0 };
+  });
+
+  // (a) value-domain overlap (domain non-empty)
+  if (entityDomain.size > 0) {
+    const ranked = stats.slice().sort((a, b) => b.overlapFrac - a.overlapFrac || b.distinct - a.distinct);
+    if (ranked[0].overlapFrac >= F5_OVERLAP_MIN && ranked[0].overlapFrac > (ranked[1]?.overlapFrac ?? 0)) {
+      return { chosen: ranked[0].col, reason: `value-domain overlap ${(ranked[0].overlapFrac * 100).toFixed(0)}% (vs ${(ranked[1]?.overlapFrac * 100 || 0).toFixed(0)}%)` };
+    }
+  }
+  // (b) cold start / no overlap winner → finest-grained repeating identifier
+  const repeating = stats.filter(s => s.repeatRatio > 1.1);
+  if (repeating.length > 0) {
+    const ranked = repeating.slice().sort((a, b) => b.distinct - a.distinct);
+    if (ranked.length === 1 || ranked[0].distinct > ranked[1].distinct) {
+      return { chosen: ranked[0].col, reason: `cold-start finest repeating identifier (distinct=${ranked[0].distinct}, repeat=${ranked[0].repeatRatio.toFixed(1)}x)` };
+    }
+  }
+  // (c) ambiguous → C2 fail-loud, first-match fallback
+  console.warn(`[entity-id] HF-351 F5 C2: ${candidates.length} entity-scope identifiers competed and none was definitively selected — ${stats.map(s => `${s.col}(distinct=${s.distinct},overlap=${(s.overlapFrac * 100).toFixed(0)}%,repeat=${s.repeatRatio.toFixed(1)}x)`).join(', ')}. Falling back to first; flag for review.`);
+  return { chosen: candidates[0], reason: 'ambiguous — first-match fallback (C2 flagged)' };
 }
 
 function resolveEntityIdField(
   bindings: SemanticBinding[],
   classificationTrace: Record<string, unknown> | undefined,
   classification: Exclude<AgentType, 'plan'>,
+  rows: Array<Record<string, unknown>>,
+  entityDomain: Set<string>,
 ): string | null {
   // Reference data has no entity association — Decision 111 dimensional
   // lookup semantics. Skip both HC and structural lookups.
@@ -227,10 +296,31 @@ function resolveEntityIdField(
   // null — the engine resolves at calc time (Decision 92 / OB-183). reference_key is
   // never itself a candidate for entity_id_field (§6A: do not force an identifier
   // where comprehension didn't classify one).
-  const hcIdentifier = findHcEntityIdColumn(classificationTrace);
-  if (hcIdentifier) return hcIdentifier;
+  // HF-351 F5: collect ALL entity-scope identifier candidates. One candidate →
+  // return it (BCL ID_Empleado, Meridian No_Empleado — byte-identical). Two or more
+  // → disambiguate by VALUE-DOMAIN OVERLAP against the entity domain (never emission
+  // order). Zero → fall back to the entity_identifier binding, then null.
+  const candidates = findHcEntityIdCandidates(classificationTrace);
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length >= 2) {
+    const sel = selectEntityIdFieldByOverlap(candidates, rows, entityDomain);
+    console.log(`[entity-id] HF-351 F5: ${candidates.length} entity-scope candidates [${candidates.join(', ')}] → "${sel.chosen}" (${sel.reason})`);
+    return sel.chosen || null;
+  }
   const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
   return binding?.sourceField ?? null;
+}
+
+/** HF-351 F5: the tenant's entity domain (existing entities' external_ids) — the
+ *  carried reality the multi-identifier value-overlap tie-break ranks against.
+ *  Empty on a cold/first import (entity sheet not yet committed) → cardinality fallback. */
+async function readTenantEntityDomain(supabase: SupabaseClient, tenantId: string): Promise<Set<string>> {
+  const domain = new Set<string>();
+  try {
+    const { data } = await supabase.from('entities').select('external_id').eq('tenant_id', tenantId).limit(20000);
+    for (const e of data ?? []) { const x = (e as { external_id: string | null }).external_id; if (x) domain.add(String(x).trim()); }
+  } catch { /* best-effort; empty domain → cold-start fallback */ }
+  return domain;
 }
 
 // ============================================================
@@ -375,10 +465,17 @@ export async function commitContentUnit(
   // entity/target reads identifier, reference is null.
   // HF-341 R3: const — the entity-id is the recognized identifies-scope column, never reassigned by a
   // cardinality override (deleted). The structural existence check below verifies it, not overrides it.
+  // HF-351 F5: read the tenant entity domain so a transaction sheet with ≥2
+  // entity-scope identifiers (e.g. a branch `sucursal` AND the real `vendedor_id`)
+  // selects by value-domain overlap, not emission order. Single-identifier sheets
+  // (BCL/Meridian) never consult it — byte-identical.
+  const entityDomain = await readTenantEntityDomain(supabase, tenantId);
   const entityIdField = resolveEntityIdField(
     unit.confirmedBindings,
     unit.classificationTrace,
     classification,
+    rows as Array<Record<string, unknown>>,
+    entityDomain,
   );
 
   // HF-341 R3 (V8 eradication): the entity-id is the column the LLM scoped as the entity identity
@@ -398,48 +495,27 @@ export async function commitContentUnit(
     }
   }
 
-  // HF-247 Phase 4: commit-stage type validation. Refuse to write
-  // classification-content inconsistent commits. Pre-HF-247 a misclassified
-  // plan sheet (rate-table content classified as `entity`) committed rate
-  // table rows into the entities table with column titles like
-  // "C1: COLOCACIÓN DE CRÉDITO — Ejecutivo Senior" as the entity identifier.
-  //
-  // Structural heuristic over the resolved entity_id_field column NAME:
-  // a real entity identifier column has a stable, short identifier-like
-  // name. Plan component names appearing as column headers carry telltale
-  // structural prefixes (e.g., "C1:", "C2:"), descriptive content (em-dash
-  // separated phrases, all-caps multi-word labels), or length over the
-  // typical identifier ceiling. We don't enumerate domain vocabulary —
-  // the check fires on STRUCTURAL shape of the column name.
-  if (classification === 'entity' && entityIdField) {
-    const looksLikeContentTitle =
-      entityIdField.length > 40
-      || /^[A-Z]\d+\s*[:.]/.test(entityIdField)
-      || entityIdField.includes('—')
-      || entityIdField.includes(' – ')
-      || /:\s+[A-ZÁÉÍÓÚÑ]{2,}/.test(entityIdField);
-    if (looksLikeContentTitle) {
-      const reason = `Sheet "${tabName}" classified as 'entity' but resolved entity_id_field "${entityIdField}" matches plan-component-title pattern (length / structural-prefix / descriptive-punctuation). Refusing to commit — classification likely incorrect; the sheet appears to carry plan content.`;
-      console.error(`[commitContentUnit] HF-247 Phase 4 type-validation: ${reason}`);
-      await supabase
-        .from('import_batches')
-        .update({
-          status: 'failed',
-          error_summary: { error: reason, hf: 'HF-247-Phase-4' } as unknown as Json,
-        })
-        .eq('id', batchId);
-      return {
-        batchId,
-        totalInserted: 0,
-        dataType,
-        entityIdField,
-        fieldIdentities,
-        earliestDate: null,
-        latestDate: null,
-        dateCount: 0,
-        success: false,
-        error: reason,
-      };
+  // HF-351 F3 (SUBTRACTION of the HF-247 Phase 4 name heuristic): the prior guard
+  // REFUSED commit when the resolved entity_id_field column NAME matched a
+  // "plan-component-title" shape (length>40 / "C1:" prefix / em-dash / colon+caps).
+  // That is a Korean Test / AP-25 violation — it decided validity from the NAME
+  // STRING, not the column's VALUES, and HARD-FAILED a valid roster/hierarchy sheet
+  // (Jerarquia) whose real entity-id lives in a long MERGED-HEADER (__EMPTY) column.
+  // Replaced with a STRUCTURAL value-functioning VALIDATION (does the column carry
+  // per-row identifier-functioning values), consistent with the presence check above
+  // (Decision 158 / Validation Premise Law) — and it WARNS/flags rather than refusing.
+  // A long descriptive column name is never, by itself, a reason to refuse commit.
+  if (classification === 'entity' && entityIdField && rows.length >= 20) {
+    let present = 0;
+    const vals = new Set<string>();
+    for (const r of rows) {
+      const v = (r as Record<string, unknown>)[entityIdField];
+      if (v != null && String(v).trim() !== '') { present += 1; vals.add(String(v).trim()); }
+    }
+    const presentFrac = present / rows.length;
+    // identifier-functioning = present in most rows AND discriminates rows (not a single constant).
+    if (presentFrac < 0.5 || vals.size <= 1) {
+      console.warn(`[commitContentUnit] HF-351 F3: entity sheet "${tabName}" entity_id_field "${entityIdField}" does not function as an identifier (present in ${(presentFrac * 100).toFixed(0)}% of rows, ${vals.size} distinct value(s)) — flag for review. Committing (recognition trusted; Decision 158 — no name-shape refusal).`);
     }
   }
 

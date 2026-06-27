@@ -115,3 +115,37 @@ test('identical role assignments classify identically at any confidence', () => 
   assert.equal(fresh.classification, atom.classification);
   assert.equal(atom.classification, flywheel.classification);
 });
+
+// ── HF-351 F2: a salaried roster (Personal) with a branch column is NOT a transaction ──
+
+test('HF-351 F2: salaried roster — entity-scope id + NAME + measure + reference-key, NO event id -> entity', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'vendedor_id', role: 'identifier', conf: 0.99, identifies: 'the seller' },
+    { col: 'Nombre', role: 'name', conf: 0.95 },
+    { col: 'sucursal', role: 'reference key to the branch / dimensional lookup', conf: 0.93 },
+    { col: 'Salario', role: 'measure amount', conf: 0.90 },
+  ]));
+  // pre-HF-351 this hit Branch 3 (identifier + reference-key → transaction); now entity.
+  assert.equal(r.classification, 'entity');
+  assert.ok(r.matchedConditions.some(c => /roster\/master/.test(c)));
+});
+
+test('HF-351 F2 neutrality: a target/quota sheet (NO name) stays target even with the new branch', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'No_Empleado', role: 'identifier', conf: 0.95, identifies: 'the employee' },
+    { col: 'Sucursal', role: 'reference key to the branch', conf: 0.93 },
+    ...measures(0.80),
+  ]));
+  assert.equal(r.classification, 'transaction'); // reference-key + measure + no name + no entity-only signal → unchanged Branch 3
+});
+
+test('HF-351 F2 neutrality: a transaction with a folio event id + a denormalized name stays transaction', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'Folio', role: 'identifier', conf: 0.95, identifies: 'the sales transaction' },
+    { col: 'vendedor_id', role: 'identifier', conf: 0.97, identifies: 'the seller' },
+    { col: 'Nombre_Vendedor', role: 'name', conf: 0.90 },  // denormalized name present
+    ...measures(0.80),
+  ]));
+  // hasTxnScopeIdentifier (Folio) → roster branch skipped → transaction (MIR Ventas shape)
+  assert.equal(r.classification, 'transaction');
+});
