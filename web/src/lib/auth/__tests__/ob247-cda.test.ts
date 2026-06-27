@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { getCapabilities, hasCapability, resolveRole, type Capability } from '@/lib/auth/permissions';
+import { getCapabilities, hasCapability, resolveRole, canAccessWorkspace, type Capability } from '@/lib/auth/permissions';
 import { landingPathForRole } from '@/lib/auth/landing';
-import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 
 // OB-247 DS-032 Slice A — the CDA persona falls out of the EXISTING RBAC primitives.
 
@@ -51,13 +50,16 @@ test('gate 3: cda lands in the portal; operators land in /stream', () => {
   assert.equal(landingPathForRole('member'), '/stream');
 });
 
-test('gate 4: cda has NO accessible operator workspaces (near-empty nav falls out of capabilities)', () => {
-  // getAccessibleWorkspaces is typed to the navigation-layer UserRole (no 'cda'); the
-  // runtime is a string filter, and a CDA — lacking every operator capability — resolves
-  // to zero workspaces. (The nav is never rendered for the CDA anyway; the portal is chromeless.)
-  type NavRole = Parameters<typeof getAccessibleWorkspaces>[0];
-  const cdaWorkspaces = getAccessibleWorkspaces('cda' as NavRole);
-  assert.equal(cdaWorkspaces.length, 0, `cda should see no operator workspaces, got: ${cdaWorkspaces.join(',')}`);
-  // sanity: an operator DOES see workspaces
-  assert.ok(getAccessibleWorkspaces('platform' as NavRole).length > 0);
+test('gate 4: cda is access-blocked from EVERY operator route (no operator surface) but can reach /portal', () => {
+  // The real Invariant-7 property is the access lockout (middleware canAccessWorkspace),
+  // not nav-emptiness — OB-246's nav model shows un-capability-gated routes to all roles,
+  // but the CDA portal is chromeless AND the CDA is access-blocked from operator routes.
+  // This is the stable, stronger assertion (holds pre- and post-OB-246 merge).
+  for (const route of ['/stream', '/data', '/operate', '/admin', '/configure', '/financial']) {
+    assert.equal(canAccessWorkspace('cda', route), false, `cda must NOT access ${route}`);
+  }
+  assert.equal(canAccessWorkspace('cda', '/portal'), true, 'cda CAN reach its own portal');
+  // operator Submit not regressed: operators reach the membrane surfaces.
+  assert.equal(canAccessWorkspace('admin', '/data'), true);
+  assert.equal(canAccessWorkspace('admin', '/portal'), true);
 });
