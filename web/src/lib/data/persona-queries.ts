@@ -49,6 +49,11 @@ export interface RepDashboardData {
   neighbors: NeighborItem[];
   history: { period: string; payout: number }[];
   attainment: number;
+  // HF-346: period + status + entity context for the Earnings Hero + component→transaction drill-through.
+  periodId: string | null;
+  periodLabel: string;
+  lifecycleState: string | null;
+  entityId: string | null;
 }
 
 export interface StoreBreakdownItem {
@@ -404,6 +409,11 @@ export async function getRepDashboardData(
         payout: r.total_payout,
       })),
     attainment: extractAttainment(myOutcome?.attainment_summary ?? null),
+    // HF-346: period + status + entity for the hero status badge + the component→transaction drill-through.
+    periodId,
+    periodLabel: periodLabelMap.get(periodId) ?? '',
+    lifecycleState: (myOutcome?.lowest_lifecycle_state as string | null) ?? null,
+    entityId: resolvedEntityId,
   };
 }
 
@@ -774,6 +784,10 @@ function emptyRepData(): RepDashboardData {
     neighbors: [],
     history: [],
     attainment: 0,
+    periodId: null,
+    periodLabel: '',
+    lifecycleState: null,
+    entityId: null,
   };
 }
 
