@@ -62,6 +62,13 @@ export async function reconcileEntityKeysByValueOverlap(
   readBatchRows?: (batchId: string) => Promise<Array<Record<string, unknown>>>,
 ): Promise<Array<{ batchId: string; from: string; to: string; fromOverlap: number; toOverlap: number }>> {
   const OVERLAP_MIN = 0.5;
+  // A re-key target must be ~1:1 with the roster's rows — a true per-entity IDENTIFIER
+  // (a DNI, one distinct value per person), NOT a many:1 GROUPING dimension (a branch /
+  // Sucursal_ID, few distinct values shared across many people). Without this, a roster
+  // correctly keyed by its employee id (ID_Empleado) whose values happen not to overlap
+  // the transaction key would be wrongly re-keyed to a high-overlap branch column,
+  // COLLAPSING distinct employees into branch-entities (the BCL HALT-CALC hazard).
+  const UNIQUE_MIN = 0.9;
   const SAMPLE_CAP = 3000;
   const reader = readBatchRows ?? (async (batchId: string) => {
     const rows: Array<Record<string, unknown>> = [];
@@ -110,7 +117,12 @@ export async function reconcileEntityKeysByValueOverlap(
     let best: { col: string; frac: number } | null = null;
     for (const col of Array.from(cols)) {
       if (col === info.idColumn) continue;
-      const frac = overlapFrac(valsOf(col));
+      const vals = valsOf(col);
+      // skip GROUPING dimensions — a re-key target must be a near-1:1 per-row identifier,
+      // not a many:1 column whose values would collapse distinct roster entities together.
+      const uniqueness = rows.length > 0 ? vals.size / rows.length : 0;
+      if (uniqueness < UNIQUE_MIN) continue;
+      const frac = overlapFrac(vals);
       if (!best || frac > best.frac) best = { col, frac };
     }
     if (best && best.frac >= OVERLAP_MIN && best.frac > curOverlap) {

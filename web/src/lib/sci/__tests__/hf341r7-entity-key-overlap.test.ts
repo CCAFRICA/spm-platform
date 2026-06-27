@@ -66,6 +66,31 @@ test('D1: no transaction batches → no canonical domain → no re-keying (singl
   assert.equal(batchIdentifiers.get('roster')!.idColumn, 'Nombre_Completo'); // unchanged
 });
 
+test('D1 GUARD (HALT-CALC / BCL): a many:1 GROUPING dimension that overlaps is NOT a re-key target', async () => {
+  // The BCL hazard: a roster correctly keyed by its employee id (ID_Empleado, whose values
+  // do NOT overlap the transaction key) must NOT be re-keyed to a branch column (Sucursal_ID)
+  // that overlaps 100% but is shared across many employees — that would COLLAPSE employees
+  // into branch-entities. Only a ~1:1 per-row identifier is a valid re-key target.
+  const bclRoster: Row[] = [
+    { ID_Empleado: 'E001', Sucursal_ID: 'SUC-1', Nombre: 'A' },
+    { ID_Empleado: 'E002', Sucursal_ID: 'SUC-1', Nombre: 'B' },
+    { ID_Empleado: 'E003', Sucursal_ID: 'SUC-2', Nombre: 'C' },
+    { ID_Empleado: 'E004', Sucursal_ID: 'SUC-2', Nombre: 'D' },
+  ];
+  // transactions key by the branch (Sucursal_ID) — so the canonical domain is branch ids
+  const bclTxn: Row[] = [{ Sucursal_ID: 'SUC-1' }, { Sucursal_ID: 'SUC-2' }, { Sucursal_ID: 'SUC-1' }];
+  const batchIdentifiers = new Map<string, Info>([
+    ['roster', { idColumn: 'ID_Empleado', nameColumn: 'Nombre', attributeColumns: [], isEventUnit: false }],
+    ['txn', { idColumn: 'Sucursal_ID', nameColumn: null, attributeColumns: [], isEventUnit: true }],
+  ]);
+  const reader = async (b: string) => (b === 'roster' ? bclRoster : bclTxn);
+  const switches = await reconcileEntityKeysByValueOverlap(SB, 'T', batchIdentifiers, reader);
+  // ID_Empleado has 0% overlap with the branch domain, and Sucursal_ID overlaps 100% — but
+  // Sucursal_ID is 2 distinct / 4 rows = 0.5 uniqueness < 0.9 → NOT a valid identifier → no switch.
+  assert.equal(switches.length, 0);
+  assert.equal(batchIdentifiers.get('roster')!.idColumn, 'ID_Empleado'); // employee key preserved
+});
+
 test('D1 GUARD: a partially-overlapping key (≥50%) is left alone (only near-zero keys re-key)', async () => {
   // roster keyed by a column that already overlaps the domain for most rows → not disrupted
   const partialRoster: Row[] = [
