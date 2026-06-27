@@ -116,6 +116,7 @@ const ROLE_CAPABILITIES: Record<Role, Set<Capability>> = {
     'tenant.edit_settings',
     // Data
     'data.import',
+    'data.upload', // OB-247 R2: canonical membrane-delivery capability (operator + CDA share it)
     'data.upload_storage',
     'data.calculate',
     'data.advance_lifecycle',
@@ -150,6 +151,7 @@ const ROLE_CAPABILITIES: Record<Role, Set<Capability>> = {
     'tenant.edit_settings',
     // Data
     'data.import',
+    'data.upload', // OB-247 R2: canonical membrane-delivery capability (operator + CDA share it)
     'data.upload_storage',
     'data.calculate',
     'data.advance_lifecycle',

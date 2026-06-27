@@ -23,7 +23,9 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   const actor = await resolveActor();
   if (!actor) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
-  if (!hasCapability(actor.role, 'data.import')) {
+  // OB-247 R2: the membrane delivery capability is data.upload (held by the operator AND
+  // the CDA). data.import stays for the full import wizard. Both roles can deliver a file.
+  if (!hasCapability(actor.role, 'data.upload')) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 

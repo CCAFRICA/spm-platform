@@ -28,7 +28,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   const actor = await resolveActor();
   if (!actor) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
-  if (!hasCapability(actor.role, 'data.import')) {
+  // OB-247 R2: membrane delivery capability (operator + CDA). See prepare/route.ts.
+  if (!hasCapability(actor.role, 'data.upload')) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 

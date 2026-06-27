@@ -33,6 +33,16 @@ test('gate 2: cda has NO operator capabilities', () => {
   assert.equal(hasCapability('cda', 'view.own_uploads'), true);
 });
 
+test('R2 Phase 1: the membrane delivery capability (data.upload) is held by BOTH operator and CDA', () => {
+  // The prism upload routes now gate on data.upload; operator Submit must not regress.
+  assert.equal(hasCapability('platform', 'data.upload'), true);
+  assert.equal(hasCapability('admin', 'data.upload'), true);
+  assert.equal(hasCapability('cda', 'data.upload'), true);
+  // data.import stays operator-only (the import wizard); the CDA never gets it.
+  assert.equal(hasCapability('cda', 'data.import'), false);
+  assert.equal(hasCapability('platform', 'data.import'), true);
+});
+
 test('gate 3: cda lands in the portal; operators land in /stream', () => {
   assert.equal(landingPathForRole('cda'), '/portal');
   assert.equal(landingPathForRole('admin'), '/stream');
