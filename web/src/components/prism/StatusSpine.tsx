@@ -195,7 +195,7 @@ function HeldDetail({
           </button>
         )}
         <a
-          href={`mailto:support@compensationcloud.io?subject=${encodeURIComponent(
+          href={`mailto:support@vialuce.ai?subject=${encodeURIComponent(
             `Help with a file that wasn't accepted: ${file.original_filename}`,
           )}`}
           className="text-xs font-medium text-red-700 underline underline-offset-2 dark:text-red-300"

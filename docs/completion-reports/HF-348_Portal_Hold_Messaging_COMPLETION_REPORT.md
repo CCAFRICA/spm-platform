@@ -60,7 +60,7 @@ A focused review **confirmed** the core: the split is sourced from the recorded 
 | MED | `text-amber-600` on the white card ≈ 3.3:1 (below WCAG AA) | `toneTextClass('warning')` → `text-amber-700` (≈4.8:1). |
 | LOW | `holdKind` defaulted unknown → `infected` (a false rejection) | Flipped: **only a known `'infected'` → "Not accepted"**; error/unknown/raced → "Under review" — honoring the "never falsely reject" invariant (the byte is held regardless, so the message is UX-only). |
 | LOW | Dead, misleading `CUSTOMER_MESSAGE.infected_held = "We couldn't accept this file"` (unreachable but a latent honesty landmine) | Removed; `CUSTOMER_MESSAGE` is now `Partial` (held is verdict-aware only). |
-| NIT | `mailto` uses `support@compensationcloud.io` while copy says "Vialuce" | Domain matches the app's existing contact; architect confirms the address. |
+| NIT | `Contact support` mailto address | Now `support@vialuce.ai` (architect-confirmed); the interim legacy domain was eradicated in HF-349. |
 
 Re-verified: tsc 0; HF-348 5/5; build exit 0.
 
@@ -70,6 +70,6 @@ Re-verified: tsc 0; HF-348 5/5; build exit 0.
 
 ## 5. Residuals (§6A)
 - **Dependency the copy creates:** "a Vialuce data expert will review and follow up" requires held files to **surface to a reviewer** (operator/VL-Admin visibility + a triage path). **Fast-follow** — without it the promise is unbacked. Tracked as an open item.
-- `Contact support` uses `mailto:support@compensationcloud.io` (the domain the app already uses for contact, `upgrade/page.tsx`) — architect confirms the address.
+- `Contact support` uses `mailto:support@vialuce.ai` (architect-confirmed; the legacy domain was eradicated in HF-349).
 - DS-032 §6 refined by verdict-aware messaging + prominent identity — fold back on lock.
 - Note: a stray dev server was running on this worktree during the build (shared `.next`); it self-heals on recompile.
