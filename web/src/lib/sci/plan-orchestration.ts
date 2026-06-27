@@ -104,6 +104,10 @@ export interface OrchestratedComponent {
    * for downstream signal-surface writers (Decision 153 L2 signals).
    */
   metadataExtension?: Record<string, unknown>;
+  // HF-341 R7 (A2): the skeleton-recognized multiplicative-modifier link — this
+  // component scales another (its result multiplies the host's), so it folds into
+  // the host's DAG rather than summing as an independent component.
+  composesInto?: { target: string; operator: 'multiply' };
 }
 
 export interface OrchestrationResult {
@@ -235,6 +239,12 @@ export async function orchestratePerComponentInterpretation(
     const rateTableCellCount = typeof rawEntry.rateTableCellCount === 'number' && rawEntry.rateTableCellCount > 0
       ? Math.floor(rawEntry.rateTableCellCount)
       : undefined;
+    // HF-341 R7 (A2): a skeleton entry the LLM marked as a multiplicative modifier
+    // of another component (folds into the host's DAG, never summed independently).
+    const rawComposes = rawEntry.composesInto as Record<string, unknown> | undefined;
+    const composesInto = rawComposes && typeof rawComposes.target === 'string' && rawComposes.operator === 'multiply'
+      ? { target: rawComposes.target, operator: 'multiply' as const }
+      : undefined;
 
     // HF-248 Phase 3: resume — skip this component if it succeeded on a prior import.
     if (skipIds.has(compId) && input.priorComponents?.has(compId)) {
@@ -284,6 +294,7 @@ export async function orchestratePerComponentInterpretation(
         confidence: componentResult.component.confidence ?? 0.8,
         reasoning: componentResult.component.reasoning ?? '',
         metadataExtension: componentResult.component.metadataExtension,
+        composesInto, // HF-341 R7 (A2): carried from the skeleton index entry
       },
       outcome: componentResult.outcome,
     };

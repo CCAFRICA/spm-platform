@@ -442,7 +442,7 @@ Return your analysis as valid JSON.`,
 Output is small JSON — keep it compact. Per-component DAG trees and rate-table contents are EXPLICITLY out of scope for this call.
 
 CRITICAL REQUIREMENTS:
-1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component.
+1. Detect EVERY distinct compensation component. Each table / metric / KPI with its own payout structure is a separate component. EXCEPTION — a MODIFIER (composition, not a separate component): when a quantity does not pay on its own but MULTIPLIES or SCALES another component's payout (the plan describes it as a "multiplier", "accelerator", "booster", "factor", or otherwise says it multiplies/scales another component's result), it is NOT an independent component — its value would otherwise be wrongly ADDED. Emit it as an entry but mark it \`"composesInto": { "target": "<id of the component it multiplies>", "operator": "multiply" }\`; the platform folds it INTO that host component's computation as a factor. Only components that pay independently (their results sum) are left unmarked. Judge this by what the plan EXPRESSES (does this quantity scale another result, or pay on its own?), not by the component's name.
 2. Detect ALL employee types/classifications if the document distinguishes payout levels by role. Enumerate them in \`employeeTypes\` with stable ids.
 3. PER-VARIANT ENUMERATION (HF-252): when a component pays DIFFERENTLY by entity category (different rates, different breaks, different outputs for different roles/levels/tiers), enumerate it ONCE PER CATEGORY in \`componentIndex\` — each entry's \`appliesToEmployeeTypes\` carries the single category id. When a component pays UNIFORMLY across categories, enumerate it once with \`appliesToEmployeeTypes: ["all"]\`.
 4. For each component declare rateTableCellCount (integer) when the component is backed by a rate table: 1D band table → number of tiers; 2D matrix → rows × columns. Omit the field when the component has no rate table (simple rate × metric, linear function, etc.).
@@ -468,6 +468,7 @@ Return JSON with this exact structure:
       "appliesToEmployeeTypes": ["stable-id-1"] or ["all"],
       "briefSemantic": "one-sentence prose describing what this component computes",
       "rateTableCellCount": 30,   // omit when no rate table
+      "composesInto": { "target": "component-id-it-multiplies", "operator": "multiply" },  // omit unless this entry is a multiplier/accelerator that SCALES another component
       "confidence": 0-100
     }
   ],

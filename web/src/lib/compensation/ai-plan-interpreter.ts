@@ -96,6 +96,17 @@ export interface InterpretedComponent {
    * persisted component's metadata in convertComponent.
    */
   metadataExtension?: Record<string, unknown>;
+  /**
+   * HF-341 R7 (A2): a component that semantically MODIFIES (scales) another
+   * component's payout — e.g. a volume accelerator that the plan describes as a
+   * "multiplier" — is NOT a separate additive component. The LLM skeleton marks
+   * it with the host component it composes into and the operator the plan
+   * expresses; assembly folds it INTO the host's PrimeNode DAG (host × modifier)
+   * so the additive component-combination layer only ever sums genuinely
+   * independent components. Composition mode comes from the expression, never a
+   * fold default (Decision 158); `target` matches the host by id or name.
+   */
+  composesInto?: { target: string; operator: 'multiply' };
 }
 
 export interface EmployeeType {
@@ -223,6 +234,12 @@ function normalizeComponents(components: unknown): InterpretedComponent[] {
       confidence: Number.isFinite(rawConf) ? rawConf : 0.5,
       reasoning: String(c.reasoning || ''),
     };
+    // HF-341 R7 (A2): carry the LLM-recognized multiplicative-modifier link so a
+    // component that scales another folds into the host DAG (interpretationToPlanConfig).
+    const ci = c.composesInto as Record<string, unknown> | undefined;
+    if (ci && typeof ci.target === 'string' && ci.operator === 'multiply') {
+      comp.composesInto = { target: ci.target, operator: 'multiply' };
+    }
     return comp;
   });
 }
@@ -299,6 +316,46 @@ import type {
 /**
  * Convert AI interpretation to RuleSetConfig
  */
+// HF-341 R7 (A2): fold each component the LLM recognized as a multiplicative
+// MODIFIER of another (composesInto.operator==='multiply') INTO its host's
+// PrimeNode DAG as `arithmetic(multiply, host, modifier)`, and drop it from the
+// component list. This removes the assumption that every emitted component is an
+// independent ADDITIVE term — the accelerator (a 1.0/1.25 factor) must SCALE the
+// commission, not be summed to it. The composition is expressed by the plan
+// (carried by the LLM), not inferred by a heuristic; the already-existing
+// `arithmetic` prime + executor evaluate it with no engine change (Korean Test:
+// no component-type→mode registry, no dimensionless-factor detection).
+export function foldComposedModifiers(components: InterpretedComponent[]): InterpretedComponent[] {
+  if (!Array.isArray(components) || components.length === 0) return components;
+  const byId = new Map(components.map(c => [c.id, c] as const));
+  const byName = new Map(components.map(c => [c.name, c] as const));
+  const folded = new Set<string>();
+
+  for (const mod of components) {
+    const compose = mod.composesInto;
+    if (!compose || compose.operator !== 'multiply') continue;
+    const host = byId.get(compose.target) ?? byName.get(compose.target);
+    if (!host || host.id === mod.id) {
+      console.log(`[foldComposedModifiers] "${mod.name}" composesInto target "${compose.target}" not found — left as an independent component.`);
+      continue;
+    }
+    if (!host.calculationIntent || typeof host.calculationIntent.prime !== 'string'
+        || !mod.calculationIntent || typeof mod.calculationIntent.prime !== 'string') {
+      console.log(`[foldComposedModifiers] "${mod.name}"→"${host.name}": one side is not a prime DAG — left as separate components.`);
+      continue;
+    }
+    // host := host × modifier (the modifier becomes a factor inside the host's DAG)
+    host.calculationIntent = {
+      prime: 'arithmetic',
+      op: 'multiply',
+      inputs: [host.calculationIntent, mod.calculationIntent],
+    } as Record<string, unknown>;
+    folded.add(mod.id);
+    console.log(`[foldComposedModifiers] HF-341 R7 A2: folded "${mod.name}" as a ×multiplier into "${host.name}" (one fewer additive component).`);
+  }
+  return components.filter(c => !folded.has(c.id));
+}
+
 export function interpretationToPlanConfig(
   interpretation: PlanInterpretation,
   tenantId: string,
@@ -309,7 +366,9 @@ export function interpretationToPlanConfig(
 
   // Build variants from employee types
   const employeeTypes = interpretation.employeeTypes || [];
-  const allComponents = interpretation.components || [];
+  // HF-341 R7 (A2): fold multiplicative modifiers into their host DAGs BEFORE the
+  // additive component list is built, so a recognized multiplier scales (not sums).
+  const allComponents = foldComposedModifiers(interpretation.components || []);
 
   const variants = employeeTypes.map((empType) => {
     const components = allComponents
