@@ -88,8 +88,12 @@ function AuthShellProtected({ children }: AuthShellProps) {
   // This component only renders on protected routes.
   // HF-148: MFA routes are fully exempt — no tenant requirement, no shell
   const onMfaRoute = isMfaRoute(pathname);
+  // OB-247: the CDA portal is authenticated (the gate below still runs) but renders
+  // with NO operator chrome — no sidebar, topbar, persona switcher, or workspace nav.
+  // The "no operator surface" invariant falls out of suppressing AuthShellInner here.
+  const isPortal = pathname.startsWith('/portal');
   const isTenantExempt = TENANT_EXEMPT_ROUTES.includes(pathname) || onMfaRoute;
-  const showShell = !SHELL_EXCLUDED_ROUTES.includes(pathname) && !onMfaRoute;
+  const showShell = !SHELL_EXCLUDED_ROUTES.includes(pathname) && !onMfaRoute && !isPortal;
 
   useEffect(() => {
     if (isLoading || tenantLoading) return;

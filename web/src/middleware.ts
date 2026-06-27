@@ -28,6 +28,7 @@ import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { detectSessionChurn } from '@/lib/observability/session-churn';
 import { resolveIdentity } from '@/lib/auth/resolve-identity';
 import { resolveSessionOwnership } from '@/lib/auth/session-lifecycle'; // HF-331: decodeJwtSessionId retired from middleware (getClaims supplies session_id)
+import { landingPathForRole } from '@/lib/auth/landing'; // OB-247: per-persona landing (CDA → portal)
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -43,7 +44,8 @@ const PUBLIC_PATHS = [
 ];
 
 // OB-178 / DS-019 Section 5.1: MFA Policy by role
-const MFA_REQUIRED_ROLES = ['platform', 'admin'];
+// OB-247: the CDA handles customer data → full MFA/AAL2, never weakened (DS-019).
+const MFA_REQUIRED_ROLES = ['platform', 'admin', 'cda'];
 
 function isRestrictedWorkspace(pathname: string): boolean {
   return Object.keys(WORKSPACE_CAPABILITIES).some(prefix => pathname.startsWith(prefix));
@@ -338,17 +340,10 @@ export async function middleware(request: NextRequest) {
       return noCacheResponse(NextResponse.redirect(new URL('/select-tenant', request.url)));
     }
 
-    // HF-137: Decision 128 — /stream is the canonical landing for ALL roles
-    const roleDefaults: Record<string, string> = {
-      admin: '/stream',
-      tenant_admin: '/stream',
-      manager: '/stream',
-      viewer: '/stream',
-      sales_rep: '/stream',
-      support: '/stream',
-    };
-
-    const defaultPath = roleDefaults[identity?.role || ''] || '/stream';
+    // HF-137: Decision 128 — /stream is the canonical landing for ALL operator roles.
+    // OB-247: the CDA is the one persona that lands in its focused portal instead
+    // (a new case in the existing landing rule, via the shared landingPathForRole).
+    const defaultPath = landingPathForRole(identity?.role);
     logAuthEvent('auth.redirect.default_workspace', { pathname, role: identity?.role ?? null, target: defaultPath }, user.id);
     return noCacheResponse(NextResponse.redirect(new URL(defaultPath, request.url)));
   }

@@ -85,8 +85,30 @@ export interface StateSummary {
   message: string;
 }
 
+/** Audience for the confirmation voice (DS-032 §3.4): operator surfaces vs the CDA portal. */
+export type Audience = 'operator' | 'customer';
+
+// Customer-facing voice for the focused portal (DS-032 §3.3): warmer ("secure your
+// data", not "scanning"). Same recorded state → both renders (verified confirmation §6A).
+const CUSTOMER_MESSAGE: Record<FileObjectState, string> = {
+  received: 'Arrived safely — securing your data now',
+  quarantined: 'Arrived safely — securing your data now',
+  scanning: 'Securing your data now',
+  clean: 'Cleared — finishing up',
+  promoted: 'Cleared and ready',
+  infected_held: "We couldn't accept this file — here's why",
+};
+
 /** Chip label + user-facing confirmation message, backed by the recorded state. */
-export function stateSummary(state: FileObjectState): StateSummary {
+export function stateSummary(state: FileObjectState, audience: Audience = 'operator'): StateSummary {
+  const base = operatorSummary(state);
+  if (audience === 'customer' && CUSTOMER_MESSAGE[state]) {
+    return { ...base, message: CUSTOMER_MESSAGE[state] };
+  }
+  return base;
+}
+
+function operatorSummary(state: FileObjectState): StateSummary {
   switch (state) {
     case 'received':
     case 'quarantined':

@@ -22,6 +22,7 @@ import {
   formatBytes,
   type FileRow,
   type SpineNode,
+  type Audience,
 } from './prism-status';
 
 function SpineDot({ node }: { node: SpineNode }) {
@@ -66,9 +67,9 @@ function Segment({ litLeft }: { litLeft: boolean }) {
   );
 }
 
-export function StatusSpine({ file }: { file: FileRow }) {
+export function StatusSpine({ file, audience = 'operator' }: { file: FileRow; audience?: Audience }) {
   const nodes = spineNodes(file.state);
-  const summary = stateSummary(file.state);
+  const summary = stateSummary(file.state, audience);
 
   return (
     <div className={`${CARD} ${CARD_PAD}`}>

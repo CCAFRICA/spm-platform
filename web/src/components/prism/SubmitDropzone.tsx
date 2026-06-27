@@ -27,7 +27,7 @@ async function sha256Hex(file: File): Promise<string> {
     .join('');
 }
 
-export function SubmitDropzone() {
+export function SubmitDropzone({ audience = 'operator' }: { audience?: 'operator' | 'customer' } = {}) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export function SubmitDropzone() {
             </div>
           ))}
           {recent.map((file) => (
-            <StatusSpine key={file.id} file={file} />
+            <StatusSpine key={file.id} file={file} audience={audience} />
           ))}
         </div>
       )}

@@ -19,7 +19,7 @@ import { PLATFORM_ROLE_VALUES } from '@/lib/auth/resolve-identity';
 // TYPES
 // =============================================================================
 
-export type Role = 'platform' | 'admin' | 'manager' | 'member' | 'viewer';
+export type Role = 'platform' | 'admin' | 'manager' | 'member' | 'viewer' | 'cda';
 
 export type Capability =
   // Platform
@@ -35,6 +35,7 @@ export type Capability =
   | 'tenant.edit_settings'
   // Data
   | 'data.import'
+  | 'data.upload' // OB-247 DS-032: Customer Data Administrator — deliver a file via the focused portal
   | 'data.upload_storage'
   | 'data.calculate'
   | 'data.advance_lifecycle'
@@ -45,6 +46,7 @@ export type Capability =
   | 'view.all_results'
   | 'view.team_results'
   | 'view.own_results'
+  | 'view.own_uploads' // OB-247 DS-032: CDA sees only their own deliveries
   | 'view.intelligence_stream'
   | 'view.all_entities'
   | 'view.team_entities'
@@ -63,7 +65,7 @@ export type Capability =
 // CANONICAL ROLES
 // =============================================================================
 
-export const CANONICAL_ROLES: readonly Role[] = ['platform', 'admin', 'manager', 'member', 'viewer'] as const;
+export const CANONICAL_ROLES: readonly Role[] = ['platform', 'admin', 'manager', 'member', 'viewer', 'cda'] as const;
 
 // =============================================================================
 // ROLE ALIAS RESOLUTION
@@ -82,6 +84,7 @@ const NON_PLATFORM_ALIASES: Record<string, Role> = {
   'individual': 'member',
   'sales_rep': 'member',
   'viewer': 'viewer',
+  'cda': 'cda', // OB-247: Customer Data Administrator (canonical, so resolveRole/MFA/provision accept it)
 };
 
 /**
@@ -208,6 +211,15 @@ const ROLE_CAPABILITIES: Record<Role, Set<Capability>> = {
     // Statement
     'statement.view',
   ]),
+
+  // OB-247 DS-032 Slice A — Customer Data Administrator. A customer-side user whose
+  // ONLY job is to deliver data: the focused upload portal + their own deliveries.
+  // Deliberately minimal (DS-014 "if you can't use it, you can't see it") — no
+  // operator capabilities, so their nav/landing fall out near-empty by the rule.
+  cda: new Set<Capability>([
+    'data.upload',
+    'view.own_uploads',
+  ]),
 };
 
 // =============================================================================
@@ -321,6 +333,7 @@ export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
   '/configuration': 'tenant.edit_settings',
   '/govern': 'data.approve_results',
   '/data': 'data.import',
+  '/portal': 'data.upload', // OB-247: the CDA focused portal (middleware workspace gate)
   '/financial': 'view.team_results',
 };
 

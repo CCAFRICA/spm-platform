@@ -11,16 +11,20 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context';
+import { landingPathForRole } from '@/lib/auth/landing';
 
 export default function RootPage() {
   const router = useRouter();
   const { currentTenant } = useTenant();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (currentTenant) {
-      router.replace('/stream');
+      // OB-247: per-persona landing — the CDA lands in its portal, operators in /stream.
+      router.replace(landingPathForRole(user?.role));
     }
-  }, [currentTenant, router]);
+  }, [currentTenant, user?.role, router]);
 
   if (!currentTenant) {
     return (
