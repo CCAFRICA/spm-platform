@@ -14,6 +14,7 @@ import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/
 import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
+import { RemediationReview } from '@/components/remediation/RemediationReview'; // OB-249 (P7)
 import { ImportProgress } from '@/components/sci/ImportProgress';
 import { ImportTelemetryPanel } from '@/components/sci/ImportTelemetryPanel';
 import { AlertCircle, X } from 'lucide-react';
@@ -696,6 +697,10 @@ export default function OperateImportPage() {
               onNavigateToCalculate={handleNavigateToCalculate}
               onImportMore={handleUploadMore}
             />
+          )}
+          {/* OB-249 (P7): rendered remediation — what the stage made congruent before promotion. */}
+          {state.phase === 'complete' && postImportData && (
+            <RemediationReview tenantId={tenantId} />
           )}
 
           {/* ─── ERROR STATE ─── */}
