@@ -7,7 +7,8 @@
  * inside scanFileObject — this route cannot promote anything by itself.
  *
  * Auth: a storage webhook authenticates with PRISM_SCAN_WEBHOOK_SECRET; an
- * operator authenticates via session + data.import (and tenant scope).
+ * operator/CDA authenticates via session + data.upload (the membrane capability)
+ * and tenant scope.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!webhookOk) {
     const actor = await resolveActor();
     if (!actor) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
-    if (!hasCapability(actor.role, 'data.import')) {
+    if (!hasCapability(actor.role, 'data.upload')) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
     const file = await getFileObject(id);

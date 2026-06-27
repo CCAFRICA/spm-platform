@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { resolveActor } from '@/lib/prism/actor';
+import { hasCapability } from '@/lib/auth/permissions';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,11 @@ const SELECT_COLS =
 export async function GET() {
   const actor = await resolveActor();
   if (!actor) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
+  // OB-247 R2: defense in depth atop the RLS SELECT policy — only membrane-delivery
+  // roles (operator + CDA, who hold data.upload) list files. RLS still scopes the rows.
+  if (!hasCapability(actor.role, 'data.upload')) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
 
   const sb = (await createServerSupabaseClient()) as unknown as SupabaseClient;
   const { data, error } = await sb

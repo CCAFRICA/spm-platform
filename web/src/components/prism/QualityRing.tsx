@@ -16,8 +16,16 @@ import type { FileObjectState } from '@/lib/prism/types';
 const R = 26;
 const C = 2 * Math.PI * R;
 
-export function QualityRing({ state, size = 64 }: { state: FileObjectState; size?: number }) {
-  const { value, color, indeterminate } = ringFor(state);
+export function QualityRing({
+  state,
+  verdict,
+  size = 64,
+}: {
+  state: FileObjectState;
+  verdict?: string | null;
+  size?: number;
+}) {
+  const { value, color, indeterminate } = ringFor(state, verdict);
   const offset = C * (1 - value);
   const empty = value === 0;
 

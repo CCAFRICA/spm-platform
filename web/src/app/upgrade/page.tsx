@@ -369,7 +369,7 @@ export default function UpgradePage() {
             For organizations with 10,000+ entities or custom requirements.
           </p>
           <a
-            href="mailto:sales@compensationcloud.io"
+            href="mailto:sales@vialuce.ai"
             style={{
               display: 'inline-block',
               background: 'transparent',
