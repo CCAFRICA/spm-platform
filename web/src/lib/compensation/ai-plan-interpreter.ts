@@ -16,7 +16,7 @@ import {
   canonicalizeBoundaries,
   BoundaryCanonicalizationError,
 } from '@/lib/calculation/boundary-canonicalizer';
-import type { Boundary } from '@/lib/calculation/intent-types';
+import type { Boundary, DistributionIntent } from '@/lib/calculation/intent-types';
 import { isPrimeNode, VALID_PRIMES } from '@/lib/calculation/intent-types';
 import { validateComponentIntent, logValidationViolations } from '@/lib/calculation/prime-validator';
 
@@ -107,6 +107,18 @@ export interface InterpretedComponent {
    * fold default (Decision 158); `target` matches the host by id or name.
    */
   composesInto?: { target: string; operator: 'multiply' };
+  /**
+   * OB-248 (P-C1/C2/C3): when the plan describes a DISTRIBUTION — one
+   * transaction fanning out to multiple recipients via a hierarchy — the LLM
+   * recognizes it here (Decision 158 RECOGNITION side): ordered recipient roles
+   * with inclusion conditions, the multiplicative factor model, and the modifier
+   * shapes. Structural extension of the per-component output (the exact pattern
+   * `composesInto` set), NOT a parallel output class. Carried into the persisted
+   * component's `metadata.distribution`; convergence binds it (CONSTRUCTION side)
+   * into a metric_derivations distribution derivation. Absent on every
+   * non-distribution component → byte-identical (the composesInto precedent).
+   */
+  distributesTo?: DistributionIntent;
 }
 
 export interface EmployeeType {
@@ -239,6 +251,16 @@ function normalizeComponents(components: unknown): InterpretedComponent[] {
     const ci = c.composesInto as Record<string, unknown> | undefined;
     if (ci && typeof ci.target === 'string' && ci.operator === 'multiply') {
       comp.composesInto = { target: ci.target, operator: 'multiply' };
+    }
+    // OB-248 (P-C1): carry the recognized distribution intent through structurally.
+    // Validated shallowly here (structural shape only — no role/factor/modifier
+    // value is interpreted at comprehension time; convergence binds it). A
+    // malformed shape is dropped (left undefined), not coerced — fail-quiet at
+    // recognition, fail-loud at convergence (P-V3).
+    const dt = c.distributesTo as Record<string, unknown> | undefined;
+    if (dt && Array.isArray(dt.recipients) && dt.recipients.length > 0
+        && dt.factorModel && typeof dt.factorModel === 'object') {
+      comp.distributesTo = dt as unknown as DistributionIntent;
     }
     return comp;
   });
@@ -529,6 +551,11 @@ function convertComponent(comp: InterpretedComponent, order: number): PlanCompon
       metadata: {
         ...(base.metadata || {}),
         intent: base.calculationIntent,
+        // OB-248 (P-C1): carry the recognized distribution intent onto the
+        // persisted component so convergence reads it from
+        // rule_sets.components[].metadata.distribution and constructs the bound
+        // derivation. Omitted for every non-distribution component.
+        ...(comp?.distributesTo ? { distribution: comp.distributesTo } : {}),
         // HF-251: merge orchestrator-carried construction_method +
         // compositional_intent into the persisted component metadata.
         // Downstream signal-surface writers (Decision 153 L2 signals) can

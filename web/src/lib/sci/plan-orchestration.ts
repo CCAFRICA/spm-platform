@@ -28,6 +28,7 @@
 
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
+import type { DistributionIntent } from '@/lib/calculation/intent-types';
 // HF-341 R3: the CompositionalIntent shape layer (intent-constructor / compositional-intent) is
 // eradicated — the LLM emits the calculationIntent PrimeNode DAG directly and validateComponentIntent
 // (the structural verifier) is the construction layer. constructTree / ConstructionError /
@@ -108,6 +109,10 @@ export interface OrchestratedComponent {
   // component scales another (its result multiplies the host's), so it folds into
   // the host's DAG rather than summing as an independent component.
   composesInto?: { target: string; operator: 'multiply' };
+  // OB-248 (P-C1): the recognized distribution intent (one transaction → N
+  // recipients). Carried through the orchestrated emission path identically to
+  // composesInto so both emission paths feed the same InterpretedComponent shape.
+  distributesTo?: DistributionIntent;
 }
 
 export interface OrchestrationResult {
@@ -245,6 +250,12 @@ export async function orchestratePerComponentInterpretation(
     const composesInto = rawComposes && typeof rawComposes.target === 'string' && rawComposes.operator === 'multiply'
       ? { target: rawComposes.target, operator: 'multiply' as const }
       : undefined;
+    // OB-248 (P-C1): carry the recognized distribution intent from the skeleton entry.
+    const rawDistributesTo = rawEntry.distributesTo as Record<string, unknown> | undefined;
+    const distributesTo = rawDistributesTo && Array.isArray(rawDistributesTo.recipients)
+      && rawDistributesTo.recipients.length > 0 && typeof rawDistributesTo.factorModel === 'object'
+      ? (rawDistributesTo as unknown as DistributionIntent)
+      : undefined;
 
     // HF-248 Phase 3: resume — skip this component if it succeeded on a prior import.
     if (skipIds.has(compId) && input.priorComponents?.has(compId)) {
@@ -295,6 +306,7 @@ export async function orchestratePerComponentInterpretation(
         reasoning: componentResult.component.reasoning ?? '',
         metadataExtension: componentResult.component.metadataExtension,
         composesInto, // HF-341 R7 (A2): carried from the skeleton index entry
+        distributesTo, // OB-248 (P-C1): carried from the skeleton index entry
       },
       outcome: componentResult.outcome,
     };
