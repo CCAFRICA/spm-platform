@@ -857,7 +857,7 @@ function CalculatePageInner() {
                 {resultsData.batchId && (
                   <DrillThroughPanel
                     tenantId={tenantId}
-                    scope={{ visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' }}
+                    scope={{ type: 'all' }}
                     batchId={resultsData.batchId}
                     periodId={selectedPeriodId ?? undefined}
                     showExport

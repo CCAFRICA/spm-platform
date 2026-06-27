@@ -57,18 +57,6 @@ import { getAIService } from '@/lib/ai/ai-service';
 type Period = 'current' | 'previous' | 'ytd';
 
 /**
- * Extract employee ID from user email.
- * e.g., "96568046@retailcgmx.com" -> "96568046"
- */
-function extractEmployeeId(email: string | undefined): string | null {
-  if (!email) return null;
-  const match = email.match(/^(\d+)@/);
-  if (match) return match[1];
-  const nameMatch = email.match(/^([^@]+)@/);
-  return nameMatch ? nameMatch[1] : null;
-}
-
-/**
  * Get current period as YYYY-MM.
  */
 
@@ -86,7 +74,7 @@ function mapRole(role: string): 'platform' | 'platform_admin' | 'manager' | 'sal
 
 export default function MyCompensationPage() {
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
+  const { user, ownEntityId } = useAuth();
   const { persona } = usePersona();
   const { format: formatCurrency, symbol: currencySymbol } = useCurrency();
   const [period, setPeriod] = useState<Period>('current');
@@ -109,7 +97,9 @@ export default function MyCompensationPage() {
   useEffect(() => {
     if (!currentTenant || !user) return;
 
-    const entityId = extractEmployeeId(user.email);
+    // OB-246 (AP8): own entity resolved STRUCTURALLY via entities.profile_id (useAuth().ownEntityId),
+    // not by parsing user.email. Null when unlinked → the existing "no data" empty state (fail-closed).
+    const entityId = ownEntityId;
 
     const loadData = async () => {
       try {
@@ -193,7 +183,7 @@ export default function MyCompensationPage() {
     loadData();
 
     setIsLoading(false);
-  }, [currentTenant, user]);
+  }, [currentTenant, user, ownEntityId]);
 
   // OB-34: Generate AI personal performance narrative
   const handleGenerateNarrative = async () => {

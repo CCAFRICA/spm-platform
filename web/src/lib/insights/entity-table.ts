@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getPeriodsWithResults, getEntityResults } from '@/lib/drill-through';
-import { ALL_INSIGHTS_SCOPE } from './periods';
+import { type AuthScope, ALL_SCOPE } from '@/lib/auth/scope';
 import type { EntityTableOptions, EntityTableResult, EntityTableRow } from './types';
 
 function topComponent(bd: Record<string, number> | undefined): { name: string; amount: number } | null {
@@ -24,6 +24,7 @@ export async function getEntityTableData(
   tenantId: string,
   periodId: string,
   options: EntityTableOptions = {},
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<EntityTableResult> {
   const { search = '', sortBy = 'total_payout', sortOrder = 'desc', variant, componentName, page = 1, pageSize = 25 } = options;
@@ -31,7 +32,7 @@ export async function getEntityTableData(
   if (!tenantId || !periodId) return empty;
   const sb = client ?? createClient();
 
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   if (!rows.length) return empty;
 
   // prior calculated period (chronological neighbour) for delta_prior
@@ -40,7 +41,7 @@ export async function getEntityTableData(
   const priorPeriod = idx >= 0 && idx + 1 < periodsDesc.length ? periodsDesc[idx + 1] : null;
   const priorById = new Map<string, number>();
   if (priorPeriod) {
-    const priorRows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: priorPeriod.id }, sb);
+    const priorRows = await getEntityResults(tenantId, scope, { periodId: priorPeriod.id }, sb);
     for (const r of priorRows) priorById.set(r.entityId, r.totalPayout);
   }
 

@@ -45,7 +45,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         labelEs: 'Tableros',
         routes: [
           { path: '/stream', label: 'Intelligence', labelEs: 'Inteligencia', icon: 'Zap', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.intelligence_stream' },
-          { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/perform', label: 'Performance Overview', labelEs: 'Resumen de Rendimiento', icon: 'Gauge', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.own_results' },
         ],
       },
       // OB-213 Phase 1 / OB-322 O-1: Insights suite — exactly five sub-pages. My Team and
@@ -56,11 +56,11 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Insights',
         labelEs: 'Perspectivas',
         routes: [
-          { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/performance', label: 'Attainment', labelEs: 'Cumplimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/insights', label: 'Overview', labelEs: 'Resumen', icon: 'Lightbulb', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/analytics', label: 'Analytics', labelEs: 'Analítica', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/performance', label: 'Attainment', labelEs: 'Cumplimiento', icon: 'TrendingUp', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/compensation', label: 'Compensation', labelEs: 'Compensación', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/insights/trends', label: 'Trends', labelEs: 'Tendencias', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
         ],
       },
       // OB-213 Phase 1: Acceleration (KEEP).
@@ -69,7 +69,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Acceleration',
         labelEs: 'Aceleración',
         routes: [
-          { path: '/acceleration', label: 'Accelerator Participants', labelEs: 'Participantes', icon: 'Rocket', roles: ['platform', 'admin', 'manager'] },
+          { path: '/acceleration', label: 'Accelerator Participants', labelEs: 'Participantes', icon: 'Rocket', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.team_results' },
         ],
       },
     ],
@@ -185,12 +185,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Financial',
         labelEs: 'Finanzas',
         routes: [
-          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'] },
+          { path: '/financial', label: 'Overview', labelEs: 'Resumen', icon: 'Layers', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/pulse', label: 'Network Pulse', labelEs: 'Pulso de Red', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/timeline', label: 'Revenue Timeline', labelEs: 'Cronología de Ingresos', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/performance', label: 'Location Benchmarks', labelEs: 'Benchmarks de Ubicación', icon: 'BarChart3', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/staff', label: 'Staff Performance', labelEs: 'Rendimiento de Personal', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/leakage', label: 'Leakage Monitor', labelEs: 'Monitor de Fugas', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.team_results' },
         ],
       },
       // OB-213 Phase 1: Financial Analytics (KEEP) — gated with the whole Finance agent.
@@ -199,9 +199,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Financial Analytics',
         labelEs: 'Analítica Financiera',
         routes: [
-          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'Package', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
-          { path: '/financial/summary', label: 'Operating Summary', labelEs: 'Resumen Operativo', icon: 'ClipboardList', roles: ['platform', 'admin', 'manager', 'sales_rep'] },
+          { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'Package', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/financial/summary', label: 'Operating Summary', labelEs: 'Resumen Operativo', icon: 'ClipboardList', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
         ],
       },
     ],
@@ -269,10 +269,10 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Data Visibility',
         labelEs: 'Visibilidad de Datos',
         routes: [
-          { path: '/data', label: 'Data Console', labelEs: 'Consola de Datos', icon: 'Database', roles: ['platform', 'admin', 'manager'] },
-          { path: '/data/quality', label: 'Data Quality', labelEs: 'Calidad de Datos', icon: 'CheckSquare', roles: ['platform', 'admin'] },
-          { path: '/data/transactions', label: 'Transactions', labelEs: 'Transacciones', icon: 'Receipt', roles: ['platform', 'admin', 'manager'] },
-          { path: '/data/reports', label: 'Reports', labelEs: 'Reportes', icon: 'FileBarChart', roles: ['platform', 'admin', 'manager'] },
+          { path: '/data', label: 'Data Console', labelEs: 'Consola de Datos', icon: 'Database', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.team_results' },
+          { path: '/data/quality', label: 'Data Quality', labelEs: 'Calidad de Datos', icon: 'CheckSquare', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+          { path: '/data/transactions', label: 'Transactions', labelEs: 'Transacciones', icon: 'Receipt', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.team_results' },
+          { path: '/data/reports', label: 'Reports', labelEs: 'Reportes', icon: 'FileBarChart', roles: ['platform', 'admin', 'manager'], requiredCapability: 'view.team_results' },
         ],
       },
       // Notifications (KEEP).
@@ -292,7 +292,7 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Integrations',
         labelEs: 'Integraciones',
         routes: [
-          { path: '/integrations/catalog', label: 'Integrations Catalog', labelEs: 'Catálogo de Integraciones', icon: 'Plug', roles: ['platform', 'admin'] },
+          { path: '/integrations/catalog', label: 'Integrations Catalog', labelEs: 'Catálogo de Integraciones', icon: 'Plug', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
         ],
       },
       // Operations (KEEP) — Messaging, Rollback, New Tenant (VL Admin only).
@@ -301,8 +301,8 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         label: 'Operations',
         labelEs: 'Operaciones',
         routes: [
-          { path: '/operations/messaging', label: 'Messaging', labelEs: 'Mensajería', icon: 'MessageSquare', roles: ['platform', 'admin'] },
-          { path: '/operations/rollback', label: 'Rollback', labelEs: 'Reversión', icon: 'Undo2', roles: ['platform', 'admin'] },
+          { path: '/operations/messaging', label: 'Messaging', labelEs: 'Mensajería', icon: 'MessageSquare', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
+          { path: '/operations/rollback', label: 'Rollback', labelEs: 'Reversión', icon: 'Undo2', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
           { path: '/admin/tenants/new', label: 'New Tenant', labelEs: 'Nuevo Inquilino', icon: 'Building2', roles: ['platform'], requiredCapability: 'platform.provision_tenant' },
         ],
       },
@@ -365,10 +365,13 @@ export function getWorkspaceRoutesForRole(
     .map(section => ({
       ...section,
       routes: section.routes.filter(route => {
+        // OB-246 (AP5): ONE PDP — capability gate only. The §9 `route.roles.includes(role)` fallback
+        // (a raw string compare against the non-canonical 'sales_rep' alias) is retired. A route with
+        // NO requiredCapability is intentionally universal (only /notifications) → visible to all.
         if (route.requiredCapability) {
           return hasCapability(role, route.requiredCapability);
         }
-        return route.roles.includes(role);
+        return true;
       }),
     })).filter(section => section.routes.length > 0);
 }

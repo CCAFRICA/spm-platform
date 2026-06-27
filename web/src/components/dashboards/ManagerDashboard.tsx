@@ -38,12 +38,8 @@ import { computeManagerInsights } from '@/lib/intelligence/insight-engine';
 import { NextAction } from '@/components/intelligence/NextAction';
 import type { NextActionContext } from '@/lib/intelligence/next-action-engine';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
-import { useAuth } from '@/contexts/auth-context'; // OB-226 C: manager-scoped drill-through resolution
-import {
-  resolveEntityScope,
-  getPeriodsWithResults,
-  type EntityScope,
-} from '@/lib/drill-through'; // OB-226 C
+import { useAuth } from '@/contexts/auth-context'; // OB-246: manager-scoped drill-through from useAuth().scope
+import { getPeriodsWithResults } from '@/lib/drill-through'; // OB-226 C
 import { DrillThroughPanel } from '@/components/drill-through'; // OB-226 C
 
 const HERO_STYLE = {
@@ -117,7 +113,8 @@ export function ManagerDashboard() {
   const { currentTenant } = useTenant();
   const { symbol: currencySymbol, format } = useCurrency();
   const { scope } = usePersona();
-  const { user } = useAuth(); // OB-226 C: drives resolveEntityScope for the team drill-through
+  // OB-246: drill-through scope comes straight from the authenticated scope (team/own/deny — fail-closed).
+  const { effectiveScope: authScope } = useAuth();
   const { activePeriodId, activePeriodLabel } = usePeriod();
   const { locale } = useLocale();
   const tenantId = currentTenant?.id ?? '';
@@ -134,12 +131,9 @@ export function ManagerDashboard() {
   const [data, setData] = useState<ManagerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // OB-226 C: when the persona scope yields no team (manager with no profile_scope row —
-  // the BCL/MIR case, where persona-context fails CLOSED to entityIds:[]), resolve the
-  // OB-224 drill-through scope from the profile. For BCL/MIR this resolves to scopeType
-  // 'all' (profile_scope is empty), so the real entity leaderboard renders via
-  // DrillThroughPanel. Genuinely empty → honest "no team assignments" empty state below.
-  const [teamScope, setTeamScope] = useState<EntityScope | null>(null);
+  // OB-246: the team drill-through uses the authenticated scope (useAuth().scope). A manager with no
+  // profile_scope row now fails CLOSED (own entity, or deny if unlinked) — NOT the whole tenant (the
+  // OB-226 C fail-open is the DIAG-077 AP4 defect this OB closes). Only the latest period is loaded here.
   const [drillPeriodId, setDrillPeriodId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -147,19 +141,15 @@ export function ManagerDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [resolved, periods] = await Promise.all([
-          resolveEntityScope(user?.id),
-          getPeriodsWithResults(tenantId),
-        ]);
+        const periods = await getPeriodsWithResults(tenantId);
         if (cancelled) return;
-        setTeamScope(resolved);
         setDrillPeriodId(periods[0]?.id);
       } catch {
-        // resolveEntityScope already fails to ALL_SCOPE; swallow and let the empty state handle it
+        // swallow — the empty state handles a genuinely empty result
       }
     })();
     return () => { cancelled = true; };
-  }, [tenantId, user?.id]);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!tenantId || (scope.entityIds.length === 0 && !scope.canSeeAll)) {
@@ -287,19 +277,14 @@ export function ManagerDashboard() {
   }
 
   if (!data || data.teamMembers.length === 0) {
-    // OB-226 C: the persona scope yielded no team (manager with no profile_scope row —
-    // BCL/MIR fail-closed to entityIds:[]). The previous branch claimed "No team data for
-    // this period" and pushed a stale "View Financial Dashboard" CTA, which is dishonest:
-    // calculations HAVE run for these tenants. Resolve the OB-224 drill-through scope from the
-    // profile instead. For BCL/MIR this resolves to scopeType 'all' (profile_scope empty), so
-    // the real entity leaderboard renders via DrillThroughPanel (same code path as
-    // /insights/my-team). EntityResultsList shows the honest "no team assignments" empty
-    // message internally when the resolved scope genuinely has no results.
+    // OB-246: the team drill-through renders the manager's authenticated scope (team via profile_scope,
+    // else own entity, else deny → honest empty). The DrillThroughPanel shows the empty message below
+    // when the scope genuinely has no results (e.g. a manager with no team assignment and no own entity).
     const emptyMessage = isSpanish
       ? 'No hay asignaciones de equipo configuradas. Asigna entidades a los gerentes en Configurar → Personas.'
       : 'No team assignments configured. Assign entities to managers in Configure → People.';
 
-    if (!teamScope || !tenantId) {
+    if (!tenantId) {
       return (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
@@ -315,7 +300,7 @@ export function ManagerDashboard() {
           </p>
           <DrillThroughPanel
             tenantId={tenantId}
-            scope={teamScope}
+            scope={authScope}
             periodId={drillPeriodId}
             emptyMessage={emptyMessage}
           />

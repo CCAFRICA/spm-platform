@@ -43,7 +43,7 @@ import { CarrierImportHealth, CarrierPipelineReadiness } from '@/components/stre
 import { useCarrierIntelligence } from '@/lib/hooks/useCarrierIntelligence';
 import { useDrillThrough } from '@/hooks/useDrillThrough';
 import { DrillThroughPanel } from '@/components/drill-through';
-import type { EntityScope } from '@/lib/drill-through';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed ICM reads
 
 // REDESIGN — End-State A clean data layer (the only calc-data reads on the ICM render)
 import {
@@ -52,7 +52,6 @@ import {
   getBatchValidity,
   getComponentTotals,
   getPopulationTrend,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
   type PopulationTrendPoint,
@@ -84,8 +83,6 @@ import {
   type PipelineStage,
 } from '@/components/insights/ds003';
 
-// Admin sees the whole tenant; manager/individual drill panels are scoped to on-screen entities.
-const ALL_SCOPE: EntityScope = { visibleEntityIds: [], visibleRuleSetIds: [], visiblePeriodIds: [], scopeType: 'all' };
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────────
 // OB-211 WS-2 / B2: the lead Insight narrative for /stream (preserved — same deterministic builder
@@ -450,6 +447,7 @@ function IcmStream({
   carrierAdminStack: ReactNode;
 }) {
   const { format } = useCurrency();
+  const { effectiveScope: authScope } = useAuth(); // OB-246: ICM render reads narrow by authenticated scope
   const theme = usePersonaTheme();
   const isVialuce = useIsVialuce();
   const showHigh = useDensityAllows('high');
@@ -477,7 +475,7 @@ function IcmStream({
   useEffect(() => {
     if (!tenantId) return;
     let cancelled = false;
-    Promise.all([getCalculatedPeriods(tenantId), getPopulationTrend(tenantId)])
+    Promise.all([getCalculatedPeriods(tenantId, authScope), getPopulationTrend(tenantId, authScope)])
       .then(([ps, tr]) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -488,14 +486,14 @@ function IcmStream({
       })
       .catch((err) => { console.warn('[Stream] periods load failed:', err); setPeriodsLoaded(true); setPeriodLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, authScope]);
 
   // ── Component trajectories across ALL calculated periods (Admin depth). ──
   useEffect(() => {
     if (!tenantId || !showHigh || periods.length < 2) { setComponentSeries([]); return; }
     let cancelled = false;
     const asc = [...periods].sort((a, b) => a.start_date.localeCompare(b.start_date));
-    Promise.all(asc.map((p) => getComponentTotals(tenantId, p.period_id).catch(() => [] as ComponentTotal[])))
+    Promise.all(asc.map((p) => getComponentTotals(tenantId, p.period_id, authScope).catch(() => [] as ComponentTotal[])))
       .then((perPeriod) => {
         if (cancelled) return;
         // union of component names, one series of per-period totals each (most recent period's top first)
@@ -511,7 +509,7 @@ function IcmStream({
       })
       .catch(() => { if (!cancelled) setComponentSeries([]); });
     return () => { cancelled = true; };
-  }, [tenantId, showHigh, periods]);
+  }, [tenantId, showHigh, periods, authScope]);
 
   // ── Learning confidence (Admin only). ──
   useEffect(() => {
@@ -541,11 +539,11 @@ function IcmStream({
     const idx = periods.findIndex((p) => p.period_id === selectedPeriodId);
     const priorPeriod = idx >= 0 ? periods[idx + 1] : undefined; // periods are DESC → next index is prior
     Promise.all([
-      getPeriodTotal(tenantId, selectedPeriodId),
+      getPeriodTotal(tenantId, selectedPeriodId, authScope),
       getBatchValidity(tenantId, selectedPeriodId),
-      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+      getEntityResults(tenantId, authScope, { periodId: selectedPeriodId }),
       priorPeriod
-        ? getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: priorPeriod.period_id })
+        ? getEntityResults(tenantId, authScope, { periodId: priorPeriod.period_id })
         : Promise.resolve([] as EntityResult[]),
     ])
       .then(([tot, val, rs, prs]) => {
@@ -558,7 +556,7 @@ function IcmStream({
       })
       .catch((err) => { console.warn('[Stream] period data load failed:', err); if (!cancelled) setPeriodLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, selectedPeriodId, periods]);
+  }, [tenantId, selectedPeriodId, periods, authScope]);
 
   const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
   const selected = periods[selectedIdx];
@@ -893,7 +891,7 @@ function IcmStream({
         {/* OB-224 (preserved): inline five-layer drill for the clicked entity, scoped to this period. */}
         {drill.isOpen && tenantId && selectedPeriodId && (
           <StreamDrillRegion isVialuce={isVialuce} onClose={drill.close}>
-            <DrillThroughPanel tenantId={tenantId} scope={ALL_SCOPE} periodId={selectedPeriodId} initialEntityId={drill.target?.entityId} showExport />
+            <DrillThroughPanel tenantId={tenantId} scope={authScope} periodId={selectedPeriodId} initialEntityId={drill.target?.entityId} showExport />
           </StreamDrillRegion>
         )}
 

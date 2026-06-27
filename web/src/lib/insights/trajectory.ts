@@ -7,28 +7,32 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getPeriodsWithResults, getEntityResults } from '@/lib/drill-through';
-import { ALL_INSIGHTS_SCOPE } from './periods';
+import { type AuthScope, ALL_SCOPE, scopeCanViewAll } from '@/lib/auth/scope';
 import { getPeriodRollup } from './intelligence-data';
 import type { EntityTrajectory, TrajectoryPoint, PopulationTrendPoint } from './types';
 
 const STABLE_EPS = 0.005; // <0.5% change = stable
 
-/** periods chronological ASC + per-period EntityResults, fetched once. */
-async function loadAcrossPeriods(tenantId: string, sb: SupabaseClient<Database>) {
+/** periods chronological ASC + per-period EntityResults (scope-narrowed), fetched once. */
+async function loadAcrossPeriods(tenantId: string, sb: SupabaseClient<Database>, scope: AuthScope) {
   const periodsDesc = await getPeriodsWithResults(tenantId, sb);
   const periodsAsc = [...periodsDesc].sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''));
   const perPeriod = await Promise.all(
-    periodsAsc.map(async p => ({ period: p, rows: await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: p.id }, sb) })),
+    periodsAsc.map(async p => ({ period: p, rows: await getEntityResults(tenantId, scope, { periodId: p.id }, sb) })),
   );
   return { periodsAsc, perPeriod };
 }
 
 export async function getPopulationTrend(
   tenantId: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<PopulationTrendPoint[]> {
   if (!tenantId) return [];
   const sb = client ?? createClient();
+  // OB-246: the per-period rollup sentinel is TENANT-WIDE — only valid for an 'all' scope. A scoped
+  // persona re-derives each period from its own entity rows (admin keeps the O(1) sentinel path).
+  const canUseRollup = scopeCanViewAll(scope);
 
   // OB-237 T-AGG: per-period total + count + avg come from the ONE period-rollup sentinel row per period (no
   // O(n) reduce over each period's 85 entity_period_outcomes rows, and no per-entity fetch at all). Each
@@ -37,7 +41,7 @@ export async function getPopulationTrend(
   const periodsAsc = [...periodsDesc].sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''));
   const points = await Promise.all(
     periodsAsc.map(async (period): Promise<PopulationTrendPoint> => {
-      const rollup = await getPeriodRollup(tenantId, period.id, sb);
+      const rollup = canUseRollup ? await getPeriodRollup(tenantId, period.id, sb) : null;
       if (rollup) {
         const total = rollup.total_payout;
         const count = rollup.entity_count;
@@ -50,8 +54,8 @@ export async function getPopulationTrend(
           entity_count: count,
         };
       }
-      // graceful fallback: per-entity path for periods without a materialized rollup
-      const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: period.id }, sb);
+      // per-entity path (scoped persona, or a period without a materialized rollup)
+      const rows = await getEntityResults(tenantId, scope, { periodId: period.id }, sb);
       const total = rows.reduce((s, r) => s + r.totalPayout, 0);
       return {
         period_id: period.id,
@@ -69,11 +73,12 @@ export async function getPopulationTrend(
 export async function getEntityTrajectory(
   tenantId: string,
   entityId?: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<EntityTrajectory[]> {
   if (!tenantId) return [];
   const sb = client ?? createClient();
-  const { perPeriod } = await loadAcrossPeriods(tenantId, sb);
+  const { perPeriod } = await loadAcrossPeriods(tenantId, sb, scope);
 
   // build per-entity series across periods (chronological)
   const series = new Map<string, { name: string; points: TrajectoryPoint[] }>();

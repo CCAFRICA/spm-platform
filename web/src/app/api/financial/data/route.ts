@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 import type { SupabaseClient } from '@supabase/supabase-js'; // OB-229
 import { getSummaryArtifacts } from '@/lib/summary/summary-read'; // OB-229
 import { recognize } from '@/lib/comprehension/surface-binding-recognition'; // HF-337
@@ -1383,7 +1384,7 @@ async function aggregateChequesBounded(
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { tenantId, mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory, monthFilter } = body as {
+  const { mode, granularity, locationFilter, locationId, serverId, scopeEntityIds, meseroId, leakageCategory, monthFilter } = body as {
     tenantId: string;
     mode: string;
     granularity?: 'day' | 'week' | 'month';
@@ -1396,8 +1397,17 @@ export async function POST(request: NextRequest) {
     monthFilter?: string;     // HF-324 O2: summary mode — 'YYYY-MM' period filter
   };
 
-  if (!tenantId || !mode) {
-    return NextResponse.json({ error: 'tenantId and mode required' }, { status: 400 });
+  // OB-246 AP3: tenant is derived from the authenticated session, NOT body.tenantId (was cross-tenant
+  // readable under the service-role client). HALT-E: server-side SCOPE re-derivation (ignoring the client
+  // scopeEntityIds) is DEFERRED to the Financial persona directive — client scopeEntityIds now flows from
+  // useAuth().scope (auth-derived; the persona switcher is isVLAdmin-gated), and tenant-binding alone closes
+  // the acute cross-tenant hole. Legitimate same-tenant callers are byte-identical.
+  const auth = await resolveCallerTenant((body as { tenantId?: string })?.tenantId);
+  if (!auth.ok) return auth.response;
+  const tenantId = auth.caller.tenantId;
+
+  if (!mode) {
+    return NextResponse.json({ error: 'mode required' }, { status: 400 });
   }
 
   try {

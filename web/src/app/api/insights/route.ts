@@ -8,15 +8,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { routeToPersona, type FullAnalysis } from '@/lib/agents/insight-agent';
+import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — session-derived tenant
 
 export async function GET(request: NextRequest) {
   const batchId = request.nextUrl.searchParams.get('batchId');
   const persona = request.nextUrl.searchParams.get('persona') as 'admin' | 'manager' | 'rep' | null;
-  const tenantId = request.nextUrl.searchParams.get('tenantId');
 
-  if (!batchId || !tenantId) {
+  // OB-246 AP3: tenant from the authenticated session, never query tenantId.
+  const auth = await resolveCallerTenant(request.nextUrl.searchParams.get('tenantId'));
+  if (!auth.ok) return auth.response;
+  const tenantId = auth.caller.tenantId;
+
+  if (!batchId) {
     return NextResponse.json(
-      { error: 'Missing required query params: batchId, tenantId' },
+      { error: 'Missing required query param: batchId' },
       { status: 400 }
     );
   }

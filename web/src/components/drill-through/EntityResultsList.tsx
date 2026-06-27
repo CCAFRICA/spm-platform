@@ -14,11 +14,12 @@ import { ChevronDown } from 'lucide-react';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
 import { useCurrency } from '@/contexts/tenant-context';
 import { StatusPill } from '@/components/design-system';
-import { getEntityResults, type EntityResult, type EntityScope } from '@/lib/drill-through';
+import { getEntityResults, type EntityResult } from '@/lib/drill-through';
+import { type AuthScope, scopeKey, scopeIsScoped } from '@/lib/auth/scope';
 
 interface Props {
   tenantId: string;
-  scope: EntityScope;
+  scope: AuthScope;
   periodId?: string;
   batchId?: string;
   onEntitySelect?: (entityId: string, result: EntityResult) => void;
@@ -72,9 +73,9 @@ export function EntityResultsList(props: Props) {
       .then(r => alive && setRows(r))
       .catch(() => alive && setError(true));
     return () => { alive = false; };
-    // scope identity changes via visibleEntityIds join — stable string key
+    // scope identity changes via its discriminant + entity set — stable string key
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, periodId, batchId, scope.visibleEntityIds.join(',')]);
+  }, [tenantId, periodId, batchId, scopeKey(scope)]);
 
   const sorted = useMemo(() => {
     if (!rows) return [];
@@ -153,7 +154,7 @@ export function EntityResultsList(props: Props) {
             </tbody>
           </table>
         </div>
-        <p style={{ marginTop: 6, fontSize: 11, color: 'var(--vl-text-soft)' }}>{sorted.length} entit{sorted.length === 1 ? 'y' : 'ies'}{scope.scopeType !== 'all' ? ' (scoped)' : ''}.</p>
+        <p style={{ marginTop: 6, fontSize: 11, color: 'var(--vl-text-soft)' }}>{sorted.length} entit{sorted.length === 1 ? 'y' : 'ies'}{scopeIsScoped(scope) ? ' (scoped)' : ''}.</p>
       </div>
     );
   }
@@ -192,7 +193,7 @@ export function EntityResultsList(props: Props) {
           </tbody>
         </table>
       </div>
-      <p className="mt-1.5 text-[11px] text-zinc-500">{sorted.length} entit{sorted.length === 1 ? 'y' : 'ies'}{scope.scopeType !== 'all' ? ' (scoped)' : ''}.</p>
+      <p className="mt-1.5 text-[11px] text-zinc-500">{sorted.length} entit{sorted.length === 1 ? 'y' : 'ies'}{scopeIsScoped(scope) ? ' (scoped)' : ''}.</p>
     </div>
   );
 }

@@ -12,9 +12,7 @@ import { useTenant } from '@/contexts/tenant-context';
 import { useAuth } from '@/contexts/auth-context'; // OB-224
 import { DrillThroughPanel } from '@/components/drill-through'; // OB-224
 import {
-  resolveEntityScope,
   getPeriodsWithResults,
-  type EntityScope,
   type PeriodOption,
 } from '@/lib/drill-through'; // OB-224
 
@@ -22,14 +20,14 @@ export default function TransactionsPage() {
   const router = useRouter();
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const { currentTenant } = useTenant();
-  const { user } = useAuth();
+  // OB-246: authenticated scope (admin→all, manager→team, member→own, unlinked→deny) — was the
+  // fail-OPEN resolveEntityScope(user?.id) that rendered tenant-wide for every role (DIAG-077 §E).
+  const { effectiveScope: scope } = useAuth();
 
   const tenantId = currentTenant?.id ?? '';
 
-  // OB-224 (AP-11): replace mock transactions with REAL data through the drill-through layer.
-  // Scope handles rep-vs-admin reads (empty profile_scope => all-scope today); the panel renders
-  // entity → component → trace → SOURCE TRANSACTIONS for the selected period.
-  const [scope, setScope] = useState<EntityScope | null>(null);
+  // OB-224 (AP-11): real data through the drill-through layer (entity → component → trace → SOURCE
+  // TRANSACTIONS for the selected period). OB-246: scope comes from useAuth(), not a per-page resolver.
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | undefined>(undefined);
 
@@ -38,22 +36,18 @@ export default function TransactionsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [resolvedScope, periodOptions] = await Promise.all([
-          resolveEntityScope(user?.id),
-          getPeriodsWithResults(tenantId),
-        ]);
+        const periodOptions = await getPeriodsWithResults(tenantId);
         if (cancelled) return;
-        setScope(resolvedScope);
         setPeriods(periodOptions);
         setSelectedPeriodId(periodOptions[0]?.id); // most-recent first
       } catch (error) {
-        console.error('Error resolving transactions drill-through scope:', error);
+        console.error('Error loading transactions periods:', error);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [tenantId, user?.id]);
+  }, [tenantId]);
 
   return (
     <motion.div
@@ -132,15 +126,13 @@ export default function TransactionsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {scope && (
-              <DrillThroughPanel
-                tenantId={tenantId}
-                scope={scope}
-                periodId={selectedPeriodId}
-                showExport
-                emptyMessage="No transactions for this period."
-              />
-            )}
+            <DrillThroughPanel
+              tenantId={tenantId}
+              scope={scope}
+              periodId={selectedPeriodId}
+              showExport
+              emptyMessage="No transactions for this period."
+            />
           </CardContent>
         </Card>
       </div>

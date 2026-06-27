@@ -16,10 +16,10 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Award, BarChart3, DollarSign, Target, Users } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed reads
 import {
   getCalculatedPeriods,
   getComponentTotals,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
 } from '@/lib/insights';
@@ -52,6 +52,7 @@ function Stat({ label, value, hint, icon: Icon }: { label: string; value: string
 export default function InsightsPage() {
   const { currentTenant } = useTenant();
   const { format } = useCurrency();
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
   const theme = usePersonaTheme();
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
@@ -65,7 +66,7 @@ export default function InsightsPage() {
   useEffect(() => {
     if (!currentTenant) return;
     let cancelled = false;
-    getCalculatedPeriods(currentTenant.id)
+    getCalculatedPeriods(currentTenant.id, scope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -75,7 +76,7 @@ export default function InsightsPage() {
       })
       .catch((err) => { console.warn('[Insights] periods load failed:', err); setPeriodsLoaded(true); setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant]);
+  }, [currentTenant, scope]);
 
   // Selected period outcomes + component totals.
   useEffect(() => {
@@ -83,13 +84,13 @@ export default function InsightsPage() {
     let cancelled = false;
     setIsLoading(true);
     Promise.all([
-      getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-      getComponentTotals(currentTenant.id, selectedPeriodId),
+      getEntityResults(currentTenant.id, scope, { periodId: selectedPeriodId }),
+      getComponentTotals(currentTenant.id, selectedPeriodId, scope),
     ])
       .then(([rs, ct]) => { if (cancelled) return; setRows(rs); setComponentTotals(ct); setIsLoading(false); })
       .catch((err) => { console.warn('[Insights] period data load failed:', err); if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant, selectedPeriodId]);
+  }, [currentTenant, selectedPeriodId, scope]);
 
   const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
 

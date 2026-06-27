@@ -17,7 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
-import { ALL_INSIGHTS_SCOPE } from './periods';
+import { type AuthScope, ALL_SCOPE } from '@/lib/auth/scope';
 
 /** Sentinel key for the always-available component dimension (never a real metadata key). */
 export const COMPONENT_DIMENSION_KEY = '__component__';
@@ -73,13 +73,14 @@ async function loadEntityMetadata(
 export async function discoverDimensions(
   tenantId: string,
   periodId: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<DiscoveredDimension[]> {
   if (!tenantId || !periodId) return [];
   const sb = client ?? createClient();
   const dims: DiscoveredDimension[] = [];
 
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   if (rows.length === 0) return [];
 
   // (1) Component dimension — distinct component names across this period's outcomes.
@@ -127,11 +128,12 @@ export async function aggregateByDimension(
   tenantId: string,
   periodId: string,
   dimension: DiscoveredDimension,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<DimensionSlice[]> {
   if (!tenantId || !periodId) return [];
   const sb = client ?? createClient();
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
 
   const acc = new Map<string, { amount: number; entities: number }>();
   const bump = (value: string, amount: number) => {

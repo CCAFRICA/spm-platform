@@ -22,10 +22,10 @@ import Link from 'next/link';
 import { Rocket, Bell, Target, Lightbulb, Users, Award, MessageSquare } from 'lucide-react';
 import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { usePersona } from '@/contexts/persona-context';
+import { useAuth } from '@/contexts/auth-context'; // OB-246: scope-narrowed reads
 import {
   getCalculatedPeriods,
   getComponentTotals,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
 } from '@/lib/insights';
@@ -61,6 +61,7 @@ export default function AccelerationPage() {
   const { format } = useCurrency();
   const theme = usePersonaTheme();
   const { persona, entityId } = usePersona();
+  const { effectiveScope: scope } = useAuth(); // OB-246: member→own, manager→team, admin→all
 
   const [periods, setPeriods] = useState<PeriodSummary[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState('');
@@ -74,7 +75,7 @@ export default function AccelerationPage() {
   useEffect(() => {
     if (!currentTenant) return;
     let cancelled = false;
-    getCalculatedPeriods(currentTenant.id)
+    getCalculatedPeriods(currentTenant.id, scope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -84,7 +85,7 @@ export default function AccelerationPage() {
       })
       .catch((err) => { console.warn('[Acceleration] periods load failed:', err); setPeriodsLoaded(true); setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant]);
+  }, [currentTenant, scope]);
 
   const selectedIdx = useMemo(() => periods.findIndex((p) => p.period_id === selectedPeriodId), [periods, selectedPeriodId]);
 
@@ -95,9 +96,9 @@ export default function AccelerationPage() {
     setIsLoading(true);
     const priorId = selectedIdx >= 0 ? periods[selectedIdx + 1]?.period_id : undefined;
     Promise.all([
-      getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
-      priorId ? getEntityResults(currentTenant.id, ALL_INSIGHTS_SCOPE, { periodId: priorId }) : Promise.resolve([] as EntityResult[]),
-      getComponentTotals(currentTenant.id, selectedPeriodId),
+      getEntityResults(currentTenant.id, scope, { periodId: selectedPeriodId }),
+      priorId ? getEntityResults(currentTenant.id, scope, { periodId: priorId }) : Promise.resolve([] as EntityResult[]),
+      getComponentTotals(currentTenant.id, selectedPeriodId, scope),
     ])
       .then(([rs, prs, ct]) => {
         if (cancelled) return;
@@ -108,7 +109,7 @@ export default function AccelerationPage() {
       })
       .catch((err) => { console.warn('[Acceleration] period data load failed:', err); if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [currentTenant, selectedPeriodId, selectedIdx, periods]);
+  }, [currentTenant, selectedPeriodId, selectedIdx, periods, scope]);
 
   const priorLabel = selectedIdx >= 0 ? periods[selectedIdx + 1]?.label ?? null : null;
 

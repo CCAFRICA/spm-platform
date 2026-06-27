@@ -32,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrency, useTenant } from "@/contexts/tenant-context";
+import { useAuth } from "@/contexts/auth-context"; // OB-246: scope disputes by authenticated identity
 import { createClient } from "@/lib/supabase/client";
 import { loadAdjustmentsPageData, type AdjustmentRow } from "@/lib/data/page-loaders";
 
@@ -61,6 +62,7 @@ async function currentProfileId(supabase: ReturnType<typeof createClient>): Prom
 export default function AdjustmentsPage() {
   const { format: fmt } = useCurrency();
   const { currentTenant } = useTenant();
+  const { effectiveScope: scope } = useAuth(); // OB-246: admin→all, manager→team, member→own disputes
   const tenantId = currentTenant?.id ?? '';
   const isVialuce = useIsVialuce(); // HF-313: Vialuce page-template adoption (else-branch unchanged)
   const [filter, setFilter] = useState<string>("all");
@@ -76,13 +78,19 @@ export default function AdjustmentsPage() {
     if (!tenantId) return;
     try {
       const { adjustments: rows } = await loadAdjustmentsPageData(tenantId);
-      setAdjustments(rows);
+      // OB-246: narrow disputes to the authenticated scope (the loader is tenant-wide; DIAG-077 §E).
+      const scoped =
+        scope.type === 'all' ? rows
+        : scope.type === 'deny' ? []
+        : scope.type === 'team' ? rows.filter(r => scope.entityIds.includes(r.entityId))
+        : rows.filter(r => r.entityId === scope.entityId); // 'own'
+      setAdjustments(scoped);
     } catch (err) {
       console.warn('[Adjustments] Load failed:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [tenantId]);
+  }, [tenantId, scope]);
 
   useEffect(() => { loadAdjustments(); }, [loadAdjustments]);
 

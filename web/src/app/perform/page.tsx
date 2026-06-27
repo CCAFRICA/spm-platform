@@ -33,7 +33,6 @@ import {
   getPeriodTotal,
   getComponentTotals,
   getBatchValidity,
-  ALL_INSIGHTS_SCOPE,
   type PeriodSummary,
   type ComponentTotal,
   type ValidityVerdict as Verdict,
@@ -118,7 +117,7 @@ export default function PerformPage() {
   const theme = usePersonaTheme();
   const hasFinancial = useFeature('financial');
   const { locale } = useLocale();
-  const { user } = useAuth();
+  const { user, effectiveScope: scope } = useAuth(); // OB-246: hero/ICM reads narrow by authenticated scope
   const isSpanish = (user && isVLAdmin(user)) ? false : isSpanishLocale(locale);
   const hasICM = ruleSetCount > 0;
   const tenantId = currentTenant?.id ?? '';
@@ -144,7 +143,7 @@ export default function PerformPage() {
       return;
     }
     let cancelled = false;
-    getCalculatedPeriods(tenantId)
+    getCalculatedPeriods(tenantId, scope)
       .then((ps) => {
         if (cancelled) return;
         setPeriods(ps);
@@ -153,7 +152,7 @@ export default function PerformPage() {
       })
       .catch((err) => { console.warn('[Perform] periods load failed:', err); if (!cancelled) setPeriodsLoaded(true); });
     return () => { cancelled = true; };
-  }, [tenantId, hasICM]);
+  }, [tenantId, hasICM, scope]);
 
   // Load selected-period data (period total, component totals, entity results, batch validity).
   useEffect(() => {
@@ -161,9 +160,9 @@ export default function PerformPage() {
     let cancelled = false;
     setPeriodDataLoading(true);
     Promise.all([
-      getPeriodTotal(tenantId, selectedPeriodId),
-      getComponentTotals(tenantId, selectedPeriodId),
-      getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId: selectedPeriodId }),
+      getPeriodTotal(tenantId, selectedPeriodId, scope),
+      getComponentTotals(tenantId, selectedPeriodId, scope),
+      getEntityResults(tenantId, scope, { periodId: selectedPeriodId }),
       getBatchValidity(tenantId, selectedPeriodId),
     ])
       .then(([total, ct, rs, v]) => {
@@ -176,7 +175,7 @@ export default function PerformPage() {
       })
       .catch((err) => { console.warn('[Perform] period data load failed:', err); if (!cancelled) setPeriodDataLoading(false); });
     return () => { cancelled = true; };
-  }, [tenantId, selectedPeriodId]);
+  }, [tenantId, selectedPeriodId, scope]);
 
   // Load financial substrate (preserved restaurant/financial path — NOT calc data).
   useEffect(() => {
@@ -536,7 +535,11 @@ export default function PerformPage() {
               </Panel>
             </DensityGate>
 
-            {/* Persona dashboards — preserved drill-through / persona depth (null-data guard) */}
+            {/* OB-246: dashboard selection follows `persona`, which Phase 1d GATES to the authenticated
+                identity — for a real user `persona === derive(authenticated role)` (a forged override is
+                inert), so this is authenticated-role dispatch; only a VL admin may preview another role's
+                dashboard (the §5 switcher demo). Data inside each dashboard reads useAuth().scope, so a
+                forged override cannot widen data. */}
             {insights.total > 0 && (
               <DensityGate min="low">
                 {persona === 'admin' && <AdminDashboard />}

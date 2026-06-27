@@ -46,7 +46,6 @@ import {
 import { getWorkspaceForRoute, WORKSPACES } from '@/lib/navigation/workspace-config';
 import { getDefaultWorkspace, canAccessWorkspace, personaToRole } from '@/lib/navigation/role-workspaces';
 import { logWorkspaceSwitch } from '@/lib/navigation/navigation-signals';
-import { usePersona } from './persona-context';
 
 // =============================================================================
 // STORAGE KEYS
@@ -100,16 +99,18 @@ interface NavigationProviderProps {
 export function NavigationProvider({ children }: NavigationProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, isVLAdmin, personaOverride } = useAuth();
   const { currentTenant } = useTenant();
-  const { persona } = usePersona();
 
   // Locale follows user's language selector (single source of truth)
   const { locale } = useLocale();
   const isSpanish = isSpanishLocale(locale);
   const userRole = user?.role || null;
-  // OB-94: Effective role from persona (override or derived) — drives all workspace access
-  const effectiveRole = persona ? personaToRole(persona) : userRole;
+  // HF-345 (corrects OB-246 §3.3b): effectiveRole derives from the AUTHENTICATED role for real users, but a
+  // VL admin with an active persona override previews THAT persona's navigation (admin→full, manager→team,
+  // rep→reduced) — narrowing within entitlement is safe (Decision 39, corrected). The override is gated to
+  // isVLAdmin in auth-context, so a real member/manager always gets their authenticated navigation.
+  const effectiveRole = (isVLAdmin && personaOverride) ? personaToRole(personaOverride) : userRole;
   // Use the selected tenant's actual UUID — never a placeholder string.
   // VL admins: currentTenant is set after tenant selection, null before.
   // Non-admins: currentTenant comes from their profile's tenant_id.

@@ -10,7 +10,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
-import type { EntityResult, EntityScope, PeriodOption } from './types';
+import type { EntityResult, PeriodOption } from './types';
+import { type AuthScope, scopeFilterIds } from '@/lib/auth/scope';
 
 const num = (v: unknown): number =>
   typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : 0;
@@ -91,13 +92,17 @@ async function decorate(
 
 export async function getEntityResults(
   tenantId: string,
-  scope: EntityScope,
+  scope: AuthScope,
   filters?: { periodId?: string; batchId?: string },
   client?: SupabaseClient<Database>,
 ): Promise<EntityResult[]> {
   if (!tenantId) return [];
+  // OB-246 AP1/AP4: 'deny' reads NOTHING — structurally distinct from 'all'. Never collapses to all.
+  if (scope.type === 'deny') return [];
   const sb = client ?? createClient();
-  const scoped = scope.visibleEntityIds.length > 0 ? scope.visibleEntityIds : null;
+  // 'all' → null (no .in filter, byte-identical to the retired empty-scope path); 'team' → entityIds;
+  // 'own' → [entityId]. An empty 'team' set yields .in([]) → 0 rows (fail-closed, the intended inversion).
+  const scoped = scopeFilterIds(scope);
 
   // Preferred path: materialized entity_period_outcomes for a specific period.
   if (filters?.periodId) {

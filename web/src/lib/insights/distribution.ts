@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { createClient } from '@/lib/supabase/client';
 import { getEntityResults } from '@/lib/drill-through';
-import { ALL_INSIGHTS_SCOPE } from './periods';
+import { type AuthScope, ALL_SCOPE, scopeCanViewAll } from '@/lib/auth/scope';
 import { getPeriodRollup } from './intelligence-data';
 import type { DistributionResult, DistributionBin, ComponentTotal } from './types';
 
@@ -30,10 +30,11 @@ export async function getPayoutDistribution(
   tenantId: string,
   periodId: string,
   binCount = 10,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<DistributionResult> {
   const sb = client ?? createClient();
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   const payouts = rows.map(r => r.totalPayout);
   const total_entities = payouts.length;
   const empty: DistributionResult = { bins: [], mean: 0, median: 0, std_dev: 0, total_entities, zero_payout_count: 0, min: 0, max: 0 };
@@ -66,6 +67,7 @@ export async function getPayoutDistribution(
 export async function getComponentTotals(
   tenantId: string,
   periodId: string,
+  scope: AuthScope = ALL_SCOPE,
   client?: SupabaseClient<Database>,
 ): Promise<ComponentTotal[]> {
   const sb = client ?? createClient();
@@ -74,7 +76,9 @@ export async function getComponentTotals(
   // O(n) reduce over the 85 entity_period_outcomes rows). component_totals_by_name + the parallel
   // component_entity_counts_by_name mirror the prior per-entity iteration EXACTLY (name-keyed, += payout,
   // += 1 entity per component appearance). Fall back to the per-entity path only when the sentinel is absent.
-  const rollup = await getPeriodRollup(tenantId, periodId, sb);
+  // OB-246: the rollup is TENANT-WIDE — only valid for an 'all' scope; a scoped persona re-aggregates
+  // its own entity rows below (admin keeps the O(1) sentinel — byte-identical).
+  const rollup = scopeCanViewAll(scope) ? await getPeriodRollup(tenantId, periodId, sb) : null;
   if (rollup && Object.keys(rollup.component_totals_by_name).length > 0) {
     const byName = rollup.component_totals_by_name;
     const countByName = rollup.component_entity_counts_by_name;
@@ -89,8 +93,8 @@ export async function getComponentTotals(
       .sort((a, b) => b.total_amount - a.total_amount);
   }
 
-  // Graceful fallback: per-entity path (tenant/period without a materialized rollup).
-  const rows = await getEntityResults(tenantId, ALL_INSIGHTS_SCOPE, { periodId }, sb);
+  // Graceful fallback: per-entity path (scoped persona, or tenant/period without a materialized rollup).
+  const rows = await getEntityResults(tenantId, scope, { periodId }, sb);
   const totals = new Map<string, { amount: number; entities: number }>();
   for (const r of rows) {
     const bd = r.componentBreakdown ?? {};
