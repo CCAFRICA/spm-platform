@@ -231,6 +231,11 @@ These are specific mistakes that have occurred. **DO NOT REPEAT.**
 5. Completion reports and proof gates saved to docs/completion-reports/
 6. HF-303: run `scripts/no-developer-numbers-scan.sh` before every completion report touching `convergence-service.ts` or `run/route.ts`. A bare numeric threshold (a float used in a comparison) without a `// RATIFIED: <reason>` justification is a Decision-110 / OB-IGF-25 #5 violation — halt and surface, do not ship a developer-assigned authority value.
 
+### Merge authorization (SR-44)
+**SR-44 (Merge authorization).** Merges require **explicit architect authorization**. An architect's direct instruction to merge a specific PR (e.g. "merge PR #606") **is** that authorization, and CC executes it — CC does **not** require the architect to perform the merge personally. What CC must **never** do is merge on its own initiative: speculatively, as an unprompted "next step," inferred from a completion report or green checks, or without a clear architect merge instruction for that specific PR. The authorization is the architect's decision and sign-off; the command is how it is given.
+
+**The line:** "merge PR #N" from the architect → authorized, execute. CC deciding to merge because checks passed or it seemed the obvious next step → still forbidden. The gate is *whether the architect said so for that PR*, not *who clicks*. (Corrected wording — supersedes any prior "CC never merges; the architect performs the merge personally" phrasing.)
+
 ### Supabase
 6. **Supabase migrations MUST be executed live** (SQL Editor or `supabase db push`) AND verified with a database query. File existence ≠ applied. Proof gate = live DB query showing changes exist.
 7. Use service role client for server-side bulk operations
