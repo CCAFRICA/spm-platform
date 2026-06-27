@@ -42,8 +42,12 @@ test('gate 3: cda lands in the portal; operators land in /stream', () => {
 });
 
 test('gate 4: cda has NO accessible operator workspaces (near-empty nav falls out of capabilities)', () => {
-  const cdaWorkspaces = getAccessibleWorkspaces('cda');
-  assert.equal(cdaWorkspaces.length, 0, `cda should see no operator workspaces, got: ${cdaWorkspaces.map((w) => w.id).join(',')}`);
+  // getAccessibleWorkspaces is typed to the navigation-layer UserRole (no 'cda'); the
+  // runtime is a string filter, and a CDA — lacking every operator capability — resolves
+  // to zero workspaces. (The nav is never rendered for the CDA anyway; the portal is chromeless.)
+  type NavRole = Parameters<typeof getAccessibleWorkspaces>[0];
+  const cdaWorkspaces = getAccessibleWorkspaces('cda' as NavRole);
+  assert.equal(cdaWorkspaces.length, 0, `cda should see no operator workspaces, got: ${cdaWorkspaces.join(',')}`);
   // sanity: an operator DOES see workspaces
-  assert.ok(getAccessibleWorkspaces('platform').length > 0);
+  assert.ok(getAccessibleWorkspaces('platform' as NavRole).length > 0);
 });

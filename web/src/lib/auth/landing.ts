@@ -5,8 +5,10 @@
  * keeps /stream as the canonical landing for every operator role; the Customer
  * Data Administrator (CDA) is the one persona that lands directly in its focused
  * portal instead — a new CASE in the existing landing rule, not a parallel router.
- * Used by middleware (server) and the two client landing points (page.tsx,
- * tenant-context) so all three agree.
+ * Used by middleware (the authoritative server-side landing for '/' and '/login')
+ * and page.tsx. tenant-context.tsx's post-tenant-select redirect is intentionally
+ * NOT routed here: it only fires for platform admins selecting a tenant, and a CDA
+ * is tenant-bound so never reaches it.
  */
 
 import { resolveRole } from './permissions';

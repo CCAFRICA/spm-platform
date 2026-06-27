@@ -15,6 +15,7 @@
  */
 
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveRole } from '@/lib/auth/permissions';
 import { cookies } from 'next/headers';
 
 export interface Actor {
@@ -46,14 +47,18 @@ export async function resolveActor(): Promise<Actor | null> {
     .maybeSingle();
   if (!profile) return null;
 
-  // 3. Effective tenant: tenant-bound users carry profile.tenant_id; platform
-  //    admins (NULL tenant_id) act in the selected tenant (the active-tenant cookie).
+  // 3. Effective tenant: tenant-bound users carry profile.tenant_id; ONLY platform
+  //    admins (NULL tenant_id) fall back to the selected-tenant cookie. The cookie
+  //    branch is gated on the platform ROLE (not merely a null tenant_id) so a
+  //    mis-provisioned non-platform account with a null tenant cannot use a forged
+  //    cookie to act in an arbitrary tenant — fail-closed by role, mirroring
+  //    /api/comprehension's `isPlatform &&` guard.
   let tenantId: string | null = profile.tenant_id ?? null;
-  if (!tenantId) {
+  if (!tenantId && resolveRole(profile.role ?? '') === 'platform') {
     const cookieStore = await cookies();
     tenantId = cookieStore.get('vialuce-tenant-id')?.value ?? null;
   }
-  if (!tenantId) return null; // platform admin with no tenant selected — no scope
+  if (!tenantId) return null; // no tenant context (e.g. platform admin with none selected)
 
   return { authUserId: user.id, profileId: profile.id, tenantId, role: profile.role ?? '' };
 }

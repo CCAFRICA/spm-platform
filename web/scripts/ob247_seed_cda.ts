@@ -1,10 +1,13 @@
 /**
  * OB-247 — seed a Customer Data Administrator (CDA) test user (service-role).
  *
- * role is free-text TEXT (no enum) → no migration (HALT-A N/A). Creates an auth
- * user + a profiles row with role='cda' and capabilities = the cda matrix entry
- * (data.upload, view.own_uploads). The user enrolls MFA at first login (the
- * existing /auth/mfa flow — no new auth path). Idempotent.
+ * Creates an auth user + a profiles row with role='cda' and capabilities = the cda
+ * matrix entry (data.upload, view.own_uploads). The user enrolls MFA at first login
+ * (the existing /auth/mfa flow — no new auth path). Idempotent.
+ *
+ * NOTE: profiles.role is TEXT but constrained by profiles_role_canon — this seed
+ * REQUIRES 20260626_ob247_cda_role.sql to be applied first (HALT-A). Until then the
+ * profiles insert correctly fails with a constraint violation.
  *
  * Run: npx tsx --env-file=.env.local scripts/ob247_seed_cda.ts
  * Optional env: CDA_EMAIL, CDA_PASSWORD, CDA_TENANT_NAME

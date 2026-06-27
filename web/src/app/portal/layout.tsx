@@ -11,14 +11,12 @@
  */
 
 import { LogOut } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/auth-context';
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  const signOut = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  };
+  // Use the canonical logout (clears the session AND the vialuce-tenant-id cookie) —
+  // not a second sign-out impl.
+  const { logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -29,7 +27,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <span className="text-xs text-muted-foreground">· Data Delivery</span>
           </div>
           <button
-            onClick={signOut}
+            onClick={logout}
             className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <LogOut className="h-4 w-4" /> Sign out

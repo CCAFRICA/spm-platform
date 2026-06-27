@@ -334,6 +334,7 @@ export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
   '/govern': 'data.approve_results',
   '/data': 'data.import',
   '/portal': 'data.upload', // OB-247: the CDA focused portal (middleware workspace gate)
+  '/stream': 'view.intelligence_stream', // OB-247: keep the CDA (no operator caps) out of the Intelligence Stream by direct URL (Invariant 7). All operator roles hold this cap.
   '/financial': 'view.team_results',
 };
 
