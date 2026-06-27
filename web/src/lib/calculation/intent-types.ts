@@ -481,3 +481,163 @@ export function isPrimeNode(value: unknown): value is PrimeNode {
     && typeof (value as Record<string, unknown>).prime === 'string'
     && VALID_PRIMES.has((value as { prime: string }).prime as PrimeNode['prime']);
 }
+
+// ──────────────────────────────────────────────
+// OB-248: Distribution — one transaction → N recipients (graph-resolved)
+// ──────────────────────────────────────────────
+//
+// The DAG above evaluates to ONE number per entity-in-context. Distribution
+// extends this to one number per RESOLVED-RECIPIENT-in-context: a single
+// committed sale row fans out to N payout rows via a typed relationship graph,
+// each recipient's amount a multiplicative factor model over reference reads,
+// then constrained/modified per the contract.
+//
+// Decision 158: the LLM RECOGNIZES the distribution shape (recipient roles,
+// inclusion conditions, factor model, modifier shapes) → the recognized,
+// UNBOUND `DistributionIntent` (carried on InterpretedComponent.distributesTo).
+// Deterministic code (convergence) CONSTRUCTS the bound `DistributionDerivation`
+// (appended to metric_derivations as operation:'distribution'); the engine reads
+// it and executes the fan-out, traversal, factor evaluation, constraint pass.
+//
+// Korean Test (AP-25): NOT ONE field here names a role, product, channel,
+// relationship type, reference table, or column. Every such value is carried
+// FROM the contract (a string the LLM recognized / convergence bound) — code
+// reads it, never declares it. `kind`/`shape` discriminators are STRUCTURAL
+// (like a PrimeNode.prime), not a domain taxonomy.
+
+/** How an attribute-conditioned (overlay) recipient is gated by a sale-row attribute. */
+export type DistributionInclusion =
+  | { kind: 'always' }
+  | {
+      kind: 'attribute_match';
+      /** The sale-row column whose value gates this recipient (bound by convergence). */
+      rowAttributeColumn: string;
+      /** Optional reference table whose categories the attribute must match against. */
+      referenceTable?: string;
+      /** Optional explicit set of attribute values that include this recipient. */
+      matchValues?: Array<string | number>;
+    };
+
+/** A recognized recipient role (comprehension, UNBOUND): how it is reached from the originator. */
+export interface DistributionRecipientRecognition {
+  /** Opaque provenance label for this role within the plan (never read as a registry key). */
+  role: string;
+  /** The recognized relationship characterization to follow (open vocabulary, from the plan). */
+  edgeKind: string;
+  /** Distance up the hierarchy: 0 = the originator themselves (self), 1 = direct supervisor, … */
+  hops: number;
+  /** Unconditional, or gated on a recognized row attribute (overlay). */
+  inclusion: 'always' | 'attribute_conditioned';
+  /** When attribute_conditioned: the recognized attribute that gates inclusion. */
+  conditionAttribute?: string;
+}
+
+/** A recognized multiplicative factor (comprehension, UNBOUND). */
+export interface DistributionFactorRecognition {
+  /** The recognized attribute whose value keys this factor (product, channel, …); absent = recipient-keyed base. */
+  attribute?: string;
+  /** True when this factor is the per-recipient base rate (keyed by recipient identity, e.g. an Anexo). */
+  recipientKeyed?: boolean;
+  /** The recognized reference category/table the factor reads from. */
+  referenceCategory?: string;
+}
+
+/** A recognized modifier shape (comprehension, UNBOUND). `shape` is structural, not a named modifier. */
+export type DistributionModifierRecognition =
+  | { shape: 'cross_recipient_cap'; capFraction?: number }
+  | { shape: 'volume_cliff'; thresholdAttribute?: string; threshold?: number; multiplier?: number }
+  | { shape: 'component_floor'; floorValue?: number; appliesToRole?: string }
+  | { shape: 'consecutive_streak'; periodCount?: number; threshold?: number; bonus?: number }
+  | { shape: 'cascade_reversal' };
+
+/**
+ * The recognized distribution intent (Decision 158 RECOGNITION side). Carried on
+ * `InterpretedComponent.distributesTo`. Convergence binds it against data
+ * capabilities into a `DistributionDerivation` (CONSTRUCTION side).
+ */
+export interface DistributionIntent {
+  /** Ordered recipient roles (originator first, by convention hops:0). */
+  recipients: DistributionRecipientRecognition[];
+  /** The per-recipient factor model: base(recipient) × factor₁(attr₁) × … */
+  factorModel: {
+    /** The recognized transaction-amount basis the rate multiplies. */
+    transactionBasis?: string;
+    factors: DistributionFactorRecognition[];
+  };
+  /** Recognized modifier shapes (P-C3). */
+  modifiers: DistributionModifierRecognition[];
+}
+
+// ── Bound derivation (convergence CONSTRUCTS; engine EXECUTES) ──
+
+/** A single bound multiplicative factor — a reference read at calc time. */
+export interface DistributionFactorRef {
+  /** Reference table identifier (data_type / source pattern) — from the contract, never a code literal. */
+  referenceTable: string;
+  /** The reference column holding the numeric factor value to read. */
+  factorColumn: string;
+  /** The sale-row attribute column whose VALUE keys the lookup (product/channel/…). */
+  rowAttributeColumn?: string;
+  /** When true, keyed by the RECIPIENT's external_id (per-recipient base rate / Anexo) instead of a row attribute. */
+  keyedByRecipient?: boolean;
+}
+
+/** The bound per-recipient factor model. amount = sale × base(recipient) × Πfactors(attrᵢ). */
+export interface DistributionFactorModel {
+  /** The sale-row column carrying the transaction base amount (sale net). */
+  saleAmountColumn: string;
+  /** The recipient base rate (per-recipient reference read), when the model has one. */
+  baseRate?: DistributionFactorRef;
+  /** Additional multiplicative factors (product, channel, …). */
+  factors: DistributionFactorRef[];
+}
+
+/** A bound recipient role: edge types + hops + inclusion, all from the contract. */
+export interface DistributionRecipientSpec {
+  role: string;
+  /** Edge types to follow from the originator — the engine filters entity_relationships by THIS set. */
+  edgeTypes: string[];
+  /** Hops up the typed chain. 0 = the originator (self). */
+  hops: number;
+  inclusion: DistributionInclusion;
+}
+
+/** A bound modifier. `kind` is a structural shape discriminator; parameters from the contract. */
+export type DistributionModifier =
+  /** Σ recipients ≤ capFraction × sale amount → proportional reduction across all recipients (P-E2). */
+  | { kind: 'cross_recipient_cap'; capFraction: number }
+  /** Originator own-period aggregate ≥ threshold → multiply the rate by `multiplier` (P-E3). */
+  | { kind: 'volume_cliff'; aggregateColumn: string; threshold: number; multiplier: number }
+  /** max(amount, floorValue) per originator per period on the originator's own component (P-E3). */
+  | { kind: 'component_floor'; floorValue: number; appliesToRole?: string }
+  /** N consecutive periods meeting `threshold` → add `bonus`; else reset (P-E3). */
+  | { kind: 'consecutive_streak'; periodCount: number; threshold: number; bonus: number }
+  /** Return/correction rows trace the original cascade and reverse/recompute it (P-E4). */
+  | { kind: 'cascade_reversal'; reversalSourcePattern?: string; originalRefColumn?: string; correctedAmountColumn?: string };
+
+/**
+ * The bound distribution derivation (P-V2). Appended to the metric_derivations
+ * array as a MetricDerivationRule with operation:'distribution'. Fully
+ * contract-driven; the engine reads every edge type / table / column / parameter
+ * from here — no literal in engine code.
+ */
+export interface DistributionDerivation {
+  /** The sale-row column identifying the originator entity (external_id domain). */
+  originatorColumn: string;
+  /** The data_type / source pattern selecting committed sale rows to fan out. */
+  saleSourcePattern: string;
+  /** Ordered recipient roles, resolved by graph traversal at calc time (P-V1). */
+  recipients: DistributionRecipientSpec[];
+  /** The per-recipient multiplicative factor model (P-C2). */
+  factorModel: DistributionFactorModel;
+  /** Structural modifier specs (P-C3 / P-E2-E4). */
+  modifiers: DistributionModifier[];
+}
+
+/** Type guard — is this metric-derivation a distribution derivation? (engine dispatch gate). */
+export function isDistributionDerivation(value: unknown): value is DistributionDerivation {
+  return typeof value === 'object' && value !== null
+    && typeof (value as Record<string, unknown>).originatorColumn === 'string'
+    && Array.isArray((value as Record<string, unknown>).recipients)
+    && typeof (value as Record<string, unknown>).factorModel === 'object';
+}

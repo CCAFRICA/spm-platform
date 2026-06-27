@@ -21,6 +21,9 @@ import type {
   PrimeNode,
   EvalContext,
   ConstantScaleMeta,
+  DistributionFactorModel,
+  DistributionFactorRef,
+  DistributionRecipientSpec,
 } from './intent-types';
 import { Decimal, toDecimal, toNumber, ZERO } from './decimal-precision';
 import { legacyIntentToDAG, componentIntentToDAG } from './legacy-intent-to-dag';
@@ -513,3 +516,271 @@ export function executeIntent(
 // legacyIntentToDAG + buildEvalContext + evaluate directly. There is no
 // remaining surface that takes a legacy IntentOperation and returns a
 // Decimal in one call.
+
+// ──────────────────────────────────────────────
+// OB-248: Distribution — pure fan-out primitives (P-E1..E4)
+// ──────────────────────────────────────────────
+//
+// These are PURE functions: no DB, no network. The engine (route.ts) loads
+// edges + reference data and supplies them as plain data / callbacks; tests
+// supply synthetic data. Per §0.2 these are new utility functions inside an
+// existing file, not a new execution surface. Decision 158: code CONSTRUCTS
+// the traversal / fan-out / constraint pass deterministically from the
+// contract; nothing here names a role / product / channel / edge type / table.
+
+/** One resolved recipient of a single sale's fan-out. */
+export interface ResolvedRecipient {
+  role: string;
+  entityExternalId: string;
+  hops: number;
+  /** The edge type the traversal followed to reach this recipient; null for the originator (hops:0, self). */
+  viaEdgeType: string | null;
+}
+
+export interface RecipientResolution {
+  resolved: ResolvedRecipient[];
+  /** Roles that could not be reached for this sale (C2: reported, never fabricated). */
+  unresolved: Array<{ role: string; reason: string }>;
+}
+
+/**
+ * P-V1/P-E1 recipient resolution. From the originator, for each recipient role,
+ * walk `hops` typed edges (deterministic: first match by target order), gated by
+ * the role's inclusion condition against the sale-row attributes. hops:0 = the
+ * originator (self). Edge types come ENTIRELY from the contract `edgeTypes`.
+ *
+ * `adjacency` is a directed map sourceExternalId → outbound edges; the engine
+ * orients hierarchy edges so the originator walks "up" via outbound edges
+ * (convention documented in the ADR). An unreachable role is returned in
+ * `unresolved` — never silently dropped, never fabricated (C2).
+ */
+export function resolveDistributionRecipients(
+  adjacency: Map<string, Array<{ target: string; type: string }>>,
+  originatorExternalId: string,
+  recipients: DistributionRecipientSpec[],
+  rowAttributes: Record<string, unknown>,
+): RecipientResolution {
+  const resolved: ResolvedRecipient[] = [];
+  const unresolved: Array<{ role: string; reason: string }> = [];
+
+  for (const spec of recipients) {
+    // Inclusion gate (overlay recipients): an attribute_match recipient is included
+    // only when the sale row's attribute matches. A non-match is NOT an error —
+    // the recipient simply does not participate in this sale (per-row recipient set).
+    if (spec.inclusion.kind === 'attribute_match') {
+      const inc = spec.inclusion;
+      const v = rowAttributes[inc.rowAttributeColumn];
+      const matches = inc.matchValues && inc.matchValues.length > 0
+        ? inc.matchValues.some(mv => String(mv) === String(v ?? ''))
+        : (v !== null && v !== undefined && String(v).trim() !== '');
+      if (!matches) continue;
+    }
+
+    if (spec.hops === 0) {
+      resolved.push({ role: spec.role, entityExternalId: originatorExternalId, hops: 0, viaEdgeType: null });
+      continue;
+    }
+
+    let current = originatorExternalId;
+    let viaType: string | null = null;
+    let reached = true;
+    for (let h = 0; h < spec.hops; h++) {
+      const edges = (adjacency.get(current) ?? [])
+        .filter(e => spec.edgeTypes.includes(e.type))
+        .sort((a, b) => (a.target < b.target ? -1 : a.target > b.target ? 1 : 0)); // deterministic
+      if (edges.length === 0) { reached = false; break; }
+      current = edges[0].target;
+      viaType = edges[0].type;
+    }
+    if (!reached) {
+      unresolved.push({
+        role: spec.role,
+        reason: `no [${spec.edgeTypes.join('|')}] edge chain of ${spec.hops} hop(s) from originator`,
+      });
+      continue;
+    }
+    resolved.push({ role: spec.role, entityExternalId: current, hops: spec.hops, viaEdgeType: viaType });
+  }
+
+  return { resolved, unresolved };
+}
+
+/** Right-nested multiply over `reference` leaves — the factor model as a real PrimeNode DAG. */
+function multiplyChain(refKeys: string[]): PrimeNode {
+  if (refKeys.length === 0) return { prime: 'constant', value: 0 };
+  let node: PrimeNode = { prime: 'reference', field: refKeys[refKeys.length - 1] };
+  for (let i = refKeys.length - 2; i >= 0; i--) {
+    node = { prime: 'arithmetic', op: 'multiply', inputs: [{ prime: 'reference', field: refKeys[i] }, node] };
+  }
+  return node;
+}
+
+/** Resolves one bound factor reference to its numeric value (null = unresolved → C2 fail-loud). */
+export type FactorResolver = (
+  ref: DistributionFactorRef,
+  recipientExternalId: string,
+  row: Record<string, unknown>,
+) => number | null;
+
+export interface RecipientAmountResult {
+  /** Resolved amount, or null when a required base rate / factor reference is absent (C2 — never silent 0). */
+  amount: number | null;
+  /** Reference tables that did not resolve (drives the C2 diagnostic). */
+  missing: string[];
+  saleAmount: number;
+  baseRate: number;
+  factors: number[];
+}
+
+/**
+ * P-E1 / P-C2: evaluate one recipient's amount =
+ *   sale × base(recipient) × Πfactorsᵢ(attrᵢ)
+ * built as a PrimeNode multiply DAG and run through the EXISTING `evaluate()`
+ * (extends the evaluation context, not the algebra). A missing required
+ * reference returns amount:null with the table(s) in `missing` (C2 fail-loud:
+ * missing base rate / missing factor entry are two of the five guarded paths).
+ */
+export function evaluateRecipientAmount(
+  factorModel: DistributionFactorModel,
+  recipientExternalId: string,
+  row: Record<string, unknown>,
+  resolveFactor: FactorResolver,
+): RecipientAmountResult {
+  const missing: string[] = [];
+  const saleRaw = row[factorModel.saleAmountColumn];
+  const saleAmount = typeof saleRaw === 'number' ? saleRaw : parseFloat(String(saleRaw ?? '')) || 0;
+
+  const metrics: Record<string, number> = { __sale: saleAmount };
+  const refKeys: string[] = ['__sale'];
+
+  let baseRate = 1;
+  if (factorModel.baseRate) {
+    const b = resolveFactor(factorModel.baseRate, recipientExternalId, row);
+    if (b === null) missing.push(factorModel.baseRate.referenceTable);
+    else { baseRate = b; metrics.__base = b; refKeys.push('__base'); }
+  }
+
+  const factors: number[] = [];
+  factorModel.factors.forEach((f, i) => {
+    const v = resolveFactor(f, recipientExternalId, row);
+    if (v === null) missing.push(f.referenceTable);
+    else { factors.push(v); const k = `__f${i}`; metrics[k] = v; refKeys.push(k); }
+  });
+
+  if (missing.length > 0) {
+    return { amount: null, missing, saleAmount, baseRate, factors };
+  }
+
+  const dag = multiplyChain(refKeys);
+  const ctx: EvalContext = { entity: { metadata: {} }, activeRows: [], allEntityRows: [], metrics };
+  const amount = toNumber(evaluate(dag, ctx));
+  return { amount, missing, saleAmount, baseRate, factors };
+}
+
+export interface CapResult {
+  amounts: number[];
+  /** True when the cap bound and amounts were proportionally reduced. */
+  applied: boolean;
+  rawSum: number;
+  capAmount: number;
+}
+
+/**
+ * P-E2 cross-recipient cap (tope). Post-evaluation pass over ONE transaction's
+ * materialized cascade: if Σ amounts exceeds the cap, every recipient is reduced
+ * proportionally so the sum equals the cap. The "tope applied to zero recipients"
+ * C2 path is guarded at the call site (the engine reports an empty cascade); here
+ * an empty / non-positive sum is a structural no-op.
+ */
+export function applyCrossRecipientCap(amounts: number[], capAmount: number): CapResult {
+  const rawSum = amounts.reduce((s, a) => s + a, 0);
+  if (rawSum <= capAmount || rawSum <= 0) {
+    return { amounts: [...amounts], applied: false, rawSum, capAmount };
+  }
+  const scale = capAmount / rawSum;
+  return { amounts: amounts.map(a => a * scale), applied: true, rawSum, capAmount };
+}
+
+/** P-E3 volume cliff: own-period aggregate ≥ threshold → multiply the rate by `multiplier`. */
+export function applyVolumeCliff(
+  baseRate: number,
+  ownPeriodAggregate: number,
+  cliff: { threshold: number; multiplier: number },
+): number {
+  return ownPeriodAggregate >= cliff.threshold ? baseRate * cliff.multiplier : baseRate;
+}
+
+/** P-E3 component floor: max(amount, floorValue) per originator per period. */
+export function applyComponentFloor(amount: number, floorValue: number): number {
+  return Math.max(amount, floorValue);
+}
+
+export interface StreakResult {
+  metConsecutively: boolean;
+  streakLength: number;
+  bonus: number;
+}
+
+/**
+ * P-E3 consecutive-period streak. `periodHistoryMostRecentFirst` are the
+ * originator's prior-period outcomes (most recent first, the engine's
+ * periodHistory order). When the most recent `periodCount` periods all meet
+ * `threshold`, the bonus applies; a single miss resets the accumulator (bonus 0).
+ */
+export function computeConsecutiveStreak(
+  periodHistoryMostRecentFirst: number[],
+  periodCount: number,
+  threshold: number,
+  bonus: number,
+): StreakResult {
+  let streak = 0;
+  for (const v of periodHistoryMostRecentFirst) {
+    if (v >= threshold) streak++;
+    else break;
+  }
+  const met = streak >= periodCount;
+  return { metConsecutively: met, streakLength: streak, bonus: met ? bonus : 0 };
+}
+
+/** One row of a materialized distribution cascade (a single recipient's payout for one sale). */
+export interface CascadeRow {
+  role: string;
+  entityExternalId: string;
+  amount: number;
+}
+
+/**
+ * P-E4 cascade reversal (devolución): atomically reverse every recipient's
+ * payout for the original sale — negate each amount. The caller posts these as
+ * new calculation_results rows referencing the original (C2: an empty original
+ * cascade is reported at the call site — "reversal with no original trace").
+ */
+export function reverseCascade(originalCascade: CascadeRow[]): CascadeRow[] {
+  return originalCascade.map(r => ({ role: r.role, entityExternalId: r.entityExternalId, amount: -r.amount }));
+}
+
+/**
+ * P-E4 retro recompute (price correction): given the original cascade and the
+ * cascade recomputed at the corrected net, post the per-recipient delta
+ * (recomputed − original), matched by recipient identity. Recipients present in
+ * the original but absent from the recompute are reversed fully.
+ */
+export function recomputeCascadeDelta(originalCascade: CascadeRow[], recomputedCascade: CascadeRow[]): CascadeRow[] {
+  const originalByEntity = new Map<string, number>();
+  for (const r of originalCascade) {
+    originalByEntity.set(r.entityExternalId, (originalByEntity.get(r.entityExternalId) ?? 0) + r.amount);
+  }
+  const out: CascadeRow[] = [];
+  const seen = new Set<string>();
+  for (const r of recomputedCascade) {
+    const old = originalByEntity.get(r.entityExternalId) ?? 0;
+    out.push({ role: r.role, entityExternalId: r.entityExternalId, amount: r.amount - old });
+    seen.add(r.entityExternalId);
+  }
+  for (const r of originalCascade) {
+    if (!seen.has(r.entityExternalId)) {
+      out.push({ role: r.role, entityExternalId: r.entityExternalId, amount: -r.amount });
+    }
+  }
+  return out;
+}
