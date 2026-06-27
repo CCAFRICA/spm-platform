@@ -31,12 +31,15 @@ export function SubmitDropzone({
   audience = 'operator',
   files: filesProp,
   refresh: refreshProp,
+  onReupload,
 }: {
   audience?: 'operator' | 'customer';
   /** When the parent owns the membrane poll, it passes files + refresh; the dropzone's
    *  own poll is then disabled (HF-347 — one adaptive interval per surface, no duplicate). */
   files?: FileRow[];
   refresh?: () => void | Promise<void>;
+  /** Proximate re-upload affordance for a not-accepted file in the recent list (HF-348). */
+  onReupload?: () => void;
 } = {}) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(0);
@@ -149,7 +152,7 @@ export function SubmitDropzone({
             </div>
           ))}
           {recent.map((file) => (
-            <StatusSpine key={file.id} file={file} audience={audience} />
+            <StatusSpine key={file.id} file={file} audience={audience} onReupload={onReupload} />
           ))}
         </div>
       )}

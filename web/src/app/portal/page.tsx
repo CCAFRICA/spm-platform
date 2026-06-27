@@ -11,6 +11,7 @@
  * No operator chrome. Gated on data.upload via the EXISTING RequireCapability.
  */
 
+import { useCallback, useRef } from 'react';
 import { Lock, Building2, ShieldCheck } from 'lucide-react';
 import { RequireCapability } from '@/components/auth/RequireCapability';
 import { SubmitDropzone } from '@/components/prism/SubmitDropzone';
@@ -46,26 +47,35 @@ function PortalInner() {
   const { currentTenant, isLoading } = useTenant();
   const org = currentTenant?.name;
 
+  // Proximate re-upload (HF-348): bring the upload hero into view for a not-accepted file.
+  const dropzoneRef = useRef<HTMLDivElement>(null);
+  const scrollToDropzone = useCallback(() => {
+    dropzoneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+      {/* The organization identity is the first thing read — whose secure space this is. */}
       <header className="mb-6 text-center">
         {org ? (
-          <p className="text-sm text-muted-foreground">
-            Delivering to <span className="font-medium text-foreground">{org}</span>
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{org}</h1>
         ) : isLoading ? (
           // Never substitute a literal org name — skeleton until the real one loads.
-          <div className="mx-auto mb-2 h-4 w-44 animate-pulse rounded bg-muted" aria-hidden />
-        ) : null /* tenant load failed — omit the line rather than pulse forever or fake an org */}
-        <h1 className="mt-1 text-2xl font-semibold text-foreground">Deliver your data</h1>
-        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Drop a file below. It stays private to your organization — we secure it the moment it arrives and confirm
-          when it&apos;s cleared.
-        </p>
+          <div className="mx-auto h-8 w-56 animate-pulse rounded bg-muted" aria-hidden />
+        ) : null /* tenant load failed — omit rather than pulse forever or fake an org */}
+        <p className="mt-1.5 text-sm text-muted-foreground">Your secure delivery space</p>
       </header>
 
+      {/* "Deliver your data" is now the action beneath the identity. */}
+      <p className="mx-auto mb-4 max-w-md text-center text-sm text-muted-foreground">
+        Deliver your data — drop a file below. It stays private to your organization; we secure it the moment it
+        arrives and confirm when it&apos;s cleared.
+      </p>
+
       {/* The upload is the hero. It consumes the page's single poll (no duplicate interval). */}
-      <SubmitDropzone audience="customer" files={files} refresh={refresh} />
+      <div ref={dropzoneRef}>
+        <SubmitDropzone audience="customer" files={files} refresh={refresh} onReupload={scrollToDropzone} />
+      </div>
 
       {/* Quiet security assurance — the real posture. */}
       <SecurityBand />
@@ -76,7 +86,7 @@ function PortalInner() {
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your deliveries</h2>
           <div className="space-y-3">
             {files.map((f) => (
-              <StatusSpine key={f.id} file={f} audience="customer" />
+              <StatusSpine key={f.id} file={f} audience="customer" onReupload={scrollToDropzone} />
             ))}
           </div>
         </section>
