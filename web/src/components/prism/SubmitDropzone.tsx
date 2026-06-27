@@ -27,14 +27,27 @@ async function sha256Hex(file: File): Promise<string> {
     .join('');
 }
 
-export function SubmitDropzone({ audience = 'operator' }: { audience?: 'operator' | 'customer' } = {}) {
+export function SubmitDropzone({
+  audience = 'operator',
+  files: filesProp,
+  refresh: refreshProp,
+}: {
+  audience?: 'operator' | 'customer';
+  /** When the parent owns the membrane poll, it passes files + refresh; the dropzone's
+   *  own poll is then disabled (HF-347 — one adaptive interval per surface, no duplicate). */
+  files?: FileRow[];
+  refresh?: () => void | Promise<void>;
+} = {}) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [submittedIds, setSubmittedIds] = useState<string[]>([]);
   const [pendingNames, setPendingNames] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { files } = useFileObjects(1500);
+  // Own the poll only when the parent does not provide one (controlled vs. standalone).
+  const own = useFileObjects(2000, { enabled: filesProp === undefined });
+  const files = filesProp ?? own.files;
+  const refresh = refreshProp ?? own.refresh;
 
   const submit = useCallback(async (file: File) => {
     setBusy((n) => n + 1);
@@ -62,13 +75,16 @@ export function SubmitDropzone({ audience = 'operator' }: { audience?: 'operator
       if (!commit.ok) throw new Error((await commit.json().catch(() => ({}))).error || 'commit failed');
       const { id } = await commit.json();
       setSubmittedIds((prev) => [id, ...prev].slice(0, 10));
+      // Kick the adaptive poll: the new file is non-terminal, so this both surfaces it
+      // and (re)starts the interval if the surface was idle.
+      await refresh();
     } catch (e) {
       setError(String(e));
     } finally {
       setPendingNames((p) => p.filter((n) => n !== file.name));
       setBusy((n) => Math.max(0, n - 1));
     }
-  }, []);
+  }, [refresh]);
 
   const onFiles = (list: FileList | null) => {
     if (!list) return;

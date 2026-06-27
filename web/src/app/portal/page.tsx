@@ -41,7 +41,8 @@ function SecurityBand() {
 }
 
 function PortalInner() {
-  const { files } = useFileObjects(2000);
+  // One adaptive membrane poll for the whole portal; the dropzone consumes it (HF-347).
+  const { files, refresh } = useFileObjects(2000);
   const { currentTenant, isLoading } = useTenant();
   const org = currentTenant?.name;
 
@@ -63,8 +64,8 @@ function PortalInner() {
         </p>
       </header>
 
-      {/* The upload is the hero. */}
-      <SubmitDropzone audience="customer" />
+      {/* The upload is the hero. It consumes the page's single poll (no duplicate interval). */}
+      <SubmitDropzone audience="customer" files={files} refresh={refresh} />
 
       {/* Quiet security assurance — the real posture. */}
       <SecurityBand />
