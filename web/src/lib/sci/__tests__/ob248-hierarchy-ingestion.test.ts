@@ -50,7 +50,7 @@ test('P-I1: builds directed child→parent edges, typed from the data, deduped, 
 });
 
 test('P-I1: with no type column, the recognized characterization types the edges; absent both → skipped (C2)', () => {
-  const noTypeRows = hierRows.map(({ 관계, ...rest }) => rest); // drop the label column
+  const noTypeRows = hierRows.map(r => { const c: Record<string, unknown> = { ...r }; delete c['관계']; return c; }); // drop the label column
   const d = detectHierarchyEdges(noTypeRows, individualExtIds)!;
   assert.equal(d.typeCol, null);
   // recognized characterization supplied → edges typed by it
