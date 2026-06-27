@@ -258,8 +258,10 @@ export function RepDashboard() {
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <p className="text-sm text-foreground">
               <span className="font-semibold">{isEs ? 'Acción: ' : 'Action: '}</span>
-              {isEs ? `revisa tus transacciones de ${derived.focus.name}.` : `review your ${derived.focus.name} transactions.`}{' '}
-              <a href={`/data/transactions`} className="font-medium text-emerald-600 underline-offset-2 hover:underline dark:text-emerald-400">{isEs ? 'Ir a Transacciones →' : 'Go to Transactions →'}</a>
+              {isEs ? `abre ${derived.focus.name} para ver las transacciones que lo generaron.` : `open ${derived.focus.name} to see the transactions behind it.`}{' '}
+              {/* Action Proximity (DS-013 §4.3): scroll to the inline Component Breakdown drill-through —
+                  NOT a navigation to /data/transactions (which a member/rep cannot access — OB-246 view.team_results). */}
+              <button onClick={() => componentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="font-medium text-emerald-600 underline-offset-2 hover:underline dark:text-emerald-400">{isEs ? 'Ver Componentes ↓' : 'View Components ↓'}</button>
             </p>
           </div>
         )}
