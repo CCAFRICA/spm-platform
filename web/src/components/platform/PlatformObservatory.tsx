@@ -26,6 +26,7 @@ import {
   DollarSign,
   Users,
   Brain,
+  Radar,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -40,8 +41,10 @@ const AIMetricsTab = lazy(() => import('./AIMetricsTab').then(m => ({ default: m
 const UsersTab = lazy(() => import('./UsersTab').then(m => ({ default: m.UsersTab })));
 // OB-235 P8: the visible recognition curve (non-amnesiac behaviour per tenant).
 const RecognitionCurvePanel = lazy(() => import('./RecognitionCurvePanel').then(m => ({ default: m.RecognitionCurvePanel })));
+// OB-IGF-16: Vigil — VG governance intelligence (capability signals + watcher) inside VP.
+const VigilTab = lazy(() => import('./VigilTab').then(m => ({ default: m.VigilTab })));
 
-type TabId = 'command-center' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings';
+type TabId = 'command-center' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings' | 'vigil';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
@@ -51,6 +54,7 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: Reac
   { id: 'ai-models', label: 'Model Config', icon: Cpu },
   { id: 'ai-cost', label: 'AI Cost', icon: DollarSign },
   { id: 'revenue', label: 'Revenue', icon: Receipt },
+  { id: 'vigil', label: 'Vigil', icon: Radar },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -173,6 +177,7 @@ export function PlatformObservatory() {
           {activeTab === 'ai-models' && <ModelConfigTab />}
           {activeTab === 'ai-cost' && <AIMetricsTab />}
           {activeTab === 'revenue' && <BillingUsageTab />}
+          {activeTab === 'vigil' && <VigilTab />}
           {activeTab === 'settings' && <FeatureFlagsTab />}
         </Suspense>
       </main>
