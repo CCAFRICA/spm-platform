@@ -151,6 +151,13 @@ export interface ComponentBinding {
   // binding resolves the period's column at calc time (resolveTemporalColumn, route.ts) instead of a
   // single `column`. Produced when the LLM abstains and detectTemporalColumnMap finds a month-column set.
   columnMap?: Record<string, string>;
+  // HF-353 P-C: cross-component reference. When a required input token is not any raw data
+  // column but the COMPUTED OUTPUT of another component in the same plan (e.g. Mínimo
+  // Garantizado's `comision_ventas_devengada` = the cascade commission), the binding points
+  // at the producer component's STRUCTURAL INDEX (never its name — Korean Test). The engine
+  // (topologically ordered) supplies priorResults[component_ref] as the token's value. A
+  // component_ref entry counts as MAPPED in mappedTokensForBinding (HF-281 passes).
+  component_ref?: number;
   // HF-196 Phase 1G Path α (HF-203): rejection metadata when binding misalignment detected (ratio>10 vs peer median)
   failure_reason?: string;
   // HF-272: per-component resolution-failure MARKER. Set when a required reference token
@@ -2472,11 +2479,68 @@ export function mappedTokensForBinding(binding: Record<string, ComponentBinding>
     // a non-failed entry with a non-empty columnMap is a MAPPED token, same as a resolved column.
     const hasColumn = typeof entry?.column === 'string' && entry.column.length > 0;
     const hasColumnMap = !!entry?.columnMap && Object.keys(entry.columnMap).length > 0;
-    if (entry && entry.match_pass !== 'failed' && (hasColumn || hasColumnMap)) {
+    // HF-353 P-C: a cross-component reference (resolved at calc time from the producer's
+    // output, no raw column) is a MAPPED token — so HF-281 binding-completeness passes.
+    const hasComponentRef = typeof entry?.component_ref === 'number';
+    if (entry && entry.match_pass !== 'failed' && (hasColumn || hasColumnMap || hasComponentRef)) {
       out.add(role);
     }
   }
   return out;
+}
+
+// ──────────────────────────────────────────────
+// HF-353 P-C: cross-component reference recognition (pure, testable)
+// ──────────────────────────────────────────────
+
+/** The `reference` leaf field names a component's intent DAG depends on. */
+export function extractReferenceFields(
+  component: { calculationIntent?: unknown; metadata?: { intent?: unknown } },
+): string[] {
+  const intent = component.metadata?.intent ?? component.calculationIntent;
+  const out = new Set<string>();
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const node = n as Record<string, unknown>;
+    if (node.prime === 'reference' && typeof node.field === 'string') out.add(node.field);
+    for (const k of Object.keys(node)) walk(node[k]);
+  };
+  walk(intent);
+  return Array.from(out);
+}
+
+// The abstention REASON the LLM gave is its RECOGNITION (Decision 158) that a token names a
+// computed OUTPUT, not raw data. Reads the LLM's free-form words (general nature terms, never
+// a hardcoded token) — null reason (unit tests of the construction) proceeds.
+const OUTPUT_REASON_RE = /\boutput\b|accru|computed|derived|already|post[\s_-]?cap|\bprior\b|earned|another component|component('?s)? output/i;
+export function abstainReasonSignalsComponentOutput(reason: string | undefined): boolean {
+  return reason == null || OUTPUT_REASON_RE.test(reason);
+}
+
+/**
+ * Recognize a cross-component dependency. An abstained reference token names a COMPUTED
+ * OUTPUT (the LLM abstained — no raw column represents it); the producer is the same-variant
+ * component that is FULLY COLUMN-GROUNDED (all its own reference fields bind to data columns,
+ * so it evaluates first) — the base value the consumer modifies. Returns the producer's
+ * STRUCTURAL INDEX (never a name — Korean Test) or null (→ a genuine data gap, unchanged).
+ * Decision 158: the LLM's abstention RECOGNIZES the output; this code CONSTRUCTS the producer.
+ */
+export function recognizeComponentReference(
+  consumer: { index: number; variantId?: string },
+  components: Array<{ index: number; variantId?: string; referenceFields: string[] }>,
+  isColumnResolvable: (field: string) => boolean,
+  abstainReason?: string,
+): number | null {
+  if (!abstainReasonSignalsComponentOutput(abstainReason)) return null;
+  const sameVariant = (c: { variantId?: string }) =>
+    consumer.variantId == null || c.variantId == null || c.variantId === consumer.variantId;
+  const grounded = components.filter(c =>
+    c.index !== consumer.index && sameVariant(c) &&
+    c.referenceFields.length > 0 && c.referenceFields.every(isColumnResolvable));
+  if (grounded.length === 0) return null;
+  // The base earning the modifiers adjust = the richest grounded computation; tie → lowest index.
+  grounded.sort((a, b) => b.referenceFields.length - a.referenceFields.length || a.index - b.index);
+  return grounded[0].index;
 }
 
 /**
@@ -3393,6 +3457,39 @@ async function generateAllComponentBindings(
       // §2-S5: no proposal or explicit abstention → convergence gap (never a forced bind).
       if (!proposal || 'abstain' in proposal) {
         const why = proposal ? (proposal as { reason: string }).reason : 'no_proposal';
+
+        // HF-353 P-C: before recording a gap, recognize whether the abstained token is the
+        // COMPUTED OUTPUT of another component in this plan (a cross-component dependency).
+        // The LLM abstained BECAUSE no column represents it (Decision 158 recognition); the
+        // producer is the same-variant fully-column-grounded base component. Emit a
+        // component_ref binding (by structural INDEX — Korean Test) instead of a gap.
+        const isColumnResolvable = (field: string): boolean => {
+          const p = proposals[field];
+          return !!p && !('abstain' in p) && typeof (p as { column?: string }).column === 'string' && (p as { column: string }).column.length > 0;
+        };
+        const candidateComponents = components.map(c => ({
+          index: c.index,
+          variantId: (c as { variantId?: string }).variantId,
+          referenceFields: extractReferenceFields(c as { calculationIntent?: unknown; metadata?: { intent?: unknown } }),
+        }));
+        const producerIndex = recognizeComponentReference(
+          { index: comp.index, variantId: (comp as { variantId?: string }).variantId },
+          candidateComponents,
+          isColumnResolvable,
+          why,
+        );
+        if (producerIndex !== null) {
+          bindings[compKey][req.role] = {
+            column: '',
+            component_ref: producerIndex,
+            field_identity: { structuralType: 'computed', contextualIdentity: 'component_output', confidence: 0.9 },
+            match_pass: 1,
+            confidence: 0.9,
+          };
+          console.log(`[Convergence] HF-353 P-C ${comp.name}:${req.role} (${req.metricField}) → cross-component reference to component_${producerIndex} (computed output; ${why})`);
+          continue;
+        }
+
         bindings[compKey][req.role] = {
           column: '',
           field_identity: { structuralType: 'unknown', contextualIdentity: 'unresolved', confidence: 0 },
