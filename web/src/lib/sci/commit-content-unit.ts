@@ -568,7 +568,16 @@ export async function commitContentUnit(
   let latestDate: string | null = null;
   let dateCount = 0;
 
-  const insertRows = rows.map((row, i) => {
+  // HF-353 P-A (enterprise OOM): the per-row committed_data projection. PREVIOUSLY the
+  // FULL payload (`const insertRows = rows.map(...)`) was materialized at once — a third
+  // full copy of the parsed data (each row_data spreads all N columns), which on an
+  // 86,608×87 ERP export drove ~2GB peak heap → Vercel OOM. The chunked INSERT loop below
+  // already bounds the WRITES; now it also bounds MEMORY by building each chunk's payload
+  // inline from a `rows.slice(...)` and dropping it after the insert (peak ≈ 2× parsed +
+  // one chunk, independent of file size — SR-2). Byte-identical committed rows: the
+  // projection (and its source_date side-effect into the outer accumulators) is unchanged;
+  // only WHEN each row object is built moved from "all upfront" to "per chunk".
+  const buildCommittedRow = (row: Record<string, unknown>, i: number) => {
     const sourceDate = extractSourceDate(
       row,
       dateColumnHint,
@@ -614,15 +623,16 @@ export async function commitContentUnit(
         },
       },
     };
-  });
+  };
 
   // Chunked insert — per-source profile (sci-bulk retries; sci does not).
   let totalInserted = 0;
-  const totalChunks = Math.ceil(insertRows.length / profile.chunkSize);
+  const totalChunks = Math.ceil(rows.length / profile.chunkSize);
   let chunksCompleted = 0;
 
-  for (let i = 0; i < insertRows.length; i += profile.chunkSize) {
-    const slice = insertRows.slice(i, i + profile.chunkSize);
+  for (let i = 0; i < rows.length; i += profile.chunkSize) {
+    // HF-353 P-A: build THIS chunk's payload inline (never the whole array at once).
+    const slice = rows.slice(i, i + profile.chunkSize).map((r, j) => buildCommittedRow(r, i + j));
     let chunkSuccess = false;
     let lastErr = '';
 
@@ -658,7 +668,7 @@ export async function commitContentUnit(
       }, supabase);
       // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
       // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
-      if (profile.pacingMs > 0 && i + profile.chunkSize < insertRows.length) {
+      if (profile.pacingMs > 0 && i + profile.chunkSize < rows.length) {
         await new Promise(r => setTimeout(r, profile.pacingMs));
       }
     } else {
@@ -713,6 +723,21 @@ export async function commitContentUnit(
         error: `${lastErr} — unit rolled back (${totalInserted} partial rows removed)`,
       };
     }
+  }
+
+  // HF-353 P-A (HALT-DATA-LOSS): chunked commitment must commit EXACTLY the parsed row
+  // count. A failed chunk already triggers the unit-atomic rollback above; this invariant
+  // catches any other shortfall (the directive forbids silent partial commits — data loss
+  // is never acceptable). Belt-and-suspenders: on the happy path totalInserted === rows.length.
+  if (totalInserted !== rows.length) {
+    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${rows.length} parsed rows for "${tabName}" — chunked commitment lost rows.`;
+    console.error(`[commitContentUnit] ${reason}`);
+    await supabase.from('committed_data').delete().eq('import_batch_id', batchId);
+    await supabase.from('import_batches').update({
+      status: 'failed',
+      error_summary: { error: reason, hf: 'HF-353-DATA-LOSS' } as unknown as Json,
+    }).eq('id', batchId);
+    return { batchId, totalInserted: 0, dataType, entityIdField, fieldIdentities, earliestDate, latestDate, dateCount, success: false, error: reason };
   }
 
   // Finalize batch.
