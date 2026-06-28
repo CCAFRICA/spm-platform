@@ -155,6 +155,10 @@ async function dispatch(req: NextRequest): Promise<NextResponse> {
     // (status-guarded) so the next sweep — or the client — re-fires it.
     let reclaimed = 0;
     const staleCutoff = new Date(now - STALE_CLASSIFYING_MS).toISOString();
+    // A stuck 'classifying' job → 'pending' (re-classified by process-job). A stuck 'committing' job
+    // → 'classified' (re-COMMITTED by the client/execute-bulk resume, which is idempotent — it skips
+    // spine-terminal units), NOT 'pending' (that would wastefully re-run classify on a done proposal).
+    const RECLAIM_TARGET: Record<'classifying' | 'committing', string> = { classifying: 'pending', committing: 'classified' };
     for (const stuckStatus of ['classifying', 'committing'] as const) {
       const { data: stuck, error: stuckErr } = await supabase
         .from('processing_jobs')
@@ -166,7 +170,7 @@ async function dispatch(req: NextRequest): Promise<NextResponse> {
       for (const job of stuck ?? []) {
         const reset = await supabase
           .from('processing_jobs')
-          .update({ status: 'pending' })
+          .update({ status: RECLAIM_TARGET[stuckStatus] })
           .eq('id', job.id)
           .eq('status', stuckStatus)
           .select('id');
