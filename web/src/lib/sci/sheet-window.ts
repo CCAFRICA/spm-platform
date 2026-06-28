@@ -90,7 +90,7 @@ export function openSheetWindow(XLSX: XLSXModule, ws: WorkSheet, sheetName: stri
  * __EMPTY, __EMPTY_1, …; collisions become name_1, name_2, …). Only used when a sheet has a header
  * but no data rows; the common path captures keys from a real data row above.
  */
-function dedupeHeaderKeys(raw: unknown[]): string[] {
+export function dedupeHeaderKeys(raw: unknown[]): string[] {
   const out: string[] = [];
   const seen = new Map<string, number>();
   let emptyIdx = 0;

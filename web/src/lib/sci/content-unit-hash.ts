@@ -20,9 +20,16 @@ import { createHash } from 'node:crypto';
  * identity break (Decision-Implementation Gap risk per HF-213 Enforcement
  * Category 7 Finding (a)).
  */
-export function computeContentUnitHashSha256(rows: Record<string, unknown>[]): string {
+export function computeContentUnitHashSha256(rows: Record<string, unknown>[], salt?: string): string {
+  // OB-251 HOTFIX: `salt` distinguishes the chunk-windows of ONE large file's streamed/windowed commit
+  // so two byte-identical windows cannot falsely supersede each other (HF-213 content-match) and drop
+  // rows. The salt is the window's file-global row offset; it is ABSENT (undefined) for every
+  // single-batch caller, so their hash — and supersession identity — is byte-identical. A re-import of
+  // the same file produces the same windows at the same offsets → same salted hashes → re-import dedup
+  // still holds. The hash is a supersession key only (never read by the calc engine).
+  const prefix = salt ? `␟${salt}\n` : '';
   if (rows.length === 0) {
-    return createHash('sha256').update('').digest('hex');
+    return createHash('sha256').update(prefix).digest('hex');
   }
 
   const columnSet = new Set<string>();
@@ -47,7 +54,7 @@ export function computeContentUnitHashSha256(rows: Record<string, unknown>[]): s
   const header = sortedColumns
     .map(c => /[,"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)
     .join(',');
-  const canonical = [header, ...normalizedRows].join('\n');
+  const canonical = prefix + [header, ...normalizedRows].join('\n');
 
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }

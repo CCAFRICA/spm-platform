@@ -25,6 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   commitContentUnit,
   findHcEntityIdCandidates,
+  findHcEntityIdColumn,
   selectEntityIdFieldByOverlap,
   readTenantEntityDomain,
   type CommitContentUnitInput,
@@ -32,6 +33,7 @@ import {
 } from './commit-content-unit';
 import type { AgentType } from './sci-types';
 import type { SheetWindow } from './sheet-window';
+import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 
 export interface WindowedCommitParams {
@@ -158,6 +160,93 @@ export async function commitUnitWindowed(
 
   console.log(`[windowed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} windows (window=${windowRows}), entity_id_field="${entityIdField ?? 'none'}"`);
   return { totalInserted, totalRows, success: true, entityIdField, batchIds };
+}
+
+// ── OB-251 HOTFIX: STREAMED commit (the parse-input bound) ───────────────────────────────────────
+export interface StreamedCommitParams {
+  unit: CommitContentUnitInput;
+  buffer: ArrayBuffer | Buffer;
+  targetSheet: string;
+  classification: Exclude<AgentType, 'plan'>;
+  tenantId: string;
+  proposalId: string;
+  tabName: string;
+  fileName: string;
+  fileHashSha256: string;
+  windowRows?: number;
+  onWindowCommitted?: (rows: Record<string, unknown>[], rowOffset: number, entityIdField: string | null) => Promise<void>;
+}
+
+/**
+ * Commit a LARGE unit by STREAMING the worksheet (jszip) and committing each bounded window through
+ * the UNCHANGED commitContentUnit — the workbook is NEVER materialized (the real OOM fix). Forward-only:
+ * entity_id_field is resolved ONCE from the classify-time HC trace (no row scan, so it cannot drift
+ * across windows), and passed as the override. committed_data ROWS are the same a single-batch commit
+ * would write (per-row source_date, file-global _rowIndex via rowIndexOffset, same data_type) — only
+ * import_batch_id grouping differs, which the engine ignores. Aggregate HALT-DATA-LOSS: Σ committed ==
+ * streamed totalRows.
+ */
+export async function commitUnitStreamed(
+  supabase: SupabaseClient,
+  params: StreamedCommitParams,
+): Promise<WindowedCommitResult> {
+  const windowRows = params.windowRows ?? CHUNK_ROW_SIZE;
+  // Trace-derived entity-id (no rows): single entity-scope identifier is deterministic; reference → null.
+  const entityIdField = params.classification === 'reference'
+    ? null
+    : (findHcEntityIdColumn(params.unit.classificationTrace)
+        ?? params.unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField
+        ?? null);
+
+  const batchIds: string[] = [];
+  let totalInserted = 0;
+  let offset = 0;
+  let failure: string | undefined;
+
+  const res = await streamSheetWindows(params.buffer, {
+    targetSheet: params.targetSheet,
+    windowRows,
+    onWindow: async (rows) => {
+      if (failure) return; // a prior window failed — skip the rest; rollback happens after the stream
+      let r: CommitContentUnitResult;
+      try {
+        r = await commitContentUnit(supabase, {
+          unit: params.unit,
+          rows,
+          classification: params.classification,
+          tenantId: params.tenantId,
+          proposalId: params.proposalId,
+          tabName: params.tabName,
+          fileName: params.fileName,
+          source: 'sci-bulk',
+          fileHashSha256: params.fileHashSha256,
+          rowIndexOffset: offset,
+          entityIdFieldOverride: entityIdField,
+        });
+      } catch (err) { failure = `window @${offset}: ${String(err)}`; return; }
+      if (r.batchId) batchIds.push(r.batchId);
+      if (!r.success) { failure = r.error ?? 'window commit failed'; return; }
+      totalInserted += r.totalInserted;
+      if (params.onWindowCommitted) {
+        try { await params.onWindowCommitted(rows, offset, entityIdField); }
+        catch (err) { console.warn(`[streamed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
+      }
+      offset += rows.length;
+    },
+  });
+
+  if (failure) {
+    await rollbackBatches(supabase, batchIds);
+    return { totalInserted: 0, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: failure };
+  }
+  if (totalInserted !== res.totalRows) {
+    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${res.totalRows} streamed rows across ${batchIds.length} windows for "${params.tabName}".`;
+    console.error(`[streamed-commit] ${reason}`);
+    await rollbackBatches(supabase, batchIds);
+    return { totalInserted: 0, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: reason };
+  }
+  console.log(`[streamed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} windows (window=${windowRows}), entity_id_field="${entityIdField ?? 'none'}"`);
+  return { totalInserted, totalRows: res.totalRows, success: true, entityIdField, batchIds };
 }
 
 async function rollbackBatches(supabase: SupabaseClient, batchIds: string[]): Promise<void> {

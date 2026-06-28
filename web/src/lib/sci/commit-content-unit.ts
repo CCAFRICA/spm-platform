@@ -401,7 +401,13 @@ export async function commitContentUnit(
   const dataType = resolveDataTypeFromClassification(classification);
 
   // HF-213 — content_unit_hash_sha256 is the supersession identity primitive.
-  const contentUnitHashSha256 = computeContentUnitHashSha256(rows);
+  // OB-251 HOTFIX: salt with the chunk's file-global offset so two byte-identical windows of ONE large
+  // file cannot supersede each other (and drop rows). undefined for single-batch callers (offset 0) →
+  // byte-identical hash, so HALT-CALC anchors are unaffected.
+  const contentUnitHashSha256 = computeContentUnitHashSha256(
+    rows,
+    params.rowIndexOffset && params.rowIndexOffset > 0 ? `chunk@${params.rowIndexOffset}` : undefined,
+  );
   const batchId = crypto.randomUUID();
 
   await supabase.from('import_batches').insert({
