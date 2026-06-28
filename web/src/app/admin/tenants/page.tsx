@@ -36,6 +36,15 @@ function TenantManagementInner() {
     fetch('/api/platform/tenants').then((r) => r.json()).then((d: { tenants?: TenantRow[] }) => setTenants(d.tenants ?? [])).catch(() => setTenants([]));
   }, []);
 
+  // HF-353: deep-link from a fleet card's "Manage" entry (/admin/tenants?tenant=<id>) — open this
+  // surface pre-selected for that tenant once the list loads. Read from the URL directly (client-only)
+  // to avoid the useSearchParams Suspense requirement; a no-param visit leaves the picker empty.
+  useEffect(() => {
+    if (tenants.length === 0) return;
+    const wanted = new URLSearchParams(window.location.search).get('tenant');
+    if (wanted && tenants.some((t) => t.id === wanted)) setSelectedId(wanted);
+  }, [tenants]);
+
   const loadSummary = useCallback((id: string) => {
     if (!id) { setSummary(null); return; }
     setLoadingSummary(true); setPicked(new Set());

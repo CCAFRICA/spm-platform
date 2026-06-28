@@ -338,7 +338,11 @@ function buildOperationsQueue(
         message: `No data imported yet (created ${daysSinceCreation}d ago)`,
         severity: daysSinceCreation > 2 ? 'warning' : 'info',
         timestamp: t.created_at,
-        action: { label: 'View Tenant', href: `/select-tenant` },
+        // HF-353 honest labels: every queue action does the SAME thing — enter the tenant (lands on
+        // /operate via ObservatoryTab.handleSelectTenant). The old varied labels ("Run Calculation",
+        // "Resume") implied actions the button does not perform. href is vestigial — the consumer
+        // navigates via onClick, not this field (left untouched; out of scope to wire a deep-link).
+        action: { label: 'Go to tenant', href: `/select-tenant` },
       });
       continue;
     }
@@ -351,7 +355,7 @@ function buildOperationsQueue(
         message: 'Data imported but no calculations run yet',
         severity: 'info',
         timestamp: t.created_at,
-        action: { label: 'Run Calculation', href: `/select-tenant` },
+        action: { label: 'Go to tenant', href: `/select-tenant` },
       });
       continue;
     }
@@ -371,7 +375,7 @@ function buildOperationsQueue(
         message: `Lifecycle stalled at ${latest.lifecycle_state} for ${stalledDays}d`,
         severity: stalledDays > 3 ? 'critical' : 'warning',
         timestamp: latest.created_at,
-        action: { label: 'Resume', href: `/select-tenant` },
+        action: { label: 'Go to tenant', href: `/select-tenant` },
       });
     }
   }

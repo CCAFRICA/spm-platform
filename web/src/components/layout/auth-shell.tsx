@@ -20,7 +20,13 @@ import { shouldGateToSelectTenant } from '@/lib/auth/tenant-gate';
 
 // Routes that don't require a tenant to be selected
 // HF-148: MFA routes are tenant-exempt — MFA ceremony must complete before tenant selection
-const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant', '/admin/tenants/new'];
+// HF-353: /admin/tenants (Tenant Management) is a PLATFORM-WIDE surface — it operates on a tenant
+// chosen IN-page (a dropdown, or the ?tenant= deep-link from a fleet card), and lists/acts across
+// ALL tenants. Requiring a pre-selected tenant wrongly bounced platform admins to /select-tenant,
+// making the surface unreachable by URL. It is exempt for the same reason /admin/tenants/new is:
+// the tenant is not a precondition. The capability gate (platform.system_config) is unaffected —
+// exemption removes the tenant precondition, not access control (RequireCapability + every API gate).
+const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant', '/admin/tenants', '/admin/tenants/new'];
 
 // Routes that should not show the app shell (sidebar/navbar)
 const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant'];

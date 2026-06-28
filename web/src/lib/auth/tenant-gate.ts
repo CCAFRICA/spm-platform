@@ -19,7 +19,7 @@ export interface TenantGateState {
   isVLAdmin: boolean;
   /** a tenant is currently selected/loaded */
   hasTenant: boolean;
-  /** route is tenant-exempt (/login, /select-tenant, /admin/tenants/new, MFA) */
+  /** route is tenant-exempt (/login, /select-tenant, /admin/tenants, /admin/tenants/new, MFA) */
   isTenantExempt: boolean;
 }
 
