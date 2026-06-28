@@ -14,7 +14,7 @@ import { strict as assert } from 'node:assert';
 import { isFeatureEnabled, isEntitledByDefault } from '@/lib/tenant/feature-flags';
 import { getToggleableAgents, toggleableFeatureKeys, tenantEntitlementRevocations } from '../workspace-config';
 import { canAccessWorkspace, getAccessibleWorkspaces } from '../role-workspaces';
-import { hasCapability, getCapabilities } from '@/lib/auth/permissions';
+import { hasCapability, getCapabilities, requiredFeatureForPath } from '@/lib/auth/permissions';
 
 test('isFeatureEnabled: default-ON core agents (absent key → entitled), default-OFF licensable', () => {
   // Core agents — entitled by default (DEFAULT_FEATURES.performance / .compensation = true).
@@ -97,4 +97,27 @@ test('DS-014 §9: revocation applies across ALL roles (a de-entitled agent cap i
   // manager normally holds data.approve_results (a calculate-exclusive cap) — revoked too.
   assert.equal(getCapabilities('manager', rev).has('data.approve_results'), false);
   assert.equal(getCapabilities('admin', rev).has('icm.simulate'), false);
+});
+
+test('server-side deep-link gate: agent-exclusive exec routes require the agent feature (review closure)', () => {
+  // Compensation-exclusive exec routes → require the 'compensation' feature.
+  assert.equal(requiredFeatureForPath('/operate/calculate'), 'compensation');
+  assert.equal(requiredFeatureForPath('/operate/reconciliation'), 'compensation');
+  assert.equal(requiredFeatureForPath('/operate/results'), 'compensation');
+  assert.equal(requiredFeatureForPath('/approvals'), 'compensation');
+  assert.equal(requiredFeatureForPath('/configure/plans'), 'compensation');
+  // Intelligence-exclusive → require 'performance'.
+  assert.equal(requiredFeatureForPath('/insights'), 'performance');
+  assert.equal(requiredFeatureForPath('/insights/analytics'), 'performance');
+  assert.equal(requiredFeatureForPath('/acceleration'), 'performance');
+});
+
+test('server-side gate NEVER blocks the shared / landing paths (I6 import, Decision 128 landing)', () => {
+  assert.equal(requiredFeatureForPath('/operate'), null, 'bare /operate cockpit not feature-gated');
+  assert.equal(requiredFeatureForPath('/operate/import'), null, 'I6: local import never gated');
+  assert.equal(requiredFeatureForPath('/operate/import/quarantine'), null, 'I5: quarantine never gated');
+  assert.equal(requiredFeatureForPath('/stream'), null, 'Decision 128 universal landing never gated');
+  assert.equal(requiredFeatureForPath('/perform'), null, 'Performance Overview landing-adjacent not gated');
+  assert.equal(requiredFeatureForPath('/configure'), null, 'bare /configure (platform-core) not gated');
+  assert.equal(requiredFeatureForPath('/configure/people'), null, 'entity config not gated');
 });

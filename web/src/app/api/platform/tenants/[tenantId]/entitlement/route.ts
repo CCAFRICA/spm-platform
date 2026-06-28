@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { authorizePlatformObservability } from '@/lib/auth/authorize-platform-observability';
 import { toggleableFeatureKeys } from '@/lib/navigation/workspace-config';
+import { isFeatureEnabled } from '@/lib/tenant/feature-flags';
 import { writeAuditLog } from '@/lib/audit/audit-logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -61,28 +62,35 @@ export async function PATCH(
     if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
 
     const features = { ...((tenant.features as Record<string, unknown>) || {}) };
-    const previous = features[featureKey] === true;
+    // Audit honesty (I4 / SOC 2 CC6): the EFFECTIVE prior entitlement, not the raw-stored value. A
+    // default-ON agent (e.g. compensation) with no explicit key is effectively true; recording the
+    // raw `=== true` (false) would log a misleading from:false→to:false when toggling it off.
+    const previous = isFeatureEnabled(features, featureKey);
     features[featureKey] = enabled;
 
-    // ONLY features — no settings.billing mutation (decoupled, PRISM precedent).
+    // ONLY features — no settings.billing mutation (decoupled, PRISM precedent). Persist the explicit
+    // value (so the entitlement is concrete in the JSONB even when it equals the default).
     const { error: writeErr } = await supabase
       .from('tenants')
       .update({ features, updated_at: new Date().toISOString() })
       .eq('id', tenantId);
     if (writeErr) return NextResponse.json({ error: writeErr.message }, { status: 500 });
 
-    // I4 audit (append-only audit_logs; SOC 2 CC6).
-    await writeAuditLog(supabase, {
-      tenant_id: tenantId,
-      profile_id: gate.caller.profileId,
-      action: 'tenant.entitlement_toggled',
-      resource_type: 'tenant',
-      resource_id: tenantId,
-      changes: { [featureKey]: { from: previous, to: enabled } },
-      metadata: { source: 'observatory-tenant-admin', actor_auth_user_id: gate.caller.authUserId },
-    });
+    // I4 audit (append-only audit_logs; SOC 2 CC6) — ONLY when the effective entitlement changed.
+    const changed = previous !== enabled;
+    if (changed) {
+      await writeAuditLog(supabase, {
+        tenant_id: tenantId,
+        profile_id: gate.caller.profileId,
+        action: 'tenant.entitlement_toggled',
+        resource_type: 'tenant',
+        resource_id: tenantId,
+        changes: { [featureKey]: { from: previous, to: enabled } },
+        metadata: { source: 'observatory-tenant-admin', actor_auth_user_id: gate.caller.authUserId },
+      });
+    }
 
-    return NextResponse.json({ featureKey, enabled, features });
+    return NextResponse.json({ featureKey, enabled, changed, features });
   } catch (err) {
     console.error('[PATCH /api/platform/tenants/[tenantId]/entitlement] Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
