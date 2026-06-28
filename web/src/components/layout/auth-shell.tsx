@@ -29,7 +29,11 @@ import { shouldGateToSelectTenant } from '@/lib/auth/tenant-gate';
 const TENANT_EXEMPT_ROUTES = ['/login', '/select-tenant', '/admin/tenants', '/admin/tenants/new'];
 
 // Routes that should not show the app shell (sidebar/navbar)
-const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant'];
+// OB-252 I0/I1: /admin/tenants (now a redirect into the Observatory) and /admin/tenants/new (the
+// platform-only creation wizard) must NOT render inside the tenant-plane operator chrome — they are
+// platform-owner surfaces. Rendering them chromeless closes the plane leak (the fleet-card path no
+// longer dumps the admin into a tenant sidebar).
+const SHELL_EXCLUDED_ROUTES = ['/login', '/select-tenant', '/admin/tenants', '/admin/tenants/new'];
 
 interface AuthShellProps {
   children: React.ReactNode;

@@ -23,6 +23,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES, requiredFeatureForPath } from '@/lib/auth/permissions';
+import { isFeatureEnabled } from '@/lib/tenant/feature-flags';
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { detectSessionChurn } from '@/lib/observability/session-churn';
@@ -392,7 +393,10 @@ export async function middleware(request: NextRequest) {
         .eq('id', effectiveTenantId)
         .maybeSingle();
       const features = ((tenantRow?.features ?? {}) as Record<string, unknown>);
-      featureOn = features[requiredFeature] === true;
+      // OB-252: default-on aware (DEFAULT_FEATURES fallback). Byte-identical for the default-OFF
+      // features actually gated here (prism_enabled, financial: absent → blocked); future-proof if a
+      // default-ON feature is ever gated server-side.
+      featureOn = isFeatureEnabled(features, requiredFeature);
     }
     if (!featureOn) {
       logAuthEvent('auth.permission.feature_denied', { pathname, feature: requiredFeature }, user.id);

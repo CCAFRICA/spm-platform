@@ -13,7 +13,9 @@
  */
 
 import { useAuth } from '@/contexts/auth-context';
+import { useTenantFeaturesSafe } from '@/contexts/tenant-context';
 import { hasCapability, type Capability } from '@/lib/auth/permissions';
+import { tenantEntitlementRevocations } from '@/lib/navigation/workspace-config';
 
 interface RequireCapabilityProps {
   capability: Capability;
@@ -23,6 +25,11 @@ interface RequireCapabilityProps {
 
 export function RequireCapability({ capability, fallback, children }: RequireCapabilityProps) {
   const { user, isLoading } = useAuth();
+  // OB-252 Phase 3 / DS-014 §9: intersect role capabilities with the tenant's entitlement
+  // (tenants.features) — deterministic, zero LLM. A capability owned only by a de-entitled agent is
+  // revoked, so a tenant without (e.g.) Compensation cannot reach an icm.* / data.calculate page even
+  // by direct URL. Default-on agents (absent key) are NOT revoked. Safe read (null outside provider).
+  const features = useTenantFeaturesSafe();
 
   if (isLoading) {
     return fallback || <CapabilityGate reason="loading" />;
@@ -32,7 +39,7 @@ export function RequireCapability({ capability, fallback, children }: RequireCap
     return fallback || <CapabilityGate reason="loading" />;
   }
 
-  if (!hasCapability(user.role, capability)) {
+  if (!hasCapability(user.role, capability, tenantEntitlementRevocations(features))) {
     return fallback || <CapabilityGate reason="denied" />;
   }
 

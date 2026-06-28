@@ -358,6 +358,33 @@ export const WORKSPACE_FEATURES: ReadonlyArray<{ prefix: string; feature: string
   { prefix: '/data/submit', feature: PRISM_FEATURE_KEY },
   { prefix: '/data/in-progress', feature: PRISM_FEATURE_KEY },
   { prefix: '/data-operations', feature: PRISM_FEATURE_KEY },
+  // OB-252 Phase 3: the licensable Finance agent — server-side deep-link gate (it was previously only
+  // nav-hidden). The whole /financial subtree is Finance-exclusive, so gating the prefix is safe; a
+  // non-Finance tenant cannot reach any /financial route by direct URL. Default-OFF (DEFAULT_FEATURES
+  // .financial=false) so existing non-Finance tenants are byte-identical.
+  { prefix: '/financial', feature: 'financial' },
+
+  // OB-252 Phase 3 (review closure): server-side deep-link gates for the two DEFAULT-ON agents, using
+  // the DEDICATED entitlement keys (Compensation='compensation_enabled', Intelligence=
+  // 'intelligence_enabled' — NOT the billing keys), so the Observatory toggle is enforced server-side,
+  // not menu/UI only. The feature read is default-on aware (isFeatureEnabled → DEFAULT_FEATURES = true),
+  // so a tenant with no explicit key is allowed (byte-identical for every existing tenant); only an
+  // explicit toggle-OFF blocks. ONLY the agent-EXCLUSIVE exec sub-paths are listed — NEVER the bare
+  // /operate (shares /operate/import, I6 local import must stay reachable), NEVER /stream (the
+  // universal landing, Decision 128), NEVER bare /perform or /configure. Longest-prefix match keeps
+  // /operate/import → null. The engine API handlers (/api/calculation/*) are intentionally NOT gated
+  // here (HALT-CALC: no feature check is added inside the calc path; resolveCallerTenant already binds
+  // them to the caller's own tenant — no cross-tenant exposure).
+  { prefix: '/operate/calculate', feature: 'compensation_enabled' },
+  { prefix: '/operate/reconciliation', feature: 'compensation_enabled' },
+  { prefix: '/operate/results', feature: 'compensation_enabled' },
+  { prefix: '/operate/pay', feature: 'compensation_enabled' },
+  { prefix: '/operate/lifecycle', feature: 'compensation_enabled' },
+  { prefix: '/approvals', feature: 'compensation_enabled' },
+  { prefix: '/performance/adjustments', feature: 'compensation_enabled' },
+  { prefix: '/configure/plans', feature: 'compensation_enabled' },
+  { prefix: '/insights', feature: 'intelligence_enabled' },
+  { prefix: '/acceleration', feature: 'intelligence_enabled' },
 ];
 
 /** The tenant feature a path requires (longest exact-prefix match), or null. Boundary-safe:
