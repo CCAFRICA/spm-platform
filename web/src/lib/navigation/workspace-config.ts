@@ -360,6 +360,9 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/operations/messaging', label: 'Messaging', labelEs: 'Mensajería', icon: 'MessageSquare', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
           { path: '/operations/rollback', label: 'Rollback', labelEs: 'Reversión', icon: 'Undo2', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
           { path: '/admin/tenants/new', label: 'New Tenant', labelEs: 'Nuevo Inquilino', icon: 'Building2', roles: ['platform'], requiredCapability: 'platform.provision_tenant' },
+          // HF-352: the reachable home for clean-slate / delete-tenant / agent-feature toggles. Gated
+          // on platform.system_config (platform-admin only; the /admin middleware gate maps to it too).
+          { path: '/admin/tenants', label: 'Tenant Management', labelEs: 'Gestión de Inquilinos', icon: 'DatabaseZap', roles: ['platform'], requiredCapability: 'platform.system_config' },
         ],
       },
     ],
