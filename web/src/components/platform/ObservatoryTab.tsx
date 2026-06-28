@@ -12,6 +12,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTenant } from '@/contexts/tenant-context';
+import { useAuth } from '@/contexts/auth-context'; // HF-354: capability gate for the Manage-tenant entry
+import { hasCapability } from '@/lib/auth/permissions'; // HF-354: platform.system_config gate (no role-string)
 import { logAuthEventClient } from '@/lib/auth/auth-logger'; // HF-283 Phase 4: tenant-entry observability
 import type {
   FleetOverview,
@@ -52,6 +54,11 @@ const NEXT_ACTIONS: Record<string, string> = {
 export function ObservatoryTab() {
   const router = useRouter();
   const { setTenant } = useTenant();
+  // HF-354: the Manage-tenant entry is gated on platform.system_config (the HF-352 surface's own
+  // capability). The Observatory is already platform-admin-only, so this is the explicit, defensible
+  // expression of I4 — no role-string, no new role.
+  const { user } = useAuth();
+  const canManageTenants = !!user && hasCapability(user.role, 'platform.system_config');
   const [overview, setOverview] = useState<FleetOverview | null>(null);
   const [tenantCards, setTenantCards] = useState<TenantFleetCard[]>([]);
   const [queue, setQueue] = useState<OperationsQueueItem[]>([]);
@@ -403,22 +410,6 @@ export function ObservatoryTab() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* HF-353: restored Manage-Tenant entry on the card (its historical home) — opens
-                        the existing HF-352 surface pre-selected for THIS tenant. stopPropagation so it
-                        does not also trigger the card's enter-tenant click. */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); router.push(`/admin/tenants?tenant=${tenant.id}`); }}
-                      title="Manage tenant — clean slate, delete, agents/features"
-                      aria-label={`Manage ${tenant.name}`}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        fontSize: '12px', fontWeight: 600, color: 'var(--strag-s4)',
-                        background: 'transparent', border: '1px solid var(--strag-s7)',
-                        borderRadius: '6px', padding: '4px 8px', cursor: 'pointer',
-                      }}
-                    >
-                      <Settings2 style={{ width: '13px', height: '13px' }} /> Manage
-                    </button>
                     {tenant.latestLifecycleState && (
                       <span style={{
                         fontSize: '13px',
@@ -483,6 +474,37 @@ export function ObservatoryTab() {
                   <span>&rarr;</span>
                   <span>{nextAction}</span>
                 </div>
+
+                {/* HF-354: the PROMINENT, unmistakable tenant-management entry point (the deliverable).
+                    The card body click enters the tenant (→ /stream); THIS opens the HF-352 management
+                    surface (agents/features toggle, Clean Slate, Delete Tenant) scoped to this tenant.
+                    A full-width labeled button, not a buried icon. Capability-gated (platform.system_config);
+                    stopPropagation so it never triggers the card's enter-tenant click. */}
+                {canManageTenants && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); router.push(`/admin/tenants?tenant=${tenant.id}`); }}
+                    title="Manage tenant — agents/features, Clean Slate, Delete Tenant"
+                    aria-label={`Manage ${tenant.name}`}
+                    style={{
+                      marginTop: '16px',
+                      width: '100%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: '#C7D2FE',
+                      background: 'rgba(123, 127, 212, 0.15)',
+                      border: '1px solid rgba(123, 127, 212, 0.40)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Settings2 style={{ width: '15px', height: '15px' }} /> Manage tenant
+                  </button>
+                )}
               </div>
             );
           })}
