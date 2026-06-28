@@ -256,7 +256,7 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string, 
   const supabase = createClient();
 
   // Round 1: periods + plan + import (parallel)
-  const [periodsRes, planRes, importRes] = await Promise.all([
+  const [periodsRes, planRes, importRes, committedRes] = await Promise.all([
     supabase
       .from('periods')
       .select('id, canonical_key, label, start_date, end_date, status')
@@ -273,7 +273,13 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string, 
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // OB-251 (P-D2): live data presence — the Lifecycle Cockpit's "Data imported" readiness must
+    // reflect what IS in committed_data (the table Clean Slate wipes), not the surviving
+    // import_batches receipt row, which left the cockpit reading "Data imported: completed" after a
+    // clean slate. lastImportStatus is gated on this count below so the cockpit self-heals to empty.
+    supabase.from('committed_data').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
   ]);
+  const hasCommittedData = (committedRes.count ?? 0) > 0;
 
   const rawPeriods = periodsRes.data ?? [];
 
@@ -429,7 +435,9 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string, 
     hasActivePlan: !!planRes.data,
     ruleSetId: planRes.data?.id ?? null,
     ruleSetName: planRes.data?.name ?? null,
-    lastImportStatus: importRes.data?.status ?? null,
+    // OB-251 (P-D2): only report an import status when live committed_data exists — a surviving
+    // import_batches receipt after a Clean Slate must NOT read as "Data imported".
+    lastImportStatus: hasCommittedData ? (importRes.data?.status ?? null) : null,
     lastBatchId: activeBatch?.id ?? null,
     lastBatchCreatedAt: activeBatch?.created_at ?? null,
     lifecycleState: activeBatch?.lifecycle_state ?? null,

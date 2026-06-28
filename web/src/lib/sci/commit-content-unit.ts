@@ -94,6 +94,17 @@ export interface CommitContentUnitParams {
   // Y" stays a single number line, no entity-specific vocabulary. Default 0/0
   // keeps every other caller byte-identical (DD-7).
   pulseBase?: { landed: number; total: number };
+  // OB-251 (DS-016 §C chunk-jobs) — ADDITIVE, byte-identical for every existing caller.
+  // rowIndexOffset: makes row_data._rowIndex file-global when a large file is committed as
+  //   multiple chunk-jobs (each chunk-job feeds its own window of rows). Default 0 ⇒ the
+  //   _rowIndex of every existing single-job caller is unchanged.
+  rowIndexOffset?: number;
+  // entityIdFieldOverride: when a file is split into chunk-jobs, the CLASSIFY worker resolves
+  //   entity_id_field ONCE over the file's HC trace + sample and passes it to every chunk so the
+  //   multi-candidate value-overlap tie-break (selectEntityIdFieldByOverlap) cannot drift between
+  //   chunks. `undefined` (the default) ⇒ resolveEntityIdField runs exactly as today (byte-identical
+  //   for BCL/Meridian/MIR and every non-chunked import). `null` is a valid explicit "no entity id".
+  entityIdFieldOverride?: string | null;
 }
 
 export interface CommitContentUnitResult {
@@ -314,7 +325,7 @@ function resolveEntityIdField(
 /** HF-351 F5: the tenant's entity domain (existing entities' external_ids) — the
  *  carried reality the multi-identifier value-overlap tie-break ranks against.
  *  Empty on a cold/first import (entity sheet not yet committed) → cardinality fallback. */
-async function readTenantEntityDomain(supabase: SupabaseClient, tenantId: string): Promise<Set<string>> {
+export async function readTenantEntityDomain(supabase: SupabaseClient, tenantId: string): Promise<Set<string>> {
   const domain = new Set<string>();
   try {
     const { data } = await supabase.from('entities').select('external_id').eq('tenant_id', tenantId).limit(20000);
@@ -469,14 +480,21 @@ export async function commitContentUnit(
   // entity-scope identifiers (e.g. a branch `sucursal` AND the real `vendedor_id`)
   // selects by value-domain overlap, not emission order. Single-identifier sheets
   // (BCL/Meridian) never consult it — byte-identical.
-  const entityDomain = await readTenantEntityDomain(supabase, tenantId);
-  const entityIdField = resolveEntityIdField(
-    unit.confirmedBindings,
-    unit.classificationTrace,
-    classification,
-    rows as Array<Record<string, unknown>>,
-    entityDomain,
-  );
+  // OB-251: a chunk-job passes the entity_id_field the CLASSIFY worker already resolved over the
+  // whole file (entityIdFieldOverride) so every chunk commits the SAME key — no per-chunk
+  // re-derivation, no value-overlap drift between windows. undefined ⇒ resolve as today.
+  const entityDomain = params.entityIdFieldOverride !== undefined
+    ? new Set<string>()
+    : await readTenantEntityDomain(supabase, tenantId);
+  const entityIdField = params.entityIdFieldOverride !== undefined
+    ? params.entityIdFieldOverride
+    : resolveEntityIdField(
+        unit.confirmedBindings,
+        unit.classificationTrace,
+        classification,
+        rows as Array<Record<string, unknown>>,
+        entityDomain,
+      );
 
   // HF-341 R3 (V8 eradication): the entity-id is the column the LLM scoped as the entity identity
   // (resolveEntityIdField → findHcEntityIdColumn reads the free-form `identifies` channel; a
@@ -604,7 +622,8 @@ export async function commitContentUnit(
       period_id: null as string | null,
       source_date: sourceDate,
       data_type: dataType,
-      row_data: { ...correctedRow, _sheetName: tabName, _rowIndex: i },
+      // OB-251: _rowIndex is file-global when chunked (rowIndexOffset default 0 ⇒ unchanged).
+      row_data: { ...correctedRow, _sheetName: tabName, _rowIndex: (params.rowIndexOffset ?? 0) + i },
       metadata: {
         source,
         proposalId,

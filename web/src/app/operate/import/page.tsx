@@ -163,6 +163,10 @@ export default function OperateImportPage() {
   // HF-140: Track storage upload for ALL files (runs in parallel with analysis)
   const storagePathsRef = useRef<Record<string, string>>({});
   const storageUploadPromiseRef = useRef<Promise<void> | null>(null);
+  // OB-251: the async (OB-174) classify session id, retained so the COMMIT confirmation can close the
+  // processing_jobs lifecycle (classified → committing → committed). Null for the synchronous path
+  // (no jobs were created), where the status updates below are harmless no-ops.
+  const asyncSessionIdRef = useRef<string | null>(null);
 
   const handleError = useCallback((message: string) => {
     setErrorMessage(message);
@@ -296,6 +300,7 @@ export default function OperateImportPage() {
             }
 
             // Transition to processing phase
+            asyncSessionIdRef.current = sessionId; // OB-251: retained to close the commit lifecycle
             setState({ phase: 'processing', sessionId, files });
             return;
           }
@@ -447,6 +452,20 @@ export default function OperateImportPage() {
     // Backwards compat: first path as single storagePath
     const storagePath = Object.values(storagePaths)[0] || undefined;
 
+    // OB-251: confirm advances the async jobs classified → committing (the durable lifecycle the
+    // cockpit/dispatcher observe). No-op for the synchronous path (no jobs). RLS now allows tenant
+    // members (profiles.auth_user_id) after the reconcile migration.
+    if (asyncSessionIdRef.current && tenantId) {
+      // processing_jobs is not in the generated database.types.ts (matches the existing async insert).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = createClient() as any;
+      void sb.from('processing_jobs')
+        .update({ status: 'committing' })
+        .eq('tenant_id', tenantId)
+        .eq('session_id', asyncSessionIdRef.current)
+        .in('status', ['classified', 'confirming']);
+    }
+
     setState({
       phase: 'executing',
       proposal: state.proposal,
@@ -477,6 +496,25 @@ export default function OperateImportPage() {
       })
         .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
         .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
+
+      // OB-251: close the async job lifecycle (committing → committed) and trigger Layer-E flywheel
+      // aggregation — the queued-but-never-consumed signals are now consumed after each import. Both
+      // are fire-and-forget + idempotent; no-op for the synchronous path (no jobs).
+      if (asyncSessionIdRef.current) {
+        // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sb = createClient() as any;
+        void sb.from('processing_jobs')
+          .update({ status: 'committed', completed_at: new Date().toISOString() })
+          .eq('tenant_id', tenantId)
+          .eq('session_id', asyncSessionIdRef.current)
+          .in('status', ['committing', 'classified', 'confirming']);
+      }
+      void fetch('/api/import/sci/aggregate-flywheel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      }).catch(() => { /* best-effort: aggregation advances recognition; never blocks completion */ });
     }
 
     setPostImportData({
@@ -538,6 +576,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
@@ -546,6 +585,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
@@ -554,6 +594,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
