@@ -27,7 +27,6 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { PrismCapabilityToggle } from '@/components/platform/PrismCapabilityToggle'; // OB-250
 
 /* ──── STYLES ──── */
 const CARD_STYLE: React.CSSProperties = {
@@ -281,8 +280,8 @@ export function BillingUsageTab() {
                       </div>
                     </div>
 
-                    {/* OB-250: per-tenant capability toggles (PRISM) — decoupled from billing modules. */}
-                    <PrismCapabilityToggle tenantId={tenant.id} />
+                    {/* HF-352: the PRISM capability toggle moved to the reachable Tenant Management
+                        surface (/admin/tenants) — one authoritative home. (Was here under OB-250.) */}
 
                     {/* Usage */}
                     <div>

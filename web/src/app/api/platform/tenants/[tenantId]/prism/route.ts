@@ -9,30 +9,26 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { authorizePlatformObservability } from '@/lib/auth/authorize-platform-observability';
 import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function requireVlAdmin(): Promise<{ ok: true; profileId: string; authUserId: string } | { ok: false; res: NextResponse }> {
-  const authClient = await createServerSupabaseClient();
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user) return { ok: false, res: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) };
-  const { data: profile } = await authClient.from('profiles').select('id, role').eq('auth_user_id', user.id).maybeSingle();
-  if (!profile || profile.role !== 'platform') return { ok: false, res: NextResponse.json({ error: 'Forbidden — VL Admin required' }, { status: 403 }) };
-  return { ok: true, profileId: profile.id as string, authUserId: user.id };
-}
+// HF-352 (M2/I5/I7): the prism toggle now shares the ONE capability gate every platform-admin route
+// uses — authorizePlatformObservability() (platform.system_config). The prior inline role-string
+// requireVlAdmin (profile.role==='platform') is removed: no role-string, no parallel auth path.
 
-/** GET — the tenant's current PRISM capability state (for the toggle UI). VL-Admin only. */
+/** GET — the tenant's current PRISM capability state (for the toggle UI). Platform-admin only. */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ tenantId: string }> },
 ) {
   const { tenantId } = await params;
-  const gate = await requireVlAdmin();
-  if (!gate.ok) return gate.res;
+  const gate = await authorizePlatformObservability();
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
   const supabase = (await createServiceRoleClient()) as unknown as SupabaseClient;
   const { data: tenant } = await supabase.from('tenants').select('features').eq('id', tenantId).maybeSingle();
   if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
@@ -47,8 +43,8 @@ export async function PATCH(
   try {
     const { tenantId } = await params;
 
-    const gate = await requireVlAdmin();
-    if (!gate.ok) return gate.res;
+    const gate = await authorizePlatformObservability();
+    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const body = await request.json() as { enabled?: unknown };
     if (typeof body.enabled !== 'boolean') {
@@ -78,12 +74,12 @@ export async function PATCH(
     // I10: record the privileged capability change (append-only audit_logs; SOC 2 CC6). Non-blocking.
     const { error: auditErr } = await supabase.from('audit_logs').insert({
       tenant_id: tenantId,
-      profile_id: gate.profileId,
+      profile_id: gate.caller.profileId,
       action: 'tenant.prism_toggled',
       resource_type: 'tenant',
       resource_id: tenantId,
       changes: { [PRISM_FEATURE_KEY]: { from: previous, to: enabled } },
-      metadata: { source: 'platform-admin', actor_auth_user_id: gate.authUserId },
+      metadata: { source: 'platform-admin', actor_auth_user_id: gate.caller.authUserId },
     });
     if (auditErr) console.warn('[OB-250][prism-toggle] audit_logs write failed (non-blocking):', auditErr.message);
 
