@@ -32,7 +32,6 @@ import { Button } from '@/components/ui/button';
 import { PERSONA_TOKENS } from '@/lib/design/tokens';
 import type { WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import type { TenantFeatures } from '@/types/tenant';
 import {
   DollarSign,
   Command,
@@ -107,6 +106,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   calculate: Zap,
   'platform-core': Settings,
   finance: Layers,
+  'data-operations': Database, // OB-250
 };
 
 // Static icon map for route icons
@@ -177,13 +177,10 @@ export function ChromeSidebar() {
   }, []);
 
   // OB-94: Get accessible workspaces using persona-derived effective role
+  // OB-250: single two-gate composition — getAccessibleWorkspaces now enforces the WORKSPACE-level
+  // featureFlag (tenant gate) against currentTenant.features, so there is no per-sidebar .filter to drift.
   const accessibleWorkspaces = effectiveRole
-    ? getAccessibleWorkspaces(effectiveRole as UserRole).filter(wsId => {
-        const ws = WORKSPACES[wsId];
-        if (!ws?.featureFlag) return true;
-        const features = currentTenant?.features as TenantFeatures | undefined;
-        return features?.[ws.featureFlag as keyof TenantFeatures] === true;
-      })
+    ? getAccessibleWorkspaces(effectiveRole as UserRole, (currentTenant?.features ?? {}) as Record<string, boolean>)
     : [];
 
   // Get sections for active workspace using persona-derived effective role

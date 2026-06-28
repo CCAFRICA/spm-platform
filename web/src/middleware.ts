@@ -22,7 +22,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES } from '@/lib/auth/permissions';
+import { canAccessWorkspace, resolveRole, WORKSPACE_CAPABILITIES, requiredFeatureForPath } from '@/lib/auth/permissions';
 import { SESSION_COOKIE_OPTIONS, SESSION_LIMITS } from '@/lib/supabase/cookie-config';
 import { logAuthEvent } from '@/lib/auth/auth-logger';
 import { detectSessionChurn } from '@/lib/observability/session-churn';
@@ -368,6 +368,35 @@ export async function middleware(request: NextRequest) {
         logAuthEvent('auth.permission.denied', { pathname, role: roleToCheck }, user.id);
         return noCacheResponse(NextResponse.redirect(new URL('/unauthorized', request.url)));
       }
+    }
+  }
+
+  // ── OB-250: TENANT-FEATURE GATE (server-side deep-link protection — the second gate) ──
+  // The capability gate above is necessary but NOT sufficient for PRISM surfaces: a data.import
+  // user on a prism-DISABLED tenant must not reach /data/submit etc. Only the EXACT PRISM paths
+  // (WORKSPACE_FEATURES) require a feature — never the bare /data or /operate prefix, so
+  // /data/transactions (I5) and /operate/import local (I6) stay reachable. We load the EFFECTIVE
+  // tenant's features ONLY for those paths (bounded). Platform admins operate on the cookie-selected
+  // tenant (their profile tenant is null, OB-247); everyone else on their profile tenant. Fail-closed.
+  const requiredFeature = requiredFeatureForPath(pathname);
+  if (requiredFeature) {
+    const identity = await resolveIdentity(supabase, user.id);
+    const effectiveTenantId = identity?.canonicalRole === 'platform'
+      ? (request.cookies.get('vialuce-tenant-id')?.value || identity?.tenantId || null)
+      : (identity?.tenantId || null);
+    let featureOn = false;
+    if (effectiveTenantId) {
+      const { data: tenantRow } = await supabase
+        .from('tenants')
+        .select('features')
+        .eq('id', effectiveTenantId)
+        .maybeSingle();
+      const features = ((tenantRow?.features ?? {}) as Record<string, unknown>);
+      featureOn = features[requiredFeature] === true;
+    }
+    if (!featureOn) {
+      logAuthEvent('auth.permission.feature_denied', { pathname, feature: requiredFeature }, user.id);
+      return noCacheResponse(NextResponse.redirect(new URL('/unauthorized', request.url)));
     }
   }
 

@@ -148,7 +148,9 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
     const wsForRoute = getWorkspaceForRoute(pathname);
     if (wsForRoute) {
-      if (effectiveRole && canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', wsForRoute)) {
+      // OB-250: pass the live tenant features so the client shares the SINGLE two-gate composition —
+      // a flag-off data-operations route redirects to default (the server middleware is the hard gate).
+      if (effectiveRole && canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', wsForRoute, (currentTenant?.features ?? {}) as Record<string, boolean>)) {
         setActiveWorkspaceState(prev => prev === wsForRoute ? prev : wsForRoute);
       } else if (effectiveRole) {
         // OB-94: Route belongs to a workspace this persona can't access — redirect to default
@@ -168,7 +170,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, effectiveRole]);
+  }, [pathname, effectiveRole, currentTenant?.features]);
 
   // Map auth role to clock service persona type (uses raw auth role, not persona override)
   const clockPersona: PersonaType = userRole === 'platform' ? 'platform'
@@ -224,7 +226,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Set active workspace with validation (OB-94: uses effectiveRole from persona)
   const setActiveWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace, (currentTenant?.features ?? {}) as Record<string, boolean>)) {
       console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -235,7 +237,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     }
 
     setActiveWorkspaceState(workspace);
-  }, [effectiveRole, user, activeWorkspace, tenantId]);
+  }, [effectiveRole, user, activeWorkspace, tenantId, currentTenant?.features]);
 
   // Toggle rail collapsed (in-memory only)
   const toggleRailCollapsed = useCallback(() => {
@@ -254,7 +256,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
 
   // Navigate to workspace (OB-94: uses effectiveRole from persona)
   const navigateToWorkspace = useCallback((workspace: WorkspaceId) => {
-    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace)) {
+    if (effectiveRole && !canAccessWorkspace(effectiveRole as 'platform' | 'admin' | 'manager' | 'sales_rep', workspace, (currentTenant?.features ?? {}) as Record<string, boolean>)) {
       console.warn(`Persona role ${effectiveRole} cannot access workspace ${workspace}`);
       return;
     }
@@ -262,7 +264,7 @@ export function NavigationProvider({ children }: NavigationProviderProps) {
     setActiveWorkspace(workspace);
     const ws = WORKSPACES[workspace];
     router.push(ws.defaultRoute);
-  }, [effectiveRole, setActiveWorkspace, router]);
+  }, [effectiveRole, setActiveWorkspace, router, currentTenant?.features]);
 
   const value: NavigationContextType = {
     activeWorkspace,

@@ -24,6 +24,7 @@ export type AuthEventType =
   | 'auth.session.expired.idle'
   | 'auth.session.expired.absolute'
   | 'auth.permission.denied'
+  | 'auth.permission.feature_denied' // OB-250: tenant-feature gate denied a PRISM surface (deep-link protection)
   // HF-282 Phase 1 — canonical identity resolution anomalies (resolveIdentity)
   | 'identity.resolve.query_error'
   | 'identity.resolve.zero_rows'

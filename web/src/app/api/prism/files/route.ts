@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { resolveActor } from '@/lib/prism/actor';
 import { hasCapability } from '@/lib/auth/permissions';
+import { isPrismEnabledForTenant } from '@/lib/prism/tenant-feature';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
@@ -27,6 +28,10 @@ export async function GET() {
   // roles (operator + CDA, who hold data.upload) list files. RLS still scopes the rows.
   if (!hasCapability(actor.role, 'data.upload')) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+  // OB-250: PRISM tenant-capability gate — the In-Progress spine is a PRISM surface. Fail-closed when off.
+  if (!(await isPrismEnabledForTenant(actor.tenantId))) {
+    return NextResponse.json({ error: 'prism_disabled' }, { status: 403 });
   }
 
   const sb = (await createServerSupabaseClient()) as unknown as SupabaseClient;

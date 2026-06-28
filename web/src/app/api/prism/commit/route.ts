@@ -19,6 +19,7 @@ import { insertFileObject, patchFileObject } from '@/lib/prism/file-objects';
 import { writeFileAudit } from '@/lib/prism/audit';
 import { scanFileObject } from '@/lib/prism/scan-worker';
 import { hasCapability } from '@/lib/auth/permissions';
+import { isPrismEnabledForTenant } from '@/lib/prism/tenant-feature';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -31,6 +32,10 @@ export async function POST(request: Request) {
   // OB-247 R2: membrane delivery capability (operator + CDA). See prepare/route.ts.
   if (!hasCapability(actor.role, 'data.upload')) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+  // OB-250: PRISM tenant-capability gate (deep-link/data protection, SR-39). Fail-closed when off.
+  if (!(await isPrismEnabledForTenant(actor.tenantId))) {
+    return NextResponse.json({ error: 'prism_disabled' }, { status: 403 });
   }
 
   let body: { path?: string; filename?: string; clientSha256?: string };
