@@ -13,7 +13,8 @@
  * Ingestion → merged into Intelligence (data quality is part of AI story)
  */
 
-import { useState, Suspense, lazy } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import {
   Activity,
@@ -27,6 +28,7 @@ import {
   Users,
   Brain,
   Radar,
+  Building2,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -43,11 +45,15 @@ const UsersTab = lazy(() => import('./UsersTab').then(m => ({ default: m.UsersTa
 const RecognitionCurvePanel = lazy(() => import('./RecognitionCurvePanel').then(m => ({ default: m.RecognitionCurvePanel })));
 // OB-IGF-16: Vigil — VG governance intelligence (capability signals + watcher) inside VP.
 const VigilTab = lazy(() => import('./VigilTab').then(m => ({ default: m.VigilTab })));
+// OB-252: Tenant Admin — the Observatory-confined tenant-management surface
+// (identity + agent entitlement + admin users). The fleet-card "Manage tenant" opens it here.
+const TenantManagementTab = lazy(() => import('./TenantManagementTab').then(m => ({ default: m.TenantManagementTab })));
 
-type TabId = 'command-center' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings' | 'vigil';
+type TabId = 'command-center' | 'tenant-management' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings' | 'vigil';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
+  { id: 'tenant-management', label: 'Tenant Admin', icon: Building2 },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
   { id: 'recognition', label: 'Recognition Curve', icon: Brain },
@@ -60,7 +66,28 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: Reac
 
 export function PlatformObservatory() {
   const { user, logout } = useAuth();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>('command-center');
+  // OB-252: the tenant selected for management (lifted so the fleet card can hand it to the
+  // Tenant Admin tab without a route change). null → the tab renders its own tenant picker.
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+
+  const openTenantManagement = (tenantId: string) => {
+    setSelectedTenantId(tenantId);
+    setActiveTab('tenant-management');
+  };
+
+  // OB-252: deep-link entry — /select-tenant?tab=tenant-management&tenant=<id>. Used by the
+  // /admin/tenants redirect (bookmark compatibility) and by the creation wizard's "Go to Tenant
+  // Admin" landing. Client-only read of the query string (SSR-safe; avoids the useSearchParams
+  // Suspense requirement, matching the established pattern).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const tenant = params.get('tenant');
+    if (tab && TABS.some((t) => t.id === tab)) setActiveTab(tab as TabId);
+    if (tenant) setSelectedTenantId(tenant);
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--strag-deep)', color: 'var(--strag-s2)', fontSize: '14px' }}>
@@ -170,7 +197,19 @@ export function PlatformObservatory() {
             <Loader2 style={{ width: '24px', height: '24px', color: '#7B7FD4', animation: 'spin 1s linear infinite' }} />
           </div>
         }>
-          {activeTab === 'command-center' && <ObservatoryTab />}
+          {activeTab === 'command-center' && (
+            <ObservatoryTab
+              onManageTenant={openTenantManagement}
+              onCreateTenant={() => router.push('/admin/tenants/new?return=observatory')}
+            />
+          )}
+          {activeTab === 'tenant-management' && (
+            <TenantManagementTab
+              tenantId={selectedTenantId}
+              onSelectTenant={setSelectedTenantId}
+              onExit={() => setActiveTab('command-center')}
+            />
+          )}
           {activeTab === 'users' && <UsersTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
           {activeTab === 'recognition' && <RecognitionCurvePanel />}

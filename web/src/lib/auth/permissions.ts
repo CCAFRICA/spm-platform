@@ -358,6 +358,15 @@ export const WORKSPACE_FEATURES: ReadonlyArray<{ prefix: string; feature: string
   { prefix: '/data/submit', feature: PRISM_FEATURE_KEY },
   { prefix: '/data/in-progress', feature: PRISM_FEATURE_KEY },
   { prefix: '/data-operations', feature: PRISM_FEATURE_KEY },
+  // OB-252 Phase 3: the licensable Finance agent — server-side deep-link gate (it was previously only
+  // nav-hidden). The whole /financial subtree is Finance-exclusive, so gating the prefix is safe; a
+  // non-Finance tenant cannot reach any /financial route by direct URL. Default-OFF (DEFAULT_FEATURES
+  // .financial=false) so existing non-Finance tenants are byte-identical. The default-on agents
+  // (Intelligence/Compensation) are NOT gated here — their /stream (universal landing) and
+  // /operate (shared with always-on local import) prefixes preclude a clean prefix gate; their
+  // entitlement is enforced by the nav featureFlag + the deterministic capability-revocation overlay
+  // (tenantEntitlementRevocations) feeding RequireCapability.
+  { prefix: '/financial', feature: 'financial' },
 ];
 
 /** The tenant feature a path requires (longest exact-prefix match), or null. Boundary-safe:

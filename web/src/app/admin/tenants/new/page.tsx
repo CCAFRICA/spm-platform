@@ -369,6 +369,14 @@ export default function NewTenantPage() {
     }
   };
 
+  // OB-252 Phase 4: the creation flow lands at the new tenant's management surface (the Observatory
+  // Tenant Admin tab) so the operator can immediately configure identity, entitlement, and admin users.
+  const handleGoToTenantAdmin = () => {
+    if (provisionResult?.tenantId) {
+      router.push(`/select-tenant?tab=tenant-management&tenant=${provisionResult.tenantId}`);
+    }
+  };
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 'basic':
@@ -697,10 +705,15 @@ export default function NewTenantPage() {
                     </ul>
                   </div>
                 )}
-                <Button onClick={handleGoToTenant} size="lg">
-                  {t.buttons.goToTenant}
-                  <ChevronRight className="h-4 w-4 ml-2" />
-                </Button>
+                <div className="flex flex-col items-center gap-2">
+                  <Button onClick={handleGoToTenantAdmin} size="lg">
+                    Configure in Observatory
+                    <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
+                  <button onClick={handleGoToTenant} className="text-sm text-slate-400 underline-offset-2 hover:underline">
+                    {t.buttons.goToTenant}
+                  </button>
+                </div>
               </>
             ) : (
               <>

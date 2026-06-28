@@ -9,6 +9,7 @@ import type { UserRole } from '@/types/auth';
 import type { WorkspaceId } from '@/types/navigation';
 import type { PersonaKey } from '@/lib/design/tokens';
 import { WORKSPACES, getWorkspaceRoutesForRole } from './workspace-config';
+import { isFeatureEnabled } from '@/lib/tenant/feature-flags';
 
 // =============================================================================
 // PERSONA → ROLE MAPPING (OB-94)
@@ -66,7 +67,10 @@ export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
  */
 export function canAccessWorkspace(role: UserRole, workspace: WorkspaceId, enabledFeatures?: Record<string, boolean>): boolean {
   const ws = WORKSPACES[workspace];
-  if (ws?.featureFlag && enabledFeatures && enabledFeatures[ws.featureFlag] !== true) return false;
+  // OB-252: default-on aware (isFeatureEnabled falls back to DEFAULT_FEATURES). Byte-identical for
+  // the default-OFF agents (finance/prism: absent key → blocked); default-ON for the core agents
+  // (decide/calculate: absent key → entitled, so existing tenants are not regressed).
+  if (ws?.featureFlag && enabledFeatures && !isFeatureEnabled(enabledFeatures, ws.featureFlag)) return false;
   return getWorkspaceRoutesForRole(workspace, role, enabledFeatures).length > 0;
 }
 

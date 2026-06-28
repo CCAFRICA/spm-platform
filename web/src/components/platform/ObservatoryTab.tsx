@@ -51,7 +51,19 @@ const NEXT_ACTIONS: Record<string, string> = {
   PUBLISHED: 'Period complete',
 };
 
-export function ObservatoryTab() {
+/**
+ * OB-252 I0/I1: the fleet card's tenant-management entries stay WITHIN the Observatory.
+ * `onManageTenant` switches the Observatory to the Tenant Admin tab with the tenant
+ * pre-selected (NO router.push into the tenant-plane /admin/tenants route — that was the
+ * plane leak). `onCreateTenant` opens the provisioning flow. Both are supplied by
+ * PlatformObservatory; the router fallbacks keep the component standalone-safe.
+ */
+interface ObservatoryTabProps {
+  onManageTenant?: (tenantId: string) => void;
+  onCreateTenant?: () => void;
+}
+
+export function ObservatoryTab({ onManageTenant, onCreateTenant }: ObservatoryTabProps = {}) {
   const router = useRouter();
   const { setTenant } = useTenant();
   // HF-354: the Manage-tenant entry is gated on platform.system_config (the HF-352 surface's own
@@ -482,8 +494,13 @@ export function ObservatoryTab() {
                     stopPropagation so it never triggers the card's enter-tenant click. */}
                 {canManageTenants && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); router.push(`/admin/tenants?tenant=${tenant.id}`); }}
-                    title="Manage tenant — agents/features, Clean Slate, Delete Tenant"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // OB-252 I1: open the in-Observatory Tenant Admin surface (no plane leak).
+                      if (onManageTenant) onManageTenant(tenant.id);
+                      else router.push(`/admin/tenants?tenant=${tenant.id}`);
+                    }}
+                    title="Manage tenant — identity, agent entitlement, admin users"
                     aria-label={`Manage ${tenant.name}`}
                     style={{
                       marginTop: '16px',
@@ -509,9 +526,9 @@ export function ObservatoryTab() {
             );
           })}
 
-          {/* Create New Tenant */}
+          {/* Create New Tenant — OB-252: provisioning flow lands back in the Tenant Admin tab. */}
           <button
-            onClick={() => router.push('/admin/tenants/new')}
+            onClick={() => { if (onCreateTenant) onCreateTenant(); else router.push('/admin/tenants/new'); }}
             style={{
               display: 'flex',
               flexDirection: 'column',

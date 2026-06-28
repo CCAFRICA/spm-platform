@@ -245,6 +245,16 @@ export function useTenant(): TenantContextState {
   return context;
 }
 
+/**
+ * OB-252 — NON-throwing read of the current tenant's features (tenants.features), for capability
+ * gates that may render outside a TenantProvider (returns null instead of throwing). Used by
+ * RequireCapability / useHasCapability to intersect role capabilities with tenant entitlement.
+ */
+export function useTenantFeaturesSafe(): Record<string, unknown> | null {
+  const context = useContext(TenantContext);
+  return (context?.currentTenant?.features as Record<string, unknown> | undefined) ?? null;
+}
+
 export function useTerminology(): TenantTerminology {
   const { currentTenant } = useTenant();
   return currentTenant?.terminology || DEFAULT_TERMINOLOGY;

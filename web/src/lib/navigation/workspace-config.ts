@@ -18,8 +18,9 @@
 
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import { hasCapability } from '@/lib/auth/permissions';
+import { hasCapability, CANONICAL_ROLES, type Capability, type Role, type TenantPermissionOverrides } from '@/lib/auth/permissions';
 import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
+import { isFeatureEnabled, isEntitledByDefault } from '@/lib/tenant/feature-flags';
 
 // OB-250: the Data-Operations workspace label — a single configurable string (NOT "PRISM", which
 // stays internal). Change here to relabel everywhere the workspace is named.
@@ -43,6 +44,10 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Inteligencia de rendimiento — ver, comparar, actuar',
     defaultRoute: '/stream',
     accentColor: 'hsl(239, 84%, 67%)', // Indigo
+    // OB-252 Phase 3: the Intelligence agent is entitlement-gated like Finance/PRISM. Key is the
+    // pre-existing TenantFeatures key 'performance' (DEFAULT_FEATURES.performance = true → ENTITLED
+    // by default, so every existing tenant keeps it; only an explicit Observatory toggle-off hides it).
+    featureFlag: 'performance',
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
@@ -93,6 +98,11 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ejecutar el motor, conciliar, aprobar y exportar resultados',
     defaultRoute: '/operate',
     accentColor: 'hsl(262, 83%, 58%)', // Purple
+    // OB-252 Phase 3: the Compensation (ICM) agent is entitlement-gated. Key is the pre-existing
+    // TenantFeatures key 'compensation' (DEFAULT_FEATURES.compensation = true → ENTITLED by default,
+    // so every existing tenant keeps it; an explicit Observatory toggle-off strips its menu AND its
+    // module-exclusive capabilities (icm.*, data.calculate/reconcile/advance_lifecycle)).
+    featureFlag: 'compensation',
     roles: ['platform', 'admin'],
     sections: [
       // HF-332: Plans & Canvas relocated here from Platform Core > Configure. The Living Plan
@@ -351,7 +361,12 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/integrations/catalog', label: 'Integrations Catalog', labelEs: 'Catálogo de Integraciones', icon: 'Plug', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
         ],
       },
-      // Operations (KEEP) — Messaging, Rollback, New Tenant (VL Admin only).
+      // Operations (KEEP) — Messaging, Rollback (tenant-scoped operator functions).
+      // OB-252 I1 (plane separation): "New Tenant" (/admin/tenants/new) and "Tenant Management"
+      // (/admin/tenants) were REMOVED from here. They are platform-owner tenant-management
+      // functions and now live EXCLUSIVELY in the Observatory (the PlatformObservatory
+      // "Tenant Admin" tab + the fleet-card "Manage tenant" entry). They must never appear in
+      // any tenant-side workspace sidebar at any role.
       {
         id: 'operations',
         label: 'Operations',
@@ -359,10 +374,6 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
         routes: [
           { path: '/operations/messaging', label: 'Messaging', labelEs: 'Mensajería', icon: 'MessageSquare', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
           { path: '/operations/rollback', label: 'Rollback', labelEs: 'Reversión', icon: 'Undo2', roles: ['platform', 'admin'], requiredCapability: 'tenant.edit_settings' },
-          { path: '/admin/tenants/new', label: 'New Tenant', labelEs: 'Nuevo Inquilino', icon: 'Building2', roles: ['platform'], requiredCapability: 'platform.provision_tenant' },
-          // HF-352: the reachable home for clean-slate / delete-tenant / agent-feature toggles. Gated
-          // on platform.system_config (platform-admin only; the /admin middleware gate maps to it too).
-          { path: '/admin/tenants', label: 'Tenant Management', labelEs: 'Gestión de Inquilinos', icon: 'DatabaseZap', roles: ['platform'], requiredCapability: 'platform.system_config' },
         ],
       },
     ],
@@ -419,7 +430,7 @@ export function getWorkspaceRoutesForRole(
     .filter(section => {
       if (!section.featureFlag) return true;        // not module-gated
       if (!enabledFeatures) return true;            // caller didn't supply features → capability-only
-      return !!enabledFeatures[section.featureFlag]; // module gated on the live tenant feature
+      return isFeatureEnabled(enabledFeatures, section.featureFlag); // OB-252: default-on aware (DEFAULT_FEATURES)
     })
     .map(section => ({
       ...section,
@@ -502,4 +513,95 @@ export function getAllRoutes(): Array<{ workspace: WorkspaceId; section: string;
   }
 
   return routes;
+}
+
+// =============================================================================
+// OB-252 — AGENT ENTITLEMENT (structural derivation + capability intersection)
+// =============================================================================
+
+/** A platform-toggleable agent, derived structurally from the workspaces that declare a featureFlag. */
+export interface ToggleableAgent {
+  workspaceId: WorkspaceId;
+  label: string;
+  labelEs: string;
+  /** The tenants.features key this toggle reads/writes (single source of truth, I3). */
+  featureKey: string;
+  /** Entitlement when a tenant has no explicit value (from DEFAULT_FEATURES). */
+  entitledByDefault: boolean;
+}
+
+/**
+ * OB-252 Section B (Korean Test / no-registry): the set of toggleable agents is DERIVED from the
+ * workspaces that declare a `featureFlag` — never a hardcoded list. Platform Core has no featureFlag,
+ * so it is excluded by construction (PG-7: always-on, cannot be toggled off). Adding a future agent
+ * with a featureFlag makes it appear here automatically.
+ */
+export function getToggleableAgents(): ToggleableAgent[] {
+  return Object.values(WORKSPACES)
+    .filter((ws) => !!ws.featureFlag)
+    .map((ws) => ({
+      workspaceId: ws.id,
+      label: ws.label,
+      labelEs: ws.labelEs,
+      featureKey: ws.featureFlag as string,
+      entitledByDefault: isEntitledByDefault(ws.featureFlag as string),
+    }));
+}
+
+/** The set of feature keys a platform admin may legitimately toggle (validation for the entitlement API). */
+export function toggleableFeatureKeys(): string[] {
+  return getToggleableAgents().map((a) => a.featureKey);
+}
+
+/**
+ * OB-252 Phase 3 / DS-014 §9 — deterministic capability intersection with tenant entitlement.
+ *
+ * Decision 158: pure boolean/structural code, ZERO LLM. A capability is REVOKED for a tenant iff
+ * EVERY workspace that owns a route requiring it is de-entitled (its featureFlag is present AND the
+ * feature is off for that tenant). A workspace with no featureFlag (Platform Core) is always entitled,
+ * so capabilities it shares (e.g. data.import, view.team_results, statement.view) are NEVER revoked.
+ * Agent-exclusive capabilities (icm.*, data.calculate/reconcile/advance_lifecycle when Compensation is
+ * off) ARE revoked. The result feeds the existing (previously unused) TenantPermissionOverrides seam in
+ * permissions.ts, narrowing the effective capability set — "a user in a tenant without the Compensation
+ * agent cannot have icm.* capabilities, regardless of role."
+ */
+export function tenantEntitlementRevocations(
+  features: Record<string, unknown> | null | undefined,
+): TenantPermissionOverrides {
+  // Map each capability → the workspaces whose routes require it.
+  const capOwners = new Map<Capability, WorkspaceId[]>();
+  for (const ws of Object.values(WORKSPACES)) {
+    const capsInWs = new Set<Capability>();
+    for (const section of ws.sections) {
+      for (const route of section.routes) {
+        if (route.requiredCapability) capsInWs.add(route.requiredCapability);
+      }
+    }
+    capsInWs.forEach((cap) => {
+      const arr = capOwners.get(cap) ?? [];
+      arr.push(ws.id);
+      capOwners.set(cap, arr);
+    });
+  }
+
+  const isWorkspaceEntitled = (wsId: WorkspaceId): boolean => {
+    const ws = WORKSPACES[wsId];
+    if (!ws.featureFlag) return true; // ungated (Platform Core) → always entitled
+    return isFeatureEnabled(features, ws.featureFlag);
+  };
+
+  const revokedCaps: Capability[] = [];
+  capOwners.forEach((owners, cap) => {
+    if (owners.length > 0 && owners.every((o) => !isWorkspaceEntitled(o))) {
+      revokedCaps.push(cap);
+    }
+  });
+
+  if (revokedCaps.length === 0) return {};
+
+  // A capability owned solely by a de-entitled workspace cannot be exercised by ANY role in that
+  // tenant — apply the same revocation list across every canonical role.
+  const revocations: Partial<Record<Role, Capability[]>> = {};
+  for (const role of CANONICAL_ROLES) revocations[role] = revokedCaps;
+  return { revocations };
 }
