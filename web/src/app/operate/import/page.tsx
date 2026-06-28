@@ -456,8 +456,8 @@ export default function OperateImportPage() {
     // cockpit/dispatcher observe). No-op for the synchronous path (no jobs). RLS now allows tenant
     // members (profiles.auth_user_id) after the reconcile migration.
     if (asyncSessionIdRef.current && tenantId) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any — processing_jobs is not in the
-      // generated database.types.ts (matches the existing async insert at the job-creation site).
+      // processing_jobs is not in the generated database.types.ts (matches the existing async insert).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sb = createClient() as any;
       void sb.from('processing_jobs')
         .update({ status: 'committing' })
@@ -501,7 +501,8 @@ export default function OperateImportPage() {
       // aggregation — the queued-but-never-consumed signals are now consumed after each import. Both
       // are fire-and-forget + idempotent; no-op for the synchronous path (no jobs).
       if (asyncSessionIdRef.current) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any — see note above (untyped table)
+        // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sb = createClient() as any;
         void sb.from('processing_jobs')
           .update({ status: 'committed', completed_at: new Date().toISOString() })
