@@ -364,27 +364,27 @@ export const WORKSPACE_FEATURES: ReadonlyArray<{ prefix: string; feature: string
   // .financial=false) so existing non-Finance tenants are byte-identical.
   { prefix: '/financial', feature: 'financial' },
 
-  // OB-252 Phase 3 (review closure): server-side deep-link gates for the two DEFAULT-ON agents
-  // (Compensation='compensation', Intelligence='performance'), so the Observatory toggle is enforced
-  // server-side — not menu/UI only. The feature read is default-on aware (isFeatureEnabled →
-  // DEFAULT_FEATURES.compensation/.performance = true), so a tenant with no explicit key is allowed
-  // (byte-identical for every existing tenant); only an explicit toggle-OFF blocks. ONLY the
-  // agent-EXCLUSIVE exec sub-paths are listed — NEVER the bare /operate (shares /operate/import,
-  // I6 local import must stay reachable), NEVER /stream (the universal landing, Decision 128), NEVER
-  // bare /perform/configure. Longest-prefix match keeps /operate/import → null. The engine API
-  // handlers (/api/calculation/*) are intentionally NOT gated here (HALT-CALC: no feature check is
-  // added inside the calc path; resolveCallerTenant already binds them to the caller's own tenant —
-  // no cross-tenant exposure).
-  { prefix: '/operate/calculate', feature: 'compensation' },
-  { prefix: '/operate/reconciliation', feature: 'compensation' },
-  { prefix: '/operate/results', feature: 'compensation' },
-  { prefix: '/operate/pay', feature: 'compensation' },
-  { prefix: '/operate/lifecycle', feature: 'compensation' },
-  { prefix: '/approvals', feature: 'compensation' },
-  { prefix: '/performance/adjustments', feature: 'compensation' },
-  { prefix: '/configure/plans', feature: 'compensation' },
-  { prefix: '/insights', feature: 'performance' },
-  { prefix: '/acceleration', feature: 'performance' },
+  // OB-252 Phase 3 (review closure): server-side deep-link gates for the two DEFAULT-ON agents, using
+  // the DEDICATED entitlement keys (Compensation='compensation_enabled', Intelligence=
+  // 'intelligence_enabled' — NOT the billing keys), so the Observatory toggle is enforced server-side,
+  // not menu/UI only. The feature read is default-on aware (isFeatureEnabled → DEFAULT_FEATURES = true),
+  // so a tenant with no explicit key is allowed (byte-identical for every existing tenant); only an
+  // explicit toggle-OFF blocks. ONLY the agent-EXCLUSIVE exec sub-paths are listed — NEVER the bare
+  // /operate (shares /operate/import, I6 local import must stay reachable), NEVER /stream (the
+  // universal landing, Decision 128), NEVER bare /perform or /configure. Longest-prefix match keeps
+  // /operate/import → null. The engine API handlers (/api/calculation/*) are intentionally NOT gated
+  // here (HALT-CALC: no feature check is added inside the calc path; resolveCallerTenant already binds
+  // them to the caller's own tenant — no cross-tenant exposure).
+  { prefix: '/operate/calculate', feature: 'compensation_enabled' },
+  { prefix: '/operate/reconciliation', feature: 'compensation_enabled' },
+  { prefix: '/operate/results', feature: 'compensation_enabled' },
+  { prefix: '/operate/pay', feature: 'compensation_enabled' },
+  { prefix: '/operate/lifecycle', feature: 'compensation_enabled' },
+  { prefix: '/approvals', feature: 'compensation_enabled' },
+  { prefix: '/performance/adjustments', feature: 'compensation_enabled' },
+  { prefix: '/configure/plans', feature: 'compensation_enabled' },
+  { prefix: '/insights', feature: 'intelligence_enabled' },
+  { prefix: '/acceleration', feature: 'intelligence_enabled' },
 ];
 
 /** The tenant feature a path requires (longest exact-prefix match), or null. Boundary-safe:

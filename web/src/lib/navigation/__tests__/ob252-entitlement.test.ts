@@ -17,15 +17,18 @@ import { canAccessWorkspace, getAccessibleWorkspaces } from '../role-workspaces'
 import { hasCapability, getCapabilities, requiredFeatureForPath } from '@/lib/auth/permissions';
 
 test('isFeatureEnabled: default-ON core agents (absent key → entitled), default-OFF licensable', () => {
-  // Core agents — entitled by default (DEFAULT_FEATURES.performance / .compensation = true).
-  assert.equal(isFeatureEnabled({}, 'performance'), true, 'Intelligence default on');
-  assert.equal(isFeatureEnabled({}, 'compensation'), true, 'Compensation default on');
-  assert.equal(isFeatureEnabled(undefined, 'compensation'), true, 'null features → default on');
+  // Core agents — entitled by default (DEFAULT_FEATURES.intelligence_enabled / .compensation_enabled = true).
+  assert.equal(isFeatureEnabled({}, 'intelligence_enabled'), true, 'Intelligence default on');
+  assert.equal(isFeatureEnabled({}, 'compensation_enabled'), true, 'Compensation default on');
+  assert.equal(isFeatureEnabled(undefined, 'compensation_enabled'), true, 'null features → default on');
+  // Dedicated agent keys are DECOUPLED from the billing keys: a stale billing compensation:false
+  // (e.g. BCL) must NOT disable the Compensation AGENT (compensation_enabled absent → default on).
+  assert.equal(isFeatureEnabled({ compensation: false }, 'compensation_enabled'), true, 'billing key does not gate the agent');
   // Licensable — off by default.
   assert.equal(isFeatureEnabled({}, 'financial'), false, 'Finance default off');
   assert.equal(isFeatureEnabled({}, 'prism_enabled'), false, 'PRISM default off');
   // Explicit value always wins both ways.
-  assert.equal(isFeatureEnabled({ compensation: false }, 'compensation'), false, 'explicit off wins');
+  assert.equal(isFeatureEnabled({ compensation_enabled: false }, 'compensation_enabled'), false, 'explicit off wins');
   assert.equal(isFeatureEnabled({ financial: true }, 'financial'), true, 'explicit on wins');
   // Unknown key → fail-closed.
   assert.equal(isFeatureEnabled({}, 'not_a_feature'), false);
@@ -33,43 +36,44 @@ test('isFeatureEnabled: default-ON core agents (absent key → entitled), defaul
 
 test('PG-7/PG-13: toggleable agents derive structurally from workspace featureFlags; Platform Core excluded', () => {
   const keys = toggleableFeatureKeys().sort();
-  assert.deepEqual(keys, ['compensation', 'financial', 'performance', 'prism_enabled'].sort(),
+  assert.deepEqual(keys, ['compensation_enabled', 'financial', 'intelligence_enabled', 'prism_enabled'].sort(),
     'exactly the four agents that declare a featureFlag');
   const agents = getToggleableAgents();
   // Platform Core has no featureFlag → never appears (PG-7: cannot be toggled off).
   assert.ok(!agents.some((a) => a.workspaceId === 'platform-core'), 'Platform Core not toggleable');
   // entitledByDefault mirrors DEFAULT_FEATURES.
   const byKey = Object.fromEntries(agents.map((a) => [a.featureKey, a.entitledByDefault]));
-  assert.equal(byKey['performance'], true);
-  assert.equal(byKey['compensation'], true);
+  assert.equal(byKey['intelligence_enabled'], true);
+  assert.equal(byKey['compensation_enabled'], true);
   assert.equal(byKey['financial'], false);
   assert.equal(byKey['prism_enabled'], false);
-  assert.equal(isEntitledByDefault('performance'), true);
+  assert.equal(isEntitledByDefault('intelligence_enabled'), true);
 });
 
 test('PG-5/PG-6: toggling Compensation OFF hides the calculate workspace; ON restores it (admin)', () => {
-  // default (absent key) → visible (non-regression for existing tenants)
+  // default (absent key) → visible (non-regression for existing tenants, incl. BCL billing compensation:false)
   assert.ok(getAccessibleWorkspaces('admin', {}).includes('calculate'), 'default-on: calculate visible');
+  assert.ok(getAccessibleWorkspaces('admin', { compensation: false }).includes('calculate'), 'stale billing key does NOT hide the agent');
   // explicit OFF → hidden (PG-5)
-  assert.equal(canAccessWorkspace('admin', 'calculate', { compensation: false }), false, 'PG-5 off → hidden');
-  assert.ok(!getAccessibleWorkspaces('admin', { compensation: false }).includes('calculate'));
+  assert.equal(canAccessWorkspace('admin', 'calculate', { compensation_enabled: false }), false, 'PG-5 off → hidden');
+  assert.ok(!getAccessibleWorkspaces('admin', { compensation_enabled: false }).includes('calculate'));
   // explicit ON → visible (PG-6)
-  assert.equal(canAccessWorkspace('admin', 'calculate', { compensation: true }), true, 'PG-6 on → visible');
+  assert.equal(canAccessWorkspace('admin', 'calculate', { compensation_enabled: true }), true, 'PG-6 on → visible');
 });
 
 test('PG-5/PG-6: toggling Intelligence OFF hides the decide workspace; default keeps it', () => {
   assert.ok(getAccessibleWorkspaces('admin', {}).includes('decide'), 'default-on: Intelligence visible');
-  assert.equal(canAccessWorkspace('admin', 'decide', { performance: false }), false, 'off → hidden');
-  assert.equal(canAccessWorkspace('admin', 'decide', { performance: true }), true, 'on → visible');
+  assert.equal(canAccessWorkspace('admin', 'decide', { intelligence_enabled: false }), false, 'off → hidden');
+  assert.equal(canAccessWorkspace('admin', 'decide', { intelligence_enabled: true }), true, 'on → visible');
 });
 
 test('Platform Core is always accessible regardless of feature flags (PG-7)', () => {
   assert.equal(canAccessWorkspace('admin', 'platform-core', {}), true);
-  assert.equal(canAccessWorkspace('admin', 'platform-core', { compensation: false, performance: false, financial: false, prism_enabled: false }), true);
+  assert.equal(canAccessWorkspace('admin', 'platform-core', { compensation_enabled: false, intelligence_enabled: false, financial: false, prism_enabled: false }), true);
 });
 
 test('DS-014 §9: capability ∩ entitlement — Compensation OFF revokes icm.* but NOT shared caps', () => {
-  const rev = tenantEntitlementRevocations({ compensation: false });
+  const rev = tenantEntitlementRevocations({ compensation_enabled: false });
   // icm.* is owned ONLY by the calculate workspace → revoked when Compensation is off.
   assert.equal(hasCapability('admin', 'icm.configure_plans', rev), false, 'icm.* cannot be held without Compensation');
   assert.equal(hasCapability('admin', 'data.calculate', rev), false, 'data.calculate revoked');
@@ -93,23 +97,29 @@ test('DS-014 §9: a fully default tenant ({}) revokes NOTHING (all licensable ca
 });
 
 test('DS-014 §9: revocation applies across ALL roles (a de-entitled agent cap is held by no one)', () => {
-  const rev = tenantEntitlementRevocations({ compensation: false });
+  const rev = tenantEntitlementRevocations({ compensation_enabled: false });
   // manager normally holds data.approve_results (a calculate-exclusive cap) — revoked too.
   assert.equal(getCapabilities('manager', rev).has('data.approve_results'), false);
   assert.equal(getCapabilities('admin', rev).has('icm.simulate'), false);
 });
 
+test('non-regression: a stale BILLING compensation:false does NOT revoke icm.* (decoupled key)', () => {
+  const rev = tenantEntitlementRevocations({ compensation: false }); // billing key only, agent absent
+  assert.equal(hasCapability('admin', 'icm.configure_plans', rev), true, 'BCL-style billing flag keeps the agent');
+  assert.deepEqual(rev, {}, 'no revocations from a billing-only flag');
+});
+
 test('server-side deep-link gate: agent-exclusive exec routes require the agent feature (review closure)', () => {
-  // Compensation-exclusive exec routes → require the 'compensation' feature.
-  assert.equal(requiredFeatureForPath('/operate/calculate'), 'compensation');
-  assert.equal(requiredFeatureForPath('/operate/reconciliation'), 'compensation');
-  assert.equal(requiredFeatureForPath('/operate/results'), 'compensation');
-  assert.equal(requiredFeatureForPath('/approvals'), 'compensation');
-  assert.equal(requiredFeatureForPath('/configure/plans'), 'compensation');
-  // Intelligence-exclusive → require 'performance'.
-  assert.equal(requiredFeatureForPath('/insights'), 'performance');
-  assert.equal(requiredFeatureForPath('/insights/analytics'), 'performance');
-  assert.equal(requiredFeatureForPath('/acceleration'), 'performance');
+  // Compensation-exclusive exec routes → require the dedicated 'compensation_enabled' feature.
+  assert.equal(requiredFeatureForPath('/operate/calculate'), 'compensation_enabled');
+  assert.equal(requiredFeatureForPath('/operate/reconciliation'), 'compensation_enabled');
+  assert.equal(requiredFeatureForPath('/operate/results'), 'compensation_enabled');
+  assert.equal(requiredFeatureForPath('/approvals'), 'compensation_enabled');
+  assert.equal(requiredFeatureForPath('/configure/plans'), 'compensation_enabled');
+  // Intelligence-exclusive → require 'intelligence_enabled'.
+  assert.equal(requiredFeatureForPath('/insights'), 'intelligence_enabled');
+  assert.equal(requiredFeatureForPath('/insights/analytics'), 'intelligence_enabled');
+  assert.equal(requiredFeatureForPath('/acceleration'), 'intelligence_enabled');
 });
 
 test('server-side gate NEVER blocks the shared / landing paths (I6 import, Decision 128 landing)', () => {

@@ -42,6 +42,15 @@ export interface TenantFeatures {
   // source). Off by default; gates the Data-Operations workspace + the PRISM import source. Snake_case
   // key matches the canonical PRISM_FEATURE_KEY (lib/prism/capability.ts) — the directive's literal name.
   prism_enabled: boolean;
+  // OB-252: AGENT-ENTITLEMENT gates for the two core agents (the Observatory "Agent Entitlement"
+  // toggles). DEDICATED keys, DECOUPLED from the billing keys `compensation`/`financial` that the
+  // modules/BillingUsageTab route writes (the PRISM precedent: prism_enabled is a capability flag,
+  // not a billing object). Default-ON, and ABSENT on every existing tenant, so adding the
+  // decide/calculate workspace featureFlag does NOT hide these agents for any current tenant — in
+  // particular BCL/Trial1 carry a STALE billing `compensation:false` that must NOT disable the
+  // Compensation AGENT. A platform admin can still toggle these per tenant via the new key.
+  intelligence_enabled: boolean; // gates the Intelligence (decide) workspace
+  compensation_enabled: boolean; // gates the Compensation (calculate) workspace
   /** Lifecycle pipeline config: 'launch' (simplified) or 'production' (full) */
   lifecyclePipeline?: string;
 }
@@ -60,6 +69,8 @@ export const DEFAULT_FEATURES: TenantFeatures = {
   apiAccess: false,
   financial: false, // Disabled by default, enabled per tenant
   prism_enabled: false, // OB-250: PRISM off by default — platform admin enables per tenant
+  intelligence_enabled: true, // OB-252: core agent — entitled by default (absent key → shown)
+  compensation_enabled: true, // OB-252: core agent — entitled by default (absent key → shown)
 };
 
 export interface TenantTerminology {

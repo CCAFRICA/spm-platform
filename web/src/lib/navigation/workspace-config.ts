@@ -44,10 +44,11 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Inteligencia de rendimiento — ver, comparar, actuar',
     defaultRoute: '/stream',
     accentColor: 'hsl(239, 84%, 67%)', // Indigo
-    // OB-252 Phase 3: the Intelligence agent is entitlement-gated like Finance/PRISM. Key is the
-    // pre-existing TenantFeatures key 'performance' (DEFAULT_FEATURES.performance = true → ENTITLED
-    // by default, so every existing tenant keeps it; only an explicit Observatory toggle-off hides it).
-    featureFlag: 'performance',
+    // OB-252 Phase 3: the Intelligence agent is entitlement-gated like Finance/PRISM. Gate key is the
+    // DEDICATED 'intelligence_enabled' (DEFAULT_FEATURES = true → ENTITLED by default; absent on every
+    // existing tenant → none regressed; decoupled from any billing key). Only an explicit Observatory
+    // toggle-off hides it.
+    featureFlag: 'intelligence_enabled',
     roles: ['platform', 'admin', 'manager', 'sales_rep'],
     sections: [
       {
@@ -98,11 +99,13 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     descriptionEs: 'Ejecutar el motor, conciliar, aprobar y exportar resultados',
     defaultRoute: '/operate',
     accentColor: 'hsl(262, 83%, 58%)', // Purple
-    // OB-252 Phase 3: the Compensation (ICM) agent is entitlement-gated. Key is the pre-existing
-    // TenantFeatures key 'compensation' (DEFAULT_FEATURES.compensation = true → ENTITLED by default,
-    // so every existing tenant keeps it; an explicit Observatory toggle-off strips its menu AND its
-    // module-exclusive capabilities (icm.*, data.calculate/reconcile/advance_lifecycle)).
-    featureFlag: 'compensation',
+    // OB-252 Phase 3: the Compensation (ICM) agent is entitlement-gated. Gate key is the DEDICATED
+    // 'compensation_enabled' — NOT the billing key 'compensation' (which the modules/BillingUsageTab
+    // route writes; several live tenants incl. BCL carry a STALE billing compensation:false that must
+    // NOT disable the Compensation AGENT). DEFAULT_FEATURES = true → entitled by default; absent on
+    // every existing tenant → none regressed. An explicit Observatory toggle-off strips its menu AND
+    // its module-exclusive capabilities (icm.*, data.calculate/reconcile/advance_lifecycle).
+    featureFlag: 'compensation_enabled',
     roles: ['platform', 'admin'],
     sections: [
       // HF-332: Plans & Canvas relocated here from Platform Core > Configure. The Living Plan
