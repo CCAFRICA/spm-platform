@@ -18,7 +18,7 @@
 
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import { hasCapability, CANONICAL_ROLES, type Capability, type Role, type TenantPermissionOverrides } from '@/lib/auth/permissions';
+import { hasCapability, getCapabilities, CANONICAL_ROLES, type Capability, type Role, type TenantPermissionOverrides } from '@/lib/auth/permissions';
 import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
 import { isFeatureEnabled, isEntitledByDefault } from '@/lib/tenant/feature-flags';
 
@@ -568,39 +568,57 @@ export function toggleableFeatureKeys(): string[] {
 export function tenantEntitlementRevocations(
   features: Record<string, unknown> | null | undefined,
 ): TenantPermissionOverrides {
-  // Map each capability → the workspaces whose routes require it.
-  const capOwners = new Map<Capability, WorkspaceId[]>();
-  for (const ws of Object.values(WORKSPACES)) {
-    const capsInWs = new Set<Capability>();
-    for (const section of ws.sections) {
-      for (const route of section.routes) {
-        if (route.requiredCapability) capsInWs.add(route.requiredCapability);
-      }
-    }
-    capsInWs.forEach((cap) => {
-      const arr = capOwners.get(cap) ?? [];
-      arr.push(ws.id);
-      capOwners.set(cap, arr);
-    });
-  }
-
   const isWorkspaceEntitled = (wsId: WorkspaceId): boolean => {
     const ws = WORKSPACES[wsId];
     if (!ws.featureFlag) return true; // ungated (Platform Core) → always entitled
     return isFeatureEnabled(features, ws.featureFlag);
   };
 
+  // Structural ownership, derived from WORKSPACES routes (no hardcoded capability→agent map):
+  //   capOwners — the workspaces whose routes require capability C exactly.
+  //   nsOwners  — the workspaces whose routes use ANY capability in the module namespace (the prefix
+  //               before the first '.'), so a routeless capability (e.g. icm.simulate) inherits its
+  //               module's ownership — the DS-014 §9 "module-aware" notion.
+  const capOwners = new Map<Capability, Set<WorkspaceId>>();
+  const nsOwners = new Map<string, Set<WorkspaceId>>();
+  for (const ws of Object.values(WORKSPACES)) {
+    for (const section of ws.sections) {
+      for (const route of section.routes) {
+        const cap = route.requiredCapability;
+        if (!cap) continue;
+        if (!capOwners.has(cap)) capOwners.set(cap, new Set());
+        capOwners.get(cap)!.add(ws.id);
+        const ns = cap.split('.')[0];
+        if (!nsOwners.has(ns)) nsOwners.set(ns, new Set());
+        nsOwners.get(ns)!.add(ws.id);
+      }
+    }
+  }
+
+  const allOwnersDeEntitled = (owners: Set<WorkspaceId> | undefined): boolean =>
+    !!owners && owners.size > 0 && Array.from(owners).every((o) => !isWorkspaceEntitled(o));
+
+  // The capability universe = the union of all roles' capabilities (so routeless caps are considered).
+  const universe = new Set<Capability>();
+  CANONICAL_ROLES.forEach((r) => getCapabilities(r).forEach((c) => universe.add(c)));
+
   const revokedCaps: Capability[] = [];
-  capOwners.forEach((owners, cap) => {
-    if (owners.length > 0 && owners.every((o) => !isWorkspaceEntitled(o))) {
+  universe.forEach((cap) => {
+    const direct = capOwners.get(cap);
+    if (direct && direct.size > 0) {
+      // Gates ≥1 route → revoke iff every owning workspace is de-entitled (shared caps survive).
+      if (allOwnersDeEntitled(direct)) revokedCaps.push(cap);
+    } else if (allOwnersDeEntitled(nsOwners.get(cap.split('.')[0]))) {
+      // Routeless → module-namespace fallback (icm.* without a route still dies with Compensation;
+      // a namespace co-owned by an entitled workspace, e.g. data.*/view.* via Platform Core, survives).
       revokedCaps.push(cap);
     }
   });
 
   if (revokedCaps.length === 0) return {};
 
-  // A capability owned solely by a de-entitled workspace cannot be exercised by ANY role in that
-  // tenant — apply the same revocation list across every canonical role.
+  // A capability owned solely by de-entitled agents cannot be exercised by ANY role in that tenant —
+  // apply the same revocation list across every canonical role.
   const revocations: Partial<Record<Role, Capability[]>> = {};
   for (const role of CANONICAL_ROLES) revocations[role] = revokedCaps;
   return { revocations };
