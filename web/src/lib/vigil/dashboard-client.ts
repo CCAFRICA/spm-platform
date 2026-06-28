@@ -18,8 +18,11 @@ export interface WorkItem {
   id: string; mc_id?: string | null; title: string; description?: string | null;
   status: string; priority: string; capability_id?: string | null; capability_name?: string | null;
   category?: string | null; type: string; source_signals?: string[]; work_item_ref?: string | null;
-  notes?: string | null; created_at?: string; updated_at?: string; resolved_at?: string | null;
+  notes?: string | null; resolution_note?: string | null;
+  created_at?: string; updated_at?: string; resolved_at?: string | null;
 }
+/** HF-IGF-017 Gap C — work-item lifecycle patch. `verified` sets/clears resolved_at. */
+export interface WorkItemPatch { status?: string; priority?: string; resolution_note?: string; verified?: boolean }
 export interface SignalRow {
   id: string; description: string; capability_id?: string | null; capability_name?: string | null;
   severity?: string | null; source_type: 'person' | 'continuity_agent'; reporter?: string | null;
@@ -57,12 +60,12 @@ export async function fetchVigilDashboard(): Promise<VigilFetchResult> {
   }
 }
 
-async function vgPost(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: unknown }> {
+async function vgSend(method: 'POST' | 'PATCH', path: string, body: unknown): Promise<{ ok: boolean; status: number; data: unknown }> {
   const base = vgBase();
   if (!base || !VIGIL_TOKEN) return { ok: false, status: 503, data: { error: 'not_configured' } };
   try {
     const res = await fetch(base + path, {
-      method: 'POST', headers: { Authorization: `Bearer ${VIGIL_TOKEN}`, 'Content-Type': 'application/json' },
+      method, headers: { Authorization: `Bearer ${VIGIL_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body), cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
@@ -73,9 +76,13 @@ async function vgPost(path: string, body: unknown): Promise<{ ok: boolean; statu
 
 /** Submit a person signal (the tab's submission form). */
 export function submitSignal(description: string, reporter?: string) {
-  return vgPost('/api/vigil/report', { description, reporter });
+  return vgSend('POST', '/api/vigil/report', { description, reporter });
 }
 /** Promote a signal to a work item. */
 export function promoteSignal(signalId: string) {
-  return vgPost('/api/vigil/work-items/promote', { signal_id: signalId });
+  return vgSend('POST', '/api/vigil/work-items/promote', { signal_id: signalId });
+}
+/** HF-IGF-017 Gap C — patch a work item's lifecycle (status/priority/resolution_note/verified). */
+export function updateWorkItem(id: string, patch: WorkItemPatch) {
+  return vgSend('PATCH', `/api/vigil/work-items/${encodeURIComponent(id)}`, patch);
 }
