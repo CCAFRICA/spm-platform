@@ -136,6 +136,37 @@ CREATE INDEX IF NOT EXISTS idx_processing_jobs_status
   ON processing_jobs(status) WHERE status IN ('pending','classifying','confirming','committing');
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_tenant ON processing_jobs(tenant_id);
 
+-- ────────────────────────────────────────────
+-- 6. promoted_patterns — DS-016 Layer E consume target (flywheel-aggregation.ts).
+--    The promotion/consume step (identifyPromotionCandidates) had ZERO callers — its output had
+--    nowhere to land. This is that durable ledger: cross-tenant (no tenant_id — promotion REQUIRES
+--    multiple tenants, privacy by design), idempotent on pattern_signature. HALT-CALC neutral: the
+--    classify path reads foundational_patterns via loadPromotedPatterns, NEVER this ledger
+--    (checkPromotedPatterns, the only reader, has zero callers), so writing here cannot move any
+--    sealed-tenant classification. Korean Test: structural columns only.
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS promoted_patterns (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  pattern_signature TEXT NOT NULL UNIQUE,
+  promoted_classification TEXT,
+  confidence_floor NUMERIC(5, 4) NOT NULL DEFAULT 0.8000,
+  evidence JSONB NOT NULL DEFAULT '{}',
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_promoted_patterns_active ON promoted_patterns(active) WHERE active;
+
+ALTER TABLE promoted_patterns ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role full access to promoted patterns" ON promoted_patterns;
+CREATE POLICY "Service role full access to promoted patterns"
+  ON promoted_patterns FOR ALL
+  USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Authenticated read promoted patterns" ON promoted_patterns;
+CREATE POLICY "Authenticated read promoted patterns"
+  ON promoted_patterns FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
 -- ============================================================
 -- POST-CONDITION (architect verifies via scripts/_ob250_verify_migration.ts):
 --   • processing_jobs has batch_id/chunk_id/total_chunks; status CHECK includes 'finalized'
