@@ -32,6 +32,7 @@ import {
   CheckCircle,
   PlusCircle,
   Database,
+  Settings2,
 } from 'lucide-react';
 
 /* ──── Lifecycle next actions ──── */
@@ -288,13 +289,12 @@ export function ObservatoryTab() {
                   {item.action && (
                     <button
                       onClick={() => {
-                        // HF-057: Navigate to contextually appropriate route
-                        const ACTION_ROUTES: Record<string, string> = {
-                          'Run Calculation': '/operate',
-                          'Resume': '/operate',
-                          'View Tenant': '/operate',
-                        };
-                        handleSelectTenant(item.tenantId, ACTION_ROUTES[item.action!.label] || '/operate');
+                        // HF-353: every queue action does the same thing — enter the tenant and land
+                        // on /operate. The prior label-keyed ACTION_ROUTES map made three labels
+                        // ("Run Calculation"/"Resume"/"View Tenant") all resolve to /operate, dressing
+                        // one behavior in three names. Behavior is unchanged (still /operate); the
+                        // honest single label now comes from the API ("Go to tenant").
+                        handleSelectTenant(item.tenantId, '/operate');
                       }}
                       style={{
                         fontSize: '13px',
@@ -368,9 +368,15 @@ export function ObservatoryTab() {
               : null;
 
             return (
-              <button
+              // HF-353: the card is a clickable region (enter the tenant → /stream) that ALSO carries
+              // a distinct "Manage" entry (→ the HF-352 Tenant Management surface for this tenant). A
+              // role="button" div (not a <button>) so the real Manage <button> can nest validly.
+              <div
                 key={tenant.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSelectTenant(tenant.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectTenant(tenant.id); } }}
                 style={{
                   textAlign: 'left',
                   background: 'var(--strag-panel)',
@@ -397,6 +403,22 @@ export function ObservatoryTab() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* HF-353: restored Manage-Tenant entry on the card (its historical home) — opens
+                        the existing HF-352 surface pre-selected for THIS tenant. stopPropagation so it
+                        does not also trigger the card's enter-tenant click. */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); router.push(`/admin/tenants?tenant=${tenant.id}`); }}
+                      title="Manage tenant — clean slate, delete, agents/features"
+                      aria-label={`Manage ${tenant.name}`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        fontSize: '12px', fontWeight: 600, color: 'var(--strag-s4)',
+                        background: 'transparent', border: '1px solid var(--strag-s7)',
+                        borderRadius: '6px', padding: '4px 8px', cursor: 'pointer',
+                      }}
+                    >
+                      <Settings2 style={{ width: '13px', height: '13px' }} /> Manage
+                    </button>
                     {tenant.latestLifecycleState && (
                       <span style={{
                         fontSize: '13px',
@@ -461,7 +483,7 @@ export function ObservatoryTab() {
                   <span>&rarr;</span>
                   <span>{nextAction}</span>
                 </div>
-              </button>
+              </div>
             );
           })}
 
