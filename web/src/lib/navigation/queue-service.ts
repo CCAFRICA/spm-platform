@@ -265,6 +265,7 @@ export function getQueueItemsByWorkspace(items: QueueItem[]): Record<WorkspaceId
     calculate: [],
     'platform-core': [],
     finance: [],
+    'data-operations': [], // OB-250
   };
 
   for (const item of items) {

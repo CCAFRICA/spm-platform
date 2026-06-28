@@ -26,6 +26,7 @@ import { createScanProvider } from './scan-provider';
 import { downloadQuarantineBytes, promoteToClean, buildCleanPath, toPromotableContentType } from './storage';
 import { getFileObject, patchFileObject, claimForScanning } from './file-objects';
 import { writeFileAudit } from './audit';
+import { getPrismScanMode, type PrismScanMode } from './capability';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FileObject } from './types';
 
@@ -90,12 +91,23 @@ export async function scanFileObject(id: string): Promise<ScanWorkerResult> {
   const tenantId = file.tenant_id;
   const auditBase = { tenantId, profileId: null as string | null, fileObjectId: id };
 
+  // OB-250 §1.7 NESTING: the scanner mode (enforce/interim) is a NESTED control under prism_enabled
+  // (tenants.settings.prism.mode), meaningful only when PRISM is active — which it inherently is
+  // whenever a file reaches the scan gate (the membrane is the PRISM path). Default 'enforce' =
+  // today's fail-closed behavior (byte-identical). Recorded for observability; this ESTABLISHES the
+  // nesting structure (the interim behavior + per-agent toggle UI are out of scope, §1.7/§2).
+  let prismScanMode: PrismScanMode = 'enforce';
+  try {
+    const { data: tRow } = await auditClient.from('tenants').select('settings').eq('id', tenantId).maybeSingle();
+    prismScanMode = getPrismScanMode((tRow?.settings ?? null) as Record<string, unknown> | null);
+  } catch { /* default 'enforce' — never block the gate on a settings read */ }
+
   try {
     await writeFileAudit(auditClient, {
       ...auditBase,
       action: 'file.scan_started',
       changes: { from: file.state, to: 'scanning' },
-      metadata: { engine: 'clamav', detection: 'magic-byte', provider: process.env.PRISM_SCAN_PROVIDER ?? 'clamd' },
+      metadata: { engine: 'clamav', detection: 'magic-byte', provider: process.env.PRISM_SCAN_PROVIDER ?? 'clamd', prism_scan_mode: prismScanMode },
     });
 
     const provider = createScanProvider(downloadQuarantineBytes);

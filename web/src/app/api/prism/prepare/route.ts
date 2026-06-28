@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import { resolveActor } from '@/lib/prism/actor';
 import { buildQuarantinePath, createQuarantineSignedUploadUrl } from '@/lib/prism/storage';
 import { hasCapability } from '@/lib/auth/permissions';
+import { isPrismEnabledForTenant } from '@/lib/prism/tenant-feature';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,11 @@ export async function POST(request: Request) {
   // the CDA). data.import stays for the full import wizard. Both roles can deliver a file.
   if (!hasCapability(actor.role, 'data.upload')) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+  // OB-250: PRISM tenant-capability gate (deep-link/data protection, SR-39). The membrane path is
+  // gateable per tenant; local import (/api/import/sci/*) is unaffected (I6). Fail-closed when off.
+  if (!(await isPrismEnabledForTenant(actor.tenantId))) {
+    return NextResponse.json({ error: 'prism_disabled' }, { status: 403 });
   }
 
   let body: { filename?: string };

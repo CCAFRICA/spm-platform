@@ -19,6 +19,12 @@
 import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
 import { hasCapability } from '@/lib/auth/permissions';
+import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
+
+// OB-250: the Data-Operations workspace label — a single configurable string (NOT "PRISM", which
+// stays internal). Change here to relabel everywhere the workspace is named.
+export const DATA_OPERATIONS_LABEL = 'Data Operations';
+export const DATA_OPERATIONS_LABEL_ES = 'Operaciones de Datos';
 
 // =============================================================================
 // WORKSPACE DEFINITIONS (agent-governed)
@@ -207,6 +213,52 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     ],
   },
 
+  // ── DATA OPERATIONS — PRISM acquisition surfaces; gated per tenant via featureFlag:'prism_enabled' ──
+  // OB-250: the consolidated PRISM home (deliver into PRISM, watch scan/hold, see what was cleaned).
+  // Two-gate visibility = featureFlag:'prism_enabled' (tenant, enforced by the 3 sidebars' ws.featureFlag
+  // filter + the canonical getAccessibleWorkspaces) AND requiredCapability:'data.import' (user). The
+  // licensable Finance agent is the exact precedent. Quarantine/hold-resolution deliberately is NOT here
+  // (it stays ungated under Import — I5 non-orphaning). Server deep-link enforcement: middleware
+  // WORKSPACE_FEATURES + the /api/prism/* isPrismEnabled gate (the menu hide is not a security gate).
+  'data-operations': {
+    id: 'data-operations',
+    label: DATA_OPERATIONS_LABEL,
+    labelEs: DATA_OPERATIONS_LABEL_ES,
+    icon: 'DatabaseZap',
+    description: 'Deliver, scan, and clean incoming data before it is imported',
+    descriptionEs: 'Entregar, escanear y limpiar datos antes de importarlos',
+    defaultRoute: '/data/submit',
+    accentColor: 'hsl(173, 80%, 40%)', // Teal
+    featureFlag: PRISM_FEATURE_KEY, // TENANT gate (prism_enabled)
+    roles: ['platform', 'admin'],
+    sections: [
+      {
+        id: 'deliver',
+        label: 'Deliver',
+        labelEs: 'Entregar',
+        routes: [
+          { path: '/data/submit', label: 'Deliver Data', labelEs: 'Entregar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+        ],
+      },
+      {
+        id: 'in-progress',
+        label: 'In Progress',
+        labelEs: 'En Progreso',
+        routes: [
+          { path: '/data/in-progress', label: 'Scan & Hold', labelEs: 'Escaneo y Retención', icon: 'Clock', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+        ],
+      },
+      {
+        id: 'cleaned',
+        label: 'Cleaned',
+        labelEs: 'Depurados',
+        routes: [
+          { path: '/data-operations/cleaned', label: 'What Was Cleaned', labelEs: 'Qué Se Depuró', icon: 'Sparkles', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
+        ],
+      },
+    ],
+  },
+
   // ── PLATFORM CORE — always-on substrate (Configure-as-settings lives here) ──
   'platform-core': {
     id: 'platform-core',
@@ -219,17 +271,16 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
     accentColor: 'hsl(215, 16%, 47%)', // Slate
     roles: ['platform', 'admin'],
     sections: [
-      // OB-213 Phase 1: Data Integration (Import moved here from Calculation per §1A) + Quarantine (KEEP).
-      // OB-245 Prism Slice 1: Submit + In Progress (the acquisition membrane front door). Gated on the
-      // EXISTING data.import capability — no new auth path (OB-246 Invariant 9). Flagged for OB-246
-      // persona enrollment (set 35 → 37). Icons (Upload/Clock) are already in ChromeSidebar ROUTE_ICONS.
+      // OB-250: "Import" — ALWAYS available (ungated by prism_enabled), gated only on data.import
+      // (I6: local import is unconditional; PRISM never blocks importing). The PRISM acquisition
+      // surfaces (Submit / In Progress) moved OUT to the gated Data-Operations workspace. Quarantine
+      // Resolution STAYS HERE, ungated by the flag (I5: held files must remain resolvable when PRISM
+      // is off — never orphaned). Import History stays too. Route paths unchanged (DD-7).
       {
-        id: 'data-integration',
-        label: 'Data Integration',
-        labelEs: 'Integración de Datos',
+        id: 'import',
+        label: 'Import',
+        labelEs: 'Importar',
         routes: [
-          { path: '/data/submit', label: 'Submit', labelEs: 'Enviar', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
-          { path: '/data/in-progress', label: 'In Progress', labelEs: 'En Progreso', icon: 'Clock', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import', label: 'Import Data', labelEs: 'Importar Datos', icon: 'Upload', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import/history', label: 'Import History', labelEs: 'Historial', icon: 'History', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
           { path: '/operate/import/quarantine', label: 'Quarantine Resolution', labelEs: 'Resolución de Cuarentena', icon: 'ShieldAlert', roles: ['platform', 'admin'], requiredCapability: 'data.import' },
@@ -385,6 +436,14 @@ export function getWorkspaceRoutesForRole(
  * Find which workspace a route belongs to
  */
 export function getWorkspaceForRoute(path: string): WorkspaceId | null {
+  // OB-250 B2: the PRISM subpaths must resolve to 'data-operations' BEFORE the generic /data match
+  // (platform-core's data-visibility owns the bare '/data' prefix; `path.startsWith('/data/')` would
+  // otherwise swallow /data/submit and /data/in-progress). These exact checks run first, so routing
+  // is correct regardless of WORKSPACES insertion order.
+  if (path === '/data/submit' || path.startsWith('/data/submit/')) return 'data-operations';
+  if (path === '/data/in-progress' || path.startsWith('/data/in-progress/')) return 'data-operations';
+  if (path.startsWith('/data-operations')) return 'data-operations';
+
   for (const workspace of Object.values(WORKSPACES)) {
     for (const section of workspace.sections) {
       for (const route of section.routes) {

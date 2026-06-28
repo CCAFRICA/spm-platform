@@ -20,7 +20,11 @@ import type { Capability } from '@/lib/auth/permissions';
 // decide→Performance, calculate→Calculation, finance→Finance (licensable), platform-core→Platform
 // Core. Internal IDs retained for minimal blast radius (SR-34). "Consolidate" removed — its
 // reconciliation moved to Calculation, its financial routes to the licensable Finance agent.
-export type WorkspaceId = 'decide' | 'calculate' | 'finance' | 'platform-core';
+// OB-250: 'data-operations' — the PRISM data-acquisition workspace, gated per tenant via
+// featureFlag:'prism_enabled' (the Finance/licensable precedent). Adding the union member
+// compile-forces the WORKSPACES record; the non-compile-forced maps (getWorkspaceForRoute,
+// WORKSPACE_FEATURE_ACCESS) are hand-edited + unit-tested alongside.
+export type WorkspaceId = 'decide' | 'calculate' | 'finance' | 'platform-core' | 'data-operations';
 
 export interface Workspace {
   id: WorkspaceId;

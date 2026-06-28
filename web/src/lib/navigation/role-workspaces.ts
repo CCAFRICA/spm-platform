@@ -54,10 +54,19 @@ export const DEFAULT_WORKSPACE_BY_ROLE: Record<UserRole, WorkspaceId> = {
 // =============================================================================
 
 /**
- * Check if a role can access a workspace — derived from the single PDP (capabilities),
- * optionally module-gated by the live tenants.features map. (OB-207 Inc2 binding.)
+ * Check if a role can access a workspace — the SINGLE two-gate composition point (OB-250 M2/I2).
+ * = WORKSPACE-level featureFlag (TENANT gate) AND reachable-via-capability (USER gate).
+ *
+ * OB-250: the WORKSPACE-level featureFlag was previously enforced ONLY in the 3 sidebars' own
+ * .filter (getWorkspaceRoutesForRole checks SECTION-level featureFlag, never the workspace's).
+ * Folding it in here makes this the ONE derivation: a flagged workspace (data-operations:'prism_enabled',
+ * finance:'financial') is inaccessible when `enabledFeatures` is supplied and the flag is not on —
+ * so the menu rail, navigation-context redirect validation, and any other caller all agree. When
+ * `enabledFeatures` is omitted (legacy capability-only callers), behavior is unchanged (DD-7).
  */
 export function canAccessWorkspace(role: UserRole, workspace: WorkspaceId, enabledFeatures?: Record<string, boolean>): boolean {
+  const ws = WORKSPACES[workspace];
+  if (ws?.featureFlag && enabledFeatures && enabledFeatures[ws.featureFlag] !== true) return false;
   return getWorkspaceRoutesForRole(workspace, role, enabledFeatures).length > 0;
 }
 
@@ -66,8 +75,10 @@ export function canAccessWorkspace(role: UserRole, workspace: WorkspaceId, enabl
  * >=1 of its routes via the capability matrix (single PDP), module-gated by tenant features.
  */
 export function getAccessibleWorkspaces(role: UserRole, enabledFeatures?: Record<string, boolean>): WorkspaceId[] {
+  // OB-250: delegates to canAccessWorkspace so the WORKSPACE-level featureFlag (tenant gate) is
+  // honored in the SAME place as everywhere else (single composition — I1).
   return (Object.keys(WORKSPACES) as WorkspaceId[]).filter(
-    ws => getWorkspaceRoutesForRole(ws, role, enabledFeatures).length > 0,
+    ws => canAccessWorkspace(role, ws, enabledFeatures),
   );
 }
 
@@ -94,12 +105,14 @@ export const WORKSPACE_FEATURE_ACCESS: Record<UserRole, Partial<Record<Workspace
     decide: { canViewAll: true, canEdit: true },
     'platform-core': { canViewAll: true, canEdit: true },
     finance: { canViewAll: true, canEdit: true },
+    'data-operations': { canViewAll: true, canEdit: true }, // OB-250
   },
   admin: {
     calculate: { canViewAll: true, canEdit: true },
     decide: { canViewAll: true, canEdit: true },
     'platform-core': { canViewAll: true, canEdit: true },
     finance: { canViewAll: true, canEdit: true },
+    'data-operations': { canViewAll: true, canEdit: true }, // OB-250
   },
   manager: {
     decide: { canViewAll: true, canEdit: false },

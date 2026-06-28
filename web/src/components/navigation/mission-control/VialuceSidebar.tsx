@@ -35,11 +35,10 @@ import { WORKSPACES, getWorkspaceRoutesForRole } from '@/lib/navigation/workspac
 import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 import type { WorkspaceId, WorkspaceSection } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import type { TenantFeatures } from '@/types/tenant';
 import type { PersonaKey } from '@/lib/design/tokens';
 
 const WS_ICON: Record<WorkspaceId, string> = {
-  decide: 'TrendingUp', calculate: 'Zap', 'platform-core': 'Settings', finance: 'Activity',
+  decide: 'TrendingUp', calculate: 'Zap', 'platform-core': 'Settings', finance: 'Activity', 'data-operations': 'DatabaseZap', // OB-250
 };
 
 function Icon({ name, className }: { name?: string; className?: string }) {
@@ -59,13 +58,9 @@ export function VialuceSidebar() {
   const { user, isVLAdmin } = useAuth();
   const { persona, setPersonaOverride } = usePersona();
 
+  // OB-250: single two-gate composition (featureFlag enforced inside getAccessibleWorkspaces).
   const accessibleWorkspaces = useMemo(() => effectiveRole
-    ? getAccessibleWorkspaces(effectiveRole as UserRole).filter(wsId => {
-        const ws = WORKSPACES[wsId];
-        if (!ws?.featureFlag) return true;
-        const features = currentTenant?.features as TenantFeatures | undefined;
-        return features?.[ws.featureFlag as keyof TenantFeatures] === true;
-      })
+    ? getAccessibleWorkspaces(effectiveRole as UserRole, (currentTenant?.features ?? {}) as Record<string, boolean>)
     : [], [effectiveRole, currentTenant?.features]);
 
   // HF-332: capability-gated sections (the single PDP, hasCapability) — replaces reading

@@ -73,8 +73,9 @@ export function PersonaSwitcher() {
       return false;
     }) as WorkspaceId | undefined;
 
-    // If current workspace is accessible to new persona, stay on current page
-    if (currentWsId && canAccessWorkspace(role, currentWsId)) {
+    // If current workspace is accessible to new persona, stay on current page (OB-250: share the
+    // single two-gate composition by passing the live tenant features).
+    if (currentWsId && canAccessWorkspace(role, currentWsId, (currentTenant?.features ?? {}) as Record<string, boolean>)) {
       // Stay on current page — just re-render with persona-filtered data
       return;
     }

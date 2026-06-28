@@ -14,6 +14,7 @@
 // HF-283 A1.1: platform alias set lives in resolve-identity.ts (single declaration).
 // Used only inside resolveRole (call-time) — no module-init cycle.
 import { PLATFORM_ROLE_VALUES } from '@/lib/auth/resolve-identity';
+import { PRISM_FEATURE_KEY } from '@/lib/prism/capability'; // OB-250: the single canonical feature key
 
 // =============================================================================
 // TYPES
@@ -340,6 +341,33 @@ export const WORKSPACE_CAPABILITIES: Record<string, Capability> = {
   '/financial': 'view.team_results',
   '/approvals': 'data.approve_results', // OB-246: gate the approver hub at middleware too (defense-in-depth)
 };
+
+// =============================================================================
+// OB-250 — WORKSPACE → TENANT-FEATURE MAPPING (the SERVER-SIDE second gate)
+// =============================================================================
+
+/**
+ * Exact PRISM page prefixes that require a TENANT feature (prism_enabled) IN ADDITION to the
+ * capability gate above — the server-side half of the two-gate, enforced in middleware so the
+ * off-state cannot be reached by deep link (SR-39 / I2). EXACT subpaths ONLY: never the bare
+ * `/data` or `/operate` prefix, which hold surfaces that MUST stay reachable when PRISM is off —
+ * `/data/transactions` (I5 committed-data view) and `/operate/import` (I6 local import). The
+ * feature literal is the canonical PRISM_FEATURE_KEY (imported below).
+ */
+export const WORKSPACE_FEATURES: ReadonlyArray<{ prefix: string; feature: string }> = [
+  { prefix: '/data/submit', feature: PRISM_FEATURE_KEY },
+  { prefix: '/data/in-progress', feature: PRISM_FEATURE_KEY },
+  { prefix: '/data-operations', feature: PRISM_FEATURE_KEY },
+];
+
+/** The tenant feature a path requires (longest exact-prefix match), or null. Boundary-safe:
+ *  only matches the exact path or a child path (never `/data/submitXYZ`). */
+export function requiredFeatureForPath(pathname: string): string | null {
+  const match = WORKSPACE_FEATURES
+    .filter(w => pathname === w.prefix || pathname.startsWith(w.prefix + '/'))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  return match ? match.feature : null;
+}
 
 /**
  * Check if a role can access a workspace path.

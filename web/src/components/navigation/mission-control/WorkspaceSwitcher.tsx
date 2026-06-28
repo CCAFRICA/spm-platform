@@ -15,13 +15,13 @@ import { getAccessibleWorkspaces } from '@/lib/navigation/role-workspaces';
 import { useTenant } from '@/contexts/tenant-context';
 import type { WorkspaceId } from '@/types/navigation';
 import type { UserRole } from '@/types/auth';
-import type { TenantFeatures } from '@/types/tenant';
 
 import {
   Zap,
   TrendingUp,
   Settings,
   Activity,
+  Database,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -40,6 +40,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   calculate: Zap,
   'platform-core': Settings,
   finance: Activity,
+  'data-operations': Database, // OB-250
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
@@ -47,13 +48,9 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
   const { currentTenant } = useTenant();
 
   // OB-94: effectiveRole comes from NavigationContext (persona-driven, single source of truth)
+  // OB-250: single two-gate composition (featureFlag enforced inside getAccessibleWorkspaces).
   const accessibleWorkspaces = useMemo(() => effectiveRole
-    ? getAccessibleWorkspaces(effectiveRole as UserRole).filter(wsId => {
-        const ws = WORKSPACES[wsId];
-        if (!ws?.featureFlag) return true;
-        const features = currentTenant?.features as TenantFeatures | undefined;
-        return features?.[ws.featureFlag as keyof TenantFeatures] === true;
-      })
+    ? getAccessibleWorkspaces(effectiveRole as UserRole, (currentTenant?.features ?? {}) as Record<string, boolean>)
     : [], [effectiveRole, currentTenant?.features]);
 
   // Auto-redirect when persona changes and current workspace is not accessible

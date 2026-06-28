@@ -15,6 +15,7 @@ import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
 import { RemediationReview } from '@/components/remediation/RemediationReview'; // OB-249 (P7)
+import { ClearedSourcePanel } from '@/components/prism/ClearedSourcePanel'; // OB-250 (PRISM import source)
 import { ImportProgress } from '@/components/sci/ImportProgress';
 import { ImportTelemetryPanel } from '@/components/sci/ImportTelemetryPanel';
 import { AlertCircle, X } from 'lucide-react';
@@ -610,6 +611,9 @@ export default function OperateImportPage() {
           )}
 
           {/* ─── UPLOAD STATE ─── */}
+          {/* OB-250: the PRISM import source (cleared shelf) is ADDITIVE above the always-available
+              local source (SCIUpload). It self-gates: renders only when prism_enabled is on (I6/I7). */}
+          {state.phase === 'upload' && <ClearedSourcePanel />}
           {(state.phase === 'upload' || state.phase === 'analyzing') && (
             <SCIUpload
               onAnalysisStart={handleAnalysisStart}

@@ -38,6 +38,10 @@ export interface TenantFeatures {
   mobileApp: boolean;
   apiAccess: boolean;
   financial: boolean; // Financial Module - POS data analysis for restaurants
+  // OB-250: PRISM data-acquisition capability (membrane + scanner + remediation + cleared-import
+  // source). Off by default; gates the Data-Operations workspace + the PRISM import source. Snake_case
+  // key matches the canonical PRISM_FEATURE_KEY (lib/prism/capability.ts) — the directive's literal name.
+  prism_enabled: boolean;
   /** Lifecycle pipeline config: 'launch' (simplified) or 'production' (full) */
   lifecyclePipeline?: string;
 }
@@ -55,6 +59,7 @@ export const DEFAULT_FEATURES: TenantFeatures = {
   mobileApp: false,
   apiAccess: false,
   financial: false, // Disabled by default, enabled per tenant
+  prism_enabled: false, // OB-250: PRISM off by default — platform admin enables per tenant
 };
 
 export interface TenantTerminology {
