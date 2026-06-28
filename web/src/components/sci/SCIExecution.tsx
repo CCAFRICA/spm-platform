@@ -106,32 +106,38 @@ async function fetchWithTimeout(
  * OB-151: Polling recovery check — the server may still be processing when
  * the client connection drops. Poll up to maxWaitMs with increasing intervals.
  */
-async function pollPlanRecovery(
+// HF-353 P-D: poll the DURABLE plan-interpretation status (HF-259 plan_interpretation_runs,
+// via /api/import/sci/plan-run-status) to distinguish "still processing" from "failed". While
+// status is in_progress, `onTick` keeps the UI in "still processing" — the caller NEVER marks
+// the plan units 'error' (so no Retry button → no client re-submit). Resolves to 'completed'
+// (success), 'failed' (genuine failure), or 'absent' (no run / stall — a retryable surface).
+async function pollPlanRunStatus(
   tenantId: string,
-  maxWaitMs: number = 90_000,
-): Promise<boolean> {
+  onTick: () => void,
+  maxWaitMs: number = 300_000,
+): Promise<'completed' | 'failed' | 'absent'> {
   const startTime = Date.now();
-  // Poll intervals: 5s, 10s, 15s, 15s, 15s, ...
-  const intervals = [5000, 10000, 15000, 15000, 15000, 15000, 15000];
+  const intervals = [3000, 5000, 8000, 10000, 10000];
   let attempt = 0;
-
+  let absentTicks = 0;
   while (Date.now() - startTime < maxWaitMs) {
-    const waitMs = intervals[Math.min(attempt, intervals.length - 1)];
-    await new Promise(resolve => setTimeout(resolve, waitMs));
+    await new Promise(resolve => setTimeout(resolve, intervals[Math.min(attempt, intervals.length - 1)]));
     attempt++;
-
     try {
-      const res = await fetch(`/api/plan-readiness?tenantId=${encodeURIComponent(tenantId)}`);
+      const res = await fetch(`/api/import/sci/plan-run-status?tenantId=${encodeURIComponent(tenantId)}`);
       if (!res.ok) continue;
-      const data = await res.json();
-      if (Array.isArray(data.plans) && data.plans.length > 0) {
-        return true;
-      }
+      const { status } = await res.json() as { status: 'in_progress' | 'completed' | 'failed' | 'absent' };
+      if (status === 'completed') return 'completed';
+      if (status === 'failed') return 'failed';
+      if (status === 'absent') { if (++absentTicks >= 3) return 'absent'; continue; }
+      // in_progress → the server is still working; keep the UI honest and keep polling.
+      absentTicks = 0;
+      onTick();
     } catch {
-      // Network error — keep polling
+      // Network blip — keep polling (the run may still be in progress).
     }
   }
-  return false;
+  return 'absent'; // stall window elapsed
 }
 
 export function SCIExecution({
@@ -517,48 +523,41 @@ export function SCIExecution({
           ));
         }
       } catch (err) {
+        // HF-353 P-D: a long plan interpretation (~83s) may return a gateway 504 / drop the
+        // connection while the SERVER IS STILL RUNNING. Treating that as a terminal failure
+        // (the old behavior) marked the units 'error' → exposed "Retry failed" → the user
+        // re-submitted, tripping HF-259 single-flight. THE FIX: on ANY error, do NOT decide
+        // from the response — poll the DURABLE plan_interpretation_runs.status and keep the
+        // units in "still processing" while in_progress (no 'error', so no re-submit). Only a
+        // 'failed'/'absent' durable status surfaces a retryable failure.
         const isAbort = err instanceof DOMException && err.name === 'AbortError';
-        const isNetworkError = err instanceof TypeError && (err.message === 'Failed to fetch' || err.message.includes('network'));
-        const errorMsg = isAbort
-          ? 'Request timed out — the server may still be processing'
-          : err instanceof Error ? err.message : 'Plan processing failed';
+        const errorMsg = err instanceof Error && !isAbort ? err.message : 'Plan processing failed';
+        const stillProcessing = (note: string) => setUnits(prev => prev.map(u =>
+          planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
+            ? { ...u, status: 'processing' as const, error: note }
+            : u));
+        stillProcessing('Still processing — a large plan can take ~90 seconds…');
 
-        if (isAbort || isNetworkError) {
-          // Show checking status for all plan units
+        const outcome = await pollPlanRunStatus(tenantId, () => stillProcessing('Still processing — interpretation in progress…'));
+        if (outcome === 'completed') {
           setUnits(prev => prev.map(u =>
             planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
-              ? { ...u, error: 'Connection lost — checking if server completed...' }
+              ? {
+                  ...u,
+                  status: 'complete' as const,
+                  error: undefined,
+                  result: {
+                    contentUnitId: u.contentUnitId,
+                    classification: u.classification,
+                    success: true,
+                    rowsProcessed: 0,
+                    pipeline: 'plan-interpretation',
+                  },
+                }
               : u
           ));
-
-          const recovered = await pollPlanRecovery(tenantId);
-          if (recovered) {
-            setUnits(prev => prev.map(u =>
-              planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
-                ? {
-                    ...u,
-                    status: 'complete' as const,
-                    error: undefined,
-                    result: {
-                      contentUnitId: u.contentUnitId,
-                      classification: u.classification,
-                      success: true,
-                      rowsProcessed: 0,
-                      pipeline: 'plan-interpretation',
-                    },
-                  }
-                : u
-            ));
-          } else {
-            // Recovery failed — mark all plan units as error
-            setUnits(prev => prev.map(u =>
-              planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
-                ? { ...u, status: 'error' as const, error: errorMsg }
-                : u
-            ));
-          }
         } else {
-          // Non-timeout error — mark all plan units as error
+          // Durable status is 'failed' or 'absent' (after the stall window) → a genuine, retryable failure.
           setUnits(prev => prev.map(u =>
             planUnits.some(pu => pu.contentUnitId === u.contentUnitId)
               ? { ...u, status: 'error' as const, error: errorMsg }

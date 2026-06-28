@@ -446,6 +446,47 @@ export async function POST(request: NextRequest) {
   // data-location resolution is column-name-keyed across all operative-period batches.
   // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
   const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+
+  // HF-353 P-C: cross-component reference plan. A `component_ref` binding means a component's
+  // input is the COMPUTED OUTPUT of another component (e.g. Mínimo Garantizado ← the cascade
+  // commission). Map consumer componentIndex → [{ field, producer }]; empty for every plan
+  // without such a binding (byte-identical). The engine evaluates producers first (topo order)
+  // and supplies priorResults[producer] as the consumer DAG's referenced field value.
+  const componentRefDeps = new Map<number, Array<{ field: string; producer: number }>>();
+  if (convergenceBindings) {
+    for (const [compKey, roleMap] of Object.entries(convergenceBindings)) {
+      const m = /^component_(\d+)$/.exec(compKey);
+      if (!m || !roleMap || typeof roleMap !== 'object') continue;
+      const idx = Number(m[1]);
+      for (const [field, entry] of Object.entries(roleMap as Record<string, unknown>)) {
+        const ref = (entry as { component_ref?: number } | null)?.component_ref;
+        if (typeof ref === 'number') {
+          if (!componentRefDeps.has(idx)) componentRefDeps.set(idx, []);
+          componentRefDeps.get(idx)!.push({ field, producer: ref });
+        }
+      }
+    }
+  }
+  const hasComponentRefs = componentRefDeps.size > 0;
+  // Topological order of component indices (producers before consumers). C2 fail-loud on a cycle.
+  const topoOrderComponents = (indices: number[]): number[] => {
+    if (!hasComponentRefs) return indices;
+    const present = new Set(indices);
+    const order: number[] = [];
+    const state = new Map<number, 0 | 1 | 2>(); // 0 unseen, 1 visiting, 2 done
+    const visit = (n: number): void => {
+      const s = state.get(n) ?? 0;
+      if (s === 2) return;
+      if (s === 1) throw new Error(`HF-353 P-C: cross-component dependency CYCLE at component ${n} — cannot order (C2).`);
+      state.set(n, 1);
+      for (const dep of componentRefDeps.get(n) ?? []) if (present.has(dep.producer)) visit(dep.producer);
+      state.set(n, 2); order.push(n);
+    };
+    for (const n of indices) visit(n);
+    return order;
+  };
+  if (hasComponentRefs) addLog(`HF-353 P-C: ${componentRefDeps.size} component(s) with cross-component references`);
+
   if (convergenceBindings && Object.keys(convergenceBindings).length > 0) {
     const bindingCount = Object.keys(convergenceBindings).length;
     addLog(`HF-108 Using convergence_bindings (Decision 111) for data resolution — ${bindingCount} component bindings`);
@@ -3026,9 +3067,16 @@ export async function POST(request: NextRequest) {
 
     // ── INTENT ENGINE PATH (authoritative — Decision 151 sole authority) ──
     // HF-119: Use selected variant's intents, not always defaultComponents
-    const entityIntents = selectedVariantIndex === 0
+    const entityIntentsRaw = selectedVariantIndex === 0
       ? componentIntents
       : transformVariant(selectedComponents);
+    // HF-353 P-C: evaluate a referenced producer component before its consumer (topo order).
+    // No-op when the plan has no cross-component references (entityIntentsRaw order preserved).
+    const entityIntents = hasComponentRefs
+      ? topoOrderComponents(entityIntentsRaw.map(ci => ci.componentIndex))
+          .map(idx => entityIntentsRaw.find(ci => ci.componentIndex === idx))
+          .filter((ci): ci is typeof entityIntentsRaw[number] => ci != null)
+      : entityIntentsRaw;
     const intentTraces: unknown[] = [];
     const priorResults: number[] = [];
 
@@ -3081,6 +3129,18 @@ export async function POST(request: NextRequest) {
           `must populate metrics for every component before intent-executor handoff. ` +
           `Decision 153 / Decision 111 violation.`
         );
+      }
+      // HF-353 P-C: supply each cross-component reference token from the producer component's
+      // already-computed output (priorResults — guaranteed populated by the topo order above).
+      // The referenced field (e.g. comision_ventas_devengada) becomes a metric the consumer
+      // DAG reads via its `reference` prime. Per-entity (perComponentMetrics is rebuilt each entity).
+      const refDeps = componentRefDeps.get(ci.componentIndex);
+      if (refDeps) {
+        for (const { field, producer } of refDeps) {
+          const v = priorResults[producer];
+          if (typeof v === 'number') metrics[field] = v;
+          else console.warn(`[HF-353 P-C] component ${ci.componentIndex} references component_${producer} output "${field}" but it is not yet computed (topo-order gap).`);
+        }
       }
       // HF-238 Phase 3: entity attributes populated from entities.metadata so
       // the scope prime can read the boundary value (district/region/etc.)

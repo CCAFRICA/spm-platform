@@ -301,33 +301,162 @@ export function buildHierarchyEdges(
   return edges;
 }
 
+// ──────────────────────────────────────────────
+// HF-353 P-B: ROLE-BASED hierarchy edge construction (reads HC roles, not names)
+// ──────────────────────────────────────────────
+//
+// The OB-248 value-overlap detector above fails on a merged-header sheet whose real
+// columns are `__EMPTY`, `__EMPTY_1`, … (SheetJS rendering of merged cells): the names
+// carry no signal and the entity-id-vs-name columns don't all value-overlap external_ids.
+// But the LLM comprehended the per-column ROLES correctly — stored on every committed row
+// as `metadata.field_identities[col].structuralType`. P-B reads THOSE: the TARGET is the
+// column the LLM scoped as a `reference / relational pointer` (the superior/reports-to —
+// "defines the directed edge of the commission graph"), the SOURCE is the sheet's entity
+// identifier (the row's already-resolved entity_id), and the TYPE is a categorical
+// relationship-label column. Decision 158 / Korean Test: roles, never column names.
+
+const REFERENCE_POINTER_RE = /reference|relational|pointer|reports?[\s_-]?to|superior|parent[\s_-]?entity|points?\s+to|reporta/i;
+const CATEGORICAL_RE = /categor/i;
+const RELATIONSHIP_TYPE_RE = /relaci|relation|\btipo\b|edge|vertical|overlay|directed|graph|kind of|type of/i;
+
+export interface HierarchyRoleDetection {
+  /** The sheet's entity identifier column (the source); null → use the row's resolved entity_id. */
+  sourceCol: string | null;
+  /** The reference/relational-pointer column — the edge TARGET (the superior/reports-to). */
+  targetCol: string;
+  /** A categorical relationship-label column (the edge TYPE), when present. */
+  typeCol: string | null;
+}
+
 /**
- * P-I1 DB wrapper: scan each data_type for a hierarchy sheet, construct edges,
- * upsert via the existing onConflict key. Best-effort (never throws into import).
- * The recognized edge type is the typeCol value, or the parent column's
- * comprehension-recognized relationship characterization. When neither resolves,
- * the sheet's edges are skipped with a diagnostic (C2 — no hardcoded type).
+ * Detect hierarchy edge roles from the per-sheet HC field identities (Korean Test:
+ * reads structuralType/contextualIdentity, never column names). Returns null when no
+ * reference/relational-pointer role is present (→ not a hierarchy edge sheet, fall back).
+ */
+export function detectHierarchyRoles(
+  fieldIdentities: Record<string, { structuralType?: string; contextualIdentity?: string }> | undefined,
+  entityIdField: string | null,
+): HierarchyRoleDetection | null {
+  if (!fieldIdentities) return null;
+  // NOTE: do NOT filter `_`-prefixed columns — the merged-header columns ARE named
+  // `__EMPTY`, `__EMPTY_1`, … (that is the whole point of P-B). field_identities carries
+  // only real columns (the row_data meta keys _sheetName/_rowIndex are not present here).
+  const cols = Object.keys(fieldIdentities).filter(c => c !== '_sheetName' && c !== '_rowIndex');
+  let targetCol: string | null = null;
+  for (const c of cols) {
+    if (c === entityIdField) continue;
+    const fi = fieldIdentities[c];
+    if (REFERENCE_POINTER_RE.test(`${fi?.structuralType ?? ''} ${fi?.contextualIdentity ?? ''}`)) { targetCol = c; break; }
+  }
+  if (!targetCol) return null;
+  const categoricals = cols.filter(c =>
+    c !== entityIdField && c !== targetCol && CATEGORICAL_RE.test(fieldIdentities[c]?.structuralType ?? ''));
+  const typeCol = categoricals.find(c => RELATIONSHIP_TYPE_RE.test(`${fieldIdentities[c]?.contextualIdentity ?? ''}`))
+    ?? categoricals[0] ?? null;
+  return { sourceCol: entityIdField, targetCol, typeCol };
+}
+
+/** Normalize an entity reference for name matching (strip parentheticals, casefold, collapse spaces). */
+export function normalizeEntityRef(s: string): string {
+  return s.replace(/\([^)]*\)/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Build directed source→target edges from a role-detected hierarchy sheet. Source = the
+ * row's resolved entity (the sheet's identifier); target = the reference-pointer value
+ * resolved to an entity (by external_id, else normalized display_name); type = the
+ * categorical column value. Targets that do not resolve are counted (C2), never fabricated.
+ */
+export function buildRoleBasedHierarchyEdges(
+  rows: Array<{ row_data: Record<string, unknown>; entity_id: string | null }>,
+  roles: HierarchyRoleDetection,
+  resolveEntity: (value: string) => string | null,
+  tenantId: string,
+  nowIso: string,
+): { edges: ConstructedEdge[]; unresolvedTargets: number } {
+  const edges: ConstructedEdge[] = [];
+  const seen = new Set<string>();
+  let unresolvedTargets = 0;
+  for (const { row_data, entity_id } of rows) {
+    const source = entity_id ?? (roles.sourceCol ? resolveEntity(String(row_data[roles.sourceCol] ?? '')) : null);
+    if (!source) continue;
+    const targetRaw = String(row_data[roles.targetCol] ?? '').trim();
+    if (!targetRaw || targetRaw === '—') continue;
+    const target = resolveEntity(targetRaw);
+    if (!target) { unresolvedTargets++; continue; }
+    if (source === target) continue; // self-loop — not an edge
+    const type = (roles.typeCol ? String(row_data[roles.typeCol] ?? '').trim() : '') || 'reports_to';
+    const dedup = `${source}|${target}|${type}`;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    edges.push({
+      tenant_id: tenantId, source_entity_id: source, target_entity_id: target,
+      relationship_type: type, source: 'imported_explicit', confidence: 1.0,
+      evidence: { signal: 'hierarchy_sheet_role', targetCol: roles.targetCol, typeCol: roles.typeCol, sourceCol: roles.sourceCol },
+      context: { recognized_relationship: type },
+      effective_from: nowIso,
+    });
+  }
+  return { edges, unresolvedTargets };
+}
+
+/**
+ * P-I1 / HF-353 P-B DB wrapper: per-SHEET (Personal and Jerarquia are both
+ * data_type='entity' — must not be merged), construct hierarchy edges role-first
+ * (HF-353 P-B), falling back to the OB-248 value-overlap detector for sheets without
+ * recognized roles (neutrality). Best-effort (never throws into import).
  */
 async function constructHierarchyEdges(supabase: SupabaseClient, tenantId: string): Promise<void> {
   const { data: individuals } = await supabase
-    .from('entities').select('id, external_id').eq('tenant_id', tenantId).eq('entity_type', 'individual');
+    .from('entities').select('id, external_id, display_name').eq('tenant_id', tenantId).eq('entity_type', 'individual');
   if (!individuals || individuals.length === 0) return;
   const byExtId = new Map<string, { id: string }>();
+  const byExtIdStr = new Map<string, string>();
+  const byName = new Map<string, string>();
   const extIds = new Set<string>();
-  for (const e of individuals) { if (e.external_id) { const x = String(e.external_id).trim(); byExtId.set(x, { id: e.id }); extIds.add(x); } }
+  for (const e of individuals) {
+    if (e.external_id) { const x = String(e.external_id).trim(); byExtId.set(x, { id: e.id }); byExtIdStr.set(x, e.id); extIds.add(x); }
+    if (e.display_name) byName.set(normalizeEntityRef(String(e.display_name)), e.id);
+  }
   if (extIds.size === 0) return;
+  const resolveEntity = (value: string): string | null => {
+    const v = value.trim(); if (!v) return null;
+    return byExtIdStr.get(v) ?? byName.get(normalizeEntityRef(v)) ?? null;
+  };
 
-  // candidate sheets: distinct data_types present for this tenant
-  const { data: dtRows } = await supabase.from('committed_data').select('data_type').eq('tenant_id', tenantId).limit(5000);
-  const dataTypes = Array.from(new Set((dtRows ?? []).map(r => String((r as { data_type: string }).data_type))));
+  // Group committed rows by SHEET (_sheetName), not data_type — Personal vs Jerarquia.
+  const { data: allRows } = await supabase.from('committed_data')
+    .select('row_data, entity_id, metadata, data_type').eq('tenant_id', tenantId).limit(20000);
+  const bySheet = new Map<string, Array<{ row_data: Record<string, unknown>; entity_id: string | null; metadata: Record<string, unknown> }>>();
+  for (const r of allRows ?? []) {
+    const rd = (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data)) ? r.row_data as Record<string, unknown> : {};
+    const sheet = String(rd._sheetName ?? r.data_type ?? '?');
+    if (!bySheet.has(sheet)) bySheet.set(sheet, []);
+    bySheet.get(sheet)!.push({ row_data: rd, entity_id: r.entity_id as string | null, metadata: (r.metadata ?? {}) as Record<string, unknown> });
+  }
 
-  for (const dt of dataTypes) {
-    const { data: sheetRows } = await supabase.from('committed_data').select('row_data').eq('tenant_id', tenantId).eq('data_type', dt).limit(5000);
-    const rows = (sheetRows ?? []).map(r => (r.row_data && typeof r.row_data === 'object' && !Array.isArray(r.row_data)) ? r.row_data as Record<string, unknown> : {});
-    const detection = detectHierarchyEdges(rows, extIds);
+  const nowIso = new Date().toISOString();
+  for (const [sheet, sheetRows] of Array.from(bySheet.entries())) {
+    const fi = (sheetRows[0]?.metadata?.field_identities ?? undefined) as Record<string, { structuralType?: string; contextualIdentity?: string }> | undefined;
+    const entityIdField = (sheetRows[0]?.metadata?.entity_id_field ?? null) as string | null;
+
+    // PRIMARY (HF-353 P-B): role-based — reads the reference/relational-pointer role.
+    const roles = detectHierarchyRoles(fi, entityIdField);
+    if (roles) {
+      const { edges, unresolvedTargets } = buildRoleBasedHierarchyEdges(sheetRows, roles, resolveEntity, tenantId, nowIso);
+      if (edges.length > 0) {
+        await upsertEdges(supabase, edges);
+        console.log(`[HF-353 P-B] sheet "${sheet}": ${edges.length} role-based edges (target=${roles.targetCol}, type=${roles.typeCol ?? 'default'}${unresolvedTargets ? `, ${unresolvedTargets} unresolved targets` : ''})`);
+        continue;
+      }
+      console.warn(`[HF-353 P-B] sheet "${sheet}": reference/relational-pointer role recognized (${roles.targetCol}) but produced 0 edges (${unresolvedTargets} targets did not resolve to entities) — C2.`);
+      continue;
+    }
+
+    // FALLBACK (OB-248 value-overlap): sheets without recognized roles — byte-identical.
+    const plainRows = sheetRows.map(r => r.row_data);
+    const detection = detectHierarchyEdges(plainRows, extIds);
     if (!detection) continue;
-
-    // recognized relationship characterization for the parent column (comprehension).
     let recognizedType = '';
     try {
       const { data: ca } = await supabase.from('comprehension_artifacts')
@@ -335,18 +464,21 @@ async function constructHierarchyEdges(supabase: SupabaseClient, tenantId: strin
       const rel = ca && ca[0] ? (ca[0].relationships ?? ca[0].characterization) : null;
       if (typeof rel === 'string' && rel.trim()) recognizedType = rel.trim();
     } catch { /* best-effort */ }
-
-    const edges = buildHierarchyEdges(rows, detection, byExtId, tenantId, recognizedType, new Date().toISOString());
+    const edges = buildHierarchyEdges(plainRows, detection, byExtId, tenantId, recognizedType, nowIso);
     if (edges.length === 0) {
-      console.warn(`[OB-248 P-I1] hierarchy sheet "${dt}" detected (${detection.childCol}→${detection.parentCol}) but no edge type recognized — edges skipped (C2: provide a relationship column).`);
+      console.warn(`[OB-248 P-I1] hierarchy sheet "${sheet}" detected (${detection.childCol}→${detection.parentCol}) but no edge type recognized — edges skipped (C2).`);
       continue;
     }
-    for (let i = 0; i < edges.length; i += 500) {
-      const slice = edges.slice(i, i + 500);
-      const { error: relErr } = await supabase.from('entity_relationships')
-        .upsert(slice, { onConflict: 'tenant_id,source_entity_id,target_entity_id,relationship_type' });
-      if (relErr) console.warn(`[OB-248 P-I1] entity_relationships upsert error (sheet "${dt}"): ${relErr.message}`);
-    }
-    console.log(`[OB-248 P-I1] hierarchy sheet "${dt}": ${edges.length} ${detection.childCol}→${detection.parentCol} edges (type from ${detection.typeCol ?? 'recognition'})`);
+    await upsertEdges(supabase, edges);
+    console.log(`[OB-248 P-I1] hierarchy sheet "${sheet}": ${edges.length} ${detection.childCol}→${detection.parentCol} value-overlap edges.`);
+  }
+}
+
+async function upsertEdges(supabase: SupabaseClient, edges: ConstructedEdge[]): Promise<void> {
+  for (let i = 0; i < edges.length; i += 500) {
+    const slice = edges.slice(i, i + 500);
+    const { error: relErr } = await supabase.from('entity_relationships')
+      .upsert(slice, { onConflict: 'tenant_id,source_entity_id,target_entity_id,relationship_type' });
+    if (relErr) console.warn(`[hierarchy edges] entity_relationships upsert error: ${relErr.message}`);
   }
 }
