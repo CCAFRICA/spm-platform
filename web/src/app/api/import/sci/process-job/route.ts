@@ -38,6 +38,8 @@ import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 // OB-251 (DS-016 P-C1): classify on a BOUNDED sample for OOM-scale sheets so the worker never
 // materializes the full sheet (the 86,608×87 parse-time spike). The commit worker re-reads windowed.
 import { openSheetWindow, CELL_CHUNK_THRESHOLD, CHUNK_ROW_SIZE } from '@/lib/sci/sheet-window';
+// OB-251 HOTFIX: an OOM-scale file is classified by STREAMING (jszip) — never XLSX.read.
+import { isLargeByBytes, streamSheetMeta, listSheetNames } from '@/lib/sci/sheet-stream';
 import type { ContentProfile } from '@/lib/sci/sci-types';
 
 const ANALYSIS_SAMPLE_SIZE = 50;
@@ -108,10 +110,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse file server-side
-    const XLSX = await import('xlsx');
     const buffer = await fileData.arrayBuffer();
-    // OB-251 P-C1: dense read halves the cell-map peak (sheet_to_json output byte-identical).
-    const workbook = XLSX.read(buffer, { type: 'array', dense: true });
 
     const sheets: Array<{
       sheetName: string;
@@ -119,26 +118,40 @@ export async function POST(req: NextRequest) {
       rows: Record<string, unknown>[];
       totalRowCount: number;
     }> = [];
-
-    // OB-251 P-C1: a sheet that would OOM (cells > threshold) is CLASSIFIED on a bounded sample
-    // (columns + fingerprint + atom/HC over the first window) — NOT the full sheet. totalRowCount
-    // carries the TRUE row count for the proposal; the commit worker re-reads the full sheet windowed.
     let anySampled = false;
-    for (const sheetName of workbook.SheetNames) {
-      const ws = workbook.Sheets[sheetName];
-      if (!ws) continue;
-      const dim = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      const cells = Math.max(0, dim.e.r - dim.s.r) * (dim.e.c - dim.s.c + 1);
-      if (cells > CELL_CHUNK_THRESHOLD) {
-        const reader = openSheetWindow(XLSX, ws, sheetName);
-        const sample = reader.readWindow(0, CHUNK_ROW_SIZE);
-        anySampled = true;
-        sheets.push({ sheetName, columns: reader.columns, rows: sample, totalRowCount: reader.totalRows });
-        console.log(`[SCI-WORKER] OB-251: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
-      } else {
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-        const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-        sheets.push({ sheetName, columns, rows: jsonData, totalRowCount: jsonData.length });
+
+    // OB-251 HOTFIX: a file big enough that XLSX.read would OOM is CLASSIFIED by STREAMING each sheet's
+    // header + bounded sample + true row count (from <dimension>) — the workbook is NEVER materialized.
+    if (isLargeByBytes(buffer.byteLength)) {
+      anySampled = true;
+      const names = await listSheetNames(buffer);
+      for (const sheetName of names.length ? names : [undefined]) {
+        const meta = await streamSheetMeta(buffer, { sampleRows: CHUNK_ROW_SIZE, targetSheet: sheetName });
+        sheets.push({ sheetName: meta.sheetName, columns: meta.headers, rows: meta.sample, totalRowCount: meta.totalRows });
+        console.log(`[SCI-WORKER] OB-251 STREAM: ${meta.sheetName} ${meta.totalRows}r×${meta.headers.length}c (total ${meta.totalKnown ? 'known' : 'sampled'}) — classify on ${meta.sample.length}-row sample (commit STREAMS all rows)`);
+      }
+    } else {
+      // OB-251 P-C1: dense read halves the cell-map peak (sheet_to_json output byte-identical).
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(buffer, { type: 'array', dense: true });
+      // A sheet that would OOM (cells > threshold) but whose FILE is under the byte gate is CLASSIFIED
+      // on a bounded sample via the in-workbook window reader; totalRowCount carries the true count.
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        if (!ws) continue;
+        const dim = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        const cells = Math.max(0, dim.e.r - dim.s.r) * (dim.e.c - dim.s.c + 1);
+        if (cells > CELL_CHUNK_THRESHOLD) {
+          const reader = openSheetWindow(XLSX, ws, sheetName);
+          const sample = reader.readWindow(0, CHUNK_ROW_SIZE);
+          anySampled = true;
+          sheets.push({ sheetName, columns: reader.columns, rows: sample, totalRowCount: reader.totalRows });
+          console.log(`[SCI-WORKER] OB-251: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
+        } else {
+          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+          const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+          sheets.push({ sheetName, columns, rows: jsonData, totalRowCount: jsonData.length });
+        }
       }
     }
 

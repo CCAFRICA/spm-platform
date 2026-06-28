@@ -36,7 +36,10 @@ import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-conten
 // OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, CELL_CHUNK_THRESHOLD, type SheetWindow } from '@/lib/sci/sheet-window';
-import { commitUnitWindowed } from '@/lib/sci/windowed-commit';
+import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commit';
+// OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
+// materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
+import { isLargeByBytes } from '@/lib/sci/sheet-stream';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
@@ -195,6 +198,10 @@ export async function POST(req: NextRequest) {
       // OB-251: a windowed (large) sheet carries a bounded-window `reader` + true `totalRows`
       // instead of a materialized `rows` array (rows stays empty); the commit loop streams it.
       sheetDataMap: Map<string, { rows: Record<string, unknown>[]; columns: string[]; reader?: SheetWindow; totalRows?: number; windowed?: boolean }>;
+      // OB-251 HOTFIX: an OOM-scale file is NOT parsed up-front (XLSX.read would OOM). It carries its
+      // raw bytes; the commit loop STREAMS each unit's sheet via commitUnitStreamed.
+      streaming?: boolean;
+      buffer?: ArrayBuffer;
     };
 
     const fileEntries: Array<{ fileName: string; path: string }> =
@@ -221,13 +228,20 @@ export async function POST(req: NextRequest) {
       // + supersession trigger — computed per file.
       const fileHash = computeFileHashSha256(buffer);
 
+      // OB-251 HOTFIX: a file big enough that XLSX.read would OOM is STREAMED at commit (jszip) — never
+      // parsed up-front here. Skip the companion + XLSX.read; carry the raw bytes on the FileParse.
+      const streaming = isSpreadsheetPath(path) && isLargeByBytes(buffer.byteLength);
+      if (streaming) {
+        console.log(`[SCI Bulk] OB-251: ${fileName} is ${(buffer.byteLength / 1e6).toFixed(0)}MB ≥ threshold — STREAMED commit (workbook NOT materialized; the real OOM fix)`);
+      }
+
       const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[]; reader?: SheetWindow; totalRows?: number; windowed?: boolean }>();
       // HF-285-D: parse-once. If the gzipped parsed companion exists for this file's
       // content hash (written by process-job at classify, or a prior execute/resume),
       // read it instead of re-parsing the xlsx (~5s vs ~34s for the witness file). Any
       // miss/error falls through to the live parse below (no regression).
       let usedCompanion = false;
-      if (isSpreadsheetPath(path)) {
+      if (!streaming && isSpreadsheetPath(path)) {
         const companion = await readParsedCompanion(supabase, tenantId, fileHash);
         if (companion) {
           for (const [sheetName, sd] of Object.entries(companion)) {
@@ -242,7 +256,7 @@ export async function POST(req: NextRequest) {
       // sources — NOT workbook-parsed; their plan unit routes to the format-aware plan
       // pipeline below. Workbook-parsing a document would throw "Could not find workbook".
       // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
-      if (!usedCompanion && isSpreadsheetPath(path)) {
+      if (!streaming && !usedCompanion && isSpreadsheetPath(path)) {
         const XLSX = await import('xlsx');
         // OB-251 P-C1: dense read halves the cell-map peak on wide files (sheet_to_json output is
         // byte-identical — sheet-window.test.ts proves it). Large sheets are NOT materialized.
@@ -283,7 +297,7 @@ export async function POST(req: NextRequest) {
       } else if (!usedCompanion) {
         console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
       }
-      if (!usedCompanion) {
+      if (!streaming && !usedCompanion) {
         const fileTotalRows = Array.from(sheetDataMap.values()).reduce((s, d) => s + d.rows.length, 0);
         console.log(`[SCI Bulk] ${fileName}: parsed ${fileTotalRows} rows across ${sheetDataMap.size} sheets in ${Date.now() - parseStart}ms`);
       }
@@ -293,6 +307,8 @@ export async function POST(req: NextRequest) {
         fileHash,
         fileNameFromPath: path.split('/').pop()?.replace(/^\d+_/, '') || fileName,
         sheetDataMap,
+        streaming,
+        buffer: streaming ? buffer : undefined,
       });
     }
 
@@ -503,16 +519,40 @@ export async function POST(req: NextRequest) {
         const parts = unit.contentUnitId.split('::');
         const tabName = parts[1] || 'Sheet1';
 
-        let sheetData = sheetDataMap.get(tabName);
+        let result: ContentUnitResult | null = null;
+        // OB-251 HOTFIX: an OOM-scale file was NOT parsed up-front (XLSX.read would OOM) — STREAM this
+        // unit's sheet straight from the bytes through commitUnitStreamed. The workbook is never
+        // materialized. Entity units are never this large (rosters); they fall through.
+        if (parse.streaming && parse.buffer) {
+          const cls = unit.confirmedClassification;
+          if (cls === 'target' || cls === 'transaction' || cls === 'reference') {
+            trace(`unit:${tabName}:streamed-commit bytes=${parse.buffer.byteLength}`);
+            const sres = await commitUnitStreamed(supabase, {
+              unit,
+              buffer: parse.buffer,
+              targetSheet: tabName,
+              classification: cls,
+              tenantId, proposalId, tabName,
+              fileName: `sci-bulk-${proposalId}`,
+              fileHashSha256: parse.fileHash,
+              onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
+                if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
+              },
+            });
+            result = { contentUnitId: unit.contentUnitId, classification: cls, success: sres.success, rowsProcessed: sres.totalInserted, pipeline: cls, error: sres.error };
+            trace(`unit:${tabName}:streamed-commit-end committed=${sres.totalInserted} ok=${sres.success}`);
+          }
+        }
+
+        let sheetData = result !== null ? undefined : sheetDataMap.get(tabName);
         // OB-251: a windowed (large) sheet carries rows:[] by design — resolve it by name/single-sheet
         // here, BEFORE the materialized-sheet guard below (which is written for full row arrays).
-        if (!sheetData) {
+        if (result === null && !sheetData) {
           const wmatch = Array.from(sheetDataMap.entries()).find(([n]) => n.toLowerCase() === tabName.toLowerCase())?.[1]
             ?? (sheetDataMap.size === 1 ? Array.from(sheetDataMap.values())[0] : undefined);
           if (wmatch?.windowed) sheetData = wmatch;
         }
-        let result: ContentUnitResult | null = null;
-        if (sheetData?.windowed && sheetData.reader) {
+        if (result === null && sheetData?.windowed && sheetData.reader) {
           const cls = unit.confirmedClassification;
           if (cls === 'target' || cls === 'transaction' || cls === 'reference') {
             // OB-251 P-C1: stream the large sheet through commitUnitWindowed — the full row array is
