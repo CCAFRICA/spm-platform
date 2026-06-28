@@ -1,5 +1,5 @@
 /**
- * OB-250 (DS-016 P-C1) — bounded-window reader BYTE-IDENTITY proof.
+ * OB-251 (DS-016 P-C1) — bounded-window reader BYTE-IDENTITY proof.
  * Runner: node --test --import tsx.
  *
  * The whole calc-neutrality argument for the windowed parse rests on ONE invariant: a windowed

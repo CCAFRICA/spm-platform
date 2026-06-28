@@ -1,22 +1,23 @@
-# OB-250 — Asynchronous Ingestion Architecture (DS-016) — COMPLETION REPORT
+# OB-251 — Asynchronous Ingestion Architecture (DS-016) — COMPLETION REPORT
 
-> **NUMBER COLLISION (noted, not an error):** the identifier `OB-250` was already used by a separate,
-> merged piece of work — *"The PRISM Capability Gate + the Data-Operations Workspace"* (PR #615,
-> `docs/completion-reports/OB-250_COMPLETION_REPORT.md`). This directive (DS-016 Async Ingestion) reuses
-> the number. To avoid clobbering the PRISM report, this report keeps the qualified filename
-> `OB-250_Async_Ingestion_Architecture_COMPLETION_REPORT.md`; the PRISM report keeps the bare name.
-> (Same resolution pattern as the parallel HF-353 collision.) The ADR (`docs/adr/OB-250_ADR.md`), the
-> directive (`…OB-250_ASYNC_INGESTION_ARCHITECTURE_DIRECTIVE_…`), and the migration (`…ob250_processing_
-> jobs_reconcile.sql`) do not collide — PRISM shipped zero migrations and a differently-named directive.
+> **RENUMBERED OB-250 → OB-251 (number collision):** this work was authored as OB-250, but that
+> identifier was already taken by a separate, merged piece of work — *"The PRISM Capability Gate + the
+> Data-Operations Workspace"* (PR #615, `docs/completion-reports/OB-250_COMPLETION_REPORT.md`). To
+> resolve the collision, this DS-016 Async Ingestion work was renumbered to **OB-251** (branch
+> `ob-251-async-ingestion`); the merged PRISM **OB-250** on `main` is untouched (it is not on this
+> branch). The rename was surgical — only this branch's async-ingestion OB-250 references became
+> OB-251; the ~33 merged PRISM OB-250 files (lib/prism/*, api/prism/*, navigation/workspace, middleware,
+> the ob250-prism-gate test, OB-250_COMPLETION_REPORT.md, and two PRISM lines in operate/import/page.tsx)
+> were left as OB-250. The ADR (`docs/adr/OB-251_ADR.md`), directive, and migration are all OB-251.
 
-**Date:** 2026-06-28 · **Branch:** `ob-250-async-ingestion` (from `72d8ccea`) · **Mode:** ULTRACODE (autonomous)
-**ADR:** `docs/adr/OB-250_ADR.md`
+**Date:** 2026-06-28 · **Branch:** `ob-251-async-ingestion` (from `72d8ccea`) · **Mode:** ULTRACODE (autonomous)
+**ADR:** `docs/adr/OB-251_ADR.md`
 
 ---
 
 ## 1. Summary
 
-OB-250 finishes DS-016 by completing and unifying the **inert OB-174 async scaffolding** into the single, live ingestion path. The decisive finding (FP-49 live verification): `processing_jobs` and `structural_fingerprints` **already exist** (OB-174 migration `023`), a working async **classify** worker already exists (`process-job`), and a polling progress surface already exists (`ImportProgress`) — but the table's RLS references a **fabricated `platform_users`** table (absent live), the worker still **fully materializes the parse** (the 86K×87 OOM, failed 3×), commit holds the browser **300s**, the cockpit reads **stale `import_batches`**, and the flywheel **promotion step has zero callers**. OB-250 closes all five.
+OB-251 finishes DS-016 by completing and unifying the **inert OB-174 async scaffolding** into the single, live ingestion path. The decisive finding (FP-49 live verification): `processing_jobs` and `structural_fingerprints` **already exist** (OB-174 migration `023`), a working async **classify** worker already exists (`process-job`), and a polling progress surface already exists (`ImportProgress`) — but the table's RLS references a **fabricated `platform_users`** table (absent live), the worker still **fully materializes the parse** (the 86K×87 OOM, failed 3×), commit holds the browser **300s**, the cockpit reads **stale `import_batches`**, and the flywheel **promotion step has zero callers**. OB-251 closes all five.
 
 **The five DS-016 layers, all live:**
 
@@ -44,7 +45,7 @@ OB-250 finishes DS-016 by completing and unifying the **inert OB-174 async scaff
 - **Cockpit:** `import_count = COUNT(import_batches)`, `lastImportStatus = latest import_batches.status`; Clean Slate wipes only `committed_data` → stale after wipe.
 - **Flywheel:** writes land; `identifyPromotionCandidates`/`checkPromotedPatterns` have **zero callers**.
 
-**FP-49 live schema** (`scripts/_ob250_fp49_schema.ts` — PostgREST has no `information_schema`, so service-role row-introspection):
+**FP-49 live schema** (`scripts/_ob251_fp49_schema.ts` — PostgREST has no `information_schema`, so service-role row-introspection):
 ```
 tenants            EXISTS rows=15   id uuid
 profiles           EXISTS rows=14   id, auth_user_id, tenant_id, role …          ← real FK target
@@ -57,7 +58,7 @@ Anchor sheet dimensions (sets the 5M threshold safely above all anchors): BCL 0.
 
 ---
 
-## 3. ADR (separate — `docs/adr/OB-250_ADR.md`)
+## 3. ADR (separate — `docs/adr/OB-251_ADR.md`)
 
 - **Worker trigger: Hybrid C+B** — client-fire (sub-second) + Vercel-Cron sweep (browser-independent + retry). Rejected A (Edge — infra channel) and B-alone (≥60s cron floor). Atomic claim → never double-process.
 - **Large file:** `dense:true` + windowed `sheet_to_json` + windowed commit, **gated at `CELL_CHUNK_THRESHOLD = 5,000,000` cells** (above every anchor) — anchors single-batch byte-identical; only OOM-scale files window. `CHUNK_ROW_SIZE = 20,000`.
@@ -85,16 +86,16 @@ Anchor sheet dimensions (sets the 5M threshold safely above all anchors): BCL 0.
 | Gate | Result | Evidence |
 |---|---|---|
 | PG-1 upload returns | mechanism shipped; **live timing → architect** | `page.tsx` |
-| PG-2 parallel workers | **mechanism PASS** (claim race-free); **live overlap → architect** | `_ob250_proofs.ts` |
-| PG-3 86K no OOM | **mechanism PASS** (windowed 256MB < full 385MB, full array never built, byte-identical). **Live 86K → architect §6A** | `_ob250_proofs.ts` + PG-11 |
+| PG-2 parallel workers | **mechanism PASS** (claim race-free); **live overlap → architect** | `_ob251_proofs.ts` |
+| PG-3 86K no OOM | **mechanism PASS** (windowed 256MB < full 385MB, full array never built, byte-identical). **Live 86K → architect §6A** | `_ob251_proofs.ts` + PG-11 |
 | PG-4 per-file isolation | source_date per-row, byte-identical under windowing. **Live multi-file → architect** | commit-content-unit:605 + PG-11 |
 | PG-5 live progress | polls + commit-lifecycle stamping. **Live UI → architect** | §4 P-D1 |
 | PG-6 cockpit live | **logic PASS** (committed_data-derived). **Live UI → architect** | tenant-state.ts / page-loaders.ts |
 | PG-7 no re-submit | durable poll + HF-353 invariant. **Live → architect** | §1 |
-| PG-8 flywheel + Tier-1 | **PASS** — aggregation ran (71 signals); fingerprints 24× / 0.96 | `_ob250_proofs.ts` |
+| PG-8 flywheel + Tier-1 | **PASS** — aggregation ran (71 signals); fingerprints 24× / 0.96 | `_ob251_proofs.ts` |
 | PG-9 HALT-CALC | **PASS** — BCL **$312,033** ✓ / Meridian **$556,985** ✓; zero engine files; byte-identical | git scope + PG-11 |
 | PG-10 unified/Korean/registry | **PASS** — 5 net-new, no shadow; domain matches are comments; no registry | git diff + grep |
-| PG-11 carry-everything | **PASS** — windowed == single-batch byte-identical (25k rows) | `_ob250_pg11_windowed_byteidentity.ts` |
+| PG-11 carry-everything | **PASS** — windowed == single-batch byte-identical (25k rows) | `_ob251_pg11_windowed_byteidentity.ts` |
 
 The four absorbed CLT findings: **parse OOM** solved (PG-3/11); **multi-file parallelism** (per-file workers + sweep, P-B2); **client re-submission** (durable poll + lifecycle, P-D1/PG-7); **cockpit stale-state** solved (P-D2/PG-6).
 
@@ -114,14 +115,14 @@ None triggered. HALT-CALC not approached (anchors intact; engine untouched). HAL
 
 ## 8. ARTIFACT SYNC
 
-1. **Migration (architect applies — SR-44):** `web/supabase/migrations/20260628_ob250_processing_jobs_reconcile.sql` — RLS `platform_users`→`profiles.auth_user_id`, add `batch_id`/`chunk_id`/`total_chunks` + `finalized`, create `promoted_patterns`. Verify: `npx tsx scripts/_ob250_verify_migration.ts`. Until applied: client RLS on `processing_jobs` stays service-role-only and `promoted_patterns` persistence no-ops (the consume step still runs).
+1. **Migration (architect applies — SR-44):** `web/supabase/migrations/20260628_ob251_processing_jobs_reconcile.sql` — RLS `platform_users`→`profiles.auth_user_id`, add `batch_id`/`chunk_id`/`total_chunks` + `finalized`, create `promoted_patterns`. Verify: `npx tsx scripts/_ob251_verify_migration.ts`. Until applied: client RLS on `processing_jobs` stays service-role-only and `promoted_patterns` persistence no-ops (the consume step still runs).
 2. **Flywheel now live** after every import (`aggregate-flywheel` + client trigger); `identifyPromotionCandidates` has a caller for the first time.
 3. **Vercel Cron:** `web/vercel.json` 1-minute `dispatch-jobs` sweep. Optionally set `CRON_SECRET` to harden.
 4. **Architect live verification (§6A — named, not deferred):** apply the migration, run the real 86,608×87 Casa Diaz/Robles file end-to-end (PG-3 live), and re-run a sealed-tenant calc to double-confirm $312,033 / $556,985 (PG-9 live double-run).
 5. **Candidate locked decision:** *"Ingestion is asynchronous by construction — every file becomes a `processing_jobs` row; a small file is a one-window job; there is no synchronous ingestion path."*
 
-**Proof scripts (committed):** `_ob250_fp49_schema.ts`, `_ob250_verify_migration.ts`, `_ob250_pg11_windowed_byteidentity.ts`, `_ob250_proofs.ts`. Tests: `src/lib/sci/__tests__/sheet-window.test.ts`.
+**Proof scripts (committed):** `_ob251_fp49_schema.ts`, `_ob251_verify_migration.ts`, `_ob251_pg11_windowed_byteidentity.ts`, `_ob251_proofs.ts`. Tests: `src/lib/sci/__tests__/sheet-window.test.ts`.
 
 ---
 
-*vialuce.ai · Intelligence. Acceleration. Performance. · OB-250 (Async Ingestion) complete.*
+*vialuce.ai · Intelligence. Acceleration. Performance. · OB-251 (Async Ingestion) complete.*

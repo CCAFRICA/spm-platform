@@ -94,7 +94,7 @@ export interface CommitContentUnitParams {
   // Y" stays a single number line, no entity-specific vocabulary. Default 0/0
   // keeps every other caller byte-identical (DD-7).
   pulseBase?: { landed: number; total: number };
-  // OB-250 (DS-016 §C chunk-jobs) — ADDITIVE, byte-identical for every existing caller.
+  // OB-251 (DS-016 §C chunk-jobs) — ADDITIVE, byte-identical for every existing caller.
   // rowIndexOffset: makes row_data._rowIndex file-global when a large file is committed as
   //   multiple chunk-jobs (each chunk-job feeds its own window of rows). Default 0 ⇒ the
   //   _rowIndex of every existing single-job caller is unchanged.
@@ -480,7 +480,7 @@ export async function commitContentUnit(
   // entity-scope identifiers (e.g. a branch `sucursal` AND the real `vendedor_id`)
   // selects by value-domain overlap, not emission order. Single-identifier sheets
   // (BCL/Meridian) never consult it — byte-identical.
-  // OB-250: a chunk-job passes the entity_id_field the CLASSIFY worker already resolved over the
+  // OB-251: a chunk-job passes the entity_id_field the CLASSIFY worker already resolved over the
   // whole file (entityIdFieldOverride) so every chunk commits the SAME key — no per-chunk
   // re-derivation, no value-overlap drift between windows. undefined ⇒ resolve as today.
   const entityDomain = params.entityIdFieldOverride !== undefined
@@ -622,7 +622,7 @@ export async function commitContentUnit(
       period_id: null as string | null,
       source_date: sourceDate,
       data_type: dataType,
-      // OB-250: _rowIndex is file-global when chunked (rowIndexOffset default 0 ⇒ unchanged).
+      // OB-251: _rowIndex is file-global when chunked (rowIndexOffset default 0 ⇒ unchanged).
       row_data: { ...correctedRow, _sheetName: tabName, _rowIndex: (params.rowIndexOffset ?? 0) + i },
       metadata: {
         source,

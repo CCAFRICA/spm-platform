@@ -273,7 +273,7 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string, 
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
-    // OB-250 (P-D2): live data presence — the Lifecycle Cockpit's "Data imported" readiness must
+    // OB-251 (P-D2): live data presence — the Lifecycle Cockpit's "Data imported" readiness must
     // reflect what IS in committed_data (the table Clean Slate wipes), not the surviving
     // import_batches receipt row, which left the cockpit reading "Data imported: completed" after a
     // clean slate. lastImportStatus is gated on this count below so the cockpit self-heals to empty.
@@ -435,7 +435,7 @@ export async function loadOperatePageData(tenantId: string, periodKey?: string, 
     hasActivePlan: !!planRes.data,
     ruleSetId: planRes.data?.id ?? null,
     ruleSetName: planRes.data?.name ?? null,
-    // OB-250 (P-D2): only report an import status when live committed_data exists — a surviving
+    // OB-251 (P-D2): only report an import status when live committed_data exists — a surviving
     // import_batches receipt after a Clean Slate must NOT read as "Data imported".
     lastImportStatus: hasCommittedData ? (importRes.data?.status ?? null) : null,
     lastBatchId: activeBatch?.id ?? null,

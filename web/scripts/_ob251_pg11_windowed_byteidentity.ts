@@ -1,10 +1,10 @@
-// OB-250 PG-11 / HALT-DATA-LOSS + HALT-CALC byte-identity proof.
+// OB-251 PG-11 / HALT-DATA-LOSS + HALT-CALC byte-identity proof.
 // Commits the SAME synthetic sheet two ways into a disposable tenant — once single-batch
 // (commitContentUnit, the proven path) and once windowed (commitUnitWindowed, the OOM path) —
 // then proves the committed_data rows are BYTE-IDENTICAL (same row_data incl file-global _rowIndex,
 // same per-row source_date, same data_type) and committed count == parsed count. If this holds, the
 // windowed parse/commit cannot move any calc figure (the engine reads committed_data identically).
-//   from web/:  npx tsx scripts/_ob250_pg11_windowed_byteidentity.ts
+//   from web/:  npx tsx scripts/_ob251_pg11_windowed_byteidentity.ts
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 import { createClient } from '@supabase/supabase-js';
@@ -62,7 +62,7 @@ async function main() {
   const tenant = (t.data ?? [])[0];
   if (!tenant) { console.log('no disposable tenant found'); process.exit(1); }
   const tenantId = tenant.id as string;
-  console.log(`=== OB-250 PG-11 byte-identity (disposable tenant: ${tenant.name} ${tenantId.slice(0, 8)}) ===`);
+  console.log(`=== OB-251 PG-11 byte-identity (disposable tenant: ${tenant.name} ${tenantId.slice(0, 8)}) ===`);
 
   await cleanup(tenantId);
 

@@ -1,4 +1,4 @@
-// OB-250 consolidated in-session proofs (run from web/): npx tsx scripts/_ob250_proofs.ts
+// OB-251 consolidated in-session proofs (run from web/): npx tsx scripts/_ob251_proofs.ts
 //   PG-8a  flywheel aggregation RUNS the previously-dead consume step (identifyPromotionCandidates)
 //   PG-8b  Tier-1 immunity EXISTS — a structural_fingerprint matched ≥2× recognizes with zero LLM
 //   PG-2   atomic claim is race-free — two concurrent pending→classifying claims, exactly one wins
@@ -32,7 +32,7 @@ async function pg8() {
 async function pg2() {
   console.log('\n==================== PG-2: atomic claim is race-free (pending→classifying, exactly one winner) ====================');
   const tenantId = (await sb.from('tenants').select('id').limit(1).single()).data!.id as string;
-  const ins = await sb.from('processing_jobs').insert({ tenant_id: tenantId, status: 'pending', file_storage_path: 'ob250-proof/claim.xlsx', file_name: 'claim.xlsx' }).select('id').single();
+  const ins = await sb.from('processing_jobs').insert({ tenant_id: tenantId, status: 'pending', file_storage_path: 'ob251-proof/claim.xlsx', file_name: 'claim.xlsx' }).select('id').single();
   if (ins.error) { console.log('  [skip] could not insert probe job:', ins.error.message); return; }
   const jobId = ins.data.id as string;
   // Two concurrent guarded claims — the conditional update admits exactly one.
@@ -80,6 +80,6 @@ async function main() {
   await pg8();
   await pg2();
   pg3();
-  console.log('\n=== OB-250 in-session proofs complete ===');
+  console.log('\n=== OB-251 in-session proofs complete ===');
 }
 main().catch((e) => { console.error('SCRIPT ERROR:', e); process.exit(1); });

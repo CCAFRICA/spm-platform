@@ -1,4 +1,4 @@
-// OB-250 (DS-016 Layer C / P-C1+P-C2) — bounded-window unit commit.
+// OB-251 (DS-016 Layer C / P-C1+P-C2) — bounded-window unit commit.
 //
 // THE OOM FIX. commitContentUnit legitimately needs the WHOLE logical row set in memory
 // (content-hash, remediation correctedRows, entity-id resolution) — so a large unit cannot be

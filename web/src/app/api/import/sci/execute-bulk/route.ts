@@ -33,7 +33,7 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
 import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
-// OB-250 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
+// OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, CELL_CHUNK_THRESHOLD, type SheetWindow } from '@/lib/sci/sheet-window';
 import { commitUnitWindowed } from '@/lib/sci/windowed-commit';
@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       path: string;
       fileHash: string;
       fileNameFromPath: string;
-      // OB-250: a windowed (large) sheet carries a bounded-window `reader` + true `totalRows`
+      // OB-251: a windowed (large) sheet carries a bounded-window `reader` + true `totalRows`
       // instead of a materialized `rows` array (rows stays empty); the commit loop streams it.
       sheetDataMap: Map<string, { rows: Record<string, unknown>[]; columns: string[]; reader?: SheetWindow; totalRows?: number; windowed?: boolean }>;
     };
@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
       // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
       if (!usedCompanion && isSpreadsheetPath(path)) {
         const XLSX = await import('xlsx');
-        // OB-250 P-C1: dense read halves the cell-map peak on wide files (sheet_to_json output is
+        // OB-251 P-C1: dense read halves the cell-map peak on wide files (sheet_to_json output is
         // byte-identical — sheet-window.test.ts proves it). Large sheets are NOT materialized.
         const workbook = XLSX.read(buffer, { type: 'array', dense: true });
         let anyWindowed = false;
@@ -256,13 +256,13 @@ export async function POST(req: NextRequest) {
           const approxRows = Math.max(0, dim.e.r - dim.s.r);
           const approxCols = dim.e.c - dim.s.c + 1;
           if (approxRows * approxCols > CELL_CHUNK_THRESHOLD) {
-            // OB-250 P-C1: large sheet — keep a bounded-window reader; the commit loop streams it
+            // OB-251 P-C1: large sheet — keep a bounded-window reader; the commit loop streams it
             // through commitUnitWindowed (peak ≈ one window, not the whole sheet). The full row
             // array is NEVER built — this is the OOM fix.
             const reader = openSheetWindow(XLSX, ws, sheetName);
             anyWindowed = true;
             sheetDataMap.set(sheetName, { rows: [], columns: reader.columns, reader, totalRows: reader.totalRows, windowed: true });
-            console.log(`[SCI Bulk] OB-250: ${fileName}/${sheetName} ${reader.totalRows}r×${reader.columns.length}c (${(approxRows * approxCols / 1e6).toFixed(1)}M cells) > threshold — WINDOWED commit (no full materialization)`);
+            console.log(`[SCI Bulk] OB-251: ${fileName}/${sheetName} ${reader.totalRows}r×${reader.columns.length}c (${(approxRows * approxCols / 1e6).toFixed(1)}M cells) > threshold — WINDOWED commit (no full materialization)`);
           } else {
             // Non-large sheet — EXACT current path (byte-identical for every HALT-CALC anchor).
             const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
         }
         // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the synchronous import
         // flow that skips process-job) writes the companion so the 300s-boundary resume re-reads it.
-        // OB-250: skip when any sheet was windowed — a windowed sheet has no full array to cache, and
+        // OB-251: skip when any sheet was windowed — a windowed sheet has no full array to cache, and
         // execute re-reads it windowed (bounded) on resume (the companion's 50MB cap excluded these
         // files anyway). Fire-and-forget (best-effort cache).
         if (!anyWindowed) {
@@ -504,7 +504,7 @@ export async function POST(req: NextRequest) {
         const tabName = parts[1] || 'Sheet1';
 
         let sheetData = sheetDataMap.get(tabName);
-        // OB-250: a windowed (large) sheet carries rows:[] by design — resolve it by name/single-sheet
+        // OB-251: a windowed (large) sheet carries rows:[] by design — resolve it by name/single-sheet
         // here, BEFORE the materialized-sheet guard below (which is written for full row arrays).
         if (!sheetData) {
           const wmatch = Array.from(sheetDataMap.entries()).find(([n]) => n.toLowerCase() === tabName.toLowerCase())?.[1]
@@ -515,7 +515,7 @@ export async function POST(req: NextRequest) {
         if (sheetData?.windowed && sheetData.reader) {
           const cls = unit.confirmedClassification;
           if (cls === 'target' || cls === 'transaction' || cls === 'reference') {
-            // OB-250 P-C1: stream the large sheet through commitUnitWindowed — the full row array is
+            // OB-251 P-C1: stream the large sheet through commitUnitWindowed — the full row array is
             // NEVER materialized (the OOM fix). Field-filter uses the first window (columns are
             // identical across windows). populateStoreMetadata runs per window for data units.
             const sample = sheetData.reader.readWindow(0, 1);

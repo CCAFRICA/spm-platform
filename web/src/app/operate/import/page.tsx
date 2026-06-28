@@ -163,7 +163,7 @@ export default function OperateImportPage() {
   // HF-140: Track storage upload for ALL files (runs in parallel with analysis)
   const storagePathsRef = useRef<Record<string, string>>({});
   const storageUploadPromiseRef = useRef<Promise<void> | null>(null);
-  // OB-250: the async (OB-174) classify session id, retained so the COMMIT confirmation can close the
+  // OB-251: the async (OB-174) classify session id, retained so the COMMIT confirmation can close the
   // processing_jobs lifecycle (classified → committing → committed). Null for the synchronous path
   // (no jobs were created), where the status updates below are harmless no-ops.
   const asyncSessionIdRef = useRef<string | null>(null);
@@ -300,7 +300,7 @@ export default function OperateImportPage() {
             }
 
             // Transition to processing phase
-            asyncSessionIdRef.current = sessionId; // OB-250: retained to close the commit lifecycle
+            asyncSessionIdRef.current = sessionId; // OB-251: retained to close the commit lifecycle
             setState({ phase: 'processing', sessionId, files });
             return;
           }
@@ -452,7 +452,7 @@ export default function OperateImportPage() {
     // Backwards compat: first path as single storagePath
     const storagePath = Object.values(storagePaths)[0] || undefined;
 
-    // OB-250: confirm advances the async jobs classified → committing (the durable lifecycle the
+    // OB-251: confirm advances the async jobs classified → committing (the durable lifecycle the
     // cockpit/dispatcher observe). No-op for the synchronous path (no jobs). RLS now allows tenant
     // members (profiles.auth_user_id) after the reconcile migration.
     if (asyncSessionIdRef.current && tenantId) {
@@ -497,7 +497,7 @@ export default function OperateImportPage() {
         .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
         .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
 
-      // OB-250: close the async job lifecycle (committing → committed) and trigger Layer-E flywheel
+      // OB-251: close the async job lifecycle (committing → committed) and trigger Layer-E flywheel
       // aggregation — the queued-but-never-consumed signals are now consumed after each import. Both
       // are fire-and-forget + idempotent; no-op for the synchronous path (no jobs).
       if (asyncSessionIdRef.current) {
@@ -576,7 +576,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
-    asyncSessionIdRef.current = null; // OB-250: don't leak an async session into the next import
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
@@ -585,7 +585,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
-    asyncSessionIdRef.current = null; // OB-250: don't leak an async session into the next import
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);
@@ -594,7 +594,7 @@ export default function OperateImportPage() {
     rawDataRef.current = null;
     storagePathsRef.current = {};
     storageUploadPromiseRef.current = null;
-    asyncSessionIdRef.current = null; // OB-250: don't leak an async session into the next import
+    asyncSessionIdRef.current = null; // OB-251: don't leak an async session into the next import
     setPostImportData(null);
     setState({ phase: 'upload' });
   }, []);

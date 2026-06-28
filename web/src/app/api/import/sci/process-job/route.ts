@@ -35,7 +35,7 @@ import { writeParsedCompanion, type ParsedSheets } from '@/lib/sci/parsed-compan
 import { queryTenantContext, computeEntityIdOverlap } from '@/lib/sci/tenant-context';
 import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '@/lib/sci/fingerprint-flywheel';
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
-// OB-250 (DS-016 P-C1): classify on a BOUNDED sample for OOM-scale sheets so the worker never
+// OB-251 (DS-016 P-C1): classify on a BOUNDED sample for OOM-scale sheets so the worker never
 // materializes the full sheet (the 86,608×87 parse-time spike). The commit worker re-reads windowed.
 import { openSheetWindow, CELL_CHUNK_THRESHOLD, CHUNK_ROW_SIZE } from '@/lib/sci/sheet-window';
 import type { ContentProfile } from '@/lib/sci/sci-types';
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Job already in status: ${job.status}` }, { status: 409 });
     }
 
-    // OB-250 P-B3: ATOMIC CLAIM — guarded conditional update so the client-fire and the cron sweep
+    // OB-251 P-B3: ATOMIC CLAIM — guarded conditional update so the client-fire and the cron sweep
     // can never both process the same job. The transition succeeds for exactly one caller (the one
     // that flips pending→classifying); a loser sees zero rows and 409s. Race-free, not check-then-act.
     const claim = await supabase
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     // Parse file server-side
     const XLSX = await import('xlsx');
     const buffer = await fileData.arrayBuffer();
-    // OB-250 P-C1: dense read halves the cell-map peak (sheet_to_json output byte-identical).
+    // OB-251 P-C1: dense read halves the cell-map peak (sheet_to_json output byte-identical).
     const workbook = XLSX.read(buffer, { type: 'array', dense: true });
 
     const sheets: Array<{
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
       totalRowCount: number;
     }> = [];
 
-    // OB-250 P-C1: a sheet that would OOM (cells > threshold) is CLASSIFIED on a bounded sample
+    // OB-251 P-C1: a sheet that would OOM (cells > threshold) is CLASSIFIED on a bounded sample
     // (columns + fingerprint + atom/HC over the first window) — NOT the full sheet. totalRowCount
     // carries the TRUE row count for the proposal; the commit worker re-reads the full sheet windowed.
     let anySampled = false;
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
         const sample = reader.readWindow(0, CHUNK_ROW_SIZE);
         anySampled = true;
         sheets.push({ sheetName, columns: reader.columns, rows: sample, totalRowCount: reader.totalRows });
-        console.log(`[SCI-WORKER] OB-250: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
+        console.log(`[SCI-WORKER] OB-251: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
       } else {
         const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
         const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
     // execute-bulk reads it instead of re-parsing the same workbook. Best-effort —
     // never throws; a failure just means execute parses as before. fileHash uses the
     // SAME function execute computes, so the keys align.
-    // OB-250: NEVER write a companion when any sheet was sampled — a partial companion would make
+    // OB-251: NEVER write a companion when any sheet was sampled — a partial companion would make
     // execute-bulk's companion-HIT commit only the sample (HALT-DATA-LOSS). For sampled files,
     // execute-bulk re-reads the full sheet windowed (bounded). The 50MB companion cap excluded these
     // files anyway, so this is no regression.

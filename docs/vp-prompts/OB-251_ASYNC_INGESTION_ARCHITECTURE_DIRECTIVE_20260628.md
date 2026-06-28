@@ -1,8 +1,8 @@
-# OB-250 — Asynchronous Ingestion Architecture (DS-016 Implementation)
+# OB-251 — Asynchronous Ingestion Architecture (DS-016 Implementation)
 
-**Directive file (VP):** `docs/vp-prompts/OB-250_ASYNC_INGESTION_ARCHITECTURE_DIRECTIVE_20260628.md`
+**Directive file (VP):** `docs/vp-prompts/OB-251_ASYNC_INGESTION_ARCHITECTURE_DIRECTIVE_20260628.md`
 **Date:** 2026-06-28 · **Category:** OB (objective build — architectural) · **Mode:** ULTRACODE `/effort` (autonomous)
-**Repo:** VP `CCAFRICA/spm-platform` · **Branch:** `ob-250-async-ingestion` (NEW branch from main HEAD `72d8ccea`)
+**Repo:** VP `CCAFRICA/spm-platform` · **Branch:** `ob-251-async-ingestion` (NEW branch from main HEAD `72d8ccea`)
 **Source spec:** DS-016 Data Ingestion Architecture Specification (designed 2026-03-18; prior implementation attempt OB-174). DS-016 is the design authority — this OB is its implementation. No separate Design Gate required; the spec exists.
 **Drafting SOP:** `INF_Structured_Compliant_Drafting_Reference_20260513.md` — the file IS the prompt (DD-11).
 
@@ -21,7 +21,7 @@
 - **Vertical Slice Rule** — upload → job → worker → parse → classify → commit → progress surface, all in one PR. The slice is the whole ingestion path.
 - **Progressive Performance (constitutional)** — the structural fingerprint makes the second encounter of a known structure Tier 1 (instant, no LLM). "New files are logically expensive; the second import is free."
 
-**First action:** write this directive to `docs/vp-prompts/OB-250_ASYNC_INGESTION_ARCHITECTURE_DIRECTIVE_20260628.md` and commit (`"OB-250: directive committed"`).
+**First action:** write this directive to `docs/vp-prompts/OB-251_ASYNC_INGESTION_ARCHITECTURE_DIRECTIVE_20260628.md` and commit (`"OB-251: directive committed"`).
 
 **Channel boundary:** CC creates/edits application code only. The `processing_jobs` migration is authored by CC and committed as a file; the architect applies it in the Supabase SQL Editor (SR-44). CC verifies post-application via tsx script (no psql in VP).
 
@@ -131,7 +131,7 @@ CC determines the implementation strategy for all five layers. The directive con
 | **Flywheel** | Paste the flywheel aggregation code and show where it is queued but not consumed. | **Why has confidence stalled?** |
 | **Schema** | Query `information_schema.columns` for `tenants` and `profiles`. | **What are the real FK targets (not OB-174's fabricated `platform_users`)?** |
 
-**ADR commitment (mandatory before Tier 1):** `docs/adr/OB-250_ADR.md` records: the worker trigger choice (A/B/C) with scale/complexity/latency rationale; the chunk size and parse-window size with the memory math; the unified-path refactor plan (which synchronous files become the worker, proving no parallel shadow per §0.2); the blast radius; and the DS-016 layer-to-code mapping.
+**ADR commitment (mandatory before Tier 1):** `docs/adr/OB-251_ADR.md` records: the worker trigger choice (A/B/C) with scale/complexity/latency rationale; the chunk size and parse-window size with the memory math; the unified-path refactor plan (which synchronous files become the worker, proving no parallel shadow per §0.2); the blast radius; and the DS-016 layer-to-code mapping.
 
 ### §3.1 — TIER 1: PROPERTY ESTABLISHMENT
 
@@ -180,7 +180,7 @@ CC implements all five layers (P-A1 through P-E1). Each extends/refactors existi
 
 ## §5 — REPORTING DISCIPLINE
 
-**Completion report:** `docs/completion-reports/OB-250_COMPLETION_REPORT.md`
+**Completion report:** `docs/completion-reports/OB-251_COMPLETION_REPORT.md`
 
 Per Rules 25–28:
 1. Summary (layers implemented, unified-path refactor, lines changed, files)
@@ -212,5 +212,5 @@ None. All five DS-016 layers (A–E) are in scope. All four absorbed CLT finding
 ---
 
 *vialuce.ai · Intelligence. Acceleration. Performance.*
-*OB-250 — Asynchronous Ingestion Architecture (DS-016 Implementation)*
+*OB-251 — Asynchronous Ingestion Architecture (DS-016 Implementation)*
 *File IS the prompt. No §7. No tail summary. CC reads end-to-end and executes.*

@@ -1,8 +1,8 @@
-// OB-250 FP-49 Schema Verification Gate (read-only, service-role row-introspection).
+// OB-251 FP-49 Schema Verification Gate (read-only, service-role row-introspection).
 // Confirms the LIVE schema of every FK target the processing_jobs migration references
 // (tenants.id, profiles.auth_user_id) and the ingestion dependency tables, and CONFIRMS
 // processing_jobs does NOT yet exist (architect applies the migration, SR-44).
-// No writes. Run from web/:  npx tsx scripts/_ob250_fp49_schema.ts
+// No writes. Run from web/:  npx tsx scripts/_ob251_fp49_schema.ts
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 import { createClient } from '@supabase/supabase-js';
@@ -38,7 +38,7 @@ async function describe(table: string, probeCols: string[] = []) {
 }
 
 async function main() {
-  console.log('================ OB-250 FP-49 SCHEMA VERIFICATION ================\n');
+  console.log('================ OB-251 FP-49 SCHEMA VERIFICATION ================\n');
 
   console.log('FK TARGETS for processing_jobs:');
   await describe('tenants', ['id', 'name']);
@@ -52,7 +52,7 @@ async function main() {
   await describe('file_objects', ['tenant_id', 'storage_path', 'scan_verdict', 'status']);
   await describe('atoms', ['tenant_id', 'fingerprint']);
 
-  console.log('\nMUST-NOT-EXIST (created by the architect-applied OB-250 migration):');
+  console.log('\nMUST-NOT-EXIST (created by the architect-applied OB-251 migration):');
   const pj = await sb.from('processing_jobs').select('*').limit(1);
   if (pj.error) {
     console.log(`  processing_jobs: ABSENT (expected) -> ${pj.error.code ?? ''} ${pj.error.message}`);

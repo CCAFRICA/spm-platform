@@ -10,3 +10,6 @@
 # Verification scripts read the file at runtime via runtime-supplied path; file
 # content is never persisted to repo or to chat.
 test-fixtures/
+
+# Vercel local link artifacts (never commit)
+.vercel/

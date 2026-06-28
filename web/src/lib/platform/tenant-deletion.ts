@@ -30,7 +30,7 @@ export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
   { key: 'calc', label: 'Calculation layer', tables: ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts'] },
   { key: 'plan', label: 'Plan / assignment layer', tables: ['rule_set_assignments', 'rule_sets'] },
   { key: 'entity', label: 'Entity layer', tables: ['entity_relationships', 'entities'] },
-  // OB-250 (P-D2): the Data layer also clears in-flight async ingestion state — processing_jobs
+  // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state — processing_jobs
   // (the DS-016 job ledger), import_session_telemetry and ingestion_events — so a Clean Slate leaves
   // no stale "in progress"/"N imports" residue. All three are tenant-scoped leaves (no inbound FK
   // from a category table), deleted .eq('tenant_id') (I1); committed_data stays FIRST for its EDGE-1

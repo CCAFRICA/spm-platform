@@ -1,17 +1,17 @@
-# ADR — OB-250 Asynchronous Ingestion Architecture (DS-016 Implementation)
+# ADR — OB-251 Asynchronous Ingestion Architecture (DS-016 Implementation)
 
-**Status:** Accepted · **Date:** 2026-06-28 · **Branch:** `ob-250-async-ingestion` (from `72d8ccea`)
+**Status:** Accepted · **Date:** 2026-06-28 · **Branch:** `ob-251-async-ingestion` (from `72d8ccea`)
 **Authors:** CC (ULTRACODE autonomous) · **Supersedes:** the inert OB-174 Phase-1/4 scaffolding (migration 023, `process-job` worker — completed, FK-corrected, and extended here)
 
-This ADR records every design decision OB-250 makes, with rationale and proof obligation, per directive §3.0. It is the gate before Tier 1.
+This ADR records every design decision OB-251 makes, with rationale and proof obligation, per directive §3.0. It is the gate before Tier 1.
 
 ---
 
 ## 0. The single most important finding (reframes the whole OB)
 
-**OB-174 already built half of DS-016 and left it inert.** The live DB carries `processing_jobs` (empty) and `structural_fingerprints` (151 rows) from migration `023`. The codebase carries a working async **classify** worker (`/api/import/sci/process-job`), a client that creates jobs + fires workers (`operate/import/page.tsx:244-309`), and a polling progress surface (`components/sci/ImportProgress.tsx`). What OB-174 left undone — and what OB-250 finishes — is exactly the set of properties the directive enumerates:
+**OB-174 already built half of DS-016 and left it inert.** The live DB carries `processing_jobs` (empty) and `structural_fingerprints` (151 rows) from migration `023`. The codebase carries a working async **classify** worker (`/api/import/sci/process-job`), a client that creates jobs + fires workers (`operate/import/page.tsx:244-309`), and a polling progress surface (`components/sci/ImportProgress.tsx`). What OB-174 left undone — and what OB-251 finishes — is exactly the set of properties the directive enumerates:
 
-| OB-174 left | OB-250 does |
+| OB-174 left | OB-251 does |
 |---|---|
 | RLS on `processing_jobs`/`structural_fingerprints` references a **fabricated `platform_users`** table (FP-49). It is ABSENT in the live DB → client RLS is broken (only service-role reaches the table). | Reconcile migration: RLS → `profiles.auth_user_id` (the canonical predicate). |
 | Worker **stops at `classified`**; commit is a **separate synchronous `execute-bulk`** that holds the browser **300s**. | Decouple commit into the worker lifecycle; browser polls durable status, never holds the connection. |
@@ -72,7 +72,7 @@ Both params are **append-only optional** — `tsc` and the 4 HALT-CALC anchors p
 
 The async path becomes THE path by **moving** synchronous logic into the worker, not copying it. Net-new files are only the genuinely-new architecture (the windowed reader, the cron dispatcher, the aggregation job). Verification: `find web/src -name "*.ts" -newer <directive-sha> -not -path "*test*"` — every entry justified below.
 
-| Stage | Today (sync, browser-held) | OB-250 (unified async) | Mechanism |
+| Stage | Today (sync, browser-held) | OB-251 (unified async) | Mechanism |
 |---|---|---|---|
 | Upload | client → `ingestion-raw` (already off-Vercel) + insert jobs | **unchanged** + chunk-split large files | extend `page.tsx` |
 | Classify | `analyze/route.ts` (sync fallback) **and** `process-job` (async) | `process-job` is the **sole** classify surface; spreadsheet sync fallback removed (degrade becomes fail-closed C2, not a 2nd classification path) | edit `page.tsx`, `process-job` |
@@ -105,7 +105,7 @@ No `*-async.ts` shadow of any synchronous file is created. HALT-PARALLEL respect
 **Decision (threads HALT-CALC):**
 - **WIRE the consume step.** A new async aggregation job (triggered when a session's jobs reach `committed`) runs `identifyPromotionCandidates` over the accumulated signals and persists promotion/foundational aggregation, and ensures the **worker path emits flywheel signals at parity with `execute-bulk`** (`process-job` currently skips `emitFlywheelSignals`, making foundational aggregation path-dependent — fixed). This makes the queued corpus *consumed* and advances recognition state. **Live, not inert** (§0.1.4): the next import of a similar structure benefits, and the exact-fingerprint Tier-1 immunity (already functioning via `structural_fingerprints`) is reinforced.
 - **DO NOT reconnect the `resolveClassification` Bayesian scorer.** HF-341 R6 deliberately deleted that heuristic (Validation Premise Law / no-registry). Re-adding prior-consumption into scoring is the exact thing that can move sealed-tenant classifications (evidence risk) — and it is **out of scope** (this OB does not change SCI classification, §2). Classification stays expression-authoritative (Decision 158). The aggregation populates the immunity/promotion artifacts; whether a future scorer reads them is a separate, gated decision.
-- **PG-8 evidence:** "second import of the same fingerprint is Tier 1, zero LLM" is delivered by the **existing** exact-hash `structural_fingerprints` flywheel (`lookupFingerprint` skips HC on a Tier-1 hit). OB-250 proves the aggregation job *runs and advances state* and that a repeated fingerprint hits Tier-1 with zero LLM.
+- **PG-8 evidence:** "second import of the same fingerprint is Tier 1, zero LLM" is delivered by the **existing** exact-hash `structural_fingerprints` flywheel (`lookupFingerprint` skips HC on a Tier-1 hit). OB-251 proves the aggregation job *runs and advances state* and that a repeated fingerprint hits Tier-1 with zero LLM.
 
 This boundary keeps Layer E **live and consequential** while keeping HALT-CALC untouched.
 
@@ -120,7 +120,7 @@ This boundary keeps Layer E **live and consequential** while keeping HALT-CALC u
 
 ## 7. Migration plan (FP-49 verified; architect-applied under SR-44)
 
-The reconcile migration `web/supabase/migrations/20260628_ob250_processing_jobs_reconcile.sql`:
+The reconcile migration `web/supabase/migrations/20260628_ob251_processing_jobs_reconcile.sql`:
 1. `CREATE TABLE IF NOT EXISTS` both tables (no-op if 023 applied; safety for fresh DBs — FK-corrected from the start).
 2. `ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS` `batch_id UUID`, `chunk_id INTEGER`, `total_chunks INTEGER`.
 3. Widen the `status` CHECK to include `finalized`.

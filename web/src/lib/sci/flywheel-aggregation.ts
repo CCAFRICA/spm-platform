@@ -1,5 +1,5 @@
 // ============================================================================
-// Flywheel Aggregation — OB-250 Layer E (DS-016, async ingestion)
+// Flywheel Aggregation — OB-251 Layer E (DS-016, async ingestion)
 //
 // THE DEFECT (queued-but-never-consumed)
 // --------------------------------------
@@ -17,7 +17,7 @@
 // scoring, is wired in.) So the queued signals pile up but the promotion step
 // never runs: accumulated evidence never advances recognition state.
 //
-// OB-250 Layer E closes that gap with a dedicated async aggregation job,
+// OB-251 Layer E closes that gap with a dedicated async aggregation job,
 // triggered AFTER processing completion (not on the latency-critical import
 // path). This module is that job's body: it RUNS the existing, real promotion
 // consume step (identifyPromotionCandidates) and records that the accumulated

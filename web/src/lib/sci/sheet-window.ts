@@ -1,4 +1,4 @@
-// OB-250 (DS-016 Layer C / P-C1) — bounded-window SheetJS reader.
+// OB-251 (DS-016 Layer C / P-C1) — bounded-window SheetJS reader.
 //
 // THE MISSING THIRD MEMORY BOUND. HF-350 bounded the header-LLM payload; HF-353 bounded the
 // committed_data WRITE payload (per-chunk projection in commit-content-unit.ts). Neither touched
@@ -12,7 +12,7 @@
 // header inference), same values, same order — as the current single full `sheet_to_json(ws,
 // { defval: '' })`. The keys are captured ONCE from a default-inference probe of the header row,
 // then every subsequent window is parsed with that captured `header` array so the columns never
-// drift (the failure mode flagged in the OB-250 evidence gate). Carry Everything (T1-E902):
+// drift (the failure mode flagged in the OB-251 evidence gate). Carry Everything (T1-E902):
 // windowing is a processing strategy, never a data filter — every row is read, none dropped.
 
 import type { WorkSheet } from 'xlsx';

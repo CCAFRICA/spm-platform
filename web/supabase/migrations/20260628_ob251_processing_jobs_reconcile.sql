@@ -1,8 +1,8 @@
 -- ============================================================
--- OB-250: Async Ingestion Architecture (DS-016 Implementation)
+-- OB-251: Async Ingestion Architecture (DS-016 Implementation)
 -- RECONCILE migration over the inert OB-174 scaffolding (migration 023).
 --
--- WHY a reconcile, not a create: FP-49 live verification (scripts/_ob250_fp49_schema.ts)
+-- WHY a reconcile, not a create: FP-49 live verification (scripts/_ob251_fp49_schema.ts)
 -- found processing_jobs (empty) and structural_fingerprints (151 rows) ALREADY EXIST from
 -- migration 023, but:
 --   (1) their RLS policies reference a FABRICATED platform_users table (auth_id) that is
@@ -168,7 +168,7 @@ CREATE POLICY "Authenticated read promoted patterns"
   USING (auth.uid() IS NOT NULL);
 
 -- ============================================================
--- POST-CONDITION (architect verifies via scripts/_ob250_verify_migration.ts):
+-- POST-CONDITION (architect verifies via scripts/_ob251_verify_migration.ts):
 --   • processing_jobs has batch_id/chunk_id/total_chunks; status CHECK includes 'finalized'
 --   • zero policies on processing_jobs/structural_fingerprints reference platform_users
 --   • RLS predicate = profiles.auth_user_id

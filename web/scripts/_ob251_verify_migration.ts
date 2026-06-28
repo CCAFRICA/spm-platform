@@ -1,6 +1,6 @@
-// OB-250 — post-application verification of 20260628_ob250_processing_jobs_reconcile.sql
+// OB-251 — post-application verification of 20260628_ob251_processing_jobs_reconcile.sql
 // Run AFTER the architect applies the migration in the Supabase SQL Editor (SR-44).
-//   from web/:  npx tsx scripts/_ob250_verify_migration.ts
+//   from web/:  npx tsx scripts/_ob251_verify_migration.ts
 // Read-only. Confirms: chunk columns present, 'finalized' status accepted, RLS predicate
 // no longer references platform_users (probed indirectly via an authenticated-style read).
 import { config } from 'dotenv';
@@ -14,7 +14,7 @@ const sb = createClient(
 );
 
 async function main() {
-  console.log('=== OB-250 MIGRATION VERIFICATION ===\n');
+  console.log('=== OB-251 MIGRATION VERIFICATION ===\n');
   let pass = true;
 
   // 1. chunk columns present — insert a probe row carrying them, read back, delete.
@@ -25,7 +25,7 @@ async function main() {
   const ins = await sb.from('processing_jobs').insert({
     tenant_id: probeTenant,
     status: 'pending',
-    file_storage_path: 'ob250-verify/probe.xlsx',
+    file_storage_path: 'ob251-verify/probe.xlsx',
     file_name: 'probe.xlsx',
     batch_id: batchId,
     chunk_id: 0,
