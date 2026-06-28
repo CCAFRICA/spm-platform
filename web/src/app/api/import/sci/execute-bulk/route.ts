@@ -33,6 +33,10 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
 import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
+// OB-250 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
+// row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
+import { openSheetWindow, CELL_CHUNK_THRESHOLD, type SheetWindow } from '@/lib/sci/sheet-window';
+import { commitUnitWindowed } from '@/lib/sci/windowed-commit';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
@@ -188,7 +192,9 @@ export async function POST(req: NextRequest) {
       path: string;
       fileHash: string;
       fileNameFromPath: string;
-      sheetDataMap: Map<string, { rows: Record<string, unknown>[]; columns: string[] }>;
+      // OB-250: a windowed (large) sheet carries a bounded-window `reader` + true `totalRows`
+      // instead of a materialized `rows` array (rows stays empty); the commit loop streams it.
+      sheetDataMap: Map<string, { rows: Record<string, unknown>[]; columns: string[]; reader?: SheetWindow; totalRows?: number; windowed?: boolean }>;
     };
 
     const fileEntries: Array<{ fileName: string; path: string }> =
@@ -215,7 +221,7 @@ export async function POST(req: NextRequest) {
       // + supersession trigger — computed per file.
       const fileHash = computeFileHashSha256(buffer);
 
-      const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[] }>();
+      const sheetDataMap = new Map<string, { rows: Record<string, unknown>[]; columns: string[]; reader?: SheetWindow; totalRows?: number; windowed?: boolean }>();
       // HF-285-D: parse-once. If the gzipped parsed companion exists for this file's
       // content hash (written by process-job at classify, or a prior execute/resume),
       // read it instead of re-parsing the xlsx (~5s vs ~34s for the witness file). Any
@@ -238,20 +244,42 @@ export async function POST(req: NextRequest) {
       // Spreadsheets parse exactly as before (single XLSX file => byte-identical sheet map).
       if (!usedCompanion && isSpreadsheetPath(path)) {
         const XLSX = await import('xlsx');
-        const workbook = XLSX.read(buffer, { type: 'array' });
+        // OB-250 P-C1: dense read halves the cell-map peak on wide files (sheet_to_json output is
+        // byte-identical — sheet-window.test.ts proves it). Large sheets are NOT materialized.
+        const workbook = XLSX.read(buffer, { type: 'array', dense: true });
+        let anyWindowed = false;
         for (const sheetName of workbook.SheetNames) {
           const ws = workbook.Sheets[sheetName];
           if (!ws) continue;
-          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-          const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-          sheetDataMap.set(sheetName, { rows: jsonData, columns });
+          // Cheap dims from !ref — zero row-objects materialized.
+          const dim = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+          const approxRows = Math.max(0, dim.e.r - dim.s.r);
+          const approxCols = dim.e.c - dim.s.c + 1;
+          if (approxRows * approxCols > CELL_CHUNK_THRESHOLD) {
+            // OB-250 P-C1: large sheet — keep a bounded-window reader; the commit loop streams it
+            // through commitUnitWindowed (peak ≈ one window, not the whole sheet). The full row
+            // array is NEVER built — this is the OOM fix.
+            const reader = openSheetWindow(XLSX, ws, sheetName);
+            anyWindowed = true;
+            sheetDataMap.set(sheetName, { rows: [], columns: reader.columns, reader, totalRows: reader.totalRows, windowed: true });
+            console.log(`[SCI Bulk] OB-250: ${fileName}/${sheetName} ${reader.totalRows}r×${reader.columns.length}c (${(approxRows * approxCols / 1e6).toFixed(1)}M cells) > threshold — WINDOWED commit (no full materialization)`);
+          } else {
+            // Non-large sheet — EXACT current path (byte-identical for every HALT-CALC anchor).
+            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+            const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
+            sheetDataMap.set(sheetName, { rows: jsonData, columns });
+          }
         }
-        // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the
-        // synchronous import flow that skips process-job) writes the companion so the
-        // 300s-boundary resume re-reads it. Fire-and-forget (best-effort cache).
-        const companionSheets: Record<string, { columns: string[]; rows: Record<string, unknown>[] }> = {};
-        for (const [sheetName, sd] of Array.from(sheetDataMap.entries())) companionSheets[sheetName] = { columns: sd.columns, rows: sd.rows };
-        void writeParsedCompanion(supabase, tenantId, fileHash, companionSheets);
+        // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the synchronous import
+        // flow that skips process-job) writes the companion so the 300s-boundary resume re-reads it.
+        // OB-250: skip when any sheet was windowed — a windowed sheet has no full array to cache, and
+        // execute re-reads it windowed (bounded) on resume (the companion's 50MB cap excluded these
+        // files anyway). Fire-and-forget (best-effort cache).
+        if (!anyWindowed) {
+          const companionSheets: Record<string, { columns: string[]; rows: Record<string, unknown>[] }> = {};
+          for (const [sheetName, sd] of Array.from(sheetDataMap.entries())) companionSheets[sheetName] = { columns: sd.columns, rows: sd.rows };
+          void writeParsedCompanion(supabase, tenantId, fileHash, companionSheets);
+        }
       } else if (!usedCompanion) {
         console.log(`[SCI Bulk] HF-256: document file (.${extensionOf(path)}) — skipping workbook parse; plan unit routes to format-aware plan pipeline`);
       }
@@ -476,7 +504,42 @@ export async function POST(req: NextRequest) {
         const tabName = parts[1] || 'Sheet1';
 
         let sheetData = sheetDataMap.get(tabName);
-        if (!sheetData || sheetData.rows.length === 0) {
+        // OB-250: a windowed (large) sheet carries rows:[] by design — resolve it by name/single-sheet
+        // here, BEFORE the materialized-sheet guard below (which is written for full row arrays).
+        if (!sheetData) {
+          const wmatch = Array.from(sheetDataMap.entries()).find(([n]) => n.toLowerCase() === tabName.toLowerCase())?.[1]
+            ?? (sheetDataMap.size === 1 ? Array.from(sheetDataMap.values())[0] : undefined);
+          if (wmatch?.windowed) sheetData = wmatch;
+        }
+        let result: ContentUnitResult | null = null;
+        if (sheetData?.windowed && sheetData.reader) {
+          const cls = unit.confirmedClassification;
+          if (cls === 'target' || cls === 'transaction' || cls === 'reference') {
+            // OB-250 P-C1: stream the large sheet through commitUnitWindowed — the full row array is
+            // NEVER materialized (the OOM fix). Field-filter uses the first window (columns are
+            // identical across windows). populateStoreMetadata runs per window for data units.
+            const sample = sheetData.reader.readWindow(0, 1);
+            const effU = filterFieldsForPartialClaim(unit, sample).unit;
+            trace(`unit:${tabName}:windowed-commit rows=${sheetData.totalRows}`);
+            const wres = await commitUnitWindowed(supabase, {
+              unit: effU,
+              reader: sheetData.reader,
+              classification: cls,
+              tenantId, proposalId, tabName,
+              fileName: `sci-bulk-${proposalId}`,
+              fileHashSha256: parse.fileHash,
+              onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
+                if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
+              },
+            });
+            result = { contentUnitId: unit.contentUnitId, classification: cls, success: wres.success, rowsProcessed: wres.totalInserted, pipeline: cls, error: wres.error };
+            trace(`unit:${tabName}:windowed-commit-end committed=${wres.totalInserted} ok=${wres.success}`);
+          } else {
+            // Defensive: a windowed entity unit (rosters are never this large) — materialize bounded.
+            sheetData = { rows: sheetData.reader.readWindow(0, sheetData.totalRows ?? 0), columns: sheetData.columns };
+          }
+        }
+        if (result === null && (!sheetData || sheetData.rows.length === 0)) {
           // Try case-insensitive match
           const match = Array.from(sheetDataMap.entries()).find(
             ([name]) => name.toLowerCase() === tabName.toLowerCase()
@@ -507,15 +570,17 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const rows = sheetData?.rows || [];
-        const effectiveUnit = filterFieldsForPartialClaim(unit, rows);
+        if (result === null) {
+          const rows = sheetData?.rows || [];
+          const effectiveUnit = filterFieldsForPartialClaim(unit, rows);
 
-        trace(`unit:${tabName}:process-start rows=${rows.length}`);
-        const result = await processContentUnit(
-          supabase, tenantId, proposalId, profileId,
-          effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
-          parse.fileHash,
-        );
+          trace(`unit:${tabName}:process-start rows=${rows.length}`);
+          result = await processContentUnit(
+            supabase, tenantId, proposalId, profileId,
+            effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
+            parse.fileHash,
+          );
+        }
         results.push(result);
         trace(`unit:${tabName}:process-end committed=${result.rowsProcessed} ok=${result.success}`);
         // D16 truthful completion: emit this unit's terminal `bound` state AS it commits — durable
