@@ -37,7 +37,7 @@ import { lookupFingerprint, writeFingerprint, type FlywheelLookupResult } from '
 import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 // OB-251 (DS-016 P-C1): classify on a BOUNDED sample for OOM-scale sheets so the worker never
 // materializes the full sheet (the 86,608×87 parse-time spike). The commit worker re-reads windowed.
-import { openSheetWindow, CELL_CHUNK_THRESHOLD, CHUNK_ROW_SIZE } from '@/lib/sci/sheet-window';
+import { openSheetWindow, exceedsCellCeiling, CHUNK_ROW_SIZE } from '@/lib/sci/sheet-window';
 // OB-251 HOTFIX: an OOM-scale file is classified by STREAMING (jszip) — never XLSX.read.
 import { isLargeByBytes, streamSheetMeta, listSheetNames } from '@/lib/sci/sheet-stream';
 import type { ContentProfile } from '@/lib/sci/sci-types';
@@ -140,14 +140,17 @@ export async function POST(req: NextRequest) {
         const ws = workbook.Sheets[sheetName];
         if (!ws) continue;
         const dim = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-        const cells = Math.max(0, dim.e.r - dim.s.r) * (dim.e.c - dim.s.c + 1);
-        if (cells > CELL_CHUNK_THRESHOLD) {
+        const r = Math.max(0, dim.e.r - dim.s.r);
+        const c = dim.e.c - dim.s.c + 1;
+        if (exceedsCellCeiling(r, c)) {
           const reader = openSheetWindow(XLSX, ws, sheetName);
           const sample = reader.readWindow(0, CHUNK_ROW_SIZE);
           anySampled = true;
           sheets.push({ sheetName, columns: reader.columns, rows: sample, totalRowCount: reader.totalRows });
-          console.log(`[SCI-WORKER] OB-251: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
+          console.log(`[SCI-WORKER] HF-355/OB-251: ${sheetName} ${reader.totalRows}r×${reader.columns.length}c — classify on bounded ${sample.length}-row sample (commit re-reads windowed)`);
         } else {
+          // HF-355 I2 (defense-in-depth): full sheet_to_json only for a non-oversized sheet.
+          if (exceedsCellCeiling(r, c)) throw new Error(`HF-355 size ceiling: ${sheetName} ${r}×${c} exceeds the cell ceiling and must be windowed.`);
           const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
           const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
           sheets.push({ sheetName, columns, rows: jsonData, totalRowCount: jsonData.length });

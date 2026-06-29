@@ -35,7 +35,7 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
 // OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
-import { openSheetWindow, CELL_CHUNK_THRESHOLD, type SheetWindow } from '@/lib/sci/sheet-window';
+import { openSheetWindow, exceedsCellCeiling, type SheetWindow } from '@/lib/sci/sheet-window';
 import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commit';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
@@ -269,16 +269,21 @@ export async function POST(req: NextRequest) {
           const dim = XLSX.utils.decode_range(ws['!ref'] || 'A1');
           const approxRows = Math.max(0, dim.e.r - dim.s.r);
           const approxCols = dim.e.c - dim.s.c + 1;
-          if (approxRows * approxCols > CELL_CHUNK_THRESHOLD) {
-            // OB-251 P-C1: large sheet — keep a bounded-window reader; the commit loop streams it
-            // through commitUnitWindowed (peak ≈ one window, not the whole sheet). The full row
-            // array is NEVER built — this is the OOM fix.
+          if (exceedsCellCeiling(approxRows, approxCols)) {
+            // HF-355 I2 / OB-251 P-C1: OVERSIZED — keep a bounded-window reader; the commit loop streams
+            // it through commitUnitWindowed (peak ≈ one window). The full row array is NEVER built.
             const reader = openSheetWindow(XLSX, ws, sheetName);
             anyWindowed = true;
             sheetDataMap.set(sheetName, { rows: [], columns: reader.columns, reader, totalRows: reader.totalRows, windowed: true });
-            console.log(`[SCI Bulk] OB-251: ${fileName}/${sheetName} ${reader.totalRows}r×${reader.columns.length}c (${(approxRows * approxCols / 1e6).toFixed(1)}M cells) > threshold — WINDOWED commit (no full materialization)`);
+            console.log(`[SCI Bulk] HF-355/OB-251: ${fileName}/${sheetName} ${reader.totalRows}r×${reader.columns.length}c (${(approxRows * approxCols / 1e6).toFixed(1)}M cells) > ceiling — WINDOWED commit (no full materialization)`);
           } else {
-            // Non-large sheet — EXACT current path (byte-identical for every HALT-CALC anchor).
+            // HF-355 I2 (defense-in-depth, C2 fail-loud): the single-batch full sheet_to_json is reached
+            // ONLY for a non-oversized sheet. This guard makes that provable — an oversized sheet here is
+            // a routing defect; REFUSE rather than full-materialize (the incident's outage path).
+            if (exceedsCellCeiling(approxRows, approxCols)) {
+              throw new Error(`HF-355 size ceiling: ${fileName}/${sheetName} ${approxRows}×${approxCols} exceeds the cell ceiling and must be windowed, never full-materialized.`);
+            }
+            // Non-oversized sheet — EXACT current path (byte-identical for every HALT-CALC anchor).
             const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
             const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
             sheetDataMap.set(sheetName, { rows: jsonData, columns });

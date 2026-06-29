@@ -242,75 +242,62 @@ export default function OperateImportPage() {
       // documents whenever the first file happened to be a spreadsheet.)
       const allSpreadsheets = spreadsheetFiles.length === files.length;
 
-      // OB-174: Try async processing path for spreadsheet files
-      // Creates processing_jobs records and fires parallel workers.
-      // Falls back to synchronous analyze if processing_jobs table doesn't exist.
+      // HF-355 (I1, SR-34): spreadsheet ingestion is the ASYNC path ONLY. The job is minted
+      // SERVER-SIDE by /api/import/sci/enqueue (service-role + the platform.data_operations capability
+      // gate) — never a client-side insert (AP-3, the 403 source) and NEVER a fallback to the
+      // synchronous full-materialization path (the production-outage path). On any enqueue failure the
+      // import STOPS and surfaces a clear, actionable error; it does not invoke execute-bulk.
       if (allSpreadsheets && spreadsheetFiles.length > 0) {
-        try {
-          // Wait for storage uploads to complete
-          if (storageUploadPromiseRef.current) {
-            await storageUploadPromiseRef.current;
-          }
-          const storagePaths = storagePathsRef.current;
-
-          // Check that every spreadsheet file was uploaded. HF-255: storagePaths may now
-          // also contain document paths (the upload set was decoupled from this async
-          // set), so check per-file presence rather than total-count equality. For a
-          // non-document (pure-spreadsheet) import this is identical to the prior check.
-          if (spreadsheetFiles.every(f => storagePaths[f.name])) {
-            const supabase = createClient();
-            const sessionId = crypto.randomUUID();
-            const jobIds: string[] = [];
-
-            // Create processing_jobs records
-            for (const file of spreadsheetFiles) {
-              const path = storagePaths[file.name];
-              if (!path) continue;
-
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const { data: job, error: jobErr } = await (supabase as any)
-                .from('processing_jobs')
-                .insert({
-                  tenant_id: tenantId,
-                  status: 'pending',
-                  file_storage_path: path,
-                  file_name: path.split('/').pop() || file.name,
-                  file_size_bytes: file.size,
-                  session_id: sessionId,
-                })
-                .select('id')
-                .single();
-
-              if (jobErr) {
-                // Table doesn't exist or insert failed — fall through to sync path
-                console.log('[OB-174] Async path unavailable:', jobErr.message);
-                throw new Error('ASYNC_UNAVAILABLE');
-              }
-              if (job) jobIds.push(job.id);
-            }
-
-            // Fire parallel workers (Option C — client-initiated)
-            console.log(`[OB-174] Launching ${jobIds.length} parallel workers`);
-            for (const jobId of jobIds) {
-              fetch('/api/import/sci/process-job', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobId }),
-              }).catch(err => console.warn(`[OB-174] Worker fire failed:`, err));
-            }
-
-            // Transition to processing phase
-            asyncSessionIdRef.current = sessionId; // OB-251: retained to close the commit lifecycle
-            setState({ phase: 'processing', sessionId, files });
-            return;
-          }
-        } catch (asyncErr) {
-          if (asyncErr instanceof Error && asyncErr.message === 'ASYNC_UNAVAILABLE') {
-            console.log('[OB-174] Falling back to synchronous analysis');
-          } else {
-            console.warn('[OB-174] Async path error, falling back:', asyncErr);
-          }
+        // Wait for storage uploads to complete.
+        if (storageUploadPromiseRef.current) {
+          await storageUploadPromiseRef.current;
         }
+        const storagePaths = storagePathsRef.current;
+
+        if (!spreadsheetFiles.every(f => storagePaths[f.name])) {
+          // Upload did not complete — STOP (no sync fallback; the worker would have nothing to read).
+          setState({ phase: 'error', error: 'The file upload did not complete. Please retry the import.', canRetry: true });
+          return;
+        }
+
+        const sessionId = crypto.randomUUID();
+        const res = await fetch('/api/import/sci/enqueue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            sessionId,
+            files: spreadsheetFiles.map(f => {
+              const path = storagePaths[f.name];
+              return { storagePath: path, fileName: path.split('/').pop() || f.name, fileSizeBytes: f.size };
+            }),
+          }),
+        });
+        if (!res.ok) {
+          // HF-355 I1: STOP. The import was NOT performed. Surface what happened + the next action.
+          // NEVER fall back to the synchronous execute-bulk materialization path.
+          const detail = await res.json().catch(() => ({} as { error?: string }));
+          setState({
+            phase: 'error',
+            error: detail.error ?? `Could not start the import (HTTP ${res.status}). The import was not performed.`,
+            canRetry: res.status >= 500,
+          });
+          return;
+        }
+        const { jobIds } = await res.json() as { jobIds: string[] };
+
+        // Fire the per-file workers (client-initiated, cron-backstopped by /api/import/sci/dispatch-jobs).
+        for (const jobId of jobIds) {
+          fetch('/api/import/sci/process-job', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId }),
+          }).catch(err => console.warn('[HF-355] Worker fire failed:', err));
+        }
+
+        asyncSessionIdRef.current = sessionId; // OB-251: retained to close the commit lifecycle
+        setState({ phase: 'processing', sessionId, files });
+        return;
       }
 
       // HF-256 (Decision 82): per-file route + unified proposal. The import is NOT
