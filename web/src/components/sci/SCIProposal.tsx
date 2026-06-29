@@ -7,7 +7,7 @@
 // listing (D7). Import proceeds with any non-empty selection; failed/excluded units simply don't
 // commit; the button reflects the subset (D8). Zero domain vocabulary. Korean Test applies.
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
@@ -20,6 +20,8 @@ import type { ParsedFileData } from '@/components/sci/SCIUpload';
 import type { SessionStateView, UnitStateView, UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
 import { allUnitsSettled } from '@/lib/sci/comprehension-state-service';
 import { setImportInteractionContext, captureImportInteraction, flushPendingImportInteractions } from '@/lib/sci/import-interaction-signals';
+// HF-356 (I8): poll discipline — 401 stops + shows a message, 5xx streak backs off then gives up, unmount cancels.
+import { pollDecision, newPollState, type PollOutcome } from '@/lib/sci/poll-discipline';
 
 const BADGE_STYLES: Record<string, string> = {
   entity: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
@@ -350,34 +352,58 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
 
   // ── D7: ONE durable state read drives every card (poll SessionStateView) ──
   const [liveStates, setLiveStates] = useState<Map<string, UnitStateView>>(new Map());
-  const pollIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // HF-356 (I8): set when the poller stops on an auth/server failure — surfaced inline so the user knows
+  // the live card state is no longer updating (instead of staring at a silently-frozen poll).
+  const [pollStopMessage, setPollStopMessage] = useState<string | null>(null);
 
-  const poll = useCallback(async () => {
+  // One-shot live-state refresh — invoked right after a user resolution action (retry/assign/exclude) to
+  // reflect it immediately. A single best-effort read; if it fails, the scheduled poll below self-corrects.
+  const refreshLiveStates = useCallback(async () => {
     if (!tenantId || !importSessionId) return;
     try {
       const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
       if (res.ok) {
         const view = await res.json() as SessionStateView;
         setLiveStates(new Map(view.units.map(u => [u.unitId, u])));
-        // HF-286: stop polling once every unit is settled (bound/resolved/failed_interpretation).
-        // Settled-set, NOT !isOpen — failed_interpretation keeps isOpen===true (awaiting human).
-        if (allUnitsSettled(view.units) && pollIdRef.current !== null) {
-          clearInterval(pollIdRef.current);
-          pollIdRef.current = null;
-        }
       }
-    } catch { /* transient */ }
+    } catch { /* transient — the scheduled poll will pick it up */ }
   }, [tenantId, importSessionId]);
 
   useEffect(() => {
     if (!importSessionId) return;
     setImportInteractionContext(tenantId, importSessionId);
     captureImportInteraction({ surface: 'sci_proposal', action: 'view', dedupKey: `view:${importSessionId}` });
-    void poll();
-    const id = setInterval(() => void poll(), 1500);
-    pollIdRef.current = id;
-    return () => { clearInterval(id); pollIdRef.current = null; flushPendingImportInteractions(); };
-  }, [poll, tenantId, importSessionId]);
+
+    const BASE_MS = 1500;
+    const pollState = newPollState();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    // HF-356 (I8): self-scheduling tick. 401 stops + shows a message; a 5xx/network streak backs off then
+    // gives up (cap) — never a fixed-cadence storm against a failing server. Unmount cancels everything.
+    const tick = async () => {
+      if (cancelled || !tenantId || !importSessionId) return;
+      let outcome: PollOutcome = { ok: false, networkError: true };
+      try {
+        const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        outcome = { ok: res.ok, status: res.status };
+        if (res.ok && !cancelled) {
+          const view = await res.json() as SessionStateView;
+          setLiveStates(new Map(view.units.map(u => [u.unitId, u])));
+          // HF-286: stop polling once every unit is settled (bound/resolved/failed_interpretation).
+          // Settled-set, NOT !isOpen — failed_interpretation keeps isOpen===true (awaiting human).
+          if (allUnitsSettled(view.units)) return; // terminal — let the timer simply not reschedule
+        }
+      } catch { /* network drop — outcome stays the networkError default; counted toward the give-up cap */ }
+      if (cancelled) return;
+      const verdict = pollDecision(pollState, outcome, BASE_MS);
+      if (verdict.action === 'stop') { setPollStopMessage(verdict.message); return; }
+      timer = setTimeout(tick, verdict.delayMs);
+    };
+    void tick();
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); flushPendingImportInteractions(); };
+  }, [tenantId, importSessionId]);
 
   const unitIds = useMemo(() => {
     const ids = new Map<number, string>();
@@ -433,7 +459,7 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
     setBusyId(u._uniqueId);
     try {
       await fetch('/api/import/sci/retry-unit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, importSessionId, storagePath, unitId: u.contentUnitId }) });
-      await poll();
+      await refreshLiveStates();
     } finally { setBusyId(null); }
   };
   const assign = async (u: ContentUnitProposal & { _uniqueId: string }, classification: AgentType) => {
@@ -441,7 +467,7 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
     setBusyId(u._uniqueId);
     try {
       await fetch('/api/import/sci/resolve-unit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, importSessionId, unitId: u.contentUnitId, sheetName: u.tabName, action: 'assign', classification }) });
-      await poll();
+      await refreshLiveStates();
     } finally { setBusyId(null); }
   };
   const exclude = async (u: ContentUnitProposal & { _uniqueId: string }) => {
@@ -469,6 +495,18 @@ export function SCIProposalView({ proposal, fileName, rawData, tenantId, storage
           {failedCount > 0 && <span className={isVialuce ? undefined : 'text-rose-400'} style={isVialuce ? { color: 'var(--vl-danger)' } : undefined}>{' '}· {failedCount} holding at failed interpretation</span>}
         </p>
       </div>
+
+      {/* HF-356 (I8): the live-state poller stopped on an auth/server failure — say so instead of leaving
+          the cards silently frozen. */}
+      {pollStopMessage && (
+        <div
+          role="status"
+          className={isVialuce ? undefined : 'text-xs text-amber-300 border border-amber-500/30 bg-amber-500/5 rounded px-3 py-2'}
+          style={isVialuce ? { fontSize: '12px', color: 'var(--vialuce-gold)', border: '1px solid var(--vialuce-gold)', borderRadius: 6, padding: '8px 12px' } : undefined}
+        >
+          {pollStopMessage}
+        </div>
+      )}
 
       {/* ONE list — every unit is a card; failed units hold here with their action set (D7) */}
       <div className="space-y-2">

@@ -41,6 +41,9 @@ import { openSheetWindow, exceedsCellCeiling, CHUNK_ROW_SIZE } from '@/lib/sci/s
 // OB-251 HOTFIX: an OOM-scale file is classified by STREAMING (jszip) — never XLSX.read.
 import { isLargeByBytes, streamSheetMeta, listSheetNames } from '@/lib/sci/sheet-stream';
 import type { ContentProfile } from '@/lib/sci/sci-types';
+// HF-356 (RC2): the worker is fired BOTH by the client (with the user's cookies) AND by the cron
+// dispatcher (server-side, NO cookies). Accept the trusted internal/cron principal in addition to a user.
+import { isInternalCronCaller } from '@/lib/sci/cron-principal';
 
 const ANALYSIS_SAMPLE_SIZE = 50;
 
@@ -48,10 +51,11 @@ export async function POST(req: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // Auth check
+    // Auth check — accept EITHER a logged-in user (client-fire) OR the internal/cron principal
+    // (dispatch-jobs fires this worker server-side with no session; that 401'd every cron job — RC2).
     const authClient = await createServerSupabaseClient();
     const { data: { user: authUser } } = await authClient.auth.getUser();
-    if (!authUser) {
+    if (!authUser && !isInternalCronCaller(req)) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 

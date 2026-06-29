@@ -30,6 +30,7 @@ import { detectSessionChurn } from '@/lib/observability/session-churn';
 import { resolveIdentity } from '@/lib/auth/resolve-identity';
 import { resolveSessionOwnership } from '@/lib/auth/session-lifecycle'; // HF-331: decodeJwtSessionId retired from middleware (getClaims supplies session_id)
 import { landingPathForRole } from '@/lib/auth/landing'; // OB-247: per-persona landing (CDA → portal)
+import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-356 (RC2): the cron/worker internal principal
 
 // Paths that don't require authentication
 // HF-136: SECURITY — Only truly public paths listed here.
@@ -50,6 +51,17 @@ const MFA_REQUIRED_ROLES = ['platform', 'admin', 'cda'];
 
 function isRestrictedWorkspace(pathname: string): boolean {
   return Object.keys(WORKSPACE_CAPABILITIES).some(prefix => pathname.startsWith(prefix));
+}
+
+// HF-356 (RC2): the async-ingestion cron dispatcher and its per-file worker are fired SERVER-SIDE with no
+// user session (the Vercel Cron sweep, and the dispatcher's fan-out to the worker). They authenticate via
+// the internal/cron principal (CRON_SECRET / x-vercel-cron), enforced IN-ROUTE. Middleware must let such a
+// cookieless request reach the route's own gate instead of 401'ing it as "unauthenticated" — that
+// middleware 401 is the second half of the RC2 bug (the dispatcher never advanced a job). Any caller that
+// is NOT the internal principal still 401s here exactly as before.
+const INTERNAL_WORKER_PATHS = ['/api/import/sci/dispatch-jobs', '/api/import/sci/process-job'];
+function isInternalWorkerPath(pathname: string): boolean {
+  return INTERNAL_WORKER_PATHS.some(p => pathname.startsWith(p));
 }
 
 function isPublicPath(pathname: string): boolean {
@@ -152,6 +164,14 @@ export async function middleware(request: NextRequest) {
 
   // ── NOT AUTHENTICATED ──
   if (!user) {
+    // HF-356 (RC2): the cron dispatcher + worker are fired server-side without cookies and authenticate
+    // via the internal/cron principal (CRON_SECRET / x-vercel-cron), enforced in-route. Let such a request
+    // through to the route's own gate rather than 401'ing it here. A non-internal cookieless caller to
+    // these paths still falls through to the 401 below.
+    if (isInternalWorkerPath(pathname) && isInternalCronCaller(request)) {
+      return noCacheResponse(NextResponse.next({ request }));
+    }
+
     if (pathname === '/') {
       // OB-196 Phase 1.6: landing-page pathway deleted (abandoned UI per architect direction).
       // Anonymous-on-/ redirects directly to /login.

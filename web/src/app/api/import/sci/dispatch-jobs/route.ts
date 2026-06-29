@@ -37,6 +37,9 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+// HF-356 (RC2): shared internal/cron principal — this route's own gate AND the credential it forwards to
+// the worker (process-job) when it fires it server-side (without forwarding, the worker 401'd every job).
+import { isInternalCronCaller, internalCronHeaders } from '@/lib/sci/cron-principal';
 
 // Retry policy (P-B4).
 const MAX_RETRIES = 3;
@@ -56,27 +59,10 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } },
 );
 
-/**
- * AUTH (permissive-but-documented). Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`
- * when a CRON_SECRET env var is configured, and always sends an `x-vercel-cron` header on
- * its scheduled invocations. We allow the request when ANY of:
- *   (a) CRON_SECRET is unset (local/dev — no secret to check against), OR
- *   (b) the Authorization header matches `Bearer ${CRON_SECRET}` (production cron / manual), OR
- *   (c) the `x-vercel-cron` header is present (Vercel-originated scheduled invocation).
- * Otherwise → 401. There is no CRON_SECRET in the repo yet; once one is added in Vercel,
- * branch (b) tightens automatically with no code change.
- */
-function isAuthorized(req: NextRequest): boolean {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true; // (a) dev: nothing to check.
-  const authHeader = req.headers.get('authorization');
-  if (authHeader === `Bearer ${cronSecret}`) return true; // (b)
-  if (req.headers.get('x-vercel-cron')) return true; // (c)
-  return false;
-}
-
 async function dispatch(req: NextRequest): Promise<NextResponse> {
-  if (!isAuthorized(req)) {
+  // AUTH: the cron/internal principal (CRON_SECRET bearer or x-vercel-cron; permissive in dev). Shared
+  // with the worker so the two never drift — see cron-principal.ts for the (a)/(b)/(c) rule.
+  if (!isInternalCronCaller(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -104,7 +90,9 @@ async function dispatch(req: NextRequest): Promise<NextResponse> {
       try {
         await fetch(`${baseUrl}/api/import/sci/process-job`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          // HF-356 (RC2): forward the internal/cron credential so the worker — which has no user session
+          // on this server-side fire — recognizes us as the trusted principal instead of 401'ing.
+          headers: { 'Content-Type': 'application/json', ...internalCronHeaders() },
           body: JSON.stringify({ jobId: job.id }),
           signal: controller.signal,
         });

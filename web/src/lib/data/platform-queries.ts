@@ -179,6 +179,24 @@ export interface IngestionMetricsData {
   classificationAccuracy: number;
   perTenant: IngestionTenantMetrics[];
   recentEvents: IngestionRecentEvent[];
+  // HF-356 (RC4/I9): the async-worker queue (processing_jobs) for the Observatory ops panel + kill switch.
+  processingJobs: ProcessingJobOps[];
+}
+
+// HF-356 (RC4/I9): one async-ingestion worker job, surfaced cross-tenant to the platform operator so a
+// runaway import is visible and cancellable (the 86K import had no operator-visible state and no off switch).
+export interface ProcessingJobOps {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  fileName: string | null;
+  status: string;            // pending | classifying | classified | committing | committed | failed
+  retryCount: number;
+  errorDetail: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  // pending | classifying | committing → still in flight, so the operator can cancel it.
+  isActive: boolean;
 }
 
 export interface IngestionTenantMetrics {

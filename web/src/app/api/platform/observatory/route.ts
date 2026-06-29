@@ -106,6 +106,59 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// HF-356 (RC4/I9) — THE KILL SWITCH. POST { action: 'cancel-job', jobId }. A platform operator cancels a
+// runaway async-ingestion job: the job is marked failed with an operator-attributed reason AND its
+// retry_count is pushed past the dispatcher's MAX_RETRIES so the cron NEVER requeues or reclaims it (that
+// requeue is exactly what would otherwise resurrect a cancelled job). Only an ACTIVE job (pending /
+// classifying / committing) is cancellable. A Lambda already mid-execution cannot be force-aborted
+// (serverless) — but it can never be re-dispatched, which is what took the DB down. Platform-admin only.
+const CANCEL_RETRY_SENTINEL = 99; // >> dispatch-jobs MAX_RETRIES (3) → excluded from the requeue sweep forever.
+
+export async function POST(request: NextRequest) {
+  try {
+    // Same VL-Admin gate as GET.
+    const authClient = await createServerSupabaseClient();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    const { data: profiles } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('auth_user_id', user.id)
+      .limit(10);
+    if (!profiles?.some(p => p.role === 'platform')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => null) as { action?: string; jobId?: string } | null;
+    if (body?.action !== 'cancel-job' || !body.jobId) {
+      return NextResponse.json({ error: "Expected { action: 'cancel-job', jobId }" }, { status: 400 });
+    }
+
+    const supabase = await createServiceRoleClient();
+    // Guard on the active status set so a job that already settled is never overwritten — and the cron's
+    // requeue (.lt('retry_count', MAX_RETRIES)) and reclaim (status in classifying/committing) both skip it.
+    // processing_jobs is not in the generated DB types (the async-worker tables are queried untyped, as in
+    // the worker routes) → cast the builder.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from('processing_jobs')
+      .update({ status: 'failed', error_detail: 'Cancelled by platform operator', retry_count: CANCEL_RETRY_SENTINEL })
+      .eq('id', body.jobId)
+      .in('status', ['pending', 'classifying', 'committing'])
+      .select('id');
+    if (error) {
+      console.error('[Platform Observatory API] cancel-job failed:', error.message);
+      return NextResponse.json({ error: 'Cancel failed' }, { status: 500 });
+    }
+    const cancelled = (data?.length ?? 0) > 0;
+    // cancelled=false ⇒ the job already reached a terminal state before the click (nothing to cancel).
+    return NextResponse.json({ cancelled });
+  } catch (err) {
+    console.error('[Platform Observatory API] POST error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // ═══════════════════════════════════════════════
 // Fleet Tab — Shared Data Layer (HF-067)
 // ═══════════════════════════════════════════════
@@ -827,7 +880,7 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
 async function fetchIngestionMetrics(supabase: ServiceClient): Promise<IngestionMetricsData> {
   // Bulk fetch ingestion events and classification signals in parallel
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [eventsRes, signalsRes, tenantsRes] = await Promise.all([
+  const [eventsRes, signalsRes, tenantsRes, jobsRes] = await Promise.all([
     supabase.from('ingestion_events')
       .select('id, tenant_id, file_name, file_size_bytes, status, created_at')
       .order('created_at', { ascending: false })
@@ -837,6 +890,14 @@ async function fetchIngestionMetrics(supabase: ServiceClient): Promise<Ingestion
       .limit(10000),
     supabase.from('tenants')
       .select('id, name'),
+    // HF-356 (RC4/I9): the async-worker queue — the most recent jobs cross-tenant, so the operator sees
+    // (and can cancel) a runaway import. Oldest-active-first matters less than recency here; cap at 100.
+    // processing_jobs is not in the generated DB types → cast the builder (as the worker routes do).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('processing_jobs')
+      .select('id, tenant_id, file_name, status, retry_count, error_detail, created_at, started_at')
+      .order('created_at', { ascending: false })
+      .limit(100),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -892,6 +953,23 @@ async function fetchIngestionMetrics(supabase: ServiceClient): Promise<Ingestion
     createdAt: e.created_at,
   }));
 
+  // HF-356 (RC4/I9): the async-worker queue, newest first, with active jobs flagged for the kill switch.
+  const ACTIVE_JOB_STATUSES = ['pending', 'classifying', 'committing'];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jobs: any[] = jobsRes.data ?? [];
+  const processingJobs = jobs.map(j => ({
+    id: j.id,
+    tenantId: j.tenant_id,
+    tenantName: tenantNameMap.get(j.tenant_id) ?? j.tenant_id,
+    fileName: j.file_name ?? null,
+    status: j.status,
+    retryCount: j.retry_count ?? 0,
+    errorDetail: j.error_detail ?? null,
+    createdAt: j.created_at,
+    startedAt: j.started_at ?? null,
+    isActive: ACTIVE_JOB_STATUSES.includes(j.status),
+  }));
+
   return {
     totalEvents: events.length,
     committedCount,
@@ -910,6 +988,7 @@ async function fetchIngestionMetrics(supabase: ServiceClient): Promise<Ingestion
       bytesIngested: d.bytes,
     })),
     recentEvents,
+    processingJobs,
   };
 }
 
