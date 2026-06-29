@@ -37,6 +37,8 @@ import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-conten
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, exceedsCellCeiling, type SheetWindow } from '@/lib/sci/sheet-window';
 import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commit';
+// HF-358 (Part B-1): no silent commit failure — record the reason + a terminal status on the import job.
+import { recordCommitFailureOnJob } from '@/lib/sci/job-failure';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
 import { isLargeByBytes } from '@/lib/sci/sheet-stream';
@@ -113,6 +115,9 @@ interface BulkContentUnit {
 interface BulkRequest {
   proposalId: string;
   tenantId: string;
+  // HF-358 (Part B-1): the import-session id (processing_jobs.session_id) so a commit failure can be
+  // recorded on the job. Distinct from proposalId (a fresh client-minted uuid). Absent on the sync path.
+  sessionId?: string;
   storagePath?: string;  // HF-256: back-compat single-file path; superseded by storagePaths
   // HF-256 (Decision 82 multi-file): per-file storage map (fileName -> path). Every file
   // in the import is downloaded and processed by its own format. When absent, the import
@@ -123,6 +128,11 @@ interface BulkRequest {
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
+  // HF-358 (Part B-1): kept in outer scope so the catch can record the failure on the job even if the
+  // throw happened after body-parse. Service-role client + tenant from the validated body.
+  let jobSessionId: string | undefined;
+  let jobTenantId: string | undefined;
+  let jobServiceClient: SupabaseClient | undefined;
 
   try {
     // Auth check
@@ -138,7 +148,11 @@ export async function POST(req: NextRequest) {
     );
 
     const body: BulkRequest = await req.json();
-    const { proposalId, tenantId, storagePath, storagePaths, contentUnits } = body;
+    const { proposalId, tenantId, sessionId, storagePath, storagePaths, contentUnits } = body;
+    // HF-358 (Part B-1): hoist into the outer scope so the catch can record the job failure on any throw.
+    jobSessionId = sessionId;
+    jobTenantId = tenantId;
+    jobServiceClient = supabase;
 
     // DIAG-070: per-phase timing trace. Instrumentation ONLY — no behavior change. `startTime` is t0.
     // Each phase logs cumulative +ms so deltas between consecutive lines = that phase's cost.
@@ -726,6 +740,17 @@ export async function POST(req: NextRequest) {
     };
     trace('response');
 
+    // HF-358 (Part B-1): NO SILENT FAILURE. Every commit-failure exit in commitContentUnit /
+    // commitUnitStreamed / commitUnitWindowed surfaces here as a unit result with success:false (each
+    // failCommit returns success:false and execute-bulk pushes it). If ANY unit failed, record the
+    // reason + a terminal status on the import job so the failure is job-visible (DIAG-078 saw
+    // error_detail=null). Awaited, non-throwing; no-op on the sync path (no session). Mechanical reasons
+    // only (reconciliation-channel separation).
+    if (!response.overallSuccess) {
+      const reason = results.filter(r => !r.success).map(r => `${r.contentUnitId}: ${r.error ?? 'commit failed'}`).join(' | ').slice(0, 2000);
+      await recordCommitFailureOnJob(supabase, tenantId, sessionId, `Commit failed — ${reason}`);
+    }
+
     // HF-300 (C3, DIAG-071): the CRITICAL post-commit work — entity resolution + entity_id back-link
     // (executePostCommitConstruction), input_bindings invalidation, and rule_set_assignments
     // (createMissingAssignments) — has MOVED OUT of this per-file response tail to the dedicated
@@ -798,6 +823,12 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     console.error('[SCI Bulk] Error:', err);
+    // HF-358 (Part B-1): a thrown commit failure (the catchable kind — NOT an OOM kill, which Part B-2's
+    // reclaim cap covers) is also recorded on the job, so no commit failure exits without a job-visible
+    // reason + terminal status. jobServiceClient/jobTenantId are set once the body is parsed.
+    if (jobServiceClient && jobTenantId) {
+      await recordCommitFailureOnJob(jobServiceClient, jobTenantId, jobSessionId, `Commit error — ${String(err).slice(0, 1900)}`);
+    }
     return NextResponse.json(
       { error: 'Bulk execution failed', details: String(err) },
       { status: 500 }

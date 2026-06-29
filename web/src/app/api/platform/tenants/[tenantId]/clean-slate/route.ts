@@ -67,17 +67,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ten
   // Destructive sweep — tenant-scoped, dependents-first, per-table reported (I1/I3/I8).
   const result = await runCleanSlate(sb, tenantId, categories);
 
-  // Result audit (best-effort; the intent row above is the I6 guarantee).
+  // HF-358 (Part C-4): success requires BOTH no delete error AND verified-empty (every selected table
+  // re-counted to 0). A Clean Slate that "ran" but left rows is a FAILURE, never a silent success.
+  const ok = !result.hadError && result.verified;
+
+  // Result audit (best-effort; the intent row above is the I6 guarantee). Records the verification outcome.
   await writeAuditLog(sb, {
     tenant_id: tenantId, profile_id: gate.caller.profileId, action: 'tenant.clean_slate',
     resource_type: 'tenant', resource_id: tenantId,
-    changes: { categories, phase: 'completed', totalDeleted: result.totalDeleted, unlinkedCalcTraces: result.unlinkedCalcTraces, collateralEffects: result.collateralEffects, perTable: result.results },
-    metadata: { actor: gate.caller.email, hadError: result.hadError },
+    changes: { categories, phase: 'completed', totalDeleted: result.totalDeleted, unlinkedCalcTraces: result.unlinkedCalcTraces, collateralEffects: result.collateralEffects, perTable: result.results, verified: result.verified, residual: result.residual },
+    metadata: { actor: gate.caller.email, hadError: result.hadError, ok },
   });
 
   return NextResponse.json({
-    ok: !result.hadError, tenantId, tenantName: tenant.name, categories,
+    ok, verified: result.verified, residual: result.residual,
+    // When not verified-empty, say exactly which tables still hold rows (never a bare "success").
+    ...(ok ? {} : { error: result.residual.length ? `Clean Slate did not fully clear: ${result.residual.map(r => `${r.table}(${r.count < 0 ? 'unverifiable' : r.count})`).join(', ')}` : 'Clean Slate reported a delete error' }),
+    tenantId, tenantName: tenant.name, categories,
     results: result.results, totalDeleted: result.totalDeleted, unlinkedCalcTraces: result.unlinkedCalcTraces,
     collateralEffects: result.collateralEffects, audited: true,
-  });
+  }, { status: ok ? 200 : 500 });
 }

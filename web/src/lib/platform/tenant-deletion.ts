@@ -121,6 +121,32 @@ export interface CleanSlateResult {
   collateralEffects: CollateralEffect[]; // FK-forced cascade-deletes / set-nulls the entity wipe causes (I8 truthful ledger)
   totalDeleted: number;
   hadError: boolean;
+  // HF-358 (Part C, verify-before-success): after the deletes, every table in the SELECTED categories is
+  // re-counted for the tenant. `verified` is true ONLY if all are 0; `residual` names any table that still
+  // holds rows (e.g. a silent skip, an FK block, or a partial delete). The caller MUST NOT report success
+  // unless `verified` is true — DIAG-078 #4 was a Clean Slate that reported success while committed_data
+  // stayed populated. `committed_data` is in the `data` category, so it is re-counted when `data` is wiped.
+  verified: boolean;
+  residual: { table: string; count: number }[];
+}
+
+// HF-358 (Part C-4): re-count every table in the selected categories for this tenant. Tenant-scoped reads
+// only (I1). A missing table (42P01) counts as empty. Used to gate "success" on an ACTUALLY-empty result.
+export async function verifyCleanSlate(sb: SupabaseClient, tenantId: string, selected: CleanSlateCategoryKey[]): Promise<{ verified: boolean; residual: { table: string; count: number }[] }> {
+  const selectedSet = new Set(selected);
+  const tables = CLEAN_SLATE_CATEGORIES.filter((c) => selectedSet.has(c.key)).flatMap((c) => c.tables);
+  const residual: { table: string; count: number }[] = [];
+  for (const table of tables) {
+    const { count, error } = await sb.from(table).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId);
+    if (error) {
+      // A missing table is "empty"; any OTHER read error means we could not confirm empty → treat as residual.
+      if (error.code === '42P01') continue;
+      residual.push({ table, count: -1 }); // -1 = could not verify (read failed) — fail closed
+      continue;
+    }
+    if ((count ?? 0) > 0) residual.push({ table, count: count ?? 0 });
+  }
+  return { verified: residual.length === 0, residual };
 }
 
 /** Pre-count the FK-forced collateral the entity-layer delete will cause (cascade-deletes into
@@ -188,7 +214,12 @@ export async function runCleanSlate(sb: SupabaseClient, tenantId: string, select
 
   const totalDeleted = results.reduce((n, r) => n + (r.deleted ?? 0), 0);
   const hadError = results.some((r) => r.status === 'error');
-  return { results, unlinkedCalcTraces, collateralEffects, totalDeleted, hadError };
+
+  // HF-358 (Part C-4) — VERIFY BEFORE SUCCESS. Re-count every selected table; success is only legitimate
+  // if the tenant is actually empty of them. A delete that silently returned 0 / was skipped / was
+  // FK-blocked leaves residual rows that this catches — the caller fails (never silently succeeds).
+  const { verified, residual } = await verifyCleanSlate(sb, tenantId, selected);
+  return { results, unlinkedCalcTraces, collateralEffects, totalDeleted, hadError, verified, residual };
 }
 
 // ── DELETE TENANT (complete removal) ──────────────────────────────────────────────────────────
