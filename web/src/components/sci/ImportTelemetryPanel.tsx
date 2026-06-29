@@ -11,6 +11,9 @@ import type { CSSProperties } from 'react';
 import { allUnitsSettled } from '@/lib/sci/comprehension-state-service';
 import type { UnitComprehensionState } from '@/lib/sci/comprehension-state-service';
 import { useIsVialuce } from '@/hooks/use-is-vialuce'; // HF-318: import-analyze intelligence → .kpi cards on top
+// HF-356 (I8): poll discipline — stop on 401, back off + give up on a 5xx streak (this secondary panel
+// stops silently; the primary-flow pollers surface the user-facing message).
+import { pollDecision, newPollState, type PollOutcome } from '@/lib/sci/poll-discipline';
 
 interface ImportTelemetry {
   totalSignalsWritten: number;
@@ -67,36 +70,47 @@ export function ImportTelemetryPanel({
     // response-driven progress to read and the poll is the only source.
     if (phase === 'executing') return;
     let cancelled = false;
-    let id: ReturnType<typeof setInterval> | null = null;
-    const stop = (reason: string) => { if (id !== null) { clearInterval(id); id = null; console.log(`[TRACE-POLL] ImportTelemetryPanel STOP reason=${reason}`); } }; // DIAG-070
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pollState = newPollState();
+    const stop = (reason: string) => { if (timer !== null) { clearTimeout(timer); timer = null; } console.log(`[TRACE-POLL] ImportTelemetryPanel STOP reason=${reason}`); }; // DIAG-070
     // HF-296 (Stream B): hard stall-timeout. The HF-286 allUnitsSettled stop never fires if a unit is
-    // orphaned on the spine (never reaches a terminal state) — this interval would then poll FOREVER,
+    // orphaned on the spine (never reaches a terminal state) — this poller would then poll FOREVER,
     // adding to the auth-starving execute-phase load. Bound it: if telemetry shows no forward progress
     // (totalSignalsWritten, monotonic) for STALL_MS, stop. Normal completion still stops immediately
     // via allUnitsSettled AND via the page unmounting this panel at the executing -> complete transition.
     const STALL_MS = 30_000;
+    const BASE_MS = 2000;
     let lastSignals = -1;
     let lastProgressAt = Date.now();
     console.log(`[TRACE-POLL] ImportTelemetryPanel START phase=${phase}`); // DIAG-070
-    const poll = async () => {
+    // HF-356 (I8): self-scheduling tick — a 401 stops, a 5xx/network streak backs off then gives up (cap),
+    // so this panel never joins the retry storm. Unmount cancels the timer AND the in-flight tick.
+    const tick = async () => {
+      if (cancelled) return;
+      let outcome: PollOutcome = { ok: false, networkError: true };
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(sessionId)}&telemetry=1`);
-        if (!r.ok || cancelled) return;
-        const data = await r.json();
-        if (data?.telemetry) setT(data.telemetry as ImportTelemetry);
-        const signals = Number(data?.telemetry?.totalSignalsWritten ?? 0);
-        if (signals > lastSignals) { lastSignals = signals; lastProgressAt = Date.now(); }
-        // HF-286: the telemetry=1 response spreads ...view, so data.units is present.
-        // Stop once every unit is settled (same settled-set predicate as the proposal poller).
-        const units = (data?.units ?? []) as Array<{ state: UnitComprehensionState }>;
-        console.log(`[TRACE-POLL] ImportTelemetryPanel TICK signals=${signals} units=${units.length}`); // DIAG-070
-        if (units.length > 0 && allUnitsSettled(units)) { stop('allSettled'); return; }
-        // HF-296 backstop: no forward progress for the stall window — stop (orphaned-unit guard).
-        if (Date.now() - lastProgressAt > STALL_MS) stop('stall-timeout');
-      } catch { /* best-effort — durable record is the source; a missed poll self-corrects next tick */ }
+        outcome = { ok: r.ok, status: r.status };
+        if (r.ok && !cancelled) {
+          const data = await r.json();
+          if (data?.telemetry) setT(data.telemetry as ImportTelemetry);
+          const signals = Number(data?.telemetry?.totalSignalsWritten ?? 0);
+          if (signals > lastSignals) { lastSignals = signals; lastProgressAt = Date.now(); }
+          // HF-286: the telemetry=1 response spreads ...view, so data.units is present.
+          // Stop once every unit is settled (same settled-set predicate as the proposal poller).
+          const units = (data?.units ?? []) as Array<{ state: UnitComprehensionState }>;
+          console.log(`[TRACE-POLL] ImportTelemetryPanel TICK signals=${signals} units=${units.length}`); // DIAG-070
+          if (units.length > 0 && allUnitsSettled(units)) { stop('allSettled'); return; }
+          // HF-296 backstop: no forward progress for the stall window — stop (orphaned-unit guard).
+          if (Date.now() - lastProgressAt > STALL_MS) { stop('stall-timeout'); return; }
+        }
+      } catch { /* network drop — outcome stays the networkError default; counted toward the give-up cap */ }
+      if (cancelled) return;
+      const verdict = pollDecision(pollState, outcome, BASE_MS);
+      if (verdict.action === 'stop') { stop(verdict.reason); return; }
+      timer = setTimeout(tick, verdict.delayMs);
     };
-    id = setInterval(poll, 2000);
-    void poll();
+    void tick();
     return () => { cancelled = true; stop('unmount'); };
   }, [tenantId, sessionId, phase]);
 

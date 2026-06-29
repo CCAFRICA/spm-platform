@@ -27,6 +27,9 @@ import type {
   SCIExecutionResult,
   ContentUnitResult,
 } from '@/lib/sci/sci-types';
+// HF-356 (I8): poll discipline — a 401 stops the analyze progress/recovery polls (and aborts analyze)
+// instead of hammering a failing endpoint for the full stall window; a 5xx streak backs off then gives up.
+import { pollDecision, newPollState, POLL_UNAUTHORIZED_MESSAGE, type PollOutcome } from '@/lib/sci/poll-discipline';
 
 // ============================================================
 // STATE MACHINE
@@ -69,11 +72,15 @@ async function analyzeTabular(
   const controller = new AbortController();
   let lastProgressAt = Date.now();
   let lastCount = -1;
+  const progressPollState = newPollState(); // HF-356 (I8): 401 → abort analyze; 5xx/network streak → give up.
   const poll = setInterval(() => {
     void (async () => {
+      let outcome: PollOutcome = { ok: false, networkError: true };
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        outcome = { ok: r.ok, status: r.status };
         if (r.ok) {
+          progressPollState.serverErrors = 0; // a good read clears the failure streak
           const view = await r.json() as { units: Array<{ state: string }>; progressTick?: number };
           // OB-203 Phase D: the monotonic progress tick is total_signals_written on the
           // session telemetry record (the view no longer carries per-unit history).
@@ -88,7 +95,14 @@ async function analyzeTabular(
             onProgress(done, view.units.length);
           }
         }
-      } catch { /* transient poll failure — next tick retries */ }
+      } catch { /* network drop — outcome stays networkError; counted toward the give-up cap */ }
+      // HF-356 (I8): a 401/403 (auth gone) or a 5xx/network streak past the cap → abort analyze + stop this
+      // poll, rather than polling a dead endpoint until the stall window elapses.
+      if (!outcome.ok && pollDecision(progressPollState, outcome, 2000).action === 'stop') {
+        clearInterval(poll);
+        controller.abort();
+        return;
+      }
       if (Date.now() - lastProgressAt > ANALYZE_STALL_MS) controller.abort();
     })();
   }, 2000);
@@ -108,20 +122,39 @@ async function analyzeTabular(
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     let recoverCount = lastCount;
     let recoverProgressAt = Date.now();
+    const recoverPollState = newPollState(); // HF-356 (I8): a 401 makes recovery futile — stop; 5xx streak → give up.
     while (Date.now() - recoverProgressAt < ANALYZE_STALL_MS) {
+      let outcome: PollOutcome = { ok: false, networkError: true };
       try {
         const rec = await fetch(`/api/import/sci/proposal?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
         if (rec.ok) return await rec.json() as SCIProposal;   // proposal persisted — recovered
-      } catch { /* keep polling */ }
+        // A 401/403 on the proposal read means auth is gone — recovery cannot succeed.
+        if (rec.status === 401 || rec.status === 403) throw new Error(POLL_UNAUTHORIZED_MESSAGE);
+      } catch (recErr) {
+        if (recErr instanceof Error && recErr.message === POLL_UNAUTHORIZED_MESSAGE) throw recErr;
+        /* otherwise keep polling */
+      }
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}`);
+        outcome = { ok: r.ok, status: r.status };
         if (r.ok) {
+          recoverPollState.serverErrors = 0;
           const view = await r.json() as { progressTick?: number };
           const c = view.progressTick ?? 0;   // OB-203 Phase D: monotonic tick from the session record
           if (c > recoverCount) { recoverCount = c; recoverProgressAt = Date.now(); }   // server still advancing → keep waiting
         }
-      } catch { /* keep polling */ }
-      await sleep(2000);
+      } catch { /* network drop — outcome stays networkError; counted toward the give-up cap */ }
+      // HF-356 (I8): 401 → auth gone, stop now; 5xx/network streak past the cap → endpoint down, give up.
+      if (!outcome.ok) {
+        const verdict = pollDecision(recoverPollState, outcome, 2000);
+        if (verdict.action === 'stop') {
+          if (verdict.reason === 'unauthorized') throw new Error(POLL_UNAUTHORIZED_MESSAGE);
+          break; // server gave up — fall to the failure throw below
+        }
+        await sleep(verdict.delayMs);
+      } else {
+        await sleep(2000);
+      }
     }
     // Server quiet for the full stall window AND no proposal — a genuine failure.
     if (e instanceof DOMException && e.name === 'AbortError') {

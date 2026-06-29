@@ -23,6 +23,9 @@ import {
   toImportFileFailure,
   deriveFileLabel,
 } from '@/lib/sci/import-failure';
+// HF-356 (I8): poll discipline — a 401 or a 5xx streak makes the bounded recovery pollers give up early
+// instead of polling a failing endpoint for the full stall window.
+import { pollDecision, newPollState, type PollOutcome } from '@/lib/sci/poll-discipline';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
   plan: 0,
@@ -120,22 +123,31 @@ async function pollPlanRunStatus(
   const intervals = [3000, 5000, 8000, 10000, 10000];
   let attempt = 0;
   let absentTicks = 0;
+  const pollState = newPollState(); // HF-356 (I8): 401 → give up; 5xx/network streak → give up at the cap.
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise(resolve => setTimeout(resolve, intervals[Math.min(attempt, intervals.length - 1)]));
     attempt++;
+    let outcome: PollOutcome = { ok: false, networkError: true };
     try {
       const res = await fetch(`/api/import/sci/plan-run-status?tenantId=${encodeURIComponent(tenantId)}`);
-      if (!res.ok) continue;
-      const { status } = await res.json() as { status: 'in_progress' | 'completed' | 'failed' | 'absent' };
-      if (status === 'completed') return 'completed';
-      if (status === 'failed') return 'failed';
-      if (status === 'absent') { if (++absentTicks >= 3) return 'absent'; continue; }
-      // in_progress → the server is still working; keep the UI honest and keep polling.
-      absentTicks = 0;
-      onTick();
+      outcome = { ok: res.ok, status: res.status };
+      if (res.ok) {
+        pollState.serverErrors = 0; // a good read clears the failure streak
+        const { status } = await res.json() as { status: 'in_progress' | 'completed' | 'failed' | 'absent' };
+        if (status === 'completed') return 'completed';
+        if (status === 'failed') return 'failed';
+        if (status === 'absent') { if (++absentTicks >= 3) return 'absent'; continue; }
+        // in_progress → the server is still working; keep the UI honest and keep polling.
+        absentTicks = 0;
+        onTick();
+        continue;
+      }
     } catch {
-      // Network blip — keep polling (the run may still be in progress).
+      // Network blip — outcome stays networkError; the discipline counts it toward the give-up cap.
     }
+    // HF-356 (I8): a 401/403 never self-heals, and a 5xx/network streak past the cap means the endpoint is
+    // down — stop early and return the retryable stall surface (the caller never marks units 'error' on it).
+    if (pollDecision(pollState, outcome, 0).action === 'stop') return 'absent';
   }
   return 'absent'; // stall window elapsed
 }
@@ -195,12 +207,17 @@ export function SCIExecution({
   const settleFromSurface = useCallback(async (trackedIds: string[]): Promise<boolean> => {
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     const STALL_MS = 90_000;
+    const BASE_MS = 2000;
     let lastSettled = -1, lastProgressAt = Date.now();
+    const pollState = newPollState(); // HF-356 (I8): 401 → give up; 5xx/network streak → give up at the cap.
     console.log(`[TRACE-POLL] settleFromSurface START tracked=${trackedIds.length}`); // DIAG-070
     while (Date.now() - lastProgressAt < STALL_MS) {
+      let outcome: PollOutcome = { ok: false, networkError: true };
       try {
         const r = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(proposal.proposalId)}&telemetry=1`);
+        outcome = { ok: r.ok, status: r.status };
         if (r.ok) {
+          pollState.serverErrors = 0; // a good read clears the failure streak
           const view = await r.json() as { units?: Array<{ unitId: string; state: string; sheetName: string | null; failureClass: string | null }>; telemetry?: { perUnit?: Array<{ sheetName: string | null; expectedRows: number }> } };
           const sUnits = view.units ?? [];
           const rowsBySheet = new Map((view.telemetry?.perUnit ?? []).map(p => [p.sheetName, p.expectedRows]));
@@ -232,8 +249,17 @@ export function SCIExecution({
           if (settledCount > lastSettled) { lastSettled = settledCount; lastProgressAt = Date.now(); }
           if (settledCount >= trackedIds.length) { console.log('[TRACE-POLL] settleFromSurface STOP reason=allSettled'); return true; } // every tracked unit has a terminal disposition
         }
-      } catch { /* keep polling — the surface is the truth, a missed poll self-corrects */ }
-      await sleep(2000);
+      } catch { /* network drop — outcome stays networkError; counted toward the give-up cap */ }
+      // HF-356 (I8): on a good (settled-progress) read we sleep the base cadence; on a 401/403 we give up
+      // (auth won't heal), and on a 5xx/network streak we back off then give up at the cap — never poll a
+      // failing endpoint for the full 90s stall window.
+      if (outcome.ok) {
+        await sleep(BASE_MS);
+      } else {
+        const verdict = pollDecision(pollState, outcome, BASE_MS);
+        if (verdict.action === 'stop') { console.log(`[TRACE-POLL] settleFromSurface STOP reason=${verdict.reason}`); return false; }
+        await sleep(verdict.delayMs);
+      }
     }
     console.log('[TRACE-POLL] settleFromSurface STOP reason=stall-timeout'); // DIAG-070
     return false; // stalled with non-terminal units — the resume loop decides what's next

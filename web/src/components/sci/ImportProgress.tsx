@@ -10,10 +10,12 @@
  * OB-174 Phase 4
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, CheckCircle2, AlertCircle, Zap, Clock, FileSpreadsheet } from 'lucide-react';
 import { cn } from '@/lib/utils';
+// HF-356 (I8): poll/retry discipline — 401 stops, 5xx/network backs off + stops after a cap, unmount cancels.
+import { pollDecision, newPollState, type PollState, type PollOutcome } from '@/lib/sci/poll-discipline';
 // OB-174: Button available for retry actions (future)
 
 interface ProcessingJob {
@@ -58,8 +60,10 @@ const POLL_INTERVAL_MS = 2000;
 export function ImportProgress({ sessionId, tenantId, onAllClassified, onError }: ImportProgressProps) {
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [polling, setPolling] = useState(true);
+  const pollState = useRef<PollState>(newPollState());
 
-  const fetchJobs = useCallback(async () => {
+  // One poll attempt. Returns the outcome for the shared discipline + whether the run is terminally done.
+  const fetchJobs = useCallback(async (): Promise<{ outcome: PollOutcome; done: boolean }> => {
     const supabase = createClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase as any)
@@ -71,34 +75,54 @@ export function ImportProgress({ sessionId, tenantId, onAllClassified, onError }
 
     if (error) {
       console.warn('[ImportProgress] Poll failed:', error.message);
-      return;
+      // Map a PostgREST/JWT auth failure to 401 (stop); anything else to 5xx (back off, cap).
+      const authLike = error.code === 'PGRST301' || /jwt|token|auth|expired|forbidden|not authorized/i.test(error.message ?? '');
+      return { outcome: { ok: false, status: authLike ? 401 : 500 }, done: false };
     }
 
     if (data) {
       setJobs(data as ProcessingJob[]);
 
       // Check if all jobs are classified (or failed)
-      const allDone = data.every((j: ProcessingJob) => j.status === 'classified' || j.status === 'committed' || j.status === 'failed');
-      if (allDone && data.length > 0) {
-        setPolling(false);
+      const allDone = data.length > 0 && data.every((j: ProcessingJob) => j.status === 'classified' || j.status === 'committed' || j.status === 'failed');
+      if (allDone) {
         const hasFailures = data.some((j: ProcessingJob) => j.status === 'failed');
         if (hasFailures) {
           onError(`${data.filter((j: ProcessingJob) => j.status === 'failed').length} file(s) failed to classify`);
         } else {
           onAllClassified(data as ProcessingJob[]);
         }
+        return { outcome: { ok: true, status: 200 }, done: true };
       }
     }
+    return { outcome: { ok: true, status: 200 }, done: false };
   }, [sessionId, tenantId, onAllClassified, onError]);
 
-  // Poll for status updates
+  // Poll for status updates — self-scheduling (not a fixed interval) so a 5xx streak backs off and a 401
+  // stops. Unmount cancels the timer AND the in-flight tick via the `cancelled` flag (I8).
   useEffect(() => {
     if (!polling) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    pollState.current = newPollState();
 
-    fetchJobs();
-    const interval = setInterval(fetchJobs, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [polling, fetchJobs]);
+    const tick = async () => {
+      if (cancelled) return;
+      const { outcome, done } = await fetchJobs();
+      if (cancelled) return;
+      if (done) { setPolling(false); return; }
+      const verdict = pollDecision(pollState.current, outcome, POLL_INTERVAL_MS);
+      if (verdict.action === 'stop') {
+        setPolling(false);
+        onError(verdict.message);
+        return;
+      }
+      timer = setTimeout(tick, verdict.delayMs);
+    };
+    void tick();
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [polling, fetchJobs, onError]);
 
   const classifiedCount = jobs.filter(j => j.status === 'classified' || j.status === 'committed').length;
   const totalCount = jobs.length;
