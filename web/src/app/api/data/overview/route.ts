@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import { getServerAuthState } from '@/lib/auth/server-auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveActor } from '@/lib/prism/actor';
 import { isFeatureEnabled } from '@/lib/tenant/feature-flags';
 import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
 import { readCoPresentSurface, exposureFromSurface } from '@/lib/thalamus/signal-surface';
@@ -38,11 +39,18 @@ function calibrationFromFeedback(feedbackSignals: { signalValue: unknown }[]): P
 }
 
 export async function GET() {
-  const state = await getServerAuthState();
-  if (!state.isAuthenticated || !state.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!state.profile) return NextResponse.json({ error: 'Forbidden — no profile' }, { status: 403 });
-  const tenantId = (state.profile as { tenant_id?: string }).tenant_id;
-  if (!tenantId) return NextResponse.json({ error: 'No tenant context' }, { status: 400 });
+  // HF-357: resolve the EFFECTIVE tenant via the canonical PRISM resolver. For a platform admin
+  // (profile.tenant_id NULL) this is the tenant selected in the switcher (vialuce-tenant-id cookie) —
+  // exactly like every other /api/prism/* route. The OB-253 route read profile.tenant_id directly,
+  // which is NULL for platform admins → "No tenant context". Class-layer fix (SR-34, the HF-352/353/354 class).
+  const actor = await resolveActor();
+  if (!actor) {
+    const state = await getServerAuthState();
+    if (!state.isAuthenticated) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // authenticated but no tenant selected (platform admin at platform scope) — friendly empty state.
+    return NextResponse.json({ needsTenant: true }, { status: 200 });
+  }
+  const tenantId = actor.tenantId;
 
   const sb = (await createServiceRoleClient()) as unknown as SupabaseClient;
 

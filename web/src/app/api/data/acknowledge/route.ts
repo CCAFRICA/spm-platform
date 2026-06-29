@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuthState } from '@/lib/auth/server-auth';
+import { resolveActor } from '@/lib/prism/actor';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -18,10 +18,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  const state = await getServerAuthState();
-  if (!state.isAuthenticated || !state.user || !state.profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const tenantId = (state.profile as { tenant_id?: string }).tenant_id;
-  if (!tenantId) return NextResponse.json({ error: 'No tenant context' }, { status: 400 });
+  // HF-357: canonical PRISM tenant resolution — platform admin resolves the selected-tenant cookie
+  // (resolveActor), exactly like the overview route + every /api/prism/* route. Class-layer fix.
+  const actor = await resolveActor();
+  if (!actor) return NextResponse.json({ error: 'No tenant context — select a tenant first' }, { status: 401 });
+  const tenantId = actor.tenantId;
 
   const body = (await request.json()) as { column?: string; value?: string; facet?: string; feedback?: string };
   if (body.feedback !== 'confirmed' && body.feedback !== 'corrected') {
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     decision_source: 'operator',
     scope: 'tenant',
     confidence: body.feedback === 'confirmed' ? 1 : 0,
-    signal_value: { column: body.column ?? null, value: body.value ?? null, facet: body.facet ?? null, feedback: body.feedback, by: (state.profile as { id?: string }).id ?? null },
+    signal_value: { column: body.column ?? null, value: body.value ?? null, facet: body.facet ?? null, feedback: body.feedback, by: actor.profileId },
     context: { ob: 'OB-253', phase: 4, kind: 'precision_weighting_feedback' },
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -41,13 +41,19 @@ export default function DataPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsTenant, setNeedsTenant] = useState(false); // HF-357: platform admin with no tenant selected
   const [acked, setAcked] = useState<Record<string, "confirmed" | "corrected">>({});
 
   const load = useCallback(() => {
     setLoading(true); setError(null);
     fetch("/api/data/overview", { cache: "no-store" })
       .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.json(); })
-      .then((d: Overview) => setData(d))
+      .then((d: Overview & { needsTenant?: boolean }) => {
+        // HF-357: a platform admin at platform scope with no tenant chosen — a friendly empty state,
+        // not the old "No tenant context" warning. Selecting a tenant in the switcher + Refresh loads it.
+        if (d.needsTenant) { setNeedsTenant(true); setData(null); }
+        else { setNeedsTenant(false); setData(d); }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
   }, []);
@@ -76,6 +82,17 @@ export default function DataPage() {
 
         {loading && <div className="flex items-center gap-2 text-slate-400 py-12"><Loader2 className="h-5 w-5 animate-spin" /> Reading the signal surface…</div>}
         {error && !loading && <Card className="border-0 shadow-md"><CardContent className="pt-6 text-red-500 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> {error}</CardContent></Card>}
+        {needsTenant && !loading && (
+          <Card className="border-0 shadow-md">
+            <CardContent className="pt-6 flex items-center gap-3 text-slate-500">
+              <Database className="h-5 w-5 text-slate-400" />
+              <div>
+                <p className="font-medium text-slate-300">Select a tenant to view Data Operations</p>
+                <p className="text-sm text-slate-400">Choose a tenant in the switcher (top-right), then Refresh — this surface shows that tenant&apos;s recognized signals, flywheel state, and trust flags.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {data && !loading && (
           <>
