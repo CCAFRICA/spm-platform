@@ -48,6 +48,9 @@ import { computeContentUnitHashSha256 } from './content-unit-hash';
 import { supersedePriorBatchOnContentMatch } from './import-batch-supersession';
 import { extractFieldIdentitiesFromTrace } from './header-comprehension';
 import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
+// HF-356 (RC1): the committed_data WRITE moves to a CSV-to-Storage + S3-FDW bulk load. This serializes
+// the SAME row objects buildCommittedRow produces (byte-identical content); the DB loads them.
+import { committedRowToCsvLine, CSV_HEADER, type CommittedRow } from './committed-row-csv';
 // OB-249 — Remediation Stage (the mandatory gate before committed_data, I7). Deterministic
 // CONSTRUCT only here; the LLM express ran at proposal time (process-job).
 import {
@@ -71,11 +74,9 @@ export interface CommitContentUnitInput {
   classificationTrace?: Record<string, unknown>;
 }
 
-// `source` drives the operational profile per route:
-//   sci-bulk  → 2000-row chunks + 3-retry-with-backoff per chunk
-//                (OB-174 Phase 5 / DS-016 §3.4 nanobatch contract)
-//   sci       → 5000-row chunks + no retry (existing execute behavior)
-// Both label metadata.source identically to the existing inline writers.
+// `source` labels the operational route on metadata.source ('sci' = synchronous execute, 'sci-bulk' =
+// the bulk/windowed worker path) identically to the existing inline writers. HF-356: it no longer selects
+// a chunk/retry profile — the commit transport (CSV → Storage → one S3-FDW bulk-load RPC) is uniform.
 export type CommitContentUnitSource = 'sci' | 'sci-bulk';
 
 export interface CommitContentUnitParams {
@@ -335,34 +336,13 @@ export async function readTenantEntityDomain(supabase: SupabaseClient, tenantId:
 }
 
 // ============================================================
-// ROUTE PROFILE — per-source operational parameters
-// ============================================================
-
-interface RouteProfile {
-  chunkSize: number;
-  retryAttempts: number; // 1 means a single attempt; 4 means up to 4 attempts with exponential backoff
-  pacingMs: number;      // D16: inter-chunk pause to keep instantaneous write load under the instance ceiling
-}
-
-// §3e (pulse-size asymmetry, justified): reads batch at 200 (the standing .in() rule — an IN-list
-// cardinality cap that bounds query-param size on LOOKUPS); writes pulse at 500 (INSERT payload
-// throughput under the Small-instance write ceiling). Different operations, different constraints — the
-// two numbers are not the same concept tuned differently, so they are not aligned.
-function profileFor(source: CommitContentUnitSource): RouteProfile {
-  // D16 (run-4 ceiling): the prior 2000-row chunk overran a Small instance's write ceiling on the
-  // ~162k-row Ventas sheet (502 at chunk 11/81, both runs). Drop sci-bulk to 500-row chunks with a
-  // 200ms inter-chunk pause — 4× smaller, lower instantaneous load. Implication for the big sheet:
-  // ~162k rows / 500 = ~325 chunks; at insert (~150ms) + 200ms pace ≈ ~115s for Ventas, comfortably
-  // under Vercel's 300s maxDuration. (This is headroom under the instance ceiling — the durable fix is
-  // the BL "Loading Dock" queue, off the request lifecycle.) sci keeps the wide no-retry execute path.
-  return source === 'sci-bulk'
-    ? { chunkSize: 500, retryAttempts: 4, pacingMs: 200 }
-    : { chunkSize: 5000, retryAttempts: 1, pacingMs: 0 };
-}
-
-// ============================================================
 // commitContentUnit — sole committed_data write surface
 // ============================================================
+//
+// HF-356 (RC1): the per-source ROUTE PROFILE (chunk size / retry / inter-chunk pacing) is GONE — those
+// existed to keep the per-batch HTTP `.insert` under a Small instance's write ceiling. The commit no
+// longer streams rows over HTTP; it writes ONE CSV to Storage and the database bulk-loads it via the S3
+// FDW in one RPC, so there is no chunk loop and no instance-ceiling pacing to tune.
 
 export async function commitContentUnit(
   supabase: SupabaseClient,
@@ -395,8 +375,6 @@ export async function commitContentUnit(
     };
   }
 
-  const profile = profileFor(source);
-
   // HF-196 Phase 1D — data_type derives from SCI classification (Decisions 154/155).
   const dataType = resolveDataTypeFromClassification(classification);
 
@@ -409,6 +387,7 @@ export async function commitContentUnit(
     params.rowIndexOffset && params.rowIndexOffset > 0 ? `chunk@${params.rowIndexOffset}` : undefined,
   );
   const batchId = crypto.randomUUID();
+  const pulseBase = params.pulseBase ?? { landed: 0, total: 0 };
 
   await supabase.from('import_batches').insert({
     id: batchId,
@@ -434,7 +413,6 @@ export async function commitContentUnit(
   // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
   // cannot land before this one. Phase C: pulse counters compose on top of
   // the caller-phase base (entity creation/enrichment pulses already landed).
-  const pulseBase = params.pulseBase ?? { landed: 0, total: 0 };
   await accumulateUnitCommitFields({
     tenantId,
     importSessionId: proposalId,
@@ -442,7 +420,7 @@ export async function commitContentUnit(
     fields: {
       sheetName: tabName,
       expectedRows: rows.length,
-      pulsesTotal: pulseBase.total + Math.ceil(rows.length / profile.chunkSize),
+      pulsesTotal: pulseBase.total + 1,
       rowsCommitted: 0,
       pulsesLanded: pulseBase.landed,
       batchCommitted: false,
@@ -592,15 +570,14 @@ export async function commitContentUnit(
   let latestDate: string | null = null;
   let dateCount = 0;
 
-  // HF-353 P-A (enterprise OOM): the per-row committed_data projection. PREVIOUSLY the
-  // FULL payload (`const insertRows = rows.map(...)`) was materialized at once — a third
-  // full copy of the parsed data (each row_data spreads all N columns), which on an
-  // 86,608×87 ERP export drove ~2GB peak heap → Vercel OOM. The chunked INSERT loop below
-  // already bounds the WRITES; now it also bounds MEMORY by building each chunk's payload
-  // inline from a `rows.slice(...)` and dropping it after the insert (peak ≈ 2× parsed +
-  // one chunk, independent of file size — SR-2). Byte-identical committed rows: the
-  // projection (and its source_date side-effect into the outer accumulators) is unchanged;
-  // only WHEN each row object is built moved from "all upfront" to "per chunk".
+  // HF-353 P-A / HF-356 (enterprise OOM): the per-row committed_data projection. PREVIOUSLY the FULL
+  // payload (`const insertRows = rows.map(...)`) was materialized at once — a third full copy of the
+  // parsed data (each row_data spreads all N columns), which on an 86,608×87 ERP export drove ~2GB peak
+  // heap → Vercel OOM. The CSV-build loop below calls this once per row, serializes the result to a CSV
+  // line, and drops the built object immediately (never holds all built rows at once). Peak heap ≈ the
+  // caller's `rows` (one bounded window for a large file — OB-251) + the CSV strings, independent of how
+  // the rows are transported. Byte-identical committed rows: the projection (and its source_date
+  // side-effect into the outer accumulators) is unchanged — only the transport (CSV+FDW) differs.
   const buildCommittedRow = (row: Record<string, unknown>, i: number) => {
     const sourceDate = extractSourceDate(
       row,
@@ -650,119 +627,81 @@ export async function commitContentUnit(
     };
   };
 
-  // Chunked insert — per-source profile (sci-bulk retries; sci does not).
-  let totalInserted = 0;
-  const totalChunks = Math.ceil(rows.length / profile.chunkSize);
-  let chunksCompleted = 0;
-
-  for (let i = 0; i < rows.length; i += profile.chunkSize) {
-    // HF-353 P-A: build THIS chunk's payload inline (never the whole array at once).
-    const slice = rows.slice(i, i + profile.chunkSize).map((r, j) => buildCommittedRow(r, i + j));
-    let chunkSuccess = false;
-    let lastErr = '';
-
-    for (let attempt = 0; attempt < profile.retryAttempts && !chunkSuccess; attempt++) {
-      const { error: insertErr } = await supabase
-        .from('committed_data')
-        .insert(slice as unknown as Json[]);
-      if (insertErr) {
-        lastErr = insertErr.message;
-        if (profile.retryAttempts > 1 && attempt < profile.retryAttempts - 1) {
-          // D16: exponential backoff (capped) — gives a saturated/5xx-ing host room to recover between
-          // retries rather than hammering it on a fixed cadence (the run-3 502 was instance saturation).
-          await new Promise(r => setTimeout(r, Math.min(4000, 500 * 2 ** attempt)));
-        }
-      } else {
-        chunkSuccess = true;
-      }
-    }
-
-    if (chunkSuccess) {
-      totalInserted += slice.length;
-      chunksCompleted++;
-      // OB-203 §2/§5: a write is a PULSE (DS-021 family; "nanobatch" stays reserved for DS-020 learning).
-      ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: chunksCompleted, ofTotal: totalChunks, rows: totalInserted });
-      // OB-203 Phase D Hook 2 (pulse landed): ONE counter update per 500-row
-      // pulse, never per row (Amendment 2 D.2/D.4). The panels' pulse/row
-      // numbers move with this write.
-      await accumulateUnitCommitFields({
-        tenantId,
-        importSessionId: proposalId,
-        unitId: unit.contentUnitId,
-        fields: { rowsCommitted: totalInserted, pulsesLanded: pulseBase.landed + chunksCompleted },
-      }, supabase);
-      // D16: inter-pulse pacing — give the instance breathing room between writes (only when more pulses
-      // remain). Keeps the saturating burst pattern that tripped the run-4 502 from re-forming.
-      if (profile.pacingMs > 0 && i + profile.chunkSize < rows.length) {
-        await new Promise(r => setTimeout(r, profile.pacingMs));
-      }
-    } else {
-      // D16 (unit-atomic execute): a unit that cannot fully commit retains NOTHING. Roll back every row
-      // already inserted under this batch, mark the batch failed/rolled_back, and return an atomic
-      // failure with totalInserted:0. This replaces BOTH the prior sci-bulk "continue / preserve prior
-      // chunks" (the run-3 partial-retention that left partial rows behind on the mid-bulk 502) and the
-      // sci short-circuit (which also kept its partial rows). The happy path — every chunk succeeds — is
-      // byte-identical and never enters here, so proof-tenant imports are unaffected.
-      console.error(
-        `[commitContentUnit] Chunk ${chunksCompleted + 1}/${totalChunks} failed after ${profile.retryAttempts} attempt(s): ${lastErr}`,
-      );
-      const { error: rbErr } = await supabase
-        .from('committed_data')
-        .delete()
-        .eq('import_batch_id', batchId);
-      await supabase
-        .from('import_batches')
-        .update({
-          status: 'failed',
-          error_summary: {
-            error: lastErr,
-            rolledBack: !rbErr,
-            rolledBackRows: totalInserted,
-            rollbackError: rbErr?.message ?? null,
-          } as unknown as Json,
-        })
-        .eq('id', batchId);
-      console.error(
-        `[commitContentUnit] UNIT-ATOMIC ROLLBACK batch=${batchId}: removed ${totalInserted} partial rows ` +
-          `(${rbErr ? 'ROLLBACK FAILED: ' + rbErr.message : 'ok'})`,
-      );
-      // OB-203 Phase D Hook 2 (rollback): the unit retains NOTHING (D16) — its
-      // telemetry snapshot says so too. Decision 95: the panel never shows rows
-      // the table no longer holds.
-      await accumulateUnitCommitFields({
-        tenantId,
-        importSessionId: proposalId,
-        unitId: unit.contentUnitId,
-        fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
-      }, supabase);
-      return {
-        batchId,
-        totalInserted: 0,
-        dataType,
-        entityIdField,
-        fieldIdentities,
-        earliestDate,
-        latestDate,
-        dateCount,
-        success: false,
-        error: `${lastErr} — unit rolled back (${totalInserted} partial rows removed)`,
-      };
-    }
+  // HF-356 (RC1) — COMMIT VIA S3-FDW (the row transport that took production down twice is removed). The
+  // per-batch HTTP `.insert(slice)` loop is replaced by: serialize the SAME rows `buildCommittedRow`
+  // produces into ONE CSV, write it to Storage, and call `bulk_commit_from_storage` ONCE — the database
+  // loads that CSV from its OWN Storage via the S3 foreign data wrapper (I1: zero bulk rows over HTTP;
+  // I2: one round-trip, seconds, no pooler pressure). committed_data is BYTE-IDENTICAL because the row
+  // OBJECTS are unchanged — only the transport differs (PG-1 proves the CSV round-trip). For a windowed
+  // large file this runs once per bounded window (each its own batch, as before — windowed-commit.ts:9),
+  // so peak heap stays one window (OB-251 SR-2 preserved); a small file runs it once over the whole unit.
+  const csvLines: string[] = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    // Build one row, serialize it, let the built object be collected — never hold all built rows at once.
+    csvLines[i] = committedRowToCsvLine(buildCommittedRow(rows[i], i) as unknown as CommittedRow);
   }
 
-  // HF-353 P-A (HALT-DATA-LOSS): chunked commitment must commit EXACTLY the parsed row
-  // count. A failed chunk already triggers the unit-atomic rollback above; this invariant
-  // catches any other shortfall (the directive forbids silent partial commits — data loss
-  // is never acceptable). Belt-and-suspenders: on the happy path totalInserted === rows.length.
-  if (totalInserted !== rows.length) {
-    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${rows.length} parsed rows for "${tabName}" — chunked commitment lost rows.`;
+  const csvPath = `${tenantId}/committed/${batchId}.csv`;
+
+  // D16 unit-atomicity: a unit that cannot fully commit retains NOTHING. The bulk INSERT…SELECT is a
+  // single transaction (so a failed load leaves no partial rows), but this also cleans up on a mismatch
+  // and reports rowsCommitted:0 on the telemetry row (Decision 95: the panel never shows rows the table
+  // no longer holds).
+  const failCommit = async (reason: string): Promise<CommitContentUnitResult> => {
     console.error(`[commitContentUnit] ${reason}`);
     await supabase.from('committed_data').delete().eq('import_batch_id', batchId);
     await supabase.from('import_batches').update({
       status: 'failed',
-      error_summary: { error: reason, hf: 'HF-353-DATA-LOSS' } as unknown as Json,
+      error_summary: { error: reason, hf: 'HF-356-COMMIT' } as unknown as Json,
     }).eq('id', batchId);
+    await accumulateUnitCommitFields({
+      tenantId,
+      importSessionId: proposalId,
+      unitId: unit.contentUnitId,
+      fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+    }, supabase);
     return { batchId, totalInserted: 0, dataType, entityIdField, fieldIdentities, earliestDate, latestDate, dateCount, success: false, error: reason };
+  };
+
+  // ONE CSV to Storage (header + one line per row). upsert so a retried batch overwrites cleanly. The
+  // bytes never touch the database connection — the DB reads them from Storage on the next call.
+  const csvBody = `${CSV_HEADER}\n${csvLines.length ? csvLines.join('\n') + '\n' : ''}`;
+  const { error: uploadErr } = await supabase.storage
+    .from('ingestion-raw')
+    .upload(csvPath, Buffer.from(csvBody, 'utf8'), { contentType: 'text/csv', upsert: true });
+  if (uploadErr) return await failCommit(`commit CSV upload failed for "${tabName}": ${uploadErr.message}`);
+
+  // ONE bulk load — the DB reads the CSV from Storage via the FDW and inserts under p_tenant_id (I4: the
+  // inserted tenant is the PARAMETER, never the CSV's value). Returns the row count it loaded.
+  const { data: loadedCount, error: rpcErr } = await supabase.rpc('bulk_commit_from_storage', {
+    p_tenant_id: tenantId,
+    p_csv_path: csvPath,
+    p_import_batch_id: batchId,
+  });
+  if (rpcErr) return await failCommit(`bulk_commit_from_storage failed for "${tabName}": ${rpcErr.message}`);
+  const totalInserted = Number(loadedCount ?? 0);
+
+  // HALT-DATA-LOSS (data loss is never acceptable): the DB must have loaded EXACTLY the rows written.
+  if (totalInserted !== rows.length) {
+    return await failCommit(`HALT-DATA-LOSS: loaded ${totalInserted} of ${rows.length} rows for "${tabName}" via S3-FDW.`);
+  }
+
+  // OB-203 §2/§5: the single bulk load is one PULSE (the panels' pulse/row numbers move with this write).
+  ob203Trace('pulse', { unit: unit.contentUnitId, sheet: tabName, pulse: 1, ofTotal: 1, rows: totalInserted });
+  await accumulateUnitCommitFields({
+    tenantId,
+    importSessionId: proposalId,
+    unitId: unit.contentUnitId,
+    fields: { rowsCommitted: totalInserted, pulsesLanded: pulseBase.landed + 1 },
+  }, supabase);
+
+  // HF-356: the CSV was a transient transport artifact — the rows are now in committed_data, so remove it
+  // (best-effort; a retry re-uploads via upsert, so leaving it on a delete-failure is harmless). Keeps the
+  // ingestion-raw bucket from accumulating one load file per batch.
+  try {
+    await supabase.storage.from('ingestion-raw').remove([csvPath]);
+  } catch (err) {
+    console.warn(`[commitContentUnit] commit CSV cleanup @${csvPath} failed (non-blocking):`, err instanceof Error ? err.message : err);
   }
 
   // Finalize batch.
