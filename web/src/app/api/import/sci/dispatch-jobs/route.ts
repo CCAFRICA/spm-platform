@@ -40,6 +40,8 @@ import { createClient } from '@supabase/supabase-js';
 // HF-356 (RC2): shared internal/cron principal — this route's own gate AND the credential it forwards to
 // the worker (process-job) when it fires it server-side (without forwarding, the worker 401'd every job).
 import { isInternalCronCaller, internalCronHeaders } from '@/lib/sci/cron-principal';
+// HF-358 (Part B-2): the reclaim retry cap — a repeatedly-crashing job converges to terminal 'failed'.
+import { reclaimPatch } from '@/lib/sci/reclaim-policy';
 
 // Retry policy (P-B4).
 const MAX_RETRIES = 3;
@@ -137,36 +139,44 @@ async function dispatch(req: NextRequest): Promise<NextResponse> {
       if (!reset.error && reset.data && reset.data.length > 0) requeued += 1;
     }
 
-    // ── 3. RECLAIM STALE ──────────────────────────────────────────────────
-    // A worker that crashed mid-stage leaves a job stuck in 'classifying' or 'committing'.
-    // Any such job older than STALE_CLASSIFYING_MS (by started_at) is reset to 'pending'
-    // (status-guarded) so the next sweep — or the client — re-fires it.
+    // ── 3. RECLAIM STALE (HF-358 Part B-2: WITH A RETRY CAP) ──────────────
+    // A worker that crashed mid-stage (OOM, timeout) leaves a job stuck in 'classifying' or 'committing'.
+    // Any such job older than STALE_CLASSIFYING_MS (by started_at) is reclaimed. DIAG-078 defect #3: the
+    // reclaim had NO retry cap, so a job whose worker keeps crashing was reset → re-dispatched → crashed →
+    // reclaimed forever. Now each reclaim INCREMENTS retry_count, and once it reaches MAX_RETRIES the job
+    // is marked TERMINALLY 'failed' with a reason (not reset) — a repeatedly-crashing job converges to a
+    // terminal state. (The failed-requeue cap at §2 / `:lt('retry_count', MAX_RETRIES)` — the kill-switch
+    // guard — is unchanged; a kill-switched job is never resurrected here either, as it is already
+    // terminal 'failed', not 'classifying'/'committing'.)
     let reclaimed = 0;
+    let reclaimFailedOut = 0;
     const staleCutoff = new Date(now - STALE_CLASSIFYING_MS).toISOString();
-    // A stuck 'classifying' job → 'pending' (re-classified by process-job). A stuck 'committing' job
-    // → 'classified' (re-COMMITTED by the client/execute-bulk resume, which is idempotent — it skips
-    // spine-terminal units), NOT 'pending' (that would wastefully re-run classify on a done proposal).
-    const RECLAIM_TARGET: Record<'classifying' | 'committing', string> = { classifying: 'pending', committing: 'classified' };
+    const nowIso = new Date(now).toISOString();
     for (const stuckStatus of ['classifying', 'committing'] as const) {
       const { data: stuck, error: stuckErr } = await supabase
         .from('processing_jobs')
-        .select('id')
+        .select('id, retry_count')
         .eq('status', stuckStatus)
         .lt('started_at', staleCutoff);
       if (stuckErr) throw stuckErr;
 
       for (const job of stuck ?? []) {
+        // Status-guarded conditional update (exactly one sweep wins). At the cap → terminal 'failed' with a
+        // job-visible reason; otherwise reclaim to the stage target and bump the counter (reclaimPatch).
+        const patch = reclaimPatch(stuckStatus, job.retry_count, MAX_RETRIES, nowIso);
         const reset = await supabase
           .from('processing_jobs')
-          .update({ status: RECLAIM_TARGET[stuckStatus] })
+          .update(patch)
           .eq('id', job.id)
           .eq('status', stuckStatus)
           .select('id');
-        if (!reset.error && reset.data && reset.data.length > 0) reclaimed += 1;
+        if (!reset.error && reset.data && reset.data.length > 0) {
+          if (patch.status === 'failed') reclaimFailedOut += 1; else reclaimed += 1;
+        }
       }
     }
 
-    return NextResponse.json({ dispatched, requeued, reclaimed, scannedAt });
+    return NextResponse.json({ dispatched, requeued, reclaimed, reclaimFailedOut, scannedAt });
   } catch (err) {
     return NextResponse.json(
       { error: 'Dispatch sweep failed', details: err instanceof Error ? err.message : String(err), scannedAt },

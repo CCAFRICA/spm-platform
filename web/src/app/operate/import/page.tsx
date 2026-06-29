@@ -40,7 +40,7 @@ type ImportState =
   | { phase: 'analyzing'; files: FileInfo[] }
   | { phase: 'processing'; sessionId: string; files: FileInfo[] } // OB-174: async processing
   | { phase: 'proposal'; proposal: SCIProposal; rawData: ParsedFileData; fileName: string }
-  | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData; storagePath?: string; storagePaths?: Record<string, string> }
+  | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData; storagePath?: string; storagePaths?: Record<string, string>; asyncSessionId?: string | null }
   | { phase: 'complete'; executionResult: SCIExecutionResult }
   | { phase: 'error'; error: string; canRetry: boolean };
 
@@ -493,6 +493,7 @@ export default function OperateImportPage() {
       rawData: state.rawData,
       storagePath,
       storagePaths,
+      asyncSessionId: asyncSessionIdRef.current, // HF-358 (Part B-1): thread the real session_id to the commit
     });
   }, [state]);
 
@@ -739,6 +740,7 @@ export default function OperateImportPage() {
                 rawData={state.rawData}
                 storagePath={state.storagePath}
                 storagePaths={state.storagePaths}
+                asyncSessionId={state.asyncSessionId}
                 onComplete={handleExecutionComplete}
                 onUploadMore={handleUploadMore}
               />

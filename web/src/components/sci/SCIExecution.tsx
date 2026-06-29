@@ -78,6 +78,9 @@ interface SCIExecutionProps {
   rawData: ParsedFileData;
   storagePath?: string; // OB-156: File storage path for bulk server-side processing
   storagePaths?: Record<string, string>; // HF-140: Per-file storage paths (fileName → path)
+  // HF-358 (Part B-1): the async import-session id (processing_jobs.session_id) so a commit failure is
+  // recorded on the job server-side. Null/absent on the synchronous path (no job).
+  asyncSessionId?: string | null;
   onComplete: (result: SCIExecutionResult) => void;
   onUploadMore: () => void;
 }
@@ -159,6 +162,7 @@ export function SCIExecution({
   rawData,
   storagePath,
   storagePaths,
+  asyncSessionId,
   onComplete,
   onUploadMore,
 }: SCIExecutionProps) {
@@ -355,6 +359,7 @@ export function SCIExecution({
           body: JSON.stringify({
             proposalId: proposal.proposalId,
             tenantId,
+            sessionId: asyncSessionId ?? undefined, // HF-358 (Part B-1): record a commit failure on the job
             storagePath: effectivePath,
             contentUnits: bulkUnits,
           }),
