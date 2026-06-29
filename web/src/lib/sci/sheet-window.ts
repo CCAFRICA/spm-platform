@@ -145,3 +145,12 @@ export const CLASSIFY_SAMPLE_WINDOW = 1_000; // classify only needs columns + a 
 // so the anchors commit single-batch on the proven path; only OOM-scale files (Casa Diaz/Robles
 // 86,608×87 = 7.53M, Sabor 263k×27 = 7.11M) window. Calc-neutral either way (byte-identical rows).
 export const CELL_CHUNK_THRESHOLD = 5_000_000;
+
+// HF-355 (I2 — hard size ceiling, Decision 158): the SINGLE source of truth for "oversized". An
+// ingestion path must NEVER fully materialize a sheet whose cell count exceeds this — it routes to the
+// bounded windowed/streamed path (which never materializes the whole file) or refuses. Pure synchronous
+// arithmetic against the one constant above — zero LLM, zero domain/tenant/role literals (Korean Test),
+// a mechanism that applies to every file by the same rule (SR-2), never a per-file/per-tenant case.
+export function exceedsCellCeiling(rows: number, columns: number): boolean {
+  return rows * columns > CELL_CHUNK_THRESHOLD;
+}
