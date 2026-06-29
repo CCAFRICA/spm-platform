@@ -14,6 +14,8 @@
 // JSON string and casts ::jsonb. EVERY field is quoted — unconditional quoting is the simplest format
 // the FDW CSV reader and Postgres both parse unambiguously (no delimiter/embedded-newline ambiguity).
 
+import { Readable } from 'node:stream';
+
 // A committed_data row as built by commitContentUnit.buildCommittedRow.
 export interface CommittedRow {
   tenant_id: string;
@@ -51,6 +53,49 @@ export function committedRowsToCsv(rows: CommittedRow[]): string {
   let out = '';
   for (const r of rows) out += committedRowToCsvLine(r) + '\n';
   return out;
+}
+
+// HF-358 (Part A) — the full CSV document bytes for `rowCount` rows, exactly as the streaming writer
+// produces them: `CSV_HEADER + '\n'` then `line + '\n'` per row. This is the SAME byte sequence the
+// pre-HF-358 materialize-then-upload path produced (`CSV_HEADER + '\n' + lines.join('\n') + '\n'`) — the
+// canonical reference for the PG-A2 byte-identity proof.
+export function committedCsvDocument(rowCount: number, buildLine: (i: number) => string): string {
+  let out = CSV_HEADER + '\n';
+  for (let i = 0; i < rowCount; i++) out += buildLine(i) + '\n';
+  return out;
+}
+
+/**
+ * HF-358 (Part A, OOM fix) — a pull-based Readable that serializes `rowCount` rows to the committed_data
+ * CSV in BOUNDED slices, so peak heap is one slice — never the whole window as array + joined string +
+ * Buffer simultaneously (DIAG-078 defect #1). `buildLine(i)` returns the RFC-4180 line for row i (the
+ * caller wires it to `committedRowToCsvLine(buildCommittedRow(rows[i], i))`); it is invoked exactly once
+ * per row, in ascending order, so any per-row accumulation in the caller (e.g. source-date min/max) stays
+ * identical to the prior in-order loop. Output bytes are byte-identical to `committedCsvDocument` above.
+ * A throw in `buildLine` destroys the stream so the upload rejects (→ the caller's failCommit), never a
+ * silent truncation.
+ */
+export function committedRowsCsvStream(
+  rowCount: number,
+  buildLine: (i: number) => string,
+  sliceRows = 1000,
+): Readable {
+  let i = 0;
+  let headerSent = false;
+  return new Readable({
+    read() {
+      try {
+        if (!headerSent) { headerSent = true; this.push(CSV_HEADER + '\n'); return; }
+        if (i >= rowCount) { this.push(null); return; }
+        const end = Math.min(i + sliceRows, rowCount);
+        let chunk = '';
+        for (; i < end; i++) chunk += buildLine(i) + '\n';
+        this.push(chunk);
+      } catch (err) {
+        this.destroy(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  });
 }
 
 // ── Round-trip parser (used ONLY by the byte-identity proof — the DB does the real parse via the FDW) ──

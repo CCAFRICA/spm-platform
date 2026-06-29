@@ -50,7 +50,7 @@ import { extractFieldIdentitiesFromTrace } from './header-comprehension';
 import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 // HF-356 (RC1): the committed_data WRITE moves to a CSV-to-Storage + S3-FDW bulk load. This serializes
 // the SAME row objects buildCommittedRow produces (byte-identical content); the DB loads them.
-import { committedRowToCsvLine, CSV_HEADER, type CommittedRow } from './committed-row-csv';
+import { committedRowToCsvLine, committedRowsCsvStream, type CommittedRow } from './committed-row-csv';
 // OB-249 — Remediation Stage (the mandatory gate before committed_data, I7). Deterministic
 // CONSTRUCT only here; the LLM express ran at proposal time (process-job).
 import {
@@ -635,12 +635,6 @@ export async function commitContentUnit(
   // OBJECTS are unchanged — only the transport differs (PG-1 proves the CSV round-trip). For a windowed
   // large file this runs once per bounded window (each its own batch, as before — windowed-commit.ts:9),
   // so peak heap stays one window (OB-251 SR-2 preserved); a small file runs it once over the whole unit.
-  const csvLines: string[] = new Array(rows.length);
-  for (let i = 0; i < rows.length; i++) {
-    // Build one row, serialize it, let the built object be collected — never hold all built rows at once.
-    csvLines[i] = committedRowToCsvLine(buildCommittedRow(rows[i], i) as unknown as CommittedRow);
-  }
-
   const csvPath = `${tenantId}/committed/${batchId}.csv`;
 
   // D16 unit-atomicity: a unit that cannot fully commit retains NOTHING. The bulk INSERT…SELECT is a
@@ -663,12 +657,20 @@ export async function commitContentUnit(
     return { batchId, totalInserted: 0, dataType, entityIdField, fieldIdentities, earliestDate, latestDate, dateCount, success: false, error: reason };
   };
 
-  // ONE CSV to Storage (header + one line per row). upsert so a retried batch overwrites cleanly. The
-  // bytes never touch the database connection — the DB reads them from Storage on the next call.
-  const csvBody = `${CSV_HEADER}\n${csvLines.length ? csvLines.join('\n') + '\n' : ''}`;
+  // ONE CSV to Storage (header + one line per row), STREAMED in bounded slices — peak heap is one slice,
+  // never the whole window as array + joined string + Buffer (HF-358 Part A, the OOM fix). buildLine
+  // builds + serializes one row at a time, in ascending order, so the source-date accumulators and the
+  // CSV bytes are identical to the prior materialize-then-upload path (PG-A2). storage-js streams a Node
+  // Readable (it sets duplex:'half' for a body with .pipe) so the bytes never fully reside in memory. The
+  // bytes never touch the database connection — the DB reads the file from Storage on the next call.
+  const csvStream = committedRowsCsvStream(
+    rows.length,
+    (i) => committedRowToCsvLine(buildCommittedRow(rows[i], i) as unknown as CommittedRow),
+  );
   const { error: uploadErr } = await supabase.storage
     .from('ingestion-raw')
-    .upload(csvPath, Buffer.from(csvBody, 'utf8'), { contentType: 'text/csv', upsert: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .upload(csvPath, csvStream as any, { contentType: 'text/csv', upsert: true, duplex: 'half' } as any);
   if (uploadErr) return await failCommit(`commit CSV upload failed for "${tabName}": ${uploadErr.message}`);
 
   // ONE bulk load — the DB reads the CSV from Storage via the FDW and inserts under p_tenant_id (I4: the
