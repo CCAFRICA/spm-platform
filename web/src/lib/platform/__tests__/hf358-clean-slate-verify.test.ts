@@ -9,16 +9,17 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { verifyCleanSlate, CLEAN_SLATE_CATEGORIES } from '../tenant-deletion';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Mock the count read verifyCleanSlate performs: from(table).select('*',{count,head}).eq('tenant_id', id).
-function mockCountClient(counts: Record<string, number | { error: string } | 'missing'>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { from(table: string) { return { select() { return { eq() {
+function mockCountClient(counts: Record<string, number | { error: string } | 'missing'>): SupabaseClient {
+  const client = { from(table: string) { return { select() { return { eq() {
     const v = counts[table];
     if (v === 'missing') return Promise.resolve({ count: null, error: { code: '42P01', message: 'undefined_table' } });
     if (typeof v === 'object') return Promise.resolve({ count: null, error: { code: 'XX000', message: v.error } });
     return Promise.resolve({ count: v ?? 0, error: null });
-  } }; } }; } } as any;
+  } }; } }; } };
+  return client as unknown as SupabaseClient;
 }
 
 const dataTables = CLEAN_SLATE_CATEGORIES.find(c => c.key === 'data')!.tables;

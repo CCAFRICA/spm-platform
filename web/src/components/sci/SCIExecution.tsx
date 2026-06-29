@@ -416,7 +416,7 @@ export function SCIExecution({
     }
     // Attempts exhausted without a definitive disposition.
     return finalize({ settled: false, unitIds: groupUnitIds, errorClass: classifyImportError({ rawError: lastErrText, stalled: true }), technicalDetail: lastErrText ?? undefined });
-  }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, settleFromSurface]);
+  }, [confirmedUnits, proposal.proposalId, tenantId, storagePath, asyncSessionId, settleFromSurface]);
 
   // Legacy execution — used for plan units (document-based) and fallback when no storagePath
   const executeLegacyUnit = useCallback(async (unit: ExecutionUnit) => {

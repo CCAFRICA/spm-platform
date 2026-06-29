@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordCommitFailureOnJob } from '../job-failure';
 import { reclaimPatch, RECLAIM_STAGE_TARGET } from '../reclaim-policy';
 
@@ -21,8 +22,7 @@ function mockClient(opts: { rows?: number; error?: string } = {}) {
     neq(c: string, v: unknown) { calls.neq.push([c, v]); return chain; },
     select() { return Promise.resolve(opts.error ? { data: null, error: { message: opts.error } } : { data: Array.from({ length: opts.rows ?? 1 }, (_, i) => ({ id: `j${i}` })), error: null }); },
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = { from(t: string) { calls.table = t; return chain; } } as any;
+  const client = { from(t: string) { calls.table = t; return chain; } } as unknown as SupabaseClient;
   return { client, calls };
 }
 
