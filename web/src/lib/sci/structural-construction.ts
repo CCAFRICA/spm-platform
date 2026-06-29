@@ -68,6 +68,11 @@ export interface ConstructOptions {
   /** XLSX merged-cell ranges (the authoritative carry-down source) — {s:{r,c}, e:{r,c}} 0-based. */
   mergedRanges?: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
   sheetName?: string;
+  /** Behavior-preservation parity (DD-7): fill EVERY recovered column with '' when the cell is empty,
+   *  exactly as `sheet_to_json(ws,{defval:''})` does. A CLEAN sheet (header at row 1, all columns named,
+   *  no sections/carry-down) then produces byte-identical records to the legacy keyed read — the
+   *  de-bander is the identity transform on a clean sheet (singular path, no regression). */
+  defvalEmpty?: boolean;
 }
 
 const SECTION = '__section';
@@ -129,11 +134,12 @@ function columnProfiles(grid: unknown[][], nCols: number): ColProfile[] {
     for (const row of candidate) { if (isNonEmpty(row[c])) { nonEmpty++; if (isNumeric(row[c])) numeric++; } }
     const numericRatio = nonEmpty > 0 ? numeric / nonEmpty : 0;
     let kind: ColumnKind = 'sparse';
-    // 'measure' requires real numeric SUPPORT (≥2 candidate rows carry a number). A single stray numeric
-    // in an otherwise-text label column (e.g. a subtotal's value landing in the leftmost label column)
-    // must NOT poison it to measure — that would suppress section/header detection on that column. A
-    // populated non-measure column is 'identity'; a barely-populated one stays 'sparse'.
-    if (populatedPerCol[c] >= activeThreshold) kind = numericRatio > 0.5 && numeric >= 2 ? 'measure' : 'identity';
+    // A column is 'measure' when its DATA cells are mostly numeric, else 'identity' (a barely-populated
+    // one stays 'sparse'). A label column that merely catches a stray numeric (e.g. a subtotal value) is
+    // NOT mis-driven by it, because rowStats counts toward measPop only a NUMERIC cell in a measure
+    // column — a text label sitting in a measure column contributes nothing, so section/header detection
+    // on that column is not suppressed (that is the load-bearing guard, not a numeric-support threshold).
+    if (populatedPerCol[c] >= activeThreshold) kind = numericRatio > 0.5 ? 'measure' : 'identity';
     profiles.push({ kind, numericRatio, populatedRows: populatedPerCol[c] });
   }
   return profiles;
@@ -248,6 +254,22 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
   //    The column name is the column-wise merge of THAT band only — NOT a union of every header-ish row
   //    on the sheet (which over-concatenates banner/section text). Per-section repeated header bands are
   //    handled as repeated headers (sidecar), not merged into the name. ──
+  const firstDataIdx = classes.findIndex((c, i) => c === 'DATA' && i !== bannerIdx);
+  // canonical header band = ALL header rows above the first data row (excluding the title banner). The
+  // section labels interleaved between them (FORANEAS's per-branch labels) are NOT headers and are
+  // skipped; per-section REPEATED header bands sit AFTER the first data row → sidecar, never merged into
+  // the names. A column with no header cell anywhere still gets a positional name (never __EMPTY).
+  let canonicalBand: number[] = classes.map((c, i) => (c === 'HEADER' ? i : -1)).filter((i) => i >= 0 && (firstDataIdx < 0 || i < firstDataIdx) && i !== bannerIdx);
+  if (canonicalBand.length === 0 && firstDataIdx > 0) {
+    // No HEADER was classified above the first data row — e.g. a NARROW header (a row whose only ≤2
+    // populated cells made it look like a section label). The row(s) directly above the data ARE the
+    // header: promote the contiguous non-blank run to HEADER (so they are not lifted as a data section).
+    let i = firstDataIdx - 1;
+    while (i >= 0 && classes[i] === 'BLANK') i--;
+    const promoted: number[] = [];
+    while (i >= 0 && classes[i] !== 'BLANK' && classes[i] !== 'DATA' && i !== bannerIdx) { classes[i] = 'HEADER'; promoted.unshift(i); i--; }
+    canonicalBand = promoted;
+  }
   const headerRowIdx: number[] = classes.map((c, i) => (c === 'HEADER' ? i : -1)).filter((i) => i >= 0);
   const bands: number[][] = [];
   for (const i of headerRowIdx) {
@@ -255,12 +277,6 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
     if (last && i === last[last.length - 1] + 1) last.push(i);
     else bands.push([i]);
   }
-  const firstDataIdx = classes.findIndex((c, i) => c === 'DATA' && i !== bannerIdx);
-  // canonical header band = ALL header rows above the first data row (excluding the title banner). The
-  // section labels interleaved between them (FORANEAS's per-branch labels) are NOT headers and are
-  // skipped; per-section REPEATED header bands sit AFTER the first data row → sidecar, never merged into
-  // the names. A column with no header cell anywhere still gets a positional name (never __EMPTY).
-  let canonicalBand: number[] = headerRowIdx.filter((i) => (firstDataIdx < 0 || i < firstDataIdx) && i !== bannerIdx);
   if (canonicalBand.length === 0 && bands.length) canonicalBand = bands[0].filter((i) => i !== bannerIdx);
 
   // name per column = column-wise merge of the CANONICAL band cells only
@@ -302,9 +318,8 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
   // narrative runs → a documentation unit (collected after the main walk)
   const narrativeRows: number[] = [];
 
-  // forward state for section + carry-down (full-grid only — D2)
+  // forward state for section lift (full-grid only — D2)
   let currentSection: string | null = null;
-  const lastIdentity: Record<number, unknown> = {}; // raw col index → last seen identity value (for carry-down)
 
   const headerSet = new Set(headerRowIdx);
   const canonicalSet = new Set(canonicalBand);
@@ -341,17 +356,18 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
       if (headerSet.has(i)) break;
       let v: unknown = rows[i][c];
       const prof = profiles[c];
-      if (prof?.kind === 'identity') {
-        if (!isNonEmpty(v) && opts.fullGrid) {
-          // carry-down (2d): authoritative merged range first, else forward-fill within the run.
-          const mv = mergeFill.get(`${i},${c}`);
-          if (isNonEmpty(mv)) { v = mv; carried[rawNames[c]] = mv; }
-          else if (isNonEmpty(lastIdentity[c])) { v = lastIdentity[c]; carried[rawNames[c]] = lastIdentity[c]; }
-        }
-        if (isNonEmpty(v)) lastIdentity[c] = v;
+      // carry-down (2d): AUTHORITATIVE merged ranges ONLY — a merged cell genuinely spans its rows. NO
+      // forward-fill heuristic: guessing a blank identity cell from the row above FABRICATES data and
+      // breaks behavior-preservation on a clean sheet (the __section lift already carries the branch /
+      // section context onto every record without inventing cell values).
+      if (prof?.kind === 'identity' && !isNonEmpty(v) && opts.fullGrid) {
+        const mv = mergeFill.get(`${i},${c}`);
+        if (isNonEmpty(mv)) { v = mv; carried[rawNames[c]] = mv; }
       }
-      // measure columns are NEVER forward-filled (only identity carry-down)
       if (isNonEmpty(v)) rec[rawNames[c]] = v;
+      // DD-7 parity: a PRESENT-but-blank cell (e.g. a space-padded fixed-width field) is preserved RAW
+      // exactly as sheet_to_json(defval:'') would; only an ABSENT cell (null) becomes '' (the defval).
+      else if (opts.defvalEmpty) rec[rawNames[c]] = rows[i][c] == null ? '' : rows[i][c];
       if (isMultiValue(rows[i][c])) observations.push({ kind: 'structure:multi_value_cell', detail: { row: i, column: rawNames[c], value: String(rows[i][c]) } });
     }
     if (opts.fullGrid && anySection) rec[SECTION] = currentSection;

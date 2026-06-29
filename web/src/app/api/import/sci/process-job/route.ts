@@ -40,6 +40,8 @@ import { computeFingerprintHashSync } from '@/lib/sci/structural-fingerprint';
 import { openSheetWindow, exceedsCellCeiling, CHUNK_ROW_SIZE } from '@/lib/sci/sheet-window';
 // OB-251 HOTFIX: an OOM-scale file is classified by STREAMING (jszip) — never XLSX.read.
 import { isLargeByBytes, streamSheetMeta, listSheetNames } from '@/lib/sci/sheet-stream';
+import { debandWorksheet, emitStructuralObservations } from '@/lib/sci/deband-sheet';
+import type { ConstructionResult } from '@/lib/sci/structural-construction';
 import type { ContentProfile } from '@/lib/sci/sci-types';
 // HF-356 (RC2): the worker is fired BOTH by the client (with the user's cookies) AND by the cron
 // dispatcher (server-side, NO cookies). Accept the trusted internal/cron principal in addition to a user.
@@ -123,6 +125,9 @@ export async function POST(req: NextRequest) {
       totalRowCount: number;
     }> = [];
     let anySampled = false;
+    // OB-254: per-sheet Structural Construction result (sidecar, observations, transform map) for the
+    // sheets that materialized a full grid — used to emit structural signals (§3.3a) after fingerprinting.
+    const debandResults = new Map<string, ConstructionResult>();
 
     // OB-251 HOTFIX: a file big enough that XLSX.read would OOM is CLASSIFIED by STREAMING each sheet's
     // header + bounded sample + true row count (from <dimension>) — the workbook is NEVER materialized.
@@ -155,9 +160,12 @@ export async function POST(req: NextRequest) {
         } else {
           // HF-355 I2 (defense-in-depth): full sheet_to_json only for a non-oversized sheet.
           if (exceedsCellCeiling(r, c)) throw new Error(`HF-355 size ceiling: ${sheetName} ${r}×${c} exceeds the cell ceiling and must be windowed.`);
-          const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-          const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-          sheets.push({ sheetName, columns, rows: jsonData, totalRowCount: jsonData.length });
+          // OB-254 (D1): de-band at the parse→sheets boundary — recover the REAL header (no __EMPTY)
+          // BEFORE the fingerprint, lift sections to __section, remove banner/repeated-header/subtotal to
+          // a sidecar, capture narrative. A clean sheet is the byte-identical degenerate output (singular).
+          const deband = debandWorksheet(XLSX, ws, sheetName);
+          sheets.push({ sheetName, columns: deband.columns, rows: deband.rows, totalRowCount: deband.rows.length });
+          debandResults.set(sheetName, deband.result);
         }
       }
     }
@@ -239,6 +247,20 @@ export async function POST(req: NextRequest) {
       profileMap.set(sheet.sheetName, profile);
       sheetSampleRowsBySheet.set(sheet.sheetName, sampleRows);
       fileSheets.push({ sourceFile: fileName, sheetName: sheet.sheetName });
+    }
+
+    // OB-254 §3.3a: emit the de-bander's structural observations into `classification_signals` (the
+    // single signal surface — G7). Marked `decision_source='structural_construction'`. Best-effort.
+    for (const sheet of sheets) {
+      const dr = debandResults.get(sheet.sheetName);
+      if (!dr) continue;
+      const fpHash = sheetFlywheelResults.get(sheet.sheetName)?.fingerprintHash;
+      await emitStructuralObservations(
+        dr.observations,
+        { tenantId, sourceFileName: fileName, sheetName: sheet.sheetName, fingerprint: fpHash ? { hash: fpHash } : null },
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      );
     }
 
     // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
