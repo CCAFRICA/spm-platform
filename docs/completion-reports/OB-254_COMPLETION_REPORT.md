@@ -129,7 +129,7 @@ Unit tests: `src/lib/sci/__tests__/structural-construction.test.ts` (5/5 — ide
 - **Oversized sheets** (> OB-251 cell ceiling / > 20 MB) retain the existing windowed/stream header-keying (OOM defense untouched). Extending header-recovery into those streaming readers (D2's universal-sample header recovery) is a bounded follow-up that must not regress OB-251's peak-heap bound; it is flagged, not silently skipped.
 
 ## Status
-Phases 1–5 complete; EPG-1..EPG-5 all green; PR opened against `main`. Merge + migration (none required — no new table; `classification_signals` columns are existing) + live browser verification are architect-only (SR-44).
+Phases 1–5 complete; EPG-1..EPG-5 all green. **PR #629** opened against `main` (implementation @ `ff03c8cb`). Merge + migration (none required — no new table; `classification_signals` columns are existing) + live browser verification are architect-only (SR-44).
 
 ARTIFACT SYNC (deltas; architect applies):
 ```
