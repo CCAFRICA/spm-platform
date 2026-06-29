@@ -626,7 +626,11 @@ export async function POST(req: NextRequest) {
       // on import because two CUs map to the same sheet/committed_data rows.
       const fileContentUnits = buildProposalFromState(state, fileSheets)
         .filter(cu => {
-          if (cu.contentUnitId.includes('::split')) {
+          // HF-106: one sheet = one committed_data writer — drop a ::split CU that would write
+          // committed_data (two writers collide on the same (tenant,batch,sheet,row)). OB-255 scoping:
+          // a `plan` ::split writes rule_sets via the plan pipeline, NOT committed_data — the collision
+          // hazard provably cannot occur — so KEEP it (the dual-natured sheet yields entities AND a plan).
+          if (cu.contentUnitId.includes('::split') && cu.classification !== 'plan') {
             console.log(`[SCI-DEDUP] Removed split duplicate for ${cu.tabName} (${cu.classification})`);
             return false;
           }

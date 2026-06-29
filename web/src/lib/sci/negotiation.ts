@@ -45,6 +45,14 @@ function natureIsReferenceKey(interp: HeaderInterpretation): boolean {
 function natureIsAttribute(interp: HeaderInterpretation): boolean {
   return /\b(attribute|categor|property|tag|flag|status|type|class|grouping|atributo)\b/i.test(natureNorm(interp));
 }
+// OB-255 — A plan-rule nature: the LLM characterized this column as a COMMISSION-RULE PARAMETER — a
+// rate, a commission/payout base, a calculation formula, a payment policy, a tier/bracket, or a pay
+// cadence. Reads the model's free-form characterization (its own words, multilingual), exactly as the
+// other readers do — NOT the source-data tokens (Korean Test: the gate is the LLM's semantic OUTPUT,
+// which it renders in natural language; the same basis on which natureIsMeasure matches "monto"/"importe").
+function natureIsPlanRule(interp: HeaderInterpretation): boolean {
+  return /\b(rate|percentage|commission|payout|formula|policy|tier|bracket|cadence|pay[_ ]?period|comisi[oó]n|tasa|porcentaje|pol[ií]tica|f[oó]rmula)\b/i.test(natureNorm(interp));
+}
 // HC is "silent" when there is no interpretation, or its words convey no recognizable nature.
 function natureIsSilent(interp?: HeaderInterpretation): boolean {
   if (!interp) return true;
@@ -54,7 +62,8 @@ function natureIsSilent(interp?: HeaderInterpretation): boolean {
     natureIsName(interp) ||
     natureIsIdentifier(interp) ||
     natureIsReferenceKey(interp) ||
-    natureIsAttribute(interp)
+    natureIsAttribute(interp) ||
+    natureIsPlanRule(interp)
   );
 }
 
@@ -97,6 +106,15 @@ const FIELD_AFFINITY_RULES: HCFieldAffinityRule[] = [
   {
     test: (_f, hc) => !!hc && natureIsReferenceKey(hc),
     affinities: { reference: 0.90, entity: 0.20, transaction: 0.10, target: 0.10, plan: 0.05 },
+  },
+  // OB-255 — Plan-rule NATURE → plan. A column the LLM characterizes as a commission rate / base /
+  // formula / policy / cadence is a PLAN PARAMETER, not an entity attribute or a transaction measure.
+  // Placed before the measure rule so "officially authorized commission percentage rate" (which also
+  // reads as a measure) resolves to plan. This is the recognition→plan link (Decision 158: the LLM
+  // recognized the column is a commission rule; this routes that recognition to the plan claim).
+  {
+    test: (_f, hc) => !!hc && natureIsPlanRule(hc),
+    affinities: { plan: 0.85, target: 0.30, transaction: 0.20, entity: 0.15, reference: 0.10 },
   },
   // Rate/percentage → plan, then target (dataType-based)
   {
