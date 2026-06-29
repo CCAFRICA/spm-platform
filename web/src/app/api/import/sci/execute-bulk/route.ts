@@ -40,6 +40,7 @@ import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commi
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
 import { isLargeByBytes } from '@/lib/sci/sheet-stream';
+import { debandWorksheet } from '@/lib/sci/deband-sheet';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
 import { computeEnrichmentMerge, type TemporalAttr } from '@/lib/sci/entity-enrichment';
@@ -283,10 +284,12 @@ export async function POST(req: NextRequest) {
             if (exceedsCellCeiling(approxRows, approxCols)) {
               throw new Error(`HF-355 size ceiling: ${fileName}/${sheetName} ${approxRows}×${approxCols} exceeds the cell ceiling and must be windowed, never full-materialized.`);
             }
-            // Non-oversized sheet — EXACT current path (byte-identical for every HALT-CALC anchor).
-            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-            const columns = jsonData.length > 0 ? Object.keys(jsonData[0]) : [];
-            sheetDataMap.set(sheetName, { rows: jsonData, columns });
+            // OB-254 (D1/D3): de-band through the SAME helper classify used (deterministic), so a
+            // companion-MISS re-parse commits exactly the rows classify saw — never re-derives a
+            // different de-band. A clean sheet is byte-identical (defvalEmpty parity) → HALT-CALC anchors
+            // unchanged. Companion-HIT (the usual path) already APPLIES the de-banded rows process-job wrote.
+            const deband = debandWorksheet(XLSX, ws, sheetName);
+            sheetDataMap.set(sheetName, { rows: deband.rows, columns: deband.columns });
           }
         }
         // HF-285-D write-through: a cache MISS on the spreadsheet path (e.g. the synchronous import
