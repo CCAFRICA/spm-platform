@@ -22,6 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import type { ContentUnitExecution, ContentUnitResult } from './sci-types';
+import { debandWorksheet } from './deband-sheet';
 // HF-259 Q3/Q6: idempotency (single-flight + fingerprint reuse) + lifecycle audit. Degrade-safe.
 import {
   computePlanContentHash,
@@ -120,40 +121,53 @@ export async function executeBatchedPlanInterpretation(
     const XLSX = await import('xlsx');
     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     const planSheetNames = new Set(planUnits.map(u => u.tabName).filter(Boolean));
+    // OB-255 / OB-254: DE-BAND each sheet (recover the real header, lift __section, drop banner / repeated
+    // sub-headers / subtotal junk) BEFORE flattening to the LLM. Without this the model reads the raw
+    // banded grid (__EMPTY headers, title banners, interleaved per-branch headers) and cannot recognize
+    // the commission rules. Reuses the merged OB-254 de-bander — no new logic, Korean-clean.
+    // A plan is a RULE, not a data dump: the interpreter needs the column STRUCTURE + a representative
+    // sample of rows to recognize the commission rule (the per-row rates are DATA, bound at calc time by
+    // convergence — not plan constants). Sending every row makes the model enumerate per-row and overrun
+    // the skeleton token budget (the truncated-JSON failure). Cap to a representative sample per sheet,
+    // covering distinct __section groups, and state the true total so the model generalizes.
+    const PLAN_SAMPLE_ROWS = 12;
+    const flattenDebanded = (sheetName: string): string[] => {
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) return [];
+      const db = debandWorksheet(XLSX, worksheet, sheetName);
+      if (db.rows.length === 0) return [];
+      // representative sample: spread across __section groups if present, else the head
+      const sectionCol = db.columns.includes('__section') ? '__section' : null;
+      let sample = db.rows;
+      if (db.rows.length > PLAN_SAMPLE_ROWS) {
+        if (sectionCol) {
+          const bySection = new Map<string, Record<string, unknown>[]>();
+          for (const r of db.rows) { const k = String(r[sectionCol] ?? ''); if (!bySection.has(k)) bySection.set(k, []); bySection.get(k)!.push(r); }
+          const perSection = Math.max(1, Math.floor(PLAN_SAMPLE_ROWS / bySection.size));
+          sample = Array.from(bySection.values()).flatMap(rows => rows.slice(0, perSection)).slice(0, PLAN_SAMPLE_ROWS);
+        } else {
+          sample = db.rows.slice(0, PLAN_SAMPLE_ROWS);
+        }
+      }
+      const out: string[] = [`=== Sheet: ${sheetName} (${db.rows.length} rows total; ${sample.length} shown) ===`, db.columns.join('\t')];
+      for (const rec of sample) {
+        const values = db.columns.map(c => String(rec[c] ?? '').trim());
+        if (values.some(v => v !== '')) out.push(values.join('\t'));
+      }
+      out.push('');
+      return out;
+    };
     const sheetTexts: string[] = [];
     for (const sheetName of workbook.SheetNames) {
       if (planSheetNames.size > 0 && !planSheetNames.has(sheetName)) continue;
-      const worksheet = workbook.Sheets[sheetName];
-      if (!worksheet) continue;
-      const rows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-      if (rows.length === 0) continue;
-      sheetTexts.push(`=== Sheet: ${sheetName} ===`);
-      for (const row of rows) {
-        const values = (row as unknown[]).map(v => String(v ?? '').trim());
-        if (values.some(v => v !== '')) {
-          sheetTexts.push(values.join('\t'));
-        }
-      }
-      sheetTexts.push('');
+      sheetTexts.push(...flattenDebanded(sheetName));
     }
     if (sheetTexts.length === 0) {
-      for (const sheetName of workbook.SheetNames) {
-        const worksheet = workbook.Sheets[sheetName];
-        if (!worksheet) continue;
-        const rows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        if (rows.length === 0) continue;
-        sheetTexts.push(`=== Sheet: ${sheetName} ===`);
-        for (const row of rows) {
-          const values = (row as unknown[]).map(v => String(v ?? '').trim());
-          if (values.some(v => v !== '')) {
-            sheetTexts.push(values.join('\t'));
-          }
-        }
-        sheetTexts.push('');
-      }
+      // no named plan sheet matched → de-band every sheet (Carry Everything safety net)
+      for (const sheetName of workbook.SheetNames) sheetTexts.push(...flattenDebanded(sheetName));
     }
     documentContent = sheetTexts.join('\n');
-    console.log(`[SCI plan-interp] XLSX text extracted: ${documentContent.length} chars from ${planSheetNames.size} sheets`);
+    console.log(`[SCI plan-interp] XLSX de-banded text extracted: ${documentContent.length} chars from ${planSheetNames.size || workbook.SheetNames.length} sheets`);
   } else if (ext === 'pptx' || ext === 'docx') {
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(fileBuffer);
