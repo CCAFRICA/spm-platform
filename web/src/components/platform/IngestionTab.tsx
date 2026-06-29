@@ -7,7 +7,7 @@
  * quarantine rate, per-tenant breakdown, and recent event feed.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Upload,
@@ -18,8 +18,10 @@ import {
   Brain,
   Shield,
   Loader2,
+  Clock,
+  Ban,
 } from 'lucide-react';
-import type { IngestionMetricsData } from '@/lib/data/platform-queries';
+import type { IngestionMetricsData, ProcessingJobOps } from '@/lib/data/platform-queries';
 
 /* ──── STYLES ──── */
 const LABEL_STYLE: React.CSSProperties = {
@@ -49,20 +51,47 @@ function pct(n: number): string {
 export function IngestionTab() {
   const [data, setData] = useState<IngestionMetricsData | null>(null);
   const [loading, setLoading] = useState(true);
+  // HF-356 (RC4/I9): the per-job cancel-in-flight id (for the button spinner) + any cancel error.
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch('/api/platform/observatory?tab=ingestion');
-        if (res.ok) setData(await res.json());
-      } catch (err) {
-        console.error('[IngestionTab] fetch error:', err);
-      } finally {
-        setLoading(false);
-      }
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/platform/observatory?tab=ingestion');
+      if (res.ok) setData(await res.json());
+    } catch (err) {
+      console.error('[IngestionTab] fetch error:', err);
+    } finally {
+      setLoading(false);
     }
-    load();
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // HF-356 (RC4/I9) — THE KILL SWITCH. Cancel a runaway async-ingestion job, then refresh the queue.
+  const cancelJob = useCallback(async (jobId: string) => {
+    setCancelError(null);
+    setCancellingId(jobId);
+    try {
+      const res = await fetch('/api/platform/observatory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel-job', jobId }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({})) as { error?: string };
+        setCancelError(e.error || `Cancel failed (HTTP ${res.status}).`);
+      } else {
+        const { cancelled } = await res.json() as { cancelled: boolean };
+        if (!cancelled) setCancelError('That job had already finished — nothing to cancel.');
+      }
+      await load(); // reflect the new state either way
+    } catch {
+      setCancelError('Cancel could not reach the server.');
+    } finally {
+      setCancellingId(null);
+    }
+  }, [load]);
 
   if (loading) {
     return (
@@ -107,6 +136,15 @@ export function IngestionTab() {
         <StatusCard icon={AlertTriangle} label="Quarantined" count={data.quarantinedCount} total={data.totalEvents} color="amber" />
         <StatusCard icon={XCircle} label="Rejected" count={data.rejectedCount} total={data.totalEvents} color="red" />
       </div>
+
+      {/* HF-356 (RC4/I9): Async Worker Queue + kill switch — operator visibility into running imports. */}
+      <WorkerQueuePanel
+        jobs={data.processingJobs}
+        cancellingId={cancellingId}
+        cancelError={cancelError}
+        onCancel={cancelJob}
+        onRefresh={load}
+      />
 
       {/* Per-Tenant Breakdown */}
       {data.perTenant.length > 0 && (
@@ -222,6 +260,104 @@ function MetricCard({ icon: Icon, label, value, subtitle, color }: {
       </div>
       <div style={{ color: 'var(--strag-s0)', fontSize: '28px', fontWeight: 700 }}>{value}</div>
       <div style={{ color: 'var(--strag-s4)', fontSize: '13px', marginTop: '2px' }}>{subtitle}</div>
+    </div>
+  );
+}
+
+// HF-356 (RC4/I9) — Async Worker Queue panel + kill switch. Cross-tenant visibility into the
+// processing_jobs the cron/worker advance, with a per-active-job Cancel (platform-admin only). A runaway
+// import — the 86K incident — is now both VISIBLE here and stoppable, instead of silent and unkillable.
+const JOB_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
+  pending:     { color: '#a1a1aa', bg: 'rgba(63, 63, 70, 0.3)' },
+  classifying: { color: '#60a5fa', bg: 'rgba(59, 130, 246, 0.15)' },
+  classified:  { color: '#34d399', bg: 'rgba(16, 185, 129, 0.15)' },
+  committing:  { color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.15)' },
+  committed:   { color: '#34d399', bg: 'rgba(16, 185, 129, 0.15)' },
+  failed:      { color: '#f87171', bg: 'rgba(239, 68, 68, 0.15)' },
+};
+
+function WorkerQueuePanel({ jobs, cancellingId, cancelError, onCancel, onRefresh }: {
+  jobs: ProcessingJobOps[];
+  cancellingId: string | null;
+  cancelError: string | null;
+  onCancel: (jobId: string) => void;
+  onRefresh: () => void;
+}) {
+  const activeCount = jobs.filter(j => j.isActive).length;
+  return (
+    <div className="rounded-2xl" style={{ background: 'rgba(24, 24, 27, 0.8)', border: '1px solid rgba(39, 39, 42, 0.6)', padding: '20px' }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: '12px' }}>
+        <h3 style={{ ...LABEL_STYLE, margin: 0 }} className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-violet-400" />
+          Async Worker Queue
+          <span style={{ color: 'var(--strag-s4)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+            · {activeCount} active / {jobs.length} recent
+          </span>
+        </h3>
+        <button
+          onClick={onRefresh}
+          style={{ color: 'var(--strag-s4)', fontSize: '13px', background: 'none', border: '1px solid rgba(63,63,70,0.5)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {cancelError && (
+        <div role="status" style={{ color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', marginBottom: '12px' }}>
+          {cancelError}
+        </div>
+      )}
+
+      {jobs.length === 0 ? (
+        <p style={{ color: 'var(--strag-s4)', fontSize: '14px' }}>No worker jobs in the recent window.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {jobs.map(j => {
+            const s = JOB_STATUS_STYLE[j.status] ?? JOB_STATUS_STYLE.pending;
+            const isCancelling = cancellingId === j.id;
+            return (
+              <div
+                key={j.id}
+                className="flex items-center gap-3"
+                style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid rgba(39, 39, 42, 0.4)', background: 'rgba(24, 24, 27, 0.4)' }}
+              >
+                <span style={{ color: 'var(--strag-s2)', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {j.fileName || 'Unknown file'}
+                </span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '13px', flexShrink: 0 }}>{j.tenantName}</span>
+                {j.retryCount > 0 && (
+                  <span style={{ color: 'var(--strag-s4)', fontSize: '12px', flexShrink: 0 }} title="retry count">↺ {j.retryCount}</span>
+                )}
+                <span style={{ color: s.color, background: s.bg, fontSize: '13px', padding: '2px 8px', borderRadius: '4px', fontWeight: 500, flexShrink: 0 }}>
+                  {j.status}
+                </span>
+                <span style={{ color: 'var(--strag-s4)', fontSize: '12px', flexShrink: 0, minWidth: '150px', textAlign: 'right' }}>
+                  {new Date(j.startedAt ?? j.createdAt).toLocaleString()}
+                </span>
+                {j.isActive ? (
+                  <button
+                    onClick={() => onCancel(j.id)}
+                    disabled={isCancelling}
+                    title="Mark this job failed and stop the cron from re-dispatching or requeuing it"
+                    className="flex items-center gap-1.5"
+                    style={{ color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', padding: '4px 10px', fontSize: '13px', fontWeight: 500, cursor: isCancelling ? 'default' : 'pointer', opacity: isCancelling ? 0.6 : 1, flexShrink: 0 }}
+                  >
+                    {isCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+                    {isCancelling ? 'Cancelling…' : 'Cancel'}
+                  </button>
+                ) : (
+                  <span style={{ width: '84px', flexShrink: 0 }} aria-hidden />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p style={{ color: 'var(--strag-s4)', fontSize: '12px', marginTop: '12px' }}>
+        Cancel marks the job failed and pushes it past the retry ceiling so the dispatcher never requeues or
+        reclaims it. A worker already executing finishes its current Lambda (serverless can&apos;t be force-aborted),
+        but it is never re-dispatched.
+      </p>
     </div>
   );
 }
