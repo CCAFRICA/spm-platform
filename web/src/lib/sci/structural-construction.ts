@@ -129,7 +129,11 @@ function columnProfiles(grid: unknown[][], nCols: number): ColProfile[] {
     for (const row of candidate) { if (isNonEmpty(row[c])) { nonEmpty++; if (isNumeric(row[c])) numeric++; } }
     const numericRatio = nonEmpty > 0 ? numeric / nonEmpty : 0;
     let kind: ColumnKind = 'sparse';
-    if (populatedPerCol[c] >= activeThreshold) kind = numericRatio > 0.5 ? 'measure' : 'identity';
+    // 'measure' requires real numeric SUPPORT (≥2 candidate rows carry a number). A single stray numeric
+    // in an otherwise-text label column (e.g. a subtotal's value landing in the leftmost label column)
+    // must NOT poison it to measure — that would suppress section/header detection on that column. A
+    // populated non-measure column is 'identity'; a barely-populated one stays 'sparse'.
+    if (populatedPerCol[c] >= activeThreshold) kind = numericRatio > 0.5 && numeric >= 2 ? 'measure' : 'identity';
     profiles.push({ kind, numericRatio, populatedRows: populatedPerCol[c] });
   }
   return profiles;
@@ -148,7 +152,10 @@ function rowStats(row: unknown[], profiles: ColProfile[], nCols: number): RowSta
     const num = isNumeric(v);
     if (num) numCells++; else { textCells++; maxTextLen = Math.max(maxTextLen, textLen(v)); }
     if (profiles[c]?.kind === 'identity') identPop++;
-    else if (profiles[c]?.kind === 'measure') { measPop++; }
+    // measPop counts a real MEASURE VALUE — a NUMERIC cell in a measure column. A TEXT cell in a measure
+    // column (a header label like "% AUTORIZADO", or a section label that happens to sit in that column)
+    // is NOT a measure value and must not count — otherwise it suppresses header/section detection.
+    else if (profiles[c]?.kind === 'measure' && num) measPop++;
   }
   return { populated, identPop, measPop, numCells, maxTextLen, textCells };
 }
@@ -159,18 +166,24 @@ function classifyRow(row: unknown[], profiles: ColProfile[], nCols: number): Row
   const s = rowStats(row, profiles, nCols);
   if (s.populated === 0) return 'BLANK';
   const active = activeColCount(profiles);
+  const firstPop = row.find((c) => isNonEmpty(c));
+  const firstText = firstPop !== undefined && !isNumeric(firstPop);
 
   // SUBTOTAL: aggregate columns filled, identity columns empty (a summary line, no entity).
   if (s.identPop === 0 && s.measPop >= 1 && s.textCells === 0) return 'SUBTOTAL';
+  // SUBTOTAL (aggregate-with-label): a NARROW row that is mostly measure numbers with at most one text
+  // cell — a per-section "totals" line. Real records carry several descriptive text cells (policy /
+  // formula / observations); a totals line carries ≤1. Structural (cell counts), no word match.
+  if (s.measPop >= 1 && s.numCells >= 2 && s.textCells <= 1 && s.populated <= 4) return 'SUBTOTAL';
 
   // NARRATIVE: a single long sentence-like text cell, no measures, ≤1 identity cell.
   if (s.measPop === 0 && s.numCells === 0 && s.populated <= 2 && s.maxTextLen >= 30) return 'NARRATIVE';
 
-  // SECTION_LABEL: a NARROW text label (≤2 populated cells) with NO numbers and a short value. A header
-  // sub-row populates ≥3 aligned columns → it stays HEADER (below); a data row carries a number → DATA.
-  // So "no number + ≤2 cells + short" is a positional label (branch/section), not a record or a header
-  // sub-row. Pure structure (cell count + numeric presence + length), no word match.
-  if (s.populated <= 2 && s.numCells === 0 && s.maxTextLen < 40 && s.textCells >= 1) {
+  // SECTION_LABEL: a NARROW row (≤2 populated) whose FIRST populated cell is TEXT (a branch/section
+  // label) and which fills NO measure column. An incidental second cell (a date serial, or an authorizer
+  // name landing in an identity column) is allowed — it does not make the row a record. A header sub-row
+  // (≥3 populated, or a text-only row sitting above numeric data) is separated by the block-context pass.
+  if (s.populated <= 2 && s.measPop === 0 && firstText && s.maxTextLen >= 2) {
     return 'SECTION_LABEL';
   }
 
@@ -197,6 +210,37 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
   const profiles = columnProfiles(rows, nCols);
   const classes: RowClass[] = rows.map((r) => classifyRow(r, profiles, nCols));
 
+  // ── BLOCK-CONTEXT PASS (positional, structural — not word matching). A per-row rule cannot tell a
+  //    header sub-row (text-only, sits ABOVE numeric data) from a text-only DATA row (a sheet whose
+  //    records are textual). The discriminator is POSITION relative to numeric data: a text-only row that
+  //    PRECEDES a numeric data-anchor (a row carrying a real number in a measure column) within a short
+  //    window is a header sub-row → HEADER; a text-only row with no numeric data after it is genuine text
+  //    data (left as classified). Section labels (narrow, text-first) are already separated by classifyRow.
+  const isAnchor = (i: number): boolean => { const a = rowStats(rows[i], profiles, nCols); return a.numCells >= 1 && a.measPop >= 1; };
+  const anchorAhead = (i: number, fwd: number): boolean => {
+    let seen = 0;
+    for (let j = i + 1; j < rows.length && seen < fwd; j++) {
+      if (classes[j] === 'BLANK') continue;
+      if (isAnchor(j)) return true;
+      seen++;
+    }
+    return false;
+  };
+  for (let i = 0; i < rows.length; i++) {
+    if (classes[i] !== 'HEADER' && classes[i] !== 'DATA') continue;
+    const s = rowStats(rows[i], profiles, nCols);
+    if (s.numCells === 0 && s.populated >= 2 && anchorAhead(i, 3)) classes[i] = 'HEADER';
+  }
+
+  // title BANNER = the first non-blank row when it is a single populated cell (a sheet title above the
+  // header). Sidecar'd, never lifted as a data section and never merged into the header band.
+  const firstNonBlank = classes.findIndex((c) => c !== 'BLANK');
+  let bannerIdx = -1;
+  if (firstNonBlank >= 0) {
+    const bs = rowStats(rows[firstNonBlank], profiles, nCols);
+    if (bs.populated === 1 && bs.numCells === 0) bannerIdx = firstNonBlank;
+  }
+
   const observations: StructuralObservation[] = [];
 
   // ── header recovery (2a–2b): the CANONICAL header band is the contiguous run of HEADER rows
@@ -211,14 +255,13 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
     if (last && i === last[last.length - 1] + 1) last.push(i);
     else bands.push([i]);
   }
-  const firstDataIdx = classes.indexOf('DATA');
-  let canonicalBand: number[] = [];
-  if (firstDataIdx > 0) {
-    let i = firstDataIdx - 1;
-    while (i >= 0 && classes[i] === 'BLANK') i--;        // skip a blank gap directly above the data
-    while (i >= 0 && classes[i] === 'HEADER') { canonicalBand.unshift(i); i--; } // contiguous header band
-  }
-  if (canonicalBand.length === 0 && bands.length) canonicalBand = bands[0]; // fallback: first header band
+  const firstDataIdx = classes.findIndex((c, i) => c === 'DATA' && i !== bannerIdx);
+  // canonical header band = ALL header rows above the first data row (excluding the title banner). The
+  // section labels interleaved between them (FORANEAS's per-branch labels) are NOT headers and are
+  // skipped; per-section REPEATED header bands sit AFTER the first data row → sidecar, never merged into
+  // the names. A column with no header cell anywhere still gets a positional name (never __EMPTY).
+  let canonicalBand: number[] = headerRowIdx.filter((i) => (firstDataIdx < 0 || i < firstDataIdx) && i !== bannerIdx);
+  if (canonicalBand.length === 0 && bands.length) canonicalBand = bands[0].filter((i) => i !== bannerIdx);
 
   // name per column = column-wise merge of the CANONICAL band cells only
   const perColParts: string[][] = Array.from({ length: nCols }, () => []);
@@ -265,16 +308,6 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
 
   const headerSet = new Set(headerRowIdx);
   const canonicalSet = new Set(canonicalBand);
-  // The title BANNER is the first non-blank row when it is a single populated cell (a sheet title sitting
-  // above the header). It is sidecar'd and NEVER lifted as a data section (positional, structural — not a
-  // word match). All OTHER section labels DO lift, including FORANEAS's per-branch labels that precede
-  // their repeated header band.
-  const firstNonBlank = classes.findIndex((c) => c !== 'BLANK');
-  let bannerIdx = -1;
-  if (firstNonBlank >= 0) {
-    const s = rowStats(rows[firstNonBlank], profiles, nCols);
-    if (s.populated === 1 && s.numCells === 0) bannerIdx = firstNonBlank;
-  }
 
   for (let i = 0; i < rows.length; i++) {
     const cls = classes[i];
