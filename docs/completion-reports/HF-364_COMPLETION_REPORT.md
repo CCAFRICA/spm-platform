@@ -112,3 +112,92 @@ capture BCL `datos` (which carries a transaction signal `hasTemporal && hasEntit
 and a strong entity identifier → `matchesPlanSignature` is false). All non-load-bearing
 `REGISTRY` hits are logged as §6A residuals with architect disposition (the HALT-1 "split into
 a separate item" branch).
+
+---
+
+## Phase 1: Architecture Decision
+
+```
+ARCHITECTURE DECISION RECORD
+============================
+Problem: expression-classifier.ts uses an ordered if/else branch ladder
+         to derive classification from LLM-recognized signals. Branch
+         ordering is load-bearing. Branch 2.5 (entity) preempts Branch 3
+         (transaction) for per-period performance data with entity
+         identifiers, causing total calculation failure (DIAG-080).
+
+Option A: Add temporal/measure exclusion to Branch 2.5
+  - Scale test: YES
+  - AI-first: YES (reads LLM signals)
+  - Registry: STILL A REGISTRY — adds a 4th condition to Branch 2.5;
+    next edge case adds a 5th; accretion pattern continues
+  - Order-independent: NO — branch ordering still load-bearing
+
+Option B: Reorder branches (move 2.5 after 3/4)
+  - Scale test: YES
+  - AI-first: YES
+  - Registry: STILL A REGISTRY — ordering still determines outcome
+  - Order-independent: NO — different order = different results
+
+Option C: Replace branch ladder with structural-dominance derivation
+  - Scale test: YES — O(1) signal property composition
+  - AI-first: YES — reads LLM-recognized structural signals only
+  - Registry: NO — no enumerated branches, no position-dependent rules;
+    a flat facet list summed per nature, argmax over the sums
+  - Order-independent: YES — facet support is summed (commutative);
+    rearranging the facet list / score expressions = identical output
+  - Korean Test: YES — structural signals (LLM data_nature / identifies),
+    never a column name, never a language-specific pattern
+
+CHOSEN: Option C — structural-dominance derivation
+REJECTED: Option A — perpetuates registry accretion pattern
+REJECTED: Option B — ordering is still load-bearing
+```
+
+### Design committed under the Gate
+
+Each LLM-recognized structural signal contributes **weighted structural support** to the
+data natures it constitutes. The four natures' supports are summed independently from a flat
+facet list; the classification is the `argmax`. There is no ordered branch, no first-match,
+no per-branch confidence constant.
+
+**Signals** (booleans from the LLM expression, integers from the structural profile):
+`hasEntityScopeIdentifier`, `hasName`, `hasTxnScopeIdentifier`, `hasTemporal`, `hasMeasure`,
+`hasReferenceKey`, `identifierCount`, `measureCount`.
+
+**Facets** (each a self-contained predicate; weight = structural specificity on a 3-level
+scale: `3` = a defining/dominant structural mark, `2` = a compound structural pattern,
+`1` = a corroborating signal):
+
+| Nature | Facet | Weight | Structural claim |
+|--------|-------|--------|------------------|
+| transaction | `hasTxnScopeIdentifier` | 3 | a per-row event id — each row is a distinct event (**event-id dominance**) |
+| transaction | `hasMeasure && hasReferenceKey && id≥1` | 2 | measured rows carry a foreign key — events reference entities |
+| transaction | `hasMeasure && hasTemporal && hasReferenceKey` | 1 | per-period measured rows reference entities |
+| target | `hasMeasure && id≥1 && !txnId && !refKey` | 2 | measures attributed to an identifier, no event id, no FK — entity-level records |
+| target | `hasMeasure && hasTemporal && id≥1 && !txnId` | 1 | temporal + measures over an identifier — per-period performance (**temporal dominance**: not a roster) |
+| entity | `hasEntityScopeId && hasName && !hasTemporal && !txnId` | 3 | entity-scope id + name, no temporal, no event id — a roster/master (**entity remainder**) |
+| entity | `!hasMeasure` | 2 | no measures — the sheet defines entities rather than measuring them |
+| reference | `hasReferenceKey && id===0` | 3 | reference key with no identifier — a pure lookup (**reference isolation**) |
+| reference | `hasMeasure && id===0` | 1 | measures with no identifier — an aggregate parameter table |
+
+**Invariant satisfaction:**
+- *Temporal dominance* — `entity` has **no** facet that fires when `hasTemporal`; its only
+  measure-tolerant facet (weight 3) requires `!hasTemporal`. So `hasTemporal && hasMeasure`
+  can never make `entity` the argmax (its support stays 0 while target/transaction score).
+- *HF-351 F2 preservation* — the entity weight-3 facet fires on `hasEntityScopeId && hasName
+  && !hasTemporal && !txnId` regardless of measure/reference-key, and at weight 3 it beats the
+  transaction weight-2 FK facet. The roster is preserved by the **absence** of temporal, not
+  by ordering.
+- *No per-classification confidence constants* — `confidence` is derived from the score
+  margin: `top===0 ? 0.50 : 0.5 + 0.5·(top − second)/(top + second + 1)` where `top`/`second`
+  are the two highest nature supports. More decisive support ⇒ higher confidence. One global
+  formula, not a lookup of per-branch constants.
+- *Tiebreak* — `argmax` iterates a fixed structural-specificity precedence
+  `[transaction, target, entity, reference]` (most-specific structural claim first) and takes
+  strictly-greater, so the result is deterministic and independent of facet-list order. No
+  natural tie arises in any verified case (the precedence is a safety net).
+- *Empty input* — a sheet with zero recognized columns is a degenerate precondition (no
+  signals to derive from) → `reference@0.50` with a `defaulted` provenance string (byte-
+  identical to the prior code's first guard). This precondition is outside the dominance
+  derivation.
