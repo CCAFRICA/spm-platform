@@ -18,6 +18,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-361: finalize-sweep fires this cookielessly
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
@@ -27,10 +28,17 @@ import { generateInsights } from '@/lib/insight/insight-engine'; // OB-232
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
   try {
-    // Auth-gate the caller (same pattern as execute-bulk); the work itself uses service-role.
-    const authClient = await createServerSupabaseClient();
-    const { data: { user: authUser } } = await authClient.auth.getUser();
-    if (!authUser) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    // Auth-gate the caller; the work itself uses service-role and is tenant-scoped by the request body (the
+    // gate authorizes, it provides no identity). Two principals are accepted:
+    //   • a logged-in user (the browser-driven finalize when the user stays through the load), OR
+    //   • the internal CRON principal (HF-361) — the HF-360 finalize-sweep fires this endpoint SERVER-SIDE,
+    //     cookielessly, with the CRON_SECRET bearer, to finalize a session whose user has left. Without
+    //     accepting it, the sweep's call 401'd (getUser → no session) and committed_data stayed orphaned.
+    if (!isInternalCronCaller(req)) {
+      const authClient = await createServerSupabaseClient();
+      const { data: { user: authUser } } = await authClient.auth.getUser();
+      if (!authUser) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
 
     const { tenantId, proposalId } = await req.json() as { tenantId?: string; proposalId?: string };
     if (!tenantId) return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
