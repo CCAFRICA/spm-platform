@@ -366,8 +366,11 @@ export async function POST(req: NextRequest) {
     resolveClassification(state);
 
     // Build proposal units
+    // HF-106 scoped (OB-255): drop ::split CUs that would write committed_data (the unique-constraint
+    // hazard), but KEEP a `plan` ::split — it writes rule_sets via the plan pipeline, not committed_data,
+    // so a dual-natured sheet produces both its entities (the FULL claim) and its plan (this ::split).
     const contentUnits = buildProposalFromState(state, fileSheets)
-      .filter(cu => !cu.contentUnitId.includes('::split'));
+      .filter(cu => !(cu.contentUnitId.includes('::split') && cu.classification !== 'plan'));
 
     // OB-203 Phase 2 (DI-4): mark comprehension-failed units as `failed_interpretation`, per-unit class.
     for (const cu of contentUnits) {

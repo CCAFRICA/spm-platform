@@ -324,6 +324,57 @@ export function buildProposalFromState(
         vocabularyBindings: vocabBindings,
       });
     }
+
+    // OB-255 — DUAL-NATURED sheet. A roster/entity sheet that ALSO carries a CLUSTER of plan-rule
+    // columns (rate/base/formula/policy/cadence, recognized by the LLM and routed to plan affinity) is
+    // BOTH entities AND a commission plan. Emit an ADDITIONAL `plan` ::split CU: the FULL entity CU above
+    // already commits the people (Carry Everything keeps every column in committed_data); THIS CU routes
+    // the sheet's plan-rule content through the EXISTING plan pipeline (executeBatchedPlanInterpretation
+    // → bridgeAIToEngineFormat → rule_set). No fork — it is the same `plan` branch every plan flows
+    // through; the only new thing is that ONE sheet feeds both branches. The split is driven by the
+    // field affinities directly (NOT analyzeSplit, whose round2Scores gate the synthesized single-winner
+    // vector defeats), so existing analyzeSplit behavior for every other tenant is unchanged.
+    const resolutionForDual = state.resolutions.get(unitId);
+    const planFields = fieldAffinities.filter(fa => fa.affinities.plan >= 0.80).map(fa => fa.fieldName);
+    const sharedIdFields = fieldAffinities.filter(fa => fa.isShared).map(fa => fa.fieldName);
+    // ≥3 plan-rule columns (LLM-recognized rate/base/formula/policy/cadence) = a commission program. A
+    // plain roster has 0 (executed evidence: Casa Diaz sheets 9–10, DATOS_EMPLEADOS roster 0). The
+    // entity FULL claim above still commits the people where the sheet has them (FORANEAS/MAQUINARIA);
+    // a pure-plan sheet (LOCALES/DISTRIBUIDORES — branch rules, no person id) yields no entities but the
+    // plan is produced. Excludes transaction sheets (data, not a plan).
+    const PLAN_CLUSTER_MIN = 3;
+    if (
+      resolutionForDual
+      && resolutionForDual.classification !== 'plan'
+      && resolutionForDual.classification !== 'transaction'
+      && planFields.length >= PLAN_CLUSTER_MIN
+    ) {
+      const planSplitId = `${profile.contentUnitId}::split`;
+      const planIntel = generateProposalIntelligence(profile, scores, negotiationResult, 'plan');
+      contentUnits.push({
+        contentUnitId: planSplitId,
+        sourceFile,
+        tabName: profile.tabName,
+        classification: 'plan',
+        confidence: 0.80,
+        reasoning: `plan: ${planFields.length} commission-rule columns recognized — commission program (PARTIAL)`,
+        action: ACTION_DESCRIPTIONS['plan'],
+        fieldBindings: generatePartialBindings(profile, 'plan', planFields, sharedIdFields),
+        allScores: scores,
+        warnings: [...warnings],
+        observations: planIntel.observations,
+        verdictSummary: planIntel.verdictSummary,
+        whatChangesMyMind: planIntel.whatChangesMyMind,
+        claimType: 'PARTIAL',
+        ownedFields: planFields,
+        sharedFields: sharedIdFields,
+        partnerContentUnitId: profile.contentUnitId,
+        negotiationLog: log,
+        structuralFingerprint: fingerprint as unknown as Record<string, unknown>,
+        classificationTrace: trace as unknown as Record<string, unknown>,
+        vocabularyBindings: vocabBindings,
+      });
+    }
   }
 
   return contentUnits;
