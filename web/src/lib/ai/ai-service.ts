@@ -383,8 +383,12 @@ export class AIService {
     return this.execute(
       {
         task: 'plan_skeleton',
+        // OB-256 (W-3): the skeleton is a compact INDEX, but a high-column-count sheet (MAQUINARIA (2),
+        // 20 columns → many components) overran the 4096-token cap and truncated mid-JSON at ~position
+        // 8320 (dense JSON ≈ 2 chars/token), so the plan refused to persist (7/8 plans). The index has no
+        // rate-table cells (those are per-component, Phase B), so a larger ceiling stays well-bounded.
         input,
-        options: { responseFormat: 'json', maxTokens: 4096, temperature: 0 },
+        options: { responseFormat: 'json', maxTokens: 16384, temperature: 0 },
       },
       true,
       signalContext

@@ -471,6 +471,20 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.warn('[SCI Bulk] plan unit-state emit failed (non-blocking):', e instanceof Error ? e.message : e);
       }
+      // OB-256 (W-5): plan units write rule_sets (not committed_data), so the Intelligence Summary's
+      // row/atom counters never saw them — a plan-only import read "Recognized 0 / Learned 0 / Committed
+      // 0" while N active plans were created. Accumulate the plan creation so the summary tells the truth.
+      // rowsProcessed on a successful plan result IS that plan's component count (plan-interpretation.ts).
+      for (const r of results.filter(r => handledPlanUnitIds.has(r.contentUnitId) && r.success && (r.rowsProcessed ?? 0) > 0)) {
+        try {
+          await accumulateUnitCommitFields({
+            tenantId, importSessionId: proposalId, unitId: r.contentUnitId,
+            fields: { plansCreated: 1, componentsCreated: r.rowsProcessed ?? 0 },
+          }, supabase);
+        } catch (e) {
+          console.warn('[SCI Bulk] plan telemetry accumulate failed (non-blocking):', e instanceof Error ? e.message : e);
+        }
+      }
     }
 
     // OB-203 Phase B: resume-disposition inputs — ONE single-row record read +

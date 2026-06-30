@@ -341,6 +341,10 @@ export interface ImportTelemetry {
   rows: { committed: number; total: number };
   perUnit: Array<{ sheetName: string | null; expectedRows: number; committed: boolean }>;
   pulses: { committed: number; total: number };       // derived from rows ÷ PULSE_SIZE
+  // OB-256 (W-5): plan interpretation creates rule_sets (not committed_data rows), so it was invisible to
+  // the row/atom counters — a plan-only import showed "Recognized 0 / Learned 0 / Committed 0" while N
+  // active plans with M components were actually created. These counters surface that creation honestly.
+  plans: { created: number; components: number };
 }
 
 // Pulse size mirrors commit-content-unit's sci-bulk write profile (D16: 500-row pulses). Kept in sync so
@@ -447,5 +451,10 @@ export async function deriveImportTelemetry(
     rows: { committed, total: rowsTotal },
     perUnit,
     pulses: { committed: Math.ceil(committed / PULSE_SIZE), total: Math.ceil(rowsTotal / PULSE_SIZE) },
+    // OB-256 (W-5): this batch/signal-scan auditor does not reconstruct plan creation (plans write
+    // rule_sets, not import_batches/committed_data). The settle-audit's compareTelemetry checks a fixed
+    // field set that does NOT include `plans`, so this zero never produces a false divergence; the display
+    // reads projectImportTelemetry, which carries the real accumulated plan counts.
+    plans: { created: 0, components: 0 },
   };
 }

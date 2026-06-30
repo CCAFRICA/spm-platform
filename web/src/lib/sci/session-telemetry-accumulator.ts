@@ -212,6 +212,8 @@ export async function accumulateUnitCommitFields(
       pulsesLanded: number;
       batchCommitted: boolean;
       sheetName: string | null;
+      plansCreated: number;       // OB-256 (W-5): a plan unit created N rule_sets (1 per unit)…
+      componentsCreated: number;  // …with M components — counted for the Intelligence Summary.
     }>;
   },
   supabase: SupabaseClient,
@@ -326,6 +328,7 @@ export function projectImportTelemetry(record: ImportSessionTelemetryRecord | nu
   let recognizedTier1 = 0, storedNew = 0, llmMade = 0, llmBypassed = 0;
   let atomsMemory = 0, atomsNovel = 0, fieldBindingsInjected = 0;
   let rowsCommitted = 0, rowsTotal = 0, pulsesLanded = 0, pulsesTotal = 0;
+  let plansCreated = 0, componentsCreated = 0; // OB-256 (W-5)
   const perUnit: ImportTelemetry['perUnit'] = [];
 
   for (const snap of Array.from(byUnit.values())) {
@@ -342,6 +345,8 @@ export function projectImportTelemetry(record: ImportSessionTelemetryRecord | nu
       atomsNovel += num(snap.cnovel);
     }
     fieldBindingsInjected += num(snap.injectedBindings);
+    plansCreated += num(snap.plansCreated);             // OB-256 (W-5): plan-interpretation units
+    componentsCreated += num(snap.componentsCreated);
     // Commit-path fields exist only for units that created a batch — the same
     // membership the derive's import_batches scan produces.
     if (snap.expectedRows !== undefined) {
@@ -371,5 +376,6 @@ export function projectImportTelemetry(record: ImportSessionTelemetryRecord | nu
     rows: { committed: rowsCommitted, total: rowsTotal },
     perUnit,
     pulses: { committed: pulsesLanded, total: pulsesTotal },
+    plans: { created: plansCreated, components: componentsCreated }, // OB-256 (W-5)
   };
 }

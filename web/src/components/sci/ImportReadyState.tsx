@@ -285,6 +285,8 @@ export function ImportReadyState({
                     <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vialuce-indigo)', margin: '0 0 6px' }}>Learned</p>
                     <Conclusion isVialuce label="New Patterns Learned" value={telemetry.atoms.novelComprehended.toLocaleString()} />
                     <Conclusion isVialuce label="Data Signatures Stored" value={`${telemetry.fingerprints.storedNew}`} />
+                    {telemetry.plans.created > 0 && <Conclusion isVialuce label="Compensation Plans Created" value={`${telemetry.plans.created}`} accent />}
+                    {telemetry.plans.components > 0 && <Conclusion isVialuce label="Plan Components Built" value={`${telemetry.plans.components}`} />}
                   </div>
                   <div>
                     <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '10px', letterSpacing: '.8px', textTransform: 'uppercase', color: 'var(--vl-text-soft)', margin: '0 0 6px' }}>Processed</p>
@@ -488,6 +490,8 @@ export function ImportReadyState({
                   <Conclusion label="LLM calls made" value={`${telemetry.llm.made}`} />
                   <Conclusion label="Rows committed" value={telemetry.rows.committed.toLocaleString()} />
                   <Conclusion label="Pulses" value={`${telemetry.pulses.committed}`} />
+                  {telemetry.plans.created > 0 && <Conclusion label="Plans created" value={`${telemetry.plans.created}`} accent />}
+                  {telemetry.plans.components > 0 && <Conclusion label="Plan components" value={`${telemetry.plans.components}`} />}
                 </div>
               </div>
             </div>
