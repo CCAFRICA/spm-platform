@@ -64,3 +64,14 @@ export function estimatePulseTotal(totalRows: number, avgRowBytes: number, byteB
   if (totalRows <= 0 || byteBudget <= 0) return 1;
   return Math.max(1, Math.ceil((totalRows * Math.max(1, avgRowBytes)) / byteBudget));
 }
+
+/**
+ * HF-362 (Part B) — the DYNAMIC hand-off decision (one source of truth for it). A unit that needs MORE than
+ * one pulse hands off to the pg_cron worker (the synchronous path would risk the serverless ceiling); a unit
+ * that fits in ONE pulse commits synchronously (fast, no worker latency). The decision is the byte budget
+ * itself — the same `estimatePulseTotal` that SIZES pulses (HF-359) decides whether pulsing is NEEDED. No env
+ * var, no new threshold: `> 1` means "more than one pass", not a magic byte number.
+ */
+export function shouldHandOff(estTotalPulses: number): boolean {
+  return estTotalPulses > 1;
+}

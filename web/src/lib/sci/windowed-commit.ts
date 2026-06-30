@@ -37,7 +37,7 @@ import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 // HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
-import { discoverUploadByteBudget, estimatePulseTotal, MAX_PULSE_ROWS } from './pulse-budget';
+import { discoverUploadByteBudget, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
 import { planPulses } from './pulse-accumulator';
 // HF-359 (Part B): restored pulse progression — emit cumulative pulse index + rows through the EXISTING
 // per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
@@ -141,7 +141,7 @@ export async function commitUnitWindowed(
   // worker (the synchronous path would risk the serverless ceiling). The byte budget that sizes pulses
   // (HF-359) also decides whether pulsing is needed — no env var, no new threshold (the directive's removed
   // PULSE_LOAD_HANDOFF). One path, runtime branch (like the isLargeByBytes streaming branch).
-  const handOff = estTotalPulses > 1;
+  const handOff = shouldHandOff(estTotalPulses);
   await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
     fields: { sheetName: params.tabName, expectedRows: totalRows, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
 
@@ -291,7 +291,7 @@ export async function commitUnitStreamed(
   const estTotalPulses = totalRowsKnown > 0 ? estimatePulseTotal(totalRowsKnown, avgRowBytes, budget.byteBudget) : 1;
   // HF-362 (Part B) — DYNAMIC pulse activation: hand off iff this unit needs MORE than one pulse (see
   // commitUnitWindowed). The byte budget decides; no env var, no new threshold. One path, runtime branch.
-  const handOff = estTotalPulses > 1;
+  const handOff = shouldHandOff(estTotalPulses);
   // Seed the existing per-unit counters: exact total rows + the ~Y estimate; nothing landed yet.
   await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
     fields: { sheetName: params.tabName, expectedRows: totalRowsKnown, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
