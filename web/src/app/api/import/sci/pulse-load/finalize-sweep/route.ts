@@ -19,7 +19,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isInternalCronCaller, internalCronHeaders } from '@/lib/sci/cron-principal';
 import { PULSE_LOAD_JOBS_TABLE } from '@/lib/sci/pulse-load-types';
 
-const MAX_PER_SWEEP = 25; // bound the work per tick
+const MAX_SESSIONS_PER_SWEEP = 25; // bound the work per tick
 
 export async function POST(req: NextRequest) {
   if (!isInternalCronCaller(req)) {
@@ -31,46 +31,59 @@ export async function POST(req: NextRequest) {
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
 
-  // Complete jobs that have not yet been finalized — one per (tenant, session); a multi-job session is
-  // finalized once (finalize-import is tenant+session scoped).
-  const { data: jobs, error } = await service
+  // Candidate sessions: those with at least one complete-but-unfinalized job.
+  const { data: candidates, error } = await service
     .from(PULSE_LOAD_JOBS_TABLE)
-    .select('id, tenant_id, session_id')
+    .select('tenant_id, session_id')
     .eq('status', 'complete')
     .eq('finalized', false)
     .order('updated_at', { ascending: true })
-    .limit(MAX_PER_SWEEP);
+    .limit(200);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   const origin = req.nextUrl.origin;
-  const seenSessions = new Set<string>();
-  let finalizedCount = 0;
-  for (const j of (jobs ?? []) as Array<{ id: string; tenant_id: string; session_id: string }>) {
-    const sessionKey = `${j.tenant_id}::${j.session_id}`;
-    if (!seenSessions.has(sessionKey)) {
-      seenSessions.add(sessionKey);
-      try {
-        // Fire the SAME finalize the client fires (entity resolution + assignments + summary). Idempotent.
-        const r = await fetch(`${origin}/api/import/sci/finalize-import`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...internalCronHeaders() },
-          body: JSON.stringify({ tenantId: j.tenant_id, proposalId: j.session_id }),
-        });
-        if (!r.ok) {
-          console.warn(`[finalize-sweep] finalize-import for session ${j.session_id} returned ${r.status} — leaving unfinalized for retry`);
-          continue; // leave finalized=false so the next sweep retries
-        }
-      } catch (e) {
-        console.warn(`[finalize-sweep] finalize-import dispatch failed for ${j.session_id}:`, e instanceof Error ? e.message : e);
-        continue;
+  const seen = new Set<string>();
+  let sessionsFinalized = 0;
+  let jobsMarked = 0;
+  for (const c of (candidates ?? []) as Array<{ tenant_id: string; session_id: string }>) {
+    const key = `${c.tenant_id}::${c.session_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (seen.size > MAX_SESSIONS_PER_SWEEP) break;
+
+    // Finalize a session ONLY when EVERY job of it is 'complete' (a multi-file-group import has several jobs
+    // sharing session_id; entity resolution must run over the WHOLE import, not a partial one). This mirrors
+    // the client's projectSessionLoadState('complete' = all jobs complete).
+    const { data: sessionJobs } = await service
+      .from(PULSE_LOAD_JOBS_TABLE)
+      .select('id, status')
+      .eq('tenant_id', c.tenant_id)
+      .eq('session_id', c.session_id);
+    const all = (sessionJobs ?? []) as Array<{ id: string; status: string }>;
+    if (all.length === 0 || !all.every((j) => j.status === 'complete')) continue; // not all loaded yet — wait
+
+    try {
+      // Fire the SAME finalize the client fires (entity resolution + assignments + summary). Idempotent.
+      const r = await fetch(`${origin}/api/import/sci/finalize-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...internalCronHeaders() },
+        body: JSON.stringify({ tenantId: c.tenant_id, proposalId: c.session_id }),
+      });
+      if (!r.ok) {
+        console.warn(`[finalize-sweep] finalize-import for session ${c.session_id} returned ${r.status} — leaving unfinalized for retry`);
+        continue; // leave finalized=false so the next sweep retries
       }
+    } catch (e) {
+      console.warn(`[finalize-sweep] finalize-import dispatch failed for ${c.session_id}:`, e instanceof Error ? e.message : e);
+      continue;
     }
-    // Mark this job finalized (every job of the session, so the index stays small).
-    await service.from(PULSE_LOAD_JOBS_TABLE).update({ finalized: true }).eq('id', j.id);
-    finalizedCount++;
+    // Mark every job of the now-finalized session.
+    await service.from(PULSE_LOAD_JOBS_TABLE).update({ finalized: true }).eq('tenant_id', c.tenant_id).eq('session_id', c.session_id);
+    sessionsFinalized++;
+    jobsMarked += all.length;
   }
 
-  return NextResponse.json({ ok: true, jobsFinalized: finalizedCount, sessionsFinalized: seenSessions.size });
+  return NextResponse.json({ ok: true, sessionsFinalized, jobsMarked });
 }
