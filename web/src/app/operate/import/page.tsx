@@ -206,6 +206,10 @@ export default function OperateImportPage() {
   // processing_jobs lifecycle (classified → committing → committed). Null for the synchronous path
   // (no jobs were created), where the status updates below are harmless no-ops.
   const asyncSessionIdRef = useRef<string | null>(null);
+  // OB-256 (W-6): the proposalId whose import is already in flight — guards against a second click during
+  // the async storage-await firing a DUPLICATE execute-bulk dispatch (SINGLE-FLIGHT contention, orphaned
+  // claims, wasted LLM calls). One dispatch per proposal; a later DIFFERENT import has a new id and proceeds.
+  const confirmingProposalRef = useRef<string | null>(null);
 
   const handleError = useCallback((message: string) => {
     setErrorMessage(message);
@@ -469,6 +473,11 @@ export default function OperateImportPage() {
 
   const handleConfirmAll = useCallback(async (confirmedUnits: ContentUnitProposal[]) => {
     if (state.phase !== 'proposal') return;
+    // OB-256 (W-6): one dispatch per proposal. A rapid second click re-enters here while the first call is
+    // still awaiting storage (phase is still 'proposal' in this stale closure), firing a duplicate
+    // execute-bulk. The ref is synchronous, so the second entry is rejected before any dispatch.
+    if (confirmingProposalRef.current === state.proposal.proposalId) return;
+    confirmingProposalRef.current = state.proposal.proposalId;
 
     // HF-140: Wait for ALL storage uploads to complete
     if (storageUploadPromiseRef.current) {

@@ -162,7 +162,7 @@ function buildObservations(
 // ============================================================
 // One-line natural language explanation of why this classification was chosen.
 
-function buildVerdictSummary(
+export function buildVerdictSummary(
   winner: AgentType,
   scores: AgentScore[],
   profile: ContentProfile,
@@ -177,6 +177,20 @@ function buildVerdictSummary(
     .sort((a, b) => b.weight - a.weight);
 
   if (positiveSignals.length === 0) {
+    // OB-256 (W-4): the synthesized score vector can leave a CORRECT winner with no round-2 signal
+    // weight — e.g. the OB-255 plan `::split`, whose evidence is the FIELD AFFINITIES (the columns the
+    // LLM characterized as commission rules), not a round-2 signal. Report that POSITIVE evidence (the
+    // recognized column names + count) instead of "by elimination", which misreports a confident,
+    // signal-backed classification. Only fires when there is no round-2 signal — every other classification
+    // keeps its existing summary.
+    const affinityFields = negotiation.fieldAffinities
+      .filter(fa => (fa.affinities[winner] ?? 0) >= 0.80)
+      .map(fa => fa.fieldName);
+    if (affinityFields.length > 0) {
+      const shown = affinityFields.slice(0, 4).map(f => `"${f}"`).join(', ');
+      const more = affinityFields.length > 4 ? ` +${affinityFields.length - 4} more` : '';
+      return `This looks like ${AGENT_LABELS[winner]}: ${affinityFields.length} column${affinityFields.length === 1 ? '' : 's'} recognized as ${AGENT_LABELS[winner]} content — ${shown}${more}.`;
+    }
     return `Classified as ${AGENT_LABELS[winner]} by elimination — no strong signals for any type.`;
   }
 
