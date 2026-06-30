@@ -94,15 +94,27 @@ Live evidence — `entities.metadata`:
 - BCL (correct, from the 85-row roster): `{"role":"Ejecutivo Senior","cargo":"Gerente Regional","region":"Sierra", ...}`
 - VLTEST2 (broken, from the misclassified datos): `{"periodo":"2025-10-01","sucursal":"BCL-MAC-001"}`
 
-## Finding 4: Variant Token Source
+## Finding 4: Variant Token Source — the matcher reads `row_data`, NOT `metadata.role`
 
-The variant matcher reads the entity's `metadata.role` to generate discriminant tokens
-(`entity-enrichment.test.ts:63` asserts `r.metadata.role`). With VLTEST2 entity metadata `{periodo, sucursal}`
-there is **no `role`** → zero discriminant tokens → zero overlap with the variant discriminant → every entity
-excluded → grand total `$0`. Independently, the calc engine queries `data_type='transaction'` committed_data
-and finds **zero** rows on VLTEST2 (all 510 datos rows are `entity`). Both failure legs trace to Finding 1.
-**Fixing entity metadata alone is insufficient** — the engine also needs the rows under `data_type='transaction'`,
-i.e. the classification itself must be corrected.
+(Corrected by the adversarial-verification pass — my first read over-attributed the match to `metadata.role`.)
+The HF-119 / OB-194 variant matcher (`app/api/calculation/run/route.ts`) decides the discriminant winner and
+the NO-MATCH exclusion **exclusively from `committed_data.row_data` tokens**, not from `entities.metadata.role`:
+- **Discriminant tokens** (what each variant is identified by) come from the variant DEFINITION
+  (`variantName`/`description`/`variantId`) — `route.ts:2012-2034` (`variantTokenize` → `variantDiscriminants`).
+- **Entity tokens** (what is scored, and what the exclusion keys on) are built ONLY from each entity's
+  committed rows' `row_data` values — `route.ts:2356-2376` (`entityTokens` over `entityRowsFlat = flatDataByEntity`,
+  populated solely from the `committed_data` table). The OB-194 gate excludes when
+  `bestDiscScore === 0 && bestOverlap === 0` (`route.ts:2410-2434`) — both derived from `row_data`.
+- `entities.metadata.role` IS read (`route.ts:2081-2083`) but only into `materializedState`, which is written
+  to `period_entity_state` (audit, `:2094-2108`) and the `[VARIANT-DIAG]` log — **never** into `discScores`
+  or the exclusion gate.
+
+**Consequence for VLTEST2:** all datos rows are `data_type='entity'`, so the engine has **zero**
+`transaction` rows → `entityRowsFlat` is empty → `entityTokens` empty → `bestDiscScore = 0` → every entity
+excluded by the OB-194 gate → `$0`. **Fixing entity metadata alone does NOT fix matching** — the matcher needs
+the discriminant tokens to appear in the entity's `committed_data.row_data`, i.e. the rows must exist under
+`data_type='transaction'`. **Correcting the classification (Finding 1) is necessary AND sufficient** for the
+matcher to see them; metadata is a downstream audit surface, not the matching key.
 
 ## Finding 5: Fingerprint / Recognition State — NOT the carrier
 
@@ -112,12 +124,18 @@ VLTEST2 `structural_fingerprints` rows for the datos carry **no `data_type`/`cla
 unrelated `reference` band-table fingerprint does). So the cached fingerprint is **not** carrying a stale
 classification — the **live** Branch-2.5 path produces `entity` on every fresh import.
 
-## Finding 6: Period Creation in Import Path — none found
+## Finding 6: Period Creation in Import Path — none in the ACTIVE SCI path; PRESENT in the LEGACY endpoint
 
-`grep` for `from('periods')` / `createPeriod` / period inserts across `app/api/import/sci` and `lib/sci`
-returns **nothing**. **HALT-3: not triggered** — no period-creation code in the execute-bulk / finalize path;
-Decision 92 / OB-153 is upheld on the current `main`. (All committed_data rows have `period_id = null` on both
-tenants, consistent with periods being created at calculate time.)
+(Expanded by the adversarial-verification pass, which checked the broader import tree.) The **active SCI
+ingestion path** — `app/api/import/sci/*` (execute-bulk, finalize-import, process-job, post-commit-construction)
+and `lib/sci/*` (incl. commit-content-unit.ts) — has **zero** period-creation hits; `period_id = null` on every
+committed_data row of both tenants, consistent with Decision 92 / OB-153 (periods created at calculate time).
+
+However, **the LEGACY file-import endpoint `app/api/import/commit/route.ts:651-704`** (HF-047 pipeline, NOT the
+SCI path) scans rows for year/month and **INSERTs into `periods` (status `'open'`) at commit/import time** —
+a **possible Decision-92 / OB-153 violation** (period creation at import, not calculate). **HALT-3: fired
+(log-only)** — this is logged here per §4 and is **tangential to the classification regression** (the SCI path
+VLTEST2/BCL use does not run it). Disposition is architect-channel (live drift vs dead code — §6A.2).
 
 ---
 
@@ -142,10 +160,17 @@ whereas BCL's `transaction` rows are **historical** (imported before HF-351; BCL
 Any re-import of the BCL `Datos` files on current `main` would reproduce the misclassification (relevant to
 the sealed-anchor re-verification residual §6A.4).
 
-**Confidence: HIGH.** The branch literal (`entity`, `0.88`) matches the live `processing_jobs` record exactly;
-the branch condition is satisfied by the verified column identity; the introducing commit and the
-window-did-not-touch fact are git-confirmed; the cached-fingerprint and PARTIAL alternatives are positively
-excluded.
+**Confidence: HIGH.** The independent adversarial-verification pass confirmed every code-level claim and could
+not refute the mechanism; it correctly flagged that the attribution is decidable only with the live
+**confidence value** — Branch 2.5 returns `entity @ 0.88`, whereas the pre-existing Branch 2
+(`!hasMeasure → entity`, commit `741cf9d0`, HF-341 R6) returns `entity @ 0.90`. **The live VLTEST2
+`processing_jobs` record shows `confidence: 0.88` on all four datos jobs** — disambiguating the cause to
+**Branch 2.5 (HF-351 F2)**, not Branch 2, and proving the datos measures WERE recognized as measures (else
+Branch 2 would have fired at 0.90). With that empirical fact supplied, the code-only "medium" upgrades to
+HIGH: the branch literal matches the live record exactly; the branch condition is satisfied by the verified
+column identity; the introducing commit (`git log -L 138,156`) and the window-did-not-touch fact are
+git-confirmed; the cached-fingerprint (tier 3) and PARTIAL (no `::split`) and Branch-2 (0.90) alternatives are
+all positively excluded.
 
 **Fix direction (a separate HF, NOT this diagnostic):** Branch 2.5 must yield to the transaction/target
 branches when the sheet carries a temporal period column (+ measures) — a per-period performance record about
