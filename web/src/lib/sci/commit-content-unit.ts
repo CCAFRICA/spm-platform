@@ -51,6 +51,7 @@ import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 // HF-356 (RC1): the committed_data WRITE moves to a CSV-to-Storage + S3-FDW bulk load. This serializes
 // the SAME row objects buildCommittedRow produces (byte-identical content); the DB loads them.
 import { committedRowToCsvLine, committedRowsCsvStream, type CommittedRow } from './committed-row-csv';
+import type { PulseManifestEntry } from './pulse-load-types';
 // OB-249 — Remediation Stage (the mandatory gate before committed_data, I7). Deterministic
 // CONSTRUCT only here; the LLM express ran at proposal time (process-job).
 import {
@@ -106,6 +107,12 @@ export interface CommitContentUnitParams {
   //   chunks. `undefined` (the default) ⇒ resolveEntityIdField runs exactly as today (byte-identical
   //   for BCL/Meridian/MIR and every non-chunked import). `null` is a valid explicit "no entity id".
   entityIdFieldOverride?: string | null;
+  // HF-360 (Part A) — HAND-OFF: stage this pulse's CSV to Storage and create its import_batch as 'staged',
+  // but do NOT call the FDW load RPC. The pg_cron worker loads it off the serverless clock. The function
+  // never spends the load duration. Remediation CONSTRUCT still runs here (the staged CSV is fully built,
+  // deterministic, no LLM — Decision 158). Default false ⇒ the synchronous load path is byte-identical for
+  // any caller that has not opted into the hand-off. With the worker scheduled, execute-bulk passes true.
+  handOff?: boolean;
 }
 
 export interface CommitContentUnitResult {
@@ -118,6 +125,10 @@ export interface CommitContentUnitResult {
   latestDate: string | null;
   dateCount: number;
   success: boolean;
+  // HF-360 (Part A) — present when this commit STAGED (handOff) instead of loading: the manifest row the
+  // session enqueue records (index is assigned at session scope, in commit order). totalInserted is 0 on a
+  // staged result (the rows are not in committed_data yet — the worker loads them).
+  stagedPulse?: Omit<PulseManifestEntry, 'index'>;
   error?: string;
 }
 
@@ -470,7 +481,9 @@ export async function commitContentUnit(
     tenant_id: tenantId,
     file_name: fileName,
     file_type: 'sci',
-    status: 'processing',
+    // HF-360 (Part A): a hand-off pulse is STAGED, not loaded — the pg_cron worker flips it to 'completed'
+    // when it loads the staged CSV. A synchronous commit (handOff falsy) is 'processing' as before.
+    status: params.handOff ? 'staged' : 'processing',
     row_count: rows.length,
     // HF-196 Phase 1F — file-level hash retained for audit (supersedure trigger
     // moved to content_unit_hash_sha256 at HF-213).
@@ -727,15 +740,61 @@ export async function commitContentUnit(
   // CSV bytes are identical to the prior materialize-then-upload path (PG-A2). storage-js streams a Node
   // Readable (it sets duplex:'half' for a body with .pipe) so the bytes never fully reside in memory. The
   // bytes never touch the database connection — the DB reads the file from Storage on the next call.
+  // HF-360 (Part A): accumulate the serialized CSV byte size as the stream is consumed (one closure add per
+  // row, no second pass) — the manifest's `bytes` for the staged pulse (audit + load progress). Byte-neutral
+  // for the synchronous path (the value is simply ignored when not handing off).
+  let csvByteCount = 0;
   const csvStream = committedRowsCsvStream(
     rows.length,
-    (i) => committedRowToCsvLine(buildCommittedRow(rows[i], i) as unknown as CommittedRow),
+    (i) => {
+      const line = committedRowToCsvLine(buildCommittedRow(rows[i], i) as unknown as CommittedRow);
+      csvByteCount += Buffer.byteLength(line, 'utf8') + 1; // +1 for the trailing newline the stream emits
+      return line;
+    },
   );
   const { error: uploadErr } = await supabase.storage
     .from('ingestion-raw')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .upload(csvPath, csvStream as any, { contentType: 'text/csv', upsert: true, duplex: 'half' } as any);
   if (uploadErr) return await failCommit(`commit CSV upload failed for "${tabName}": ${uploadErr.message}`);
+
+  // HF-360 (Part A) — HAND-OFF: the CSV is STAGED. Do NOT call the FDW load RPC, do NOT delete the CSV (the
+  // worker reads it), do NOT finalize the batch to 'completed' (the worker does, after it loads). The
+  // function never spends the load duration — that is the whole point. Remediation CONSTRUCT already ran
+  // while building this CSV (deterministic, no LLM — Decision 158), so emit its stage-run signal now; the
+  // worker re-applies nothing. Return the manifest row the session enqueue records (totalInserted is 0 —
+  // the rows are NOT in committed_data yet; the truthful surface reads the job for load progress).
+  if (params.handOff) {
+    await emitStageRunSignal(supabase, {
+      tenantId,
+      unitId: unit.contentUnitId,
+      sheetName: tabName,
+      agentsRun: remediation.report.agentsRun,
+      columnsConsidered: allowedColumns.length,
+      changeCount: remediation.report.changeCount,
+      changesByColumn: remediation.report.changesByColumn,
+      degradedAgents: remediation.report.degradedAgents,
+    });
+    return {
+      batchId,
+      totalInserted: 0,
+      dataType,
+      entityIdField,
+      fieldIdentities,
+      earliestDate,
+      latestDate,
+      dateCount,
+      success: true,
+      stagedPulse: {
+        batchId,
+        csvPath,
+        expectedRows: rows.length,
+        bytes: csvByteCount,
+        unitId: unit.contentUnitId,
+        sheetName: tabName,
+      },
+    };
+  }
 
   // ONE bulk load — the DB reads the CSV from Storage via the FDW and inserts under p_tenant_id (I4: the
   // inserted tenant is the PARAMETER, never the CSV's value). Returns the row count it loaded.

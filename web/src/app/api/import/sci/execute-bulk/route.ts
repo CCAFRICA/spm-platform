@@ -37,6 +37,11 @@ import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-conten
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, exceedsCellCeiling, type SheetWindow } from '@/lib/sci/sheet-window';
 import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commit';
+// HF-360 (Part A): hand-off — stage every pulse, then enqueue ONE pulse_load_jobs row; the pg_cron worker
+// loads off the serverless clock. Gated by the activation flag until the architect schedules the worker.
+import { enqueuePulseLoadJob } from '@/lib/sci/pulse-load-enqueue';
+import { isPulseHandoffEnabled } from '@/lib/sci/pulse-load-config';
+import type { PulseManifestEntry } from '@/lib/sci/pulse-load-types';
 // HF-358 (Part B-1): no silent commit failure — record the reason + a terminal status on the import job.
 import { recordCommitFailureOnJob } from '@/lib/sci/job-failure';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
@@ -497,6 +502,10 @@ export async function POST(req: NextRequest) {
     }
 
     trace(`unit-loop-start units=${sortedUnits.length}`);
+    // HF-360 (Part A): hand off the loads to the pg_cron worker (stage every pulse, enqueue ONE job after
+    // the loop) instead of spending the load duration in this serverless invocation. Off until the architect
+    // schedules the worker (then the commit path is byte-identical to HF-359). Evaluated once per request.
+    const handOff = isPulseHandoffEnabled();
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
 
@@ -557,11 +566,12 @@ export async function POST(req: NextRequest) {
               tenantId, proposalId, tabName,
               fileName: `sci-bulk-${proposalId}`,
               fileHashSha256: parse.fileHash,
+              handOff,
               onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
                 if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
               },
             });
-            result = { contentUnitId: unit.contentUnitId, classification: cls, success: sres.success, rowsProcessed: sres.totalInserted, pipeline: cls, error: sres.error };
+            result = { contentUnitId: unit.contentUnitId, classification: cls, success: sres.success, rowsProcessed: sres.totalInserted, pipeline: cls, error: sres.error, stagedPulses: sres.stagedPulses };
             trace(`unit:${tabName}:streamed-commit-end committed=${sres.totalInserted} ok=${sres.success}`);
           }
         }
@@ -590,11 +600,12 @@ export async function POST(req: NextRequest) {
               tenantId, proposalId, tabName,
               fileName: `sci-bulk-${proposalId}`,
               fileHashSha256: parse.fileHash,
+              handOff,
               onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
                 if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
               },
             });
-            result = { contentUnitId: unit.contentUnitId, classification: cls, success: wres.success, rowsProcessed: wres.totalInserted, pipeline: cls, error: wres.error };
+            result = { contentUnitId: unit.contentUnitId, classification: cls, success: wres.success, rowsProcessed: wres.totalInserted, pipeline: cls, error: wres.error, stagedPulses: wres.stagedPulses };
             trace(`unit:${tabName}:windowed-commit-end committed=${wres.totalInserted} ok=${wres.success}`);
           } else {
             // Defensive: a windowed entity unit (rosters are never this large) — materialize bounded.
@@ -640,7 +651,7 @@ export async function POST(req: NextRequest) {
           result = await processContentUnit(
             supabase, tenantId, proposalId, profileId,
             effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
-            parse.fileHash,
+            parse.fileHash, handOff,
           );
         }
         results.push(result);
@@ -722,6 +733,42 @@ export async function POST(req: NextRequest) {
 
     trace('unit-loop-end');
 
+    // ── HF-360 (Part A): HAND OFF the loads. The function's final act before returning — collect every
+    // unit's staged pulses (in commit order) into ONE pulse_load_jobs manifest and enqueue it. The pg_cron
+    // worker performs the FDW loads off the serverless clock; this invocation NEVER spent the load duration
+    // (the ceiling-kill fix). Resilient: an enqueue failure does not crash the response — the pulses are
+    // staged + durable in Storage, recoverable by replay. No-op when the hand-off is off (sync path loaded
+    // inline already) or when nothing staged. session_id = proposalId so the truthful surface (Part C)
+    // correlates the job with the import telemetry.
+    let pulseLoadJob: { jobId: string; totalPulses: number; totalRows: number } | null = null;
+    let pulseEnqueueFailed = false;
+    if (handOff) {
+      // Only enqueue staged pulses from SUCCESSFUL units. A unit whose staging FAILED mid-way returns its
+      // partial prefix + success:false (bypassing the staging-completeness HALT) — loading that prefix would
+      // put PARTIAL data into committed_data (wrong calc), so its pulses are dropped (the unit is reported
+      // failed via recordCommitFailureOnJob; the orphaned staged CSVs are transient). A failed-staging unit
+      // is unit-atomic in hand-off: all of it loads or none does (re-import to redo it).
+      const sessionPulses: Array<Omit<PulseManifestEntry, 'index'>> = results.filter((r) => r.success).flatMap((r) => r.stagedPulses ?? []);
+      if (sessionPulses.length > 0) {
+        pulseLoadJob = await enqueuePulseLoadJob(supabase, {
+          tenantId,
+          sessionId: proposalId,
+          unitId: '(session)',
+          fileName: traceLabel,
+          stagedPulses: sessionPulses,
+        });
+        trace(`pulse-load-enqueued job=${pulseLoadJob?.jobId ?? 'none'} pulses=${pulseLoadJob?.totalPulses ?? 0} rows=${pulseLoadJob?.totalRows ?? 0}`);
+        if (!pulseLoadJob) {
+          // Staging SUCCEEDED but the job INSERT failed — the rows are staged + durable in Storage, yet
+          // nothing will load them. NEVER render a false "0 rows imported" success: surface a failure (record
+          // it on the job + flag the response so the client shows an error, not completion). Recoverable by
+          // re-import. (Gated off in practice by the activation flag — the table exists before the flag is on.)
+          pulseEnqueueFailed = true;
+          await recordCommitFailureOnJob(supabase, tenantId, sessionId, 'Hand-off enqueue failed — staged rows were not handed to the loader (re-import to retry).');
+        }
+      }
+    }
+
     // ── DIAG-070 FIX: respond BEFORE post-commit; defer post-commit to a background task. ──
     // The per-unit commit loop is DONE and every unit's `bound` state was already streamed to the
     // spine in-loop, so the response is fully determined NOW. Build and return it immediately.
@@ -736,7 +783,12 @@ export async function POST(req: NextRequest) {
     const response: SCIExecutionResult = {
       proposalId,
       results,
-      overallSuccess: results.every(r => r.success),
+      overallSuccess: results.every(r => r.success) && !pulseEnqueueFailed,
+      // HF-360 (Part A): the hand-off job, so the client/surface can poll load progress (the rows are
+      // staged + loading, not in committed_data yet). Absent when not handing off or nothing staged.
+      ...(pulseLoadJob ? { pulseLoadJob } : {}),
+      // HF-360: staging succeeded but the enqueue failed — the client must surface a failure, not completion.
+      ...(pulseEnqueueFailed ? { pulseLoadEnqueueFailed: true } : {}),
     };
     trace('response');
 
@@ -900,18 +952,20 @@ async function processContentUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
+  // HF-360 (Part A): stage this unit's single pulse for the worker instead of loading inline.
+  handOff: boolean,
   // HF-257: `storagePath` parameter removed — only the deleted per-unit `case 'plan'`
   // (executePlanPipeline) used it; the four data pipelines bind by parsed rows.
 ): Promise<ContentUnitResult> {
   switch (unit.confirmedClassification) {
     case 'entity':
-      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256);
+      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256, handOff);
     case 'target':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256);
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256, handOff);
     case 'transaction':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256);
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256, handOff);
     case 'reference':
-      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
+      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256, handOff);
     case 'plan':
       // HF-257 (AP-17): the per-unit plan duplicate (executePlanPipeline) is REMOVED.
       // Plan interpretation runs EXCLUSIVELY in executeBatchedPlanInterpretation. The
@@ -949,6 +1003,7 @@ async function processEntityUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
+  handOff: boolean,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity' };
@@ -1183,12 +1238,14 @@ async function processEntityUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
+    handOff,
     // Phase C: compose entity-phase pulses with commit pulses on one number line.
     pulseBase: { landed: entityPulsesLanded, total: entityPulsesTotal },
   });
   // D16 unit-atomic + truthfulness: commitContentUnit rolls back its OWN partial rows on failure; if its
   // committed_data write failed, roll back this unit's new entities too (all-or-nothing across both
-  // surfaces) and report the unit as failed rather than the prior silent success-regardless.
+  // surfaces) and report the unit as failed rather than the prior silent success-regardless. In hand-off
+  // mode a !success result means STAGING failed (the upload), which is the same all-or-nothing trigger.
   if (!commitResult.success) {
     await rollbackNewEntities(supabase, tenantId, newIds);
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `${commitResult.error ?? 'committed_data write failed'} — entity unit rolled back (${created} entities removed)` };
@@ -1202,7 +1259,11 @@ async function processEntityUnit(
   // route.ts:226-308 — that gate re-derives when stale without needing a
   // blanket clear on every import.
 
-  return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
+  // HF-360 (Part A): in hand-off mode the rows are STAGED, not loaded — report 0 loaded + the staged pulse
+  // (the truthful surface reads the job). The entities themselves ARE created synchronously (above).
+  return handOff && commitResult.stagedPulse
+    ? { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity', stagedPulses: [commitResult.stagedPulse] }
+    : { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
 }
 
 // ── Target/Transaction pipeline (committed_data bulk insert) ──
@@ -1217,6 +1278,7 @@ async function processDataUnit(
   tabName: string,
   classification: 'target' | 'transaction',
   fileHashSha256: string,
+  handOff: boolean,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification, success: true, rowsProcessed: 0, pipeline: classification };
@@ -1233,6 +1295,7 @@ async function processDataUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
+    handOff,
   });
   const totalInserted = commitResult.totalInserted;
 
@@ -1243,8 +1306,12 @@ async function processDataUnit(
   // from execute/route.ts's per-pipeline postCommitConstruction helper.
   // Reads STORE_FIELDS / TIER_FIELDS / VOLUME_KEY_FIELDS from each row and
   // updates entities.metadata so the calculation engine can resolve
-  // store-level data per entity.
-  if (totalInserted > 0 && commitResult.entityIdField) {
+  // store-level data per entity. HF-360: it operates on the in-memory `rows` +
+  // the entities table (independent of the deferred committed_data load), so it
+  // must run for a STAGED unit too — gate on commit SUCCESS + rows, not on the
+  // loaded count (which is 0 at stage time). Byte-identical for the sync path
+  // (success ⟺ totalInserted == rows.length there).
+  if (commitResult.success && rows.length > 0 && commitResult.entityIdField) {
     try {
       await populateStoreMetadata(supabase, tenantId, rows, commitResult.entityIdField);
     } catch (err) {
@@ -1258,6 +1325,8 @@ async function processDataUnit(
     success: true,
     rowsProcessed: totalInserted,
     pipeline: classification,
+    // HF-360 (Part A): present when staged — the worker loads it; rowsProcessed (0 here) is the loaded truth.
+    stagedPulses: handOff && commitResult.stagedPulse ? [commitResult.stagedPulse] : undefined,
   };
 }
 
@@ -1274,6 +1343,7 @@ async function processReferenceUnit(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string,
   fileHashSha256: string,
+  handOff: boolean,
 ): Promise<ContentUnitResult> {
   // OB-195 Layer 1: Reference pipeline → committed_data (Decision 111)
   // Previously wrote to reference_data + reference_items (deprecated).
@@ -1294,6 +1364,7 @@ async function processReferenceUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
+    handOff,
   });
   if (!commitResult.success && commitResult.totalInserted === 0) {
     return {
@@ -1310,7 +1381,11 @@ async function processReferenceUnit(
   // HF-239: OB-195 Layer 4 `input_bindings: {}` cache invalidation DELETED.
   // See processEntityUnit for rationale (DIAG-052 regression evidence).
 
-  return { contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference' };
+  return {
+    contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference',
+    // HF-360 (Part A): present when staged — the worker loads it.
+    stagedPulses: handOff && commitResult.stagedPulse ? [commitResult.stagedPulse] : undefined,
+  };
 }
 
 // HF-196 Phase 1: dead-code retirement.

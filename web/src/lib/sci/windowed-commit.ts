@@ -43,6 +43,7 @@ import { planPulses } from './pulse-accumulator';
 // per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
 import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
 import { streamSheetMeta } from './sheet-stream';
+import type { PulseManifestEntry } from './pulse-load-types';
 
 export interface WindowedCommitParams {
   unit: CommitContentUnitInput;
@@ -61,6 +62,10 @@ export interface WindowedCommitParams {
    * entity_id_field. Best-effort: a throw is swallowed (matches the non-windowed non-blocking calls).
    */
   onWindowCommitted?: (rows: Record<string, unknown>[], rowOffset: number, entityIdField: string | null) => Promise<void>;
+  // HF-360 (Part A): stage each pulse's CSV (do not load) and collect the manifest — the session enqueues
+  // ONE pulse_load_jobs row and the pg_cron worker loads off the serverless clock. Default false ⇒ the
+  // synchronous load path is byte-identical (HF-359 behavior preserved for any caller not opted in).
+  handOff?: boolean;
 }
 
 export interface WindowedCommitResult {
@@ -70,6 +75,10 @@ export interface WindowedCommitResult {
   error?: string;
   entityIdField: string | null;
   batchIds: string[];
+  // HF-360 (Part A): the ordered pulses this unit STAGED (present only when handOff). totalInserted is 0 on
+  // a staged result — the rows are not in committed_data yet; the worker loads them. The session collects
+  // these across all units into the one job manifest (index assigned at session scope, in commit order).
+  stagedPulses?: Omit<PulseManifestEntry, 'index'>[];
 }
 
 /**
@@ -133,7 +142,9 @@ export async function commitUnitWindowed(
     fields: { sheetName: params.tabName, expectedRows: totalRows, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
 
   const batchIds: string[] = [];
-  let totalInserted = 0;
+  const stagedPulses: Omit<PulseManifestEntry, 'index'>[] = [];
+  let totalInserted = 0;   // rows LOADED (synchronous path); 0 throughout the hand-off path
+  let stagedRows = 0;      // rows STAGED (hand-off path); the staging-completeness HALT key
   let offset = 0;
   let pulsesLanded = 0;
 
@@ -157,29 +168,51 @@ export async function commitUnitWindowed(
           fileHashSha256: params.fileHashSha256,
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
+          handOff: params.handOff,
         });
       } catch (err) {
         // HF-359 (Part A, PG-A6): prior pulses stay committed (resumable); the failure is recorded at the
         // boundary by execute-bulk (HF-358 Part B). No cross-pulse rollback.
-        return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: `pulse @${offset}: ${String(err)}` };
+        return { totalInserted, totalRows, success: false, entityIdField, batchIds, stagedPulses, error: `pulse @${offset}: ${String(err)}` };
       }
       if (res.batchId) batchIds.push(res.batchId);
       if (!res.success) {
         // commitContentUnit already rolled back ITS pulse's own batch; PRIOR pulses stay committed
         // (resumable, PG-A6). The failure is recorded by execute-bulk (HF-358 Part B).
-        return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: res.error };
+        return { totalInserted, totalRows, success: false, entityIdField, batchIds, stagedPulses, error: res.error };
       }
-      totalInserted += res.totalInserted;
       pulsesLanded += 1;
-      // HF-359 (Part B): cumulative pulse index + rows through the existing counters (last-write wins).
-      await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
-        fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
+      if (params.handOff && res.stagedPulse) {
+        // HF-360: STAGED, not loaded — collect the manifest row; the worker loads it. No load-truth
+        // telemetry write (rows have not landed); the truthful surface reads the job for load progress.
+        stagedPulses.push(res.stagedPulse);
+        stagedRows += res.stagedPulse.expectedRows;
+      } else {
+        totalInserted += res.totalInserted;
+        // HF-359 (Part B): cumulative pulse index + rows through the existing counters (last-write wins).
+        await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+          fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
+      }
       if (params.onWindowCommitted) {
+        // store-metadata population operates on the in-memory window rows + the entities table — independent
+        // of the deferred committed_data load, so it runs identically at stage time.
         try { await params.onWindowCommitted(rows, offset, entityIdField); }
         catch (err) { console.warn(`[windowed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
       }
       offset += rows.length;
     }
+  }
+
+  // HF-360 (Part A): hand-off completeness — every row must have been STAGED (the worker performs the
+  // per-pulse load HALT-DATA-LOSS). Σ staged == totalRows, else the staging itself dropped rows.
+  if (params.handOff) {
+    if (stagedRows !== totalRows) {
+      const reason = `HALT-DATA-LOSS (staging): staged ${stagedRows} of ${totalRows} rows across ${stagedPulses.length} pulses for "${params.tabName}".`;
+      console.error(`[windowed-commit] ${reason}`);
+      return { totalInserted: 0, totalRows, success: false, entityIdField, batchIds, stagedPulses, error: reason };
+    }
+    console.log(`[windowed-commit] HAND-OFF ${params.classification}: ${stagedRows} rows STAGED across ${stagedPulses.length} byte-budgeted pulses; worker will load.`);
+    return { totalInserted: 0, totalRows, success: true, entityIdField, batchIds, stagedPulses };
   }
 
   // HF-359 (Part B): resolve ~Y → exact pulse count and mark the unit complete.
@@ -211,6 +244,8 @@ export interface StreamedCommitParams {
   fileHashSha256: string;
   windowRows?: number;
   onWindowCommitted?: (rows: Record<string, unknown>[], rowOffset: number, entityIdField: string | null) => Promise<void>;
+  // HF-360 (Part A): stage pulses + collect the manifest instead of loading inline (see WindowedCommitParams).
+  handOff?: boolean;
 }
 
 /**
@@ -256,7 +291,9 @@ export async function commitUnitStreamed(
     fields: { sheetName: params.tabName, expectedRows: totalRowsKnown, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
 
   const batchIds: string[] = [];
-  let totalInserted = 0;
+  const stagedPulses: Omit<PulseManifestEntry, 'index'>[] = [];
+  let totalInserted = 0;   // rows LOADED (synchronous path); 0 throughout the hand-off path
+  let stagedRows = 0;      // rows STAGED (hand-off path)
   let offset = 0;
   let pulsesLanded = 0;
   let failure: string | undefined;
@@ -282,17 +319,24 @@ export async function commitUnitStreamed(
           fileHashSha256: params.fileHashSha256,
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
+          handOff: params.handOff,
         });
       } catch (err) { failure = `window @${offset}: ${String(err)}`; return; }
       if (r.batchId) batchIds.push(r.batchId);
       if (!r.success) { failure = r.error ?? 'window commit failed'; return; }
-      totalInserted += r.totalInserted;
       pulsesLanded += 1;
-      // HF-359 (Part B): write the CUMULATIVE pulse index + rows AFTER commitContentUnit (last-write wins
-      // over its per-pulse write — set-merge semantics), so "Writing pulse X of ~Y" + rows committed are
-      // accurate for a multi-pulse unit. ~Y resolves upward if the estimate undershot the real pulse count.
-      await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
-        fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
+      if (params.handOff && r.stagedPulse) {
+        // HF-360: STAGED, not loaded — collect the manifest row; the worker loads off the serverless clock.
+        stagedPulses.push(r.stagedPulse);
+        stagedRows += r.stagedPulse.expectedRows;
+      } else {
+        totalInserted += r.totalInserted;
+        // HF-359 (Part B): write the CUMULATIVE pulse index + rows AFTER commitContentUnit (last-write wins
+        // over its per-pulse write — set-merge semantics), so "Writing pulse X of ~Y" + rows committed are
+        // accurate for a multi-pulse unit. ~Y resolves upward if the estimate undershot the real pulse count.
+        await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+          fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
+      }
       if (params.onWindowCommitted) {
         try { await params.onWindowCommitted(rows, offset, entityIdField); }
         catch (err) { console.warn(`[streamed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
@@ -307,7 +351,18 @@ export async function commitUnitStreamed(
     // are durable. The failure is recorded at the boundary by execute-bulk (HF-358 Part B
     // recordCommitFailureOnJob on the unit's !success). This replaces the prior cross-pulse rollback (D16
     // unit-atomicity) so the work resumes from the failed pulse, not restarts.
-    return { totalInserted, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: failure };
+    return { totalInserted, totalRows: res.totalRows, success: false, entityIdField, batchIds, stagedPulses, error: failure };
+  }
+  // HF-360 (Part A): hand-off completeness — every streamed row must have been STAGED (the worker does the
+  // per-pulse load HALT-DATA-LOSS). Σ staged == streamed totalRows, else staging dropped rows.
+  if (params.handOff) {
+    if (stagedRows !== res.totalRows) {
+      const reason = `HALT-DATA-LOSS (staging): staged ${stagedRows} of ${res.totalRows} streamed rows across ${stagedPulses.length} pulses for "${params.tabName}".`;
+      console.error(`[streamed-commit] ${reason}`);
+      return { totalInserted: 0, totalRows: res.totalRows, success: false, entityIdField, batchIds, stagedPulses, error: reason };
+    }
+    console.log(`[streamed-commit] HAND-OFF ${params.classification}: ${stagedRows} rows STAGED across ${stagedPulses.length} byte-budgeted pulses; worker will load.`);
+    return { totalInserted: 0, totalRows: res.totalRows, success: true, entityIdField, batchIds, stagedPulses };
   }
   if (totalInserted !== res.totalRows) {
     const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${res.totalRows} streamed rows across ${batchIds.length} pulses for "${params.tabName}".`;

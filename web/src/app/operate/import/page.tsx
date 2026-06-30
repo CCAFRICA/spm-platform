@@ -14,6 +14,7 @@ import { SCIUpload, type FileInfo, type ParsedFileData } from '@/components/sci/
 import { SCIProposalView } from '@/components/sci/SCIProposal';
 import { SCIExecution } from '@/components/sci/SCIExecution';
 import { ImportReadyState } from '@/components/sci/ImportReadyState';
+import { PulseLoadProgress } from '@/components/sci/PulseLoadProgress';
 import { RemediationReview } from '@/components/remediation/RemediationReview'; // OB-249 (P7)
 import { ClearedSourcePanel } from '@/components/prism/ClearedSourcePanel'; // OB-250 (PRISM import source)
 import { ImportProgress } from '@/components/sci/ImportProgress';
@@ -41,6 +42,10 @@ type ImportState =
   | { phase: 'processing'; sessionId: string; files: FileInfo[] } // OB-174: async processing
   | { phase: 'proposal'; proposal: SCIProposal; rawData: ParsedFileData; fileName: string }
   | { phase: 'executing'; proposal: SCIProposal; confirmedUnits: ContentUnitProposal[]; rawData: ParsedFileData; storagePath?: string; storagePaths?: Record<string, string>; asyncSessionId?: string | null }
+  // HF-360 (Part C): the rows are STAGED and the pg_cron worker is loading them off the serverless clock.
+  // The page waits here (truthful PulseLoadProgress surface) and runs post-commit finalize only once the
+  // load completes (entity resolution reads committed_data — it must not run at stage time).
+  | { phase: 'loading'; executionResult: SCIExecutionResult; pulseLoadJob: { jobId: string; totalPulses: number; totalRows: number } }
   | { phase: 'complete'; executionResult: SCIExecutionResult }
   | { phase: 'error'; error: string; canRetry: boolean };
 
@@ -172,6 +177,7 @@ const PHASE_SUBTITLES: Record<string, string> = {
   processing: '',  // ImportProgress shows its own header
   proposal: 'Review what was found.',
   executing: '',  // ExecutionProgress shows its own header
+  loading: '',    // HF-360: PulseLoadProgress shows its own header
   complete: '',   // ImportReadyState shows its own header
   error: 'Something went wrong.',
 };
@@ -499,53 +505,73 @@ export default function OperateImportPage() {
 
   // ── Executing → Complete ──
 
-  const handleExecutionComplete = useCallback((result: SCIExecutionResult) => {
-    const successResults = result.results.filter(r => r.success);
-    const totalRows = successResults.reduce((s, r) => s + r.rowsProcessed, 0);
+  // HF-300 (C3, DIAG-071): the CRITICAL post-commit work — entity resolution + entity_id back-link,
+  // input_bindings invalidation, rule_set_assignments, and the flywheel aggregation. It READS committed_data,
+  // so it must run only AFTER the rows are actually in the table: for the synchronous path that is at
+  // execution-complete; for the HF-360 hand-off it is after the worker finishes the load (handleLoadComplete).
+  // Fire-and-forget + idempotent (the server runs each to completion in its own request).
+  const fireFinalizeAndFlywheel = useCallback((proposalId: string) => {
+    if (!tenantId) return;
+    void fetch('/api/import/sci/finalize-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, proposalId }),
+    })
+      .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
+      .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
 
-    // HF-300 (C3, DIAG-071): trigger the CRITICAL post-commit work ONCE, in a dedicated LIVE request —
-    // entity resolution + entity_id back-link, input_bindings invalidation, and rule_set_assignments.
-    // This is the work DIAG-071 found dying in execute-bulk's per-file waitUntil background on Vercel
-    // (99% of committed_data left NULL entity_id; active plan 0 assignments). Fire-and-forget: once the
-    // POST is dispatched the server runs it to completion in its own request/maxDuration regardless of
-    // this client; the endpoint is idempotent so a retry is safe. Runs after data AND plan imports.
-    if (tenantId) {
-      void fetch('/api/import/sci/finalize-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, proposalId: result.proposalId }),
-      })
-        .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
-        .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
-
-      // OB-251: close the async job lifecycle (committing → committed) and trigger Layer-E flywheel
-      // aggregation — the queued-but-never-consumed signals are now consumed after each import. Both
-      // are fire-and-forget + idempotent; no-op for the synchronous path (no jobs).
-      if (asyncSessionIdRef.current) {
-        // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sb = createClient() as any;
-        void sb.from('processing_jobs')
-          .update({ status: 'committed', completed_at: new Date().toISOString() })
-          .eq('tenant_id', tenantId)
-          .eq('session_id', asyncSessionIdRef.current)
-          .in('status', ['committing', 'classified', 'confirming']);
-      }
-      void fetch('/api/import/sci/aggregate-flywheel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId }),
-      }).catch(() => { /* best-effort: aggregation advances recognition; never blocks completion */ });
+    if (asyncSessionIdRef.current) {
+      // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = createClient() as any;
+      void sb.from('processing_jobs')
+        .update({ status: 'committed', completed_at: new Date().toISOString() })
+        .eq('tenant_id', tenantId)
+        .eq('session_id', asyncSessionIdRef.current)
+        .in('status', ['committing', 'classified', 'confirming']);
     }
+    void fetch('/api/import/sci/aggregate-flywheel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId }),
+    }).catch(() => { /* best-effort: aggregation advances recognition; never blocks completion */ });
+  }, [tenantId]);
 
+  const goComplete = useCallback((result: SCIExecutionResult, totalRows: number) => {
     setPostImportData({
       totalRowsCommitted: totalRows,
       results: result.results,
       importSessionId: result.proposalId,   // = comprehension-session id; completion reads the full unit set
     });
-
     setState({ phase: 'complete', executionResult: result });
-  }, [tenantId]);
+  }, []);
+
+  const handleExecutionComplete = useCallback((result: SCIExecutionResult) => {
+    // HF-360 (Part C): staging succeeded but the hand-off enqueue failed — the rows are staged yet nothing
+    // will load them. Surface a clear, recoverable error; never a false "0 rows imported" completion.
+    if (result.pulseLoadEnqueueFailed) {
+      setState({ phase: 'error', error: 'Your data was staged but could not be handed to the loader. No rows were loaded. Please re-import to try again.', canRetry: true });
+      return;
+    }
+    // HF-360 (Part C): the import HANDED OFF its loads — the rows are STAGED, not in committed_data yet.
+    // Wait in the 'loading' phase (truthful surface) and DO NOT finalize now (entity resolution would read
+    // an empty table). handleLoadComplete fires finalize + flywheel once the worker has loaded every pulse.
+    if (result.pulseLoadJob) {
+      setState({ phase: 'loading', executionResult: result, pulseLoadJob: result.pulseLoadJob });
+      return;
+    }
+    // Synchronous path (hand-off off): the rows are already loaded — finalize + complete now.
+    const totalRows = result.results.filter(r => r.success).reduce((s, r) => s + r.rowsProcessed, 0);
+    fireFinalizeAndFlywheel(result.proposalId);
+    goComplete(result, totalRows);
+  }, [fireFinalizeAndFlywheel, goComplete]);
+
+  // HF-360 (Part C): the worker finished loading every staged pulse — NOW run post-commit finalize (against
+  // the loaded committed_data) and transition to the completion screen with the truthful loaded-row total.
+  const handleLoadComplete = useCallback((result: SCIExecutionResult, rowsLoaded: number) => {
+    fireFinalizeAndFlywheel(result.proposalId);
+    goComplete(result, rowsLoaded);
+  }, [fireFinalizeAndFlywheel, goComplete]);
 
   // ── Fetch post-import enrichment data ──
 
@@ -633,7 +659,7 @@ export default function OperateImportPage() {
       <div className={isVialuce ? '' : 'min-h-screen bg-zinc-950 p-6 md:p-8'}>
         <div className={isVialuce ? 'page' : 'max-w-3xl mx-auto'}>
           {/* Page header — hidden during executing + complete (components show their own) */}
-          {state.phase !== 'executing' && state.phase !== 'complete' && state.phase !== 'processing' && (
+          {state.phase !== 'executing' && state.phase !== 'complete' && state.phase !== 'processing' && state.phase !== 'loading' && (
             isVialuce ? (
               <div className="phead">
                 <div>
@@ -747,6 +773,22 @@ export default function OperateImportPage() {
               {/* OB-203 §2: live platform telemetry (durable-spine-derived) during execute — pulses landing. */}
               <ImportTelemetryPanel tenantId={tenantId} sessionId={state.proposal.proposalId} phase="executing" />
             </>
+          )}
+
+          {/* ─── HF-360 LOADING STATE — the rows are STAGED; the worker is loading them off the clock ─── */}
+          {state.phase === 'loading' && (
+            <div className="rounded-xl bg-zinc-900/40 border border-zinc-800 p-6">
+              <p className="text-sm font-medium text-zinc-200">Your data is in — loading into your records</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                We staged every row safely, then handed the load to the database so a big file never times out
+                in your browser. This finishes on its own; you can leave this page and the load continues.
+              </p>
+              <PulseLoadProgress
+                tenantId={tenantId}
+                sessionId={state.executionResult.proposalId}
+                onLoadComplete={(rowsLoaded) => handleLoadComplete(state.executionResult, rowsLoaded)}
+              />
+            </div>
           )}
 
           {/* ─── COMPLETE STATE ─── */}
