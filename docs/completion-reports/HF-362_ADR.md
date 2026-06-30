@@ -89,8 +89,14 @@ already in place (HF-359) — no env var, no new threshold:
   **`const handOff = estTotalPulses > 1`**: a unit that fits in ONE pulse commits synchronously (fast, under
   the ceiling); a unit that needs MORE than one hands off (the synchronous path would risk the ceiling).
 - `execute-bulk` stops passing a global `handOff`; the **direct path** (`processEntityUnit`/`processDataUnit`/
-  `processReferenceUnit` → one `commitContentUnit` call) is inherently single-pulse → always synchronous
-  (the `handOff` param is removed from those signatures). The enqueue gate becomes "any unit staged pulses"
+  `processReferenceUnit` → one `commitContentUnit` call) commits synchronously (the `handOff` param is removed
+  from those signatures). NOTE (adversarial verification, finding F5/F6): the direct path is the **small-sheet**
+  path (under the `isLargeByBytes`/`exceedsCellCeiling` routing gates) but those gates bound source bytes /
+  cell count, **not** the committed-CSV bytes — so a pathologically wide sub-gate sheet's CSV can exceed the
+  budget and the synchronous upload fails **clean** (`failCommit`, reported). Pre-existing (the direct path was
+  never pulsed); the directive scoped Part B's decision to the streamed/windowed drivers (§3.3), which is where
+  it is implemented. Byte-budget-unified routing for the direct path is a declared follow-up (see the
+  completion report). The enqueue gate becomes "any unit staged pulses"
   (`sessionPulses.length > 0`), not "the flag is on".
 - `pulse-load-config.ts` / `isPulseHandoffEnabled()` / the `PULSE_LOAD_HANDOFF` env var are **deleted** (the
   directive's preferred "removed from the code"). No debug override retained — the byte budget is testable

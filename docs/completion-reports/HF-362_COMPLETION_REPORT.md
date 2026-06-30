@@ -61,6 +61,22 @@ The static `PULSE_LOAD_HANDOFF` env var is **deleted** (`pulse-load-config.ts` r
 one condition, one path, same committed output. `commitContentUnit` keeps its `handOff` param (the driver
 passes its per-pulse decision).
 
+## CRITICAL addition — entity construction on the synchronous path
+
+**User-reported HALT blocker.** HF-360 deferred entity resolution (`finalize-import` → `executePostCommitConstruction`
+→ entity_id back-link) to the **client** (`handleExecutionComplete`) on the synchronous path, and to the
+**finalize-sweep** on the hand-off path. So a client that navigates away — or (before Part A) the hand-off FK
+failure — left `committed_data` with **NULL entity_id and ZERO entities** (BCL, a sealed anchor, regressed;
+`processing_jobs` stuck at `classified`).
+
+**Fix:** `execute-bulk` now fires `finalize-import` **SERVER-SIDE** on the synchronous success path
+(`response.overallSuccess && !pulseLoadJob`) via `waitUntil` + the internal-cron principal — its own
+invocation + 300 s budget, cookieless, independent of the client. Entity resolution is now **GUARANTEED on
+both paths**: synchronous → this server-side fire (new); hand-off → the finalize-sweep (HF-360). Idempotent
+(matches `external_id`, skips already-resolved rows) — safe alongside the client's fire. With Part B, BCL
+commits synchronously → this fires → entities are created. (PG-A4 asserts the wiring; the live BCL re-import
+is architect/user-side, SR-44.)
+
 ## Decision 158 / behavioral equivalence
 
 The committed rows are **byte-identical** in both branches **by construction**: both call the SAME
@@ -82,9 +98,45 @@ awaits `bulk_commit_from_storage` — the function inline (sync) or the pg_cron 
 
 ## Adversarial verification
 
-6-dimension adversarial workflow (review → refute): Part-A staged interactions, Part-B decision correctness,
-byte-identity/Decision-158, single-path, regression/flag-removal, migration/deploy-ordering. _(Findings +
-dispositions appended below.)_
+A 6-dimension adversarial workflow (review → refute, 29 agents) confirmed the core invariants (byte-identity,
+single-path, no-new-threshold, the migration's safety + deploy-ordering) and surfaced **7 findings**. None is
+introduced by HF-362 — they are pre-existing HF-360 hand-off-lifecycle gaps or pre-existing routing
+boundaries — and HF-362 in fact **reduces** the surface (small imports no longer hand off). Dispositions:
+
+**Fixed in this PR:**
+- **(F3) Clean Slate / Delete Tenant didn't clear `pulse_load_jobs`** → the worker could repopulate
+  `committed_data` after a wipe. **Fixed** (added to both table sets) — directly supports the architect's
+  Clean-Slate-then-re-import step.
+- The entity-construction blocker (above) — the most consequential confirmed gap — is **fixed**.
+
+**Declared as a required follow-up — "HF-363: hand-off lifecycle durability" (pre-existing HF-360 lifecycle;
+intricate + coupled; unsafe to patch hastily in a HALT-CALC path):**
+- **(F1, HIGH) Units are marked terminal `'bound'` at STAGE time**, before the load lands. If `execute-bulk`
+  dies after the bound-emit but before the post-loop enqueue (the ceiling-kill case), the staged batches are
+  orphaned (no job), the bound spine makes resume skip them → silent loss presented as success. Fix
+  direction: emit a non-terminal state for staged units; make terminal `'bound'` contingent on the job
+  reaching `complete`; ensure the enqueue is durable before the bound transition. (Worker-fail mid-load —
+  the other half — IS recoverable today: the job goes `failed` → PulseLoadProgress shows Resume.)
+- **(F2, MEDIUM) `classifyUnitForResume` has no `'staged'` case** → a resume in the staging window can
+  re-stage a unit (duplicate batch + duplicate job). Coupled with F1.
+- **(F4, MEDIUM) `'staged'` orphans are permanent** (reconciler-exempt by design) — a failed-staging unit's
+  dropped prefix + a worker-failed job's `> N` pulses leave `'staged'` batches + ingestion-raw CSVs that are
+  never cleaned. Fix direction: mark dropped/stranded staged batches `'failed'` so they become
+  reconciler-sweepable.
+
+**Declared as a follow-up — byte-budget-unified routing (the directive scoped Part B's decision to the
+streamed/windowed drivers — §3.3 — which is where it is implemented):**
+- **(F5/F6, HIGH) The direct path is not byte-budget-bounded.** A unit under both routing gates
+  (`< 20 MB` file, `≤ 5 M` cells) — or any entity unit (always excluded from the byte-budgeted drivers) —
+  commits one CSV synchronously; a wide enough such unit's committed CSV can exceed the storage object limit.
+  Pre-existing (the direct path was never pulsed); **fails clean** (`failCommit` → reported failure, not
+  corruption); the directive's two named files route correctly (Casa Diaz 7.5 M cells → windowed → pulses;
+  BCL 85 rows → direct → sync). Fix direction: route on estimated committed-CSV bytes (the
+  `makeRowByteEstimator` already used by the windowed driver), and stop excluding `entity` from the drivers.
+- **(F7, MEDIUM) `estTotalPulses` is a 200-row-sample estimate** — a large undershoot to 1 forces a
+  multi-pulse unit synchronous (inline). Bounded in practice by the ~300 s ceiling headroom (a catastrophic
+  undershoot needs implausible head/tail width variance); the windowing still byte-bounds each inline pulse,
+  so the failure mode is added latency, not an oversized object.
 
 ## Zero residuals
 
@@ -101,8 +153,11 @@ DIAG-079 Q5; Pulse Management UI beyond HF-360.
    pre-migration large import fail *clean*, not silently.)
 1. **Merge** the PR.
 2. **Remove `PULSE_LOAD_HANDOFF`** from Vercel env (no longer read — the system decides).
-3. **Clear failed jobs:** `DELETE FROM pulse_load_jobs WHERE status IN ('failed','rolled_back');`
-4. **Re-import BCL** → confirm it commits **synchronously** (fast, no hand-off, no worker wait).
+3. **Clear pulse-load jobs** for the test tenants: `DELETE FROM pulse_load_jobs WHERE tenant_id = '…';` (clear
+   ALL, not just failed — a stale `enqueued`/`complete` job would otherwise confound the re-import). Going
+   forward, Clean Slate clears `pulse_load_jobs` automatically (this PR).
+4. **Re-import BCL** → confirm it commits **synchronously** (fast, no hand-off, no worker wait) **AND that
+   entities are created + `committed_data.entity_id` is populated** (the server-side finalize — the critical fix).
 5. **Clean Slate Casa Diaz** → re-import the 86,607-row file → confirm it **hands off automatically**, the
    worker loads all pulses to the full 86,607, and the surface shows progression.
 6. **Re-verify the sealed anchors** through this path.
