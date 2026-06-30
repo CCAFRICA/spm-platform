@@ -335,6 +335,82 @@ export async function readTenantEntityDomain(supabase: SupabaseClient, tenantId:
   return domain;
 }
 
+// ── HF-359 (Part A): shared committed-row metadata + byte estimator ─────────────────────────────────
+// The pulse boundary (windowed-commit.ts) must size each pulse by its serialized CSV bytes. To measure a
+// row's bytes with the SAME serializer + metadata commitContentUnit commits, these helpers are the ONE
+// source of the committed-row metadata shape — used BOTH by commitContentUnit's buildCommittedRow AND by
+// the pre-commit byte estimator, so they cannot drift.
+
+/** semantic_roles in the committed-row metadata shape (role/confidence/claimedBy), from confirmedBindings. */
+export function buildCommitSemanticRoles(
+  bindings: SemanticBinding[],
+): Record<string, { role: string; confidence: number; claimedBy: string }> {
+  const out: Record<string, { role: string; confidence: number; claimedBy: string }> = {};
+  for (const binding of bindings) {
+    out[binding.sourceField] = { role: binding.semanticRole, confidence: binding.confidence, claimedBy: binding.claimedBy };
+  }
+  return out;
+}
+
+/** The per-row CONSTANT metadata (everything except the rare per-row remediation.changes). */
+export function buildUnitCsvMetadata(args: {
+  source: string;
+  proposalId: string;
+  semanticRoles: Record<string, { role: string; confidence: number; claimedBy: string }>;
+  dataType: string;
+  entityIdField: string | null;
+  classification: string;
+  fieldIdentities: Record<string, FieldIdentity>;
+  agentsRun: string[];
+}): Record<string, unknown> {
+  return {
+    source: args.source,
+    proposalId: args.proposalId,
+    semantic_roles: args.semanticRoles,
+    resolved_data_type: args.dataType,
+    entity_id_field: args.entityIdField,
+    informational_label: args.classification,
+    field_identities: args.fieldIdentities,
+    remediation: { _stageRan: true, agents: args.agentsRun },
+  };
+}
+
+/**
+ * The Part A row-byte estimator — the EXACT serialized CSV line size of a row, using the unit's real
+ * constant metadata (reuses `committedRowToCsvLine`, the same serializer commitContentUnit uses). Built
+ * pre-commit (before remediation), so it uses the raw row + an empty agents list; remediation only
+ * canonicalizes a few cells (byte-negligible) and the budget's headroom fraction covers the drift.
+ * Placeholder import_batch_id / source_date / _rowIndex are fixed-width and representative.
+ */
+export function makeRowByteEstimator(
+  unit: CommitContentUnitInput,
+  classification: Exclude<AgentType, 'plan'>,
+  entityIdField: string | null,
+  scalars: { tenantId: string; proposalId: string; tabName: string; source: CommitContentUnitSource },
+): (row: Record<string, unknown>) => number {
+  const dataType = resolveDataTypeFromClassification(classification);
+  const semanticRoles = buildCommitSemanticRoles(unit.confirmedBindings);
+  const fieldIdentities =
+    extractFieldIdentitiesFromTrace(unit.classificationTrace) ?? buildFieldIdentitiesFromBindings(unit.confirmedBindings);
+  const metadata = buildUnitCsvMetadata({
+    source: scalars.source, proposalId: scalars.proposalId, semanticRoles, dataType,
+    entityIdField, classification, fieldIdentities, agentsRun: [],
+  });
+  return (row: Record<string, unknown>): number => {
+    const projection: CommittedRow = {
+      tenant_id: scalars.tenantId,
+      import_batch_id: '00000000-0000-0000-0000-000000000000',
+      entity_id: null,
+      period_id: null,
+      source_date: '2024-01-01',
+      data_type: dataType,
+      row_data: { ...row, _sheetName: scalars.tabName, _rowIndex: 0 },
+      metadata,
+    };
+    return Buffer.byteLength(committedRowToCsvLine(projection), 'utf8') + 1; // +1 for the trailing newline
+  };
+}
+
 // ============================================================
 // commitContentUnit — sole committed_data write surface
 // ============================================================
@@ -436,19 +512,9 @@ export async function commitContentUnit(
     rows,
   );
 
-  // Build semantic_roles map from confirmedBindings (single shape across
-  // all four classifications).
-  const semanticRoles: Record<
-    string,
-    { role: string; confidence: number; claimedBy: string }
-  > = {};
-  for (const binding of unit.confirmedBindings) {
-    semanticRoles[binding.sourceField] = {
-      role: binding.semanticRole,
-      confidence: binding.confidence,
-      claimedBy: binding.claimedBy,
-    };
-  }
+  // Build semantic_roles map from confirmedBindings (single shape across all four classifications).
+  // HF-359: via the shared buildCommitSemanticRoles so the byte estimator measures the SAME metadata.
+  const semanticRoles = buildCommitSemanticRoles(unit.confirmedBindings);
 
   // HF-110 — field_identities: HC trace primary, confirmedBindings fallback (DS-009 1.3).
   const fieldIdentities =
@@ -559,6 +625,14 @@ export async function commitContentUnit(
     );
   }
 
+  // HF-359 (Part A): the per-row CONSTANT metadata, built ONCE via the shared helper the byte estimator
+  // also uses (so the pulse-sizing serialization matches the committed serialization). buildCommittedRow
+  // merges the rare per-row remediation.changes onto this base — committed bytes unchanged (PG-A3).
+  const csvMetaBase = buildUnitCsvMetadata({
+    source, proposalId, semanticRoles, dataType, entityIdField, classification,
+    fieldIdentities, agentsRun: remediation.report.agentsRun,
+  });
+
   // OB-152/OB-157 — source_date extraction with period marker composition.
   const dateColumnHint = findDateColumnFromBindings(unit.confirmedBindings);
   const semanticRolesMap = buildSemanticRolesMap(unit.confirmedBindings);
@@ -607,23 +681,13 @@ export async function commitContentUnit(
       data_type: dataType,
       // OB-251: _rowIndex is file-global when chunked (rowIndexOffset default 0 ⇒ unchanged).
       row_data: { ...correctedRow, _sheetName: tabName, _rowIndex: (params.rowIndexOffset ?? 0) + i },
-      metadata: {
-        source,
-        proposalId,
-        semantic_roles: semanticRoles,
-        resolved_data_type: dataType,
-        entity_id_field: entityIdField,
-        informational_label: classification,
-        field_identities: fieldIdentities,
-        // OB-249 (P8/P4): _stageRan stamped on EVERY committed row (even zero-change) so a clean
-        // import that traversed the stage is provably distinct from a bypass; per-cell originals
-        // retained alongside the committed canonical (Carry Everything, I3).
-        remediation: {
-          _stageRan: true,
-          agents: remediation.report.agentsRun,
-          ...(rowChanges ? { changes: rowChanges } : {}),
-        },
-      },
+      // HF-359: the shared constant metadata (csvMetaBase) + the rare per-row remediation.changes merged
+      // onto it. Byte-identical to the prior inline literal — same keys, same order, same values (PG-A3).
+      // OB-249 (P8/P4): _stageRan is stamped on EVERY row via csvMetaBase; per-cell originals are retained
+      // in remediation.changes when this row changed (Carry Everything, I3).
+      metadata: rowChanges
+        ? { ...csvMetaBase, remediation: { ...(csvMetaBase.remediation as Record<string, unknown>), changes: rowChanges } }
+        : csvMetaBase,
     };
   };
 

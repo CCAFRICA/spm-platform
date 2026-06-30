@@ -28,6 +28,7 @@ import {
   findHcEntityIdColumn,
   selectEntityIdFieldByOverlap,
   readTenantEntityDomain,
+  makeRowByteEstimator,
   type CommitContentUnitInput,
   type CommitContentUnitResult,
 } from './commit-content-unit';
@@ -35,6 +36,9 @@ import type { AgentType } from './sci-types';
 import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
+// HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
+import { discoverUploadByteBudget, MAX_PULSE_ROWS } from './pulse-budget';
+import { planPulses } from './pulse-accumulator';
 
 export interface WindowedCommitParams {
   unit: CommitContentUnitInput;
@@ -101,7 +105,6 @@ export async function commitUnitWindowed(
   supabase: SupabaseClient,
   params: WindowedCommitParams,
 ): Promise<WindowedCommitResult> {
-  const windowRows = params.windowRows ?? CHUNK_ROW_SIZE;
   const totalRows = params.reader.totalRows;
   if (totalRows === 0) {
     return { totalInserted: 0, totalRows: 0, success: true, entityIdField: null, batchIds: [] };
@@ -109,56 +112,68 @@ export async function commitUnitWindowed(
 
   const entityIdField = await resolveEntityIdFieldStreamed(supabase, params);
 
+  // HF-359 (Part A): same byte boundary as the streamed path. Read in bounded MAX_PULSE_ROWS chunks
+  // (memory), then partition EACH chunk into byte-budgeted pulses (planPulses) so no uploaded object
+  // exceeds the storage limit, for any width. The row count is no longer the boundary.
+  const budget = await discoverUploadByteBudget(supabase);
+  const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
+    tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
+  });
+
   const batchIds: string[] = [];
   let totalInserted = 0;
   let offset = 0;
 
-  for (let start = 0; start < totalRows; start += windowRows) {
-    const rows = params.reader.readWindow(start, windowRows);
-    if (rows.length === 0) break;
-    let res: CommitContentUnitResult;
-    try {
-      res = await commitContentUnit(supabase, {
-        unit: params.unit,
-        rows,
-        classification: params.classification,
-        tenantId: params.tenantId,
-        proposalId: params.proposalId,
-        tabName: params.tabName,
-        fileName: params.fileName,
-        source: 'sci-bulk',
-        fileHashSha256: params.fileHashSha256,
-        rowIndexOffset: offset,
-        entityIdFieldOverride: entityIdField,
-      });
-    } catch (err) {
-      await rollbackBatches(supabase, batchIds);
-      return { totalInserted: 0, totalRows, success: false, entityIdField, batchIds, error: `window @${offset}: ${String(err)}` };
+  for (let chunkStart = 0; chunkStart < totalRows; chunkStart += MAX_PULSE_ROWS) {
+    const chunk = params.reader.readWindow(chunkStart, MAX_PULSE_ROWS);
+    if (chunk.length === 0) break;
+    const spans = planPulses(chunk.length, (i) => rowBytes(chunk[i]), budget.byteBudget, MAX_PULSE_ROWS);
+    for (const span of spans) {
+      const rows = chunk.slice(span.startRow, span.startRow + span.rowCount);
+      let res: CommitContentUnitResult;
+      try {
+        res = await commitContentUnit(supabase, {
+          unit: params.unit,
+          rows,
+          classification: params.classification,
+          tenantId: params.tenantId,
+          proposalId: params.proposalId,
+          tabName: params.tabName,
+          fileName: params.fileName,
+          source: 'sci-bulk',
+          fileHashSha256: params.fileHashSha256,
+          rowIndexOffset: offset,
+          entityIdFieldOverride: entityIdField,
+        });
+      } catch (err) {
+        // HF-359 (Part A, PG-A6): prior pulses stay committed (resumable); the failure is recorded at the
+        // boundary by execute-bulk (HF-358 Part B). No cross-pulse rollback.
+        return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: `pulse @${offset}: ${String(err)}` };
+      }
+      if (res.batchId) batchIds.push(res.batchId);
+      if (!res.success) {
+        // commitContentUnit already rolled back ITS pulse's own batch; PRIOR pulses stay committed
+        // (resumable, PG-A6). The failure is recorded by execute-bulk (HF-358 Part B).
+        return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: res.error };
+      }
+      totalInserted += res.totalInserted;
+      if (params.onWindowCommitted) {
+        try { await params.onWindowCommitted(rows, offset, entityIdField); }
+        catch (err) { console.warn(`[windowed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
+      }
+      offset += rows.length;
     }
-    if (res.batchId) batchIds.push(res.batchId);
-    if (!res.success) {
-      // commitContentUnit already rolled back ITS window's batch; roll back prior windows for
-      // unit-atomicity (a large unit that cannot fully commit retains nothing — matches D16).
-      await rollbackBatches(supabase, batchIds);
-      return { totalInserted: 0, totalRows, success: false, entityIdField, batchIds, error: res.error };
-    }
-    totalInserted += res.totalInserted;
-    if (params.onWindowCommitted) {
-      try { await params.onWindowCommitted(rows, offset, entityIdField); }
-      catch (err) { console.warn(`[windowed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
-    }
-    offset += rows.length;
   }
 
-  // Aggregate HALT-DATA-LOSS across windows (each window already self-checked committed==parsed).
+  // Aggregate HALT-DATA-LOSS across pulses (each pulse already self-checked committed==parsed).
   if (totalInserted !== totalRows) {
-    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${totalRows} rows across ${batchIds.length} windows for "${params.tabName}".`;
+    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${totalRows} rows across ${batchIds.length} pulses for "${params.tabName}".`;
     console.error(`[windowed-commit] ${reason}`);
-    await rollbackBatches(supabase, batchIds);
-    return { totalInserted: 0, totalRows, success: false, entityIdField, batchIds, error: reason };
+    // HF-359 (PG-A6): prior pulses remain committed (resumable); report the shortfall.
+    return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: reason };
   }
 
-  console.log(`[windowed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} windows (window=${windowRows}), entity_id_field="${entityIdField ?? 'none'}"`);
+  console.log(`[windowed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} byte-budgeted pulses (budget=${(budget.byteBudget / 1048576).toFixed(1)}MB), entity_id_field="${entityIdField ?? 'none'}"`);
   return { totalInserted, totalRows, success: true, entityIdField, batchIds };
 }
 
@@ -190,13 +205,22 @@ export async function commitUnitStreamed(
   supabase: SupabaseClient,
   params: StreamedCommitParams,
 ): Promise<WindowedCommitResult> {
-  const windowRows = params.windowRows ?? CHUNK_ROW_SIZE;
   // Trace-derived entity-id (no rows): single entity-scope identifier is deterministic; reference → null.
   const entityIdField = params.classification === 'reference'
     ? null
     : (findHcEntityIdColumn(params.unit.classificationTrace)
         ?? params.unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField
         ?? null);
+
+  // HF-359 (Part A): discover the byte budget from the real storage limit, and a row-byte estimator that
+  // measures each row's serialized CSV size with the SAME serializer + metadata commitContentUnit commits.
+  // Each pulse flushes BEFORE its CSV would exceed the budget — so no uploaded object exceeds the limit,
+  // for any width. The 20K row count survives only as MAX_PULSE_ROWS (a memory safety cap).
+  const budget = await discoverUploadByteBudget(supabase);
+  const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
+    tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
+  });
+  console.log(`[streamed-commit] byte budget=${(budget.byteBudget / 1048576).toFixed(1)}MB (limit ${(budget.effectiveLimit / 1048576).toFixed(0)}MB, source=${budget.limitSource}); pulse boundary = bytes, not rows`);
 
   const batchIds: string[] = [];
   let totalInserted = 0;
@@ -205,7 +229,9 @@ export async function commitUnitStreamed(
 
   const res = await streamSheetWindows(params.buffer, {
     targetSheet: params.targetSheet,
-    windowRows,
+    byteBudget: budget.byteBudget,
+    rowBytes,
+    maxRows: MAX_PULSE_ROWS,
     onWindow: async (rows) => {
       if (failure) return; // a prior window failed — skip the rest; rollback happens after the stream
       let r: CommitContentUnitResult;
@@ -236,26 +262,24 @@ export async function commitUnitStreamed(
   });
 
   if (failure) {
-    await rollbackBatches(supabase, batchIds);
-    return { totalInserted: 0, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: failure };
+    // HF-359 (Part A, PG-A6): a mid-sequence pulse failure LEAVES ALL PRIOR PULSES COMMITTED (resumable) —
+    // the failed pulse already rolled back its OWN batch (commitContentUnit.failCommit); prior pulse-batches
+    // are durable. The failure is recorded at the boundary by execute-bulk (HF-358 Part B
+    // recordCommitFailureOnJob on the unit's !success). This replaces the prior cross-pulse rollback (D16
+    // unit-atomicity) so the work resumes from the failed pulse, not restarts.
+    return { totalInserted, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: failure };
   }
   if (totalInserted !== res.totalRows) {
-    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${res.totalRows} streamed rows across ${batchIds.length} windows for "${params.tabName}".`;
+    const reason = `HALT-DATA-LOSS: committed ${totalInserted} of ${res.totalRows} streamed rows across ${batchIds.length} pulses for "${params.tabName}".`;
     console.error(`[streamed-commit] ${reason}`);
-    await rollbackBatches(supabase, batchIds);
-    return { totalInserted: 0, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: reason };
+    // Prior pulses remain committed (resumable); report the shortfall (each pulse already self-verified count).
+    return { totalInserted, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: reason };
   }
-  console.log(`[streamed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} windows (window=${windowRows}), entity_id_field="${entityIdField ?? 'none'}"`);
+  console.log(`[streamed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} byte-budgeted pulses (budget=${(budget.byteBudget / 1048576).toFixed(1)}MB), entity_id_field="${entityIdField ?? 'none'}"`);
   return { totalInserted, totalRows: res.totalRows, success: true, entityIdField, batchIds };
 }
 
-async function rollbackBatches(supabase: SupabaseClient, batchIds: string[]): Promise<void> {
-  for (const id of batchIds) {
-    try {
-      await supabase.from('committed_data').delete().eq('import_batch_id', id);
-      await supabase.from('import_batches').update({ status: 'failed' }).eq('id', id);
-    } catch (err) {
-      console.error(`[windowed-commit] rollback of batch ${id} failed:`, err instanceof Error ? err.message : err);
-    }
-  }
-}
+// HF-359 (Part A, PG-A6): the cross-pulse `rollbackBatches` is removed. A pulse failure no longer rolls
+// back prior pulses (D16 unit-atomicity → pulse-atomicity): prior pulse-batches stay committed so the work
+// resumes from the failed pulse, and the failed pulse already rolled back its OWN batch in
+// commitContentUnit.failCommit. The failure is recorded at the boundary by execute-bulk (HF-358 Part B).

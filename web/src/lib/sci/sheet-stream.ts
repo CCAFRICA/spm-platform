@@ -20,6 +20,7 @@
 // column keys agree. Carry Everything (T1-E902): every <row> after the header is emitted, none dropped.
 
 import { StringDecoder } from 'node:string_decoder';
+import { shouldFlushBeforeAdd } from './pulse-accumulator'; // HF-359: the shared byte-budget pulse boundary
 
 /**
  * Build the canonical column keys from a header row's cells, EXACTLY as `sheet_to_json` does:
@@ -165,7 +166,14 @@ function drainRows(pending: string): { rows: string[]; rest: string } {
 export async function streamSheetWindows(
   buffer: ArrayBuffer | Buffer,
   opts: {
-    windowRows: number;
+    // HF-359 (Part A): the pulse boundary. When `byteBudget` + `rowBytes` are given, a pulse flushes BEFORE
+    // a row would push its serialized CSV over the budget (byte-budgeted pulse). `maxRows` is the upper
+    // safety cap on rows/pulse. `windowRows` (legacy) acts as the cap when `maxRows` is absent — and as the
+    // sole row-count boundary when no byte budget is given (back-compat for the windowed/test paths).
+    windowRows?: number;
+    byteBudget?: number;
+    maxRows?: number;
+    rowBytes?: (row: Record<string, unknown>) => number;
     onWindow: (rows: Record<string, unknown>[], startRow: number) => Promise<void> | void;
     targetSheet?: string;
     onHeaders?: (sheetName: string, headers: string[]) => void;
@@ -199,8 +207,14 @@ export async function streamSheetWindows(
   let headers: string[] | null = null;
   let totalRows = 0;
   let windowBuf: Record<string, unknown>[] = [];
+  let accBytes = 0; // HF-359: running serialized-CSV bytes of the current pulse
   let pending = '';
   const decoder = new StringDecoder('utf8');
+
+  // HF-359 (Part A): byte-budgeted pulse boundary via the shared rule. maxRows = the safety cap (maxRows
+  // → windowRows → unbounded); byteBudget governs when set. rowBytes(row) = the row's serialized CSV size.
+  const maxRows = opts.maxRows ?? opts.windowRows ?? Number.POSITIVE_INFINITY;
+  const byteBudget = opts.byteBudget ?? 0;
 
   const handleRow = async (rowXml: string) => {
     const cells = parseRowCells(rowXml, shared);
@@ -212,12 +226,15 @@ export async function streamSheetWindows(
     }
     const obj: Record<string, unknown> = {};
     for (let i = 0; i < headers.length; i++) obj[headers[i]] = cells.has(i) ? cells.get(i) : '';
-    windowBuf.push(obj);
-    totalRows += 1;
-    if (windowBuf.length >= opts.windowRows) {
+    const b = opts.rowBytes ? opts.rowBytes(obj) : 1;
+    if (shouldFlushBeforeAdd(windowBuf.length, accBytes, b, byteBudget, maxRows)) {
       await opts.onWindow(windowBuf, totalRows - windowBuf.length);
       windowBuf = [];
+      accBytes = 0;
     }
+    windowBuf.push(obj);
+    accBytes += b;
+    totalRows += 1;
   };
 
   await new Promise<void>((resolve, reject) => {
