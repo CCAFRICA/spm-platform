@@ -59,7 +59,18 @@ function isRestrictedWorkspace(pathname: string): boolean {
 // cookieless request reach the route's own gate instead of 401'ing it as "unauthenticated" — that
 // middleware 401 is the second half of the RC2 bug (the dispatcher never advanced a job). Any caller that
 // is NOT the internal principal still 401s here exactly as before.
-const INTERNAL_WORKER_PATHS = ['/api/import/sci/dispatch-jobs', '/api/import/sci/process-job'];
+// HF-361 (production blocker): the HF-360 finalize-sweep CRON — and the finalize-import it fires
+// SERVER-SIDE, cookielessly, with the CRON_SECRET bearer — were 401'ing HERE as "unauthenticated" before
+// reaching their own internal-principal gate. Result: every tenant's pulse-load jobs enqueued but never
+// finalized (committed_data left with NULL entity_id; the UI showed LOAD INTERRUPTED). Both authenticate
+// via isInternalCronCaller IN-ROUTE (CRON_SECRET / x-vercel-cron), so the middleware must let the cron
+// principal through to that gate — exactly as it already does for dispatch-jobs / process-job.
+const INTERNAL_WORKER_PATHS = [
+  '/api/import/sci/dispatch-jobs',
+  '/api/import/sci/process-job',
+  '/api/import/sci/pulse-load/finalize-sweep',
+  '/api/import/sci/finalize-import',
+];
 function isInternalWorkerPath(pathname: string): boolean {
   return INTERNAL_WORKER_PATHS.some(p => pathname.startsWith(p));
 }
