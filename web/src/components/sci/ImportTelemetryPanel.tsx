@@ -155,7 +155,8 @@ export function ImportTelemetryPanel({
         <div style={{ height: 6, borderRadius: 999, background: 'var(--vl-line)', overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${pulsePct}%`, background: 'var(--vl-success)', transition: 'width .5s' }} />
         </div>
-        <p style={{ fontSize: 11, color: 'var(--vl-text-soft)', margin: '8px 0 0' }}>{t.units.committed} of {t.units.total} content units committed</p>
+        {/* HF-359: the byte-budgeted pulse landing — "Writing pulse X of ~Y" (~Y is an estimate). */}
+        <p style={{ fontSize: 11, color: 'var(--vl-text-soft)', margin: '8px 0 0' }}>Writing pulse {pulseNow} of ~{t.pulses.total} · {t.units.committed} of {t.units.total} content units committed</p>
       </div>
     );
   }
@@ -193,8 +194,9 @@ export function ImportTelemetryPanel({
         </>
       ) : (
         <>
-          {/* HERO: pulse progress — the write landing on the durable record. */}
-          <Hero value={`${pulseNow}`} unit={`of ${t.pulses.total} pulses`} caption={`${t.rows.committed.toLocaleString()} of ${t.rows.total.toLocaleString()} rows committed`} />
+          {/* HERO: pulse progress — the write landing on the durable record. HF-359: "Writing pulse X of
+              ~Y" — ~Y is an estimate (byte-budgeted pulse count emerges); rows are the exact total. */}
+          <Hero value={`Writing pulse ${pulseNow}`} unit={`of ~${t.pulses.total}`} caption={`${t.rows.committed.toLocaleString()} of ${t.rows.total.toLocaleString()} rows committed`} />
           <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
             <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${pulsePct}%` }} />
           </div>
