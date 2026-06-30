@@ -209,6 +209,16 @@ test('PG-B resume: re-arm failed/loading from the PERSISTED cursor; loaded pulse
   assert.equal(tables.pulse_load_jobs.find((j) => j.id === 'b')!.status, 'complete');
 });
 
+test('PG-B resume: re-arms a STALLED loading job but NOT a healthy in-flight one (no double-claim)', async () => {
+  const healthy = mkJob({ id: 'h', status: 'loading', cursor: 5, updated_at: new Date(Date.now() - 1000).toISOString() });       // 1s ago — alive
+  const stalled = mkJob({ id: 's', status: 'loading', cursor: 5, updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString() }); // 5min ago — tick died
+  const { client, tables } = makeMockSupabase({ pulse_load_jobs: [healthy, stalled] });
+  const res = await resumeSession(client, 'tA', 'sess1');
+  assert.equal(res.jobsResumed, 1); // only the stalled one
+  assert.equal(tables.pulse_load_jobs.find((j) => j.id === 'h')!.status, 'loading');   // healthy untouched
+  assert.equal(tables.pulse_load_jobs.find((j) => j.id === 's')!.status, 'enqueued');  // stalled re-armed
+});
+
 test('PG-B resume: does NOT resume a rolled_back job (rollback is terminal)', async () => {
   const { client, tables } = makeMockSupabase({ pulse_load_jobs: [mkJob({ status: 'rolled_back', cursor: 0 })] });
   const res = await resumeSession(client, 'tA', 'sess1');

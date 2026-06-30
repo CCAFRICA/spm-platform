@@ -200,13 +200,22 @@ export interface ResumeResult {
  * one). Does NOT touch already-loaded pulses (cursor is preserved). A 'complete' job is left alone; a
  * 'rolled_back' job is NOT resumed (rollback is terminal — re-import to redo).
  */
+/** the worker's stale-loading reclaim window — a 'loading' job older than this lost its tick. */
+const STALE_LOADING_MS = 2 * 60 * 1000;
+
 export async function resumeSession(
   supabase: SupabaseClient,
   tenantId: string,
   sessionId: string,
 ): Promise<ResumeResult> {
   const jobs = await getSessionJobs(supabase, tenantId, sessionId);
-  const resumable = jobs.filter((j) => j.status === 'failed' || j.status === 'loading');
+  // Re-arm FAILED jobs, and only STALLED 'loading' jobs (heartbeat older than the worker's reclaim window).
+  // A HEALTHY in-flight 'loading' job is NOT re-armed — flipping it to 'enqueued' while its worker is still
+  // advancing the cursor would let a second tick claim it and double-process. A healthy load needs no resume.
+  const now = Date.now();
+  const resumable = jobs.filter((j) =>
+    j.status === 'failed' ||
+    (j.status === 'loading' && now - new Date(j.updated_at).getTime() > STALE_LOADING_MS));
   const at = new Date().toISOString();
   let pulsesRemaining = 0;
   for (const j of resumable) {

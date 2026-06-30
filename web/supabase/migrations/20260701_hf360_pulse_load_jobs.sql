@@ -57,6 +57,8 @@ declare
   v_path      text;
   v_expected  integer;
   v_count     bigint;
+  v_err       text;     -- captured load error (set INSIDE the begin/exception block, handled OUTSIDE it)
+  v_status    text;     -- the job's live status, re-read each iteration (rollback/external-change responsive)
 begin
   -- Claim ONE job: enqueued, or a 'loading' job whose tick died (heartbeat > 2 min stale → resume from its
   -- cursor). FOR UPDATE SKIP LOCKED ⇒ concurrent cron ticks never grab the same job (they take other jobs).
@@ -81,21 +83,43 @@ begin
   -- Load remaining pulses, COMMITting after each (per-pulse durability ⇒ a later failure leaves prior
   -- pulses committed and resumable from the cursor).
   while v_cursor < v_total loop
+    -- Responsiveness to external state (a Part-B ROLLBACK marking the job 'rolled_back', or a failure from a
+    -- concurrent path): re-read the live status before loading the next pulse and STOP if it is no longer
+    -- 'loading'. Bounds any rollback-vs-worker race to at most the one in-flight pulse (rollback is
+    -- idempotent — re-running cleans up that pulse). Without this the worker would keep loading orphan rows
+    -- past a rollback that already deleted the earlier batches.
+    select status into v_status from public.pulse_load_jobs where id = v_id;
+    if v_status is distinct from 'loading' then
+      return;
+    end if;
+
     v_pulse    := v_manifest -> v_cursor;
     v_batch    := (v_pulse ->> 'batchId')::uuid;
     v_path     := v_pulse ->> 'csvPath';
     v_expected := (v_pulse ->> 'expectedRows')::integer;
 
+    -- Capture any load error in v_err — a COMMIT is ILLEGAL inside a block that has an EXCEPTION handler
+    -- (the handler establishes a subtransaction), so the failure is HANDLED + COMMITted OUTSIDE this block.
+    v_err := null;
     begin
+      -- Idempotent re-load: clear any committed_data this batch may already hold (a reclaimed/resumed pulse,
+      -- or a concurrent attempt) BEFORE inserting, so a re-processed pulse can never duplicate rows. This +
+      -- the bulk load are one transaction (committed together below), so the delete+insert is atomic. On the
+      -- normal first load of a freshly-staged batch this deletes 0 rows. Tenant-scoped (defense in depth).
+      delete from public.committed_data where import_batch_id = v_batch and tenant_id = v_tenant;
       v_count := public.bulk_commit_from_storage(v_tenant, v_path, v_batch);  -- the FDW load (no LLM)
     exception when others then
+      v_err := sqlerrm;
+    end;
+
+    if v_err is not null then
       update public.pulse_load_jobs
-         set status = 'failed', error_detail = 'pulse '||v_cursor||' load error: '||sqlerrm, updated_at = now(),
-             audit = audit || jsonb_build_object('at', now(), 'from', 'loading', 'to', 'failed', 'detail', 'pulse '||v_cursor||': '||sqlerrm)
+         set status = 'failed', error_detail = 'pulse '||v_cursor||' load error: '||v_err, updated_at = now(),
+             audit = audit || jsonb_build_object('at', now(), 'from', 'loading', 'to', 'failed', 'detail', 'pulse '||v_cursor||': '||v_err)
        where id = v_id;
       commit;
       return;
-    end;
+    end if;
 
     -- HALT-DATA-LOSS: the DB must have loaded EXACTLY the staged row count (no silent partial).
     if v_count <> v_expected then
@@ -117,10 +141,12 @@ begin
     commit;  -- THIS pulse is now durable; a stop here resumes from v_cursor
   end loop;
 
+  -- Complete only if still loading (a rollback during the final pulse must not flip a rolled_back job to
+  -- complete). The guard mirrors the per-iteration check for the last pulse.
   update public.pulse_load_jobs
      set status = 'complete', updated_at = now(),
          audit = audit || jsonb_build_object('at', now(), 'from', 'loading', 'to', 'complete', 'detail', rows_loaded||' rows across '||v_total||' pulses')
-   where id = v_id;
+   where id = v_id and status = 'loading';
   commit;
 end;
 $$;
