@@ -74,7 +74,84 @@ export function evaluateImportAtomicity(args: {
   return { reason };
 }
 
+// OB-255 continuation — structural-independence signal (Korean-clean, AP-25). A column is RATE-BEARING
+// when its de-banded header carries the '%' symbol (a universal symbol, not a language token) OR its
+// sampled values are predominantly fractional rates (0 < v ≤ 1) or carry '%'. A sheet is a SELF-CONTAINED
+// commission program when it is a real table (≥3 columns) AND carries its own rate — the minimal
+// ingredient of a standalone plan. Complementary PARTS of one plan (an overview / targets sheet) do NOT
+// each carry a rate; they need cross-sheet context and must be batched (the BCL class, HF-130).
+export function columnIsRateBearing(col: string, rows: Record<string, unknown>[]): boolean {
+  if (col.includes('%')) return true;
+  let n = 0, rate = 0;
+  for (const r of rows) {
+    const v = r[col];
+    if (v === null || v === undefined || String(v).trim() === '') continue;
+    n++;
+    const s = String(v).trim();
+    if (s.includes('%')) { rate++; continue; }
+    const num = Number(s.replace(/[\s,]/g, ''));
+    if (Number.isFinite(num) && num > 0 && num <= 1) rate++;
+  }
+  return n >= 3 && rate / n >= 0.5;
+}
+export function sheetIsSelfContainedProgram(columns: string[], rows: Record<string, unknown>[]): boolean {
+  return columns.length >= 3 && columns.some(c => columnIsRateBearing(c, rows));
+}
+
+// OB-255 continuation — the PUBLIC entry. Selects the interpretation mode from the input's STRUCTURE and
+// delegates to the per-group interpreter (no fork — one path, the structure decides). Multiple plan
+// sheets that are EACH self-contained programs → interpret PER-SHEET (one rule_set each, fixes the
+// 8-sheet batched-call truncation). A single sheet, a single document (PDF/PPTX/DOCX), or related
+// multi-sheet plans whose sheets are not all self-contained → ONE batched interpretation (HF-130 / BCL
+// preserved). The decision is data-driven; there is no `if(tenant)` / `if(file)` special-casing.
 export async function executeBatchedPlanInterpretation(
+  supabase: SupabaseClient,
+  tenantId: string,
+  planUnits: ContentUnitExecution[],
+  userId: string,
+  storagePath: string,
+  comprehendedFields: Array<{ field: string; meaning: string; role: string }> = [],
+): Promise<ContentUnitResult[]> {
+  const ext = storagePath.split('.').pop()?.toLowerCase();
+  // Only a multi-sheet XLSX can carry multiple independent programs; a single document is one group.
+  if (planUnits.length >= 2 && (ext === 'xlsx' || ext === 'xls')) {
+    try {
+      const { data: fileData } = await supabase.storage.from('ingestion-raw').download(storagePath);
+      if (fileData) {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(Buffer.from(await fileData.arrayBuffer()), { type: 'buffer' });
+        const probes = planUnits.map(u => {
+          const ws = u.tabName ? wb.Sheets[u.tabName] : undefined;
+          if (!ws) return false;
+          const db = debandWorksheet(XLSX, ws, u.tabName!);
+          return sheetIsSelfContainedProgram(db.columns, db.rows.slice(0, 30));
+        });
+        const allSelfContained = probes.every(Boolean);
+        if (allSelfContained) {
+          console.log(`[SCI plan-interp] OB-255: ${planUnits.length} structurally-independent plan sheets (each self-contained) — interpreting PER-SHEET, one rule_set each`);
+          const results: ContentUnitResult[] = [];
+          for (const u of planUnits) {
+            results.push(...await interpretPlanGroup(supabase, tenantId, [u], userId, storagePath, comprehendedFields));
+          }
+          return results;
+        }
+        console.log(`[SCI plan-interp] OB-255: plan sheets are not all self-contained (${probes.filter(Boolean).length}/${planUnits.length}) — BATCHING for cross-sheet context (HF-130 preserved)`);
+      }
+    } catch (e) {
+      console.warn(`[SCI plan-interp] OB-255 independence probe failed (${e instanceof Error ? e.message : String(e)}) — falling back to batched interpretation`);
+    }
+  }
+  return interpretPlanGroup(supabase, tenantId, planUnits, userId, storagePath, comprehendedFields);
+}
+
+// OB-255 continuation — the per-GROUP interpreter (internal). One call = one rule_set. It receives the
+// plan units that belong to ONE plan: all of them for a batched/related plan (BCL — overview + rate
+// tables + targets, which need cross-sheet context), or exactly one for a self-contained program (each
+// Casa Diaz sheet). The public `executeBatchedPlanInterpretation` below selects the grouping from the
+// input's structure and calls this once (batched) or once-per-sheet (independent). The content_hash
+// incorporates this group's sheet set so per-sheet groups get distinct idempotency keys (a batched
+// group's hash is stable across re-imports — same file, same sheets).
+async function interpretPlanGroup(
   supabase: SupabaseClient,
   tenantId: string,
   planUnits: ContentUnitExecution[],
@@ -229,8 +306,12 @@ export async function executeBatchedPlanInterpretation(
   }
 
   // ── HF-259 Q3: idempotency guard (before the expensive 1+N orchestration) ──
-  // content_hash = SHA-256 of the plan file bytes (format-invariant; the unified-content key).
-  const contentHash = computePlanContentHash(fileBuffer);
+  // content_hash = SHA-256 of the plan file bytes + THIS GROUP's sheet set (OB-255 continuation). The
+  // sheet set makes per-sheet groups of the same file get DISTINCT keys (else 8 single-sheet groups
+  // would collide on the file-only hash and dedup to one plan). A batched group's key is stable across
+  // re-imports (same file → same sheet set), preserving HF-259 idempotency for BCL-class plans.
+  const groupSheetKey = planUnits.map(u => u.tabName).filter(Boolean).sort().join('|');
+  const contentHash = `${computePlanContentHash(fileBuffer)}:${groupSheetKey}`;
   const sourceFileName = storagePath.split('/').pop()?.replace(/^\d+_/, '') || primaryContentUnitId;
   // Layer 1 — read-before-derive / moat reuse: a completed run for this content → return its
   // rule_set without re-executing (~zero cost). Degrade-safe (null when the table is unapplied).
