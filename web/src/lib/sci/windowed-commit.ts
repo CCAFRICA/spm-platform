@@ -37,8 +37,12 @@ import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 // HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
-import { discoverUploadByteBudget, MAX_PULSE_ROWS } from './pulse-budget';
+import { discoverUploadByteBudget, estimatePulseTotal, MAX_PULSE_ROWS } from './pulse-budget';
 import { planPulses } from './pulse-accumulator';
+// HF-359 (Part B): restored pulse progression — emit cumulative pulse index + rows through the EXISTING
+// per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
+import { accumulateUnitCommitFields } from './session-telemetry-accumulator';
+import { streamSheetMeta } from './sheet-stream';
 
 export interface WindowedCommitParams {
   unit: CommitContentUnitInput;
@@ -120,9 +124,18 @@ export async function commitUnitWindowed(
     tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
   });
 
+  // HF-359 (Part B): exact total (reader.totalRows) + the honest "~Y" pulse estimate from a sample; seed
+  // the EXISTING per-unit counters. Per-pulse cumulative writes (below) drive "Writing pulse X of ~Y".
+  const sample = params.reader.readWindow(0, Math.min(200, totalRows));
+  const avgRowBytes = sample.length > 0 ? Math.ceil(sample.reduce((s, r) => s + rowBytes(r), 0) / sample.length) : 2000;
+  const estTotalPulses = estimatePulseTotal(totalRows, avgRowBytes, budget.byteBudget);
+  await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+    fields: { sheetName: params.tabName, expectedRows: totalRows, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
+
   const batchIds: string[] = [];
   let totalInserted = 0;
   let offset = 0;
+  let pulsesLanded = 0;
 
   for (let chunkStart = 0; chunkStart < totalRows; chunkStart += MAX_PULSE_ROWS) {
     const chunk = params.reader.readWindow(chunkStart, MAX_PULSE_ROWS);
@@ -157,6 +170,10 @@ export async function commitUnitWindowed(
         return { totalInserted, totalRows, success: false, entityIdField, batchIds, error: res.error };
       }
       totalInserted += res.totalInserted;
+      pulsesLanded += 1;
+      // HF-359 (Part B): cumulative pulse index + rows through the existing counters (last-write wins).
+      await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+        fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
       if (params.onWindowCommitted) {
         try { await params.onWindowCommitted(rows, offset, entityIdField); }
         catch (err) { console.warn(`[windowed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
@@ -164,6 +181,10 @@ export async function commitUnitWindowed(
       offset += rows.length;
     }
   }
+
+  // HF-359 (Part B): resolve ~Y → exact pulse count and mark the unit complete.
+  await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+    fields: { pulsesTotal: pulsesLanded, pulsesLanded, expectedRows: totalRows, rowsCommitted: totalInserted, batchCommitted: true } }, supabase);
 
   // Aggregate HALT-DATA-LOSS across pulses (each pulse already self-checked committed==parsed).
   if (totalInserted !== totalRows) {
@@ -222,9 +243,22 @@ export async function commitUnitStreamed(
   });
   console.log(`[streamed-commit] byte budget=${(budget.byteBudget / 1048576).toFixed(1)}MB (limit ${(budget.effectiveLimit / 1048576).toFixed(0)}MB, source=${budget.limitSource}); pulse boundary = bytes, not rows`);
 
+  // HF-359 (Part B): the EXACT total + the honest "~Y" pulse estimate, from a cheap <dimension> read (best
+  // effort — the live signal is the cumulative pulse index + rows, which never needs the total).
+  const meta = await streamSheetMeta(params.buffer, { sampleRows: 200, targetSheet: params.targetSheet }).catch(() => null);
+  const totalRowsKnown = meta?.totalRows ?? 0;
+  const avgRowBytes = meta && meta.sample.length > 0
+    ? Math.ceil(meta.sample.reduce((s, r) => s + rowBytes(r), 0) / meta.sample.length)
+    : 2000;
+  const estTotalPulses = totalRowsKnown > 0 ? estimatePulseTotal(totalRowsKnown, avgRowBytes, budget.byteBudget) : 1;
+  // Seed the existing per-unit counters: exact total rows + the ~Y estimate; nothing landed yet.
+  await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+    fields: { sheetName: params.tabName, expectedRows: totalRowsKnown, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
+
   const batchIds: string[] = [];
   let totalInserted = 0;
   let offset = 0;
+  let pulsesLanded = 0;
   let failure: string | undefined;
 
   const res = await streamSheetWindows(params.buffer, {
@@ -253,6 +287,12 @@ export async function commitUnitStreamed(
       if (r.batchId) batchIds.push(r.batchId);
       if (!r.success) { failure = r.error ?? 'window commit failed'; return; }
       totalInserted += r.totalInserted;
+      pulsesLanded += 1;
+      // HF-359 (Part B): write the CUMULATIVE pulse index + rows AFTER commitContentUnit (last-write wins
+      // over its per-pulse write — set-merge semantics), so "Writing pulse X of ~Y" + rows committed are
+      // accurate for a multi-pulse unit. ~Y resolves upward if the estimate undershot the real pulse count.
+      await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+        fields: { pulsesLanded, rowsCommitted: totalInserted, pulsesTotal: Math.max(estTotalPulses, pulsesLanded) } }, supabase);
       if (params.onWindowCommitted) {
         try { await params.onWindowCommitted(rows, offset, entityIdField); }
         catch (err) { console.warn(`[streamed-commit] onWindowCommitted @${offset} failed (non-blocking):`, err instanceof Error ? err.message : err); }
@@ -275,6 +315,9 @@ export async function commitUnitStreamed(
     // Prior pulses remain committed (resumable); report the shortfall (each pulse already self-verified count).
     return { totalInserted, totalRows: res.totalRows, success: false, entityIdField, batchIds, error: reason };
   }
+  // HF-359 (Part B): resolve the estimate to the EXACT pulse count + total rows and mark the unit complete.
+  await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
+    fields: { pulsesTotal: pulsesLanded, pulsesLanded, expectedRows: res.totalRows, rowsCommitted: totalInserted, batchCommitted: true } }, supabase);
   console.log(`[streamed-commit] ${params.classification}: ${totalInserted} rows across ${batchIds.length} byte-budgeted pulses (budget=${(budget.byteBudget / 1048576).toFixed(1)}MB), entity_id_field="${entityIdField ?? 'none'}"`);
   return { totalInserted, totalRows: res.totalRows, success: true, entityIdField, batchIds };
 }

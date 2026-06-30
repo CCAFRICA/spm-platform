@@ -78,7 +78,8 @@ test('PG-A2: full coverage — Σ(pulse rows) = total, contiguous, no overlap, n
 // ── PG-A3 ──────────────────────────────────────────────────────────────────────────────────────────
 test('PG-A3: the metadata refactor is byte-identical to the prior inline literal + round-trips', () => {
   const semanticRoles = buildCommitSemanticRoles(UNIT.confirmedBindings);
-  const fieldIdentities = { DNI: { data_nature: 'id' }, Monto: { data_nature: 'amount' } } as Record<string, never>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fieldIdentities = { DNI: { data_nature: 'id' }, Monto: { data_nature: 'amount' } } as any;
   const args = { source: 'sci-bulk', proposalId: 'p-1', semanticRoles, dataType: 'transaction', entityIdField: 'DNI', classification: 'transaction', fieldIdentities, agentsRun: ['normalizer'] };
   const base = buildUnitCsvMetadata(args);
   // the prior inline literal (commit-content-unit.ts pre-HF-359), reconstructed
