@@ -1,8 +1,15 @@
-// HF-360 — Hand-Off Load: pulse-job snapshot/projection (pure) + enqueue/rollback/resume (mock substrate).
-// Proves: Σ(pulse rows)=total, the (manifest, cursor) snapshot is the EXACT committed-vs-uncommitted
-// partition (the 58-of-82 case), the session aggregate is truthful, rollback is tenant-scoped + deletes the
-// job's batches, resume re-arms from the persisted cursor (byte-identical replay; loaded pulses untouched).
-import { describe, it, expect } from 'vitest';
+/**
+ * HF-360 — Hand-Off Load: pulse-job snapshot/projection (pure) + enqueue/rollback/resume (mock substrate).
+ * Runner: node --test --import tsx.
+ *   PG-A1: snapshotPulseLoad is the EXACT committed-vs-uncommitted partition (the 58-of-82 case).
+ *   PG-A2: enqueuePulseLoadJob — ONE job, reindexed manifest, Σ rows; null + no insert when nothing staged.
+ *   PG-A4: projectSessionLoadState aggregates loaded/total + derives the session status truthfully.
+ *   PG-B (rollback): tenant-scoped delete of the job batches; idempotent; other tenants untouched.
+ *   PG-B (resume): re-arm from the PERSISTED cursor (byte-identical replay); loaded pulses untouched;
+ *                  rolled_back is terminal.
+ */
+import { test } from 'node:test';
+import { strict as assert } from 'node:assert';
 import {
   snapshotPulseLoad,
   type PulseLoadJob,
@@ -18,12 +25,12 @@ import {
 
 // ── a minimal in-memory Supabase the pulse-load surface uses (insert / select-eq-order / delete-eq-in /
 // update-eq). Records every delete's tenant scope so the tenant-scoping invariant is assertable. ──
-interface Row { [k: string]: unknown }
-function makeMockSupabase(seed: { pulse_load_jobs?: Row[]; committed_data?: Row[]; import_batches?: Row[] } = {}) {
+type Row = Record<string, unknown>;
+function makeMockSupabase(seed: { pulse_load_jobs?: unknown[]; committed_data?: unknown[]; import_batches?: unknown[] } = {}) {
   const tables: Record<string, Row[]> = {
-    pulse_load_jobs: seed.pulse_load_jobs ? [...seed.pulse_load_jobs] : [],
-    committed_data: seed.committed_data ? [...seed.committed_data] : [],
-    import_batches: seed.import_batches ? [...seed.import_batches] : [],
+    pulse_load_jobs: (seed.pulse_load_jobs ?? []).map((r) => ({ ...(r as Row) })),
+    committed_data: (seed.committed_data ?? []).map((r) => ({ ...(r as Row) })),
+    import_batches: (seed.import_batches ?? []).map((r) => ({ ...(r as Row) })),
   };
   const deleteScopes: Array<{ table: string; filters: Record<string, unknown> }> = [];
 
@@ -55,7 +62,6 @@ function makeMockSupabase(seed: { pulse_load_jobs?: Row[]; committed_data?: Row[
         const chain = {
           eq(col: string, val: unknown) {
             filters[col] = val;
-            // apply once both eq's are set (id + tenant_id) — apply on each call idempotently
             for (const r of rows) {
               if (Object.entries(filters).every(([k, v]) => r[k] === v)) Object.assign(r, patch);
             }
@@ -66,11 +72,9 @@ function makeMockSupabase(seed: { pulse_load_jobs?: Row[]; committed_data?: Row[
       },
       delete(_opts?: { count?: string }) {
         const filters: Record<string, unknown> = {};
-        const inFilters: Record<string, unknown[]> = {};
         const chain = {
           eq(col: string, val: unknown) { filters[col] = val; return chain; },
           in(col: string, vals: unknown[]) {
-            inFilters[col] = vals;
             deleteScopes.push({ table, filters: { ...filters, [`${col}__in`]: vals } });
             const before = rows.length;
             const kept = rows.filter((r) => !(
@@ -104,132 +108,118 @@ function mkJob(over: Partial<PulseLoadJob> = {}): PulseLoadJob {
   };
 }
 
-describe('HF-360 PG-A1 — snapshotPulseLoad is the EXACT committed-vs-uncommitted partition', () => {
-  it('partitions manifest at the cursor; the 58-of-82 case is made precise', () => {
-    const manifest = Array.from({ length: 82 }, (_, i) => mkPulse(i, 1000, `b${i}`));
-    const job = mkJob({ manifest, cursor: 58, total_pulses: 82, total_rows: 82000 });
-    const snap = snapshotPulseLoad(job);
-    expect(snap.pulsesLoaded).toBe(58);
-    expect(snap.pulsesTotal).toBe(82);
-    expect(snap.pendingPulses.length).toBe(24);    // 82 - 58
-    expect(snap.rowsLoaded).toBe(58000);
-    expect(snap.rowsTotal).toBe(82000);
-    // Σ loaded + Σ pending == total (no row unaccounted)
-    const pendingRows = snap.pendingPulses.reduce((s, p) => s + p.expectedRows, 0);
-    expect(snap.rowsLoaded + pendingRows).toBe(82000);
-  });
-
-  it('cursor 0 ⇒ nothing loaded; cursor == total ⇒ all loaded', () => {
-    const job = mkJob({ cursor: 0 });
-    expect(snapshotPulseLoad(job).rowsLoaded).toBe(0);
-    expect(snapshotPulseLoad({ ...job, cursor: 3 }).rowsLoaded).toBe(3000);
-    expect(snapshotPulseLoad({ ...job, cursor: 3 }).pendingPulses.length).toBe(0);
-  });
+test('PG-A1: snapshotPulseLoad is the EXACT committed-vs-uncommitted partition (the 58-of-82 case)', () => {
+  const manifest = Array.from({ length: 82 }, (_, i) => mkPulse(i, 1000, `b${i}`));
+  const job = mkJob({ manifest, cursor: 58, total_pulses: 82, total_rows: 82000 });
+  const snap = snapshotPulseLoad(job);
+  assert.equal(snap.pulsesLoaded, 58);
+  assert.equal(snap.pulsesTotal, 82);
+  assert.equal(snap.pendingPulses.length, 24);
+  assert.equal(snap.rowsLoaded, 58000);
+  assert.equal(snap.rowsTotal, 82000);
+  const pendingRows = snap.pendingPulses.reduce((s, p) => s + p.expectedRows, 0);
+  assert.equal(snap.rowsLoaded + pendingRows, 82000); // no row unaccounted
 });
 
-describe('HF-360 PG-A2 — enqueuePulseLoadJob: one job, reindexed manifest, Σ rows', () => {
-  it('inserts one enqueued job, assigns 0..N indices in commit order, sums rows', async () => {
-    const { client, tables } = makeMockSupabase();
-    const staged = [
-      { batchId: 'b0', csvPath: 't/committed/b0.csv', expectedRows: 1000, bytes: 1, unitId: 'u', sheetName: 'S' },
-      { batchId: 'b1', csvPath: 't/committed/b1.csv', expectedRows: 1500, bytes: 1, unitId: 'u', sheetName: 'S' },
-    ];
-    const res = await enqueuePulseLoadJob(client, { tenantId: 'tA', sessionId: 'sess1', unitId: '(session)', fileName: 'f', stagedPulses: staged });
-    expect(res).not.toBeNull();
-    expect(res!.totalPulses).toBe(2);
-    expect(res!.totalRows).toBe(2500);
-    const job = tables.pulse_load_jobs[0];
-    expect(job.status).toBe('enqueued');
-    expect(job.cursor).toBe(0);
-    expect((job.manifest as PulseManifestEntry[]).map((p) => p.index)).toEqual([0, 1]);
-  });
-
-  it('returns null + inserts NOTHING when there are no staged pulses (never an empty job)', async () => {
-    const { client, tables } = makeMockSupabase();
-    const res = await enqueuePulseLoadJob(client, { tenantId: 'tA', sessionId: 's', unitId: 'u', fileName: 'f', stagedPulses: [] });
-    expect(res).toBeNull();
-    expect(tables.pulse_load_jobs.length).toBe(0);
-  });
+test('PG-A1: cursor 0 ⇒ nothing loaded; cursor == total ⇒ all loaded, nothing pending', () => {
+  const job = mkJob({ cursor: 0 });
+  assert.equal(snapshotPulseLoad(job).rowsLoaded, 0);
+  assert.equal(snapshotPulseLoad({ ...job, cursor: 3 }).rowsLoaded, 3000);
+  assert.equal(snapshotPulseLoad({ ...job, cursor: 3 }).pendingPulses.length, 0);
 });
 
-describe('HF-360 PG-A4 — projectSessionLoadState aggregates truthfully', () => {
-  it('sums loaded/total across jobs and derives the session status', () => {
-    const a = mkJob({ id: 'a', cursor: 3, status: 'complete', rows_loaded: 3000 });
-    const b = mkJob({ id: 'b', cursor: 1, status: 'loading', rows_loaded: 1000 });
-    const st = projectSessionLoadState('sess1', [a, b]);
-    expect(st.pulsesLoaded).toBe(4);          // 3 + 1
-    expect(st.pulsesTotal).toBe(6);           // 3 + 3
-    expect(st.rowsLoaded).toBe(4000);
-    expect(st.status).toBe('loading');        // any loading ⇒ loading
-  });
-
-  it('all complete ⇒ complete; any failed ⇒ failed; empty ⇒ empty', () => {
-    expect(projectSessionLoadState('s', [mkJob({ status: 'complete', cursor: 3 }), mkJob({ status: 'complete', cursor: 3 })]).status).toBe('complete');
-    expect(projectSessionLoadState('s', [mkJob({ status: 'complete', cursor: 3 }), mkJob({ status: 'failed', cursor: 1 })]).status).toBe('failed');
-    expect(projectSessionLoadState('s', []).status).toBe('empty');
-  });
+test('PG-A2: enqueuePulseLoadJob inserts ONE enqueued job, reindexes 0..N in commit order, sums rows', async () => {
+  const { client, tables } = makeMockSupabase();
+  const staged = [
+    { batchId: 'b0', csvPath: 't/committed/b0.csv', expectedRows: 1000, bytes: 1, unitId: 'u', sheetName: 'S' },
+    { batchId: 'b1', csvPath: 't/committed/b1.csv', expectedRows: 1500, bytes: 1, unitId: 'u', sheetName: 'S' },
+  ];
+  const res = await enqueuePulseLoadJob(client, { tenantId: 'tA', sessionId: 'sess1', unitId: '(session)', fileName: 'f', stagedPulses: staged });
+  assert.ok(res);
+  assert.equal(res!.totalPulses, 2);
+  assert.equal(res!.totalRows, 2500);
+  const job = tables.pulse_load_jobs[0];
+  assert.equal(job.status, 'enqueued');
+  assert.equal(job.cursor, 0);
+  assert.deepEqual((job.manifest as PulseManifestEntry[]).map((p) => p.index), [0, 1]);
 });
 
-describe('HF-360 PG-B (rollback) — tenant-scoped delete of the job batches', () => {
-  it('deletes committed_data + import_batches for every pulse batch, marks jobs rolled_back, scopes by tenant', async () => {
-    const manifest = [mkPulse(0, 2, 'b0'), mkPulse(1, 2, 'b1')];
-    const job = mkJob({ manifest, cursor: 1, status: 'loading' });
-    const { client, tables, deleteScopes } = makeMockSupabase({
-      pulse_load_jobs: [job],
-      committed_data: [
-        { tenant_id: 'tA', import_batch_id: 'b0' }, { tenant_id: 'tA', import_batch_id: 'b0' },
-        { tenant_id: 'tA', import_batch_id: 'b1' },
-        { tenant_id: 'tOTHER', import_batch_id: 'bX' },           // another tenant — must survive
-      ],
-      import_batches: [{ id: 'b0', tenant_id: 'tA' }, { id: 'b1', tenant_id: 'tA' }],
-    });
-    const res = await rollbackSession(client, 'tA', 'sess1');
-    expect(res.rowsDeleted).toBe(3);
-    expect(res.batchesDeleted).toBe(2);
-    expect(tables.committed_data).toEqual([{ tenant_id: 'tOTHER', import_batch_id: 'bX' }]); // other tenant untouched
-    expect(tables.pulse_load_jobs[0].status).toBe('rolled_back');
-    // EVERY delete carried .eq('tenant_id', 'tA') (no unscoped delete possible)
-    expect(deleteScopes.length).toBeGreaterThan(0);
-    expect(deleteScopes.every((d) => d.filters.tenant_id === 'tA')).toBe(true);
-  });
-
-  it('is idempotent — re-running a rolled_back session deletes nothing more', async () => {
-    const job = mkJob({ status: 'rolled_back', cursor: 0 });
-    const { client } = makeMockSupabase({ pulse_load_jobs: [job] });
-    const res = await rollbackSession(client, 'tA', 'sess1');
-    expect(res.rowsDeleted).toBe(0);
-  });
+test('PG-A2: enqueue returns null + inserts NOTHING when nothing staged (never an empty job)', async () => {
+  const { client, tables } = makeMockSupabase();
+  const res = await enqueuePulseLoadJob(client, { tenantId: 'tA', sessionId: 's', unitId: 'u', fileName: 'f', stagedPulses: [] });
+  assert.equal(res, null);
+  assert.equal(tables.pulse_load_jobs.length, 0);
 });
 
-describe('HF-360 PG-B (resume) — re-arm from the persisted cursor, byte-identical replay', () => {
-  it('re-arms failed/loading jobs to enqueued, preserves cursor, leaves complete jobs alone', async () => {
-    const failed = mkJob({ id: 'a', status: 'failed', cursor: 58, total_pulses: 82, manifest: Array.from({ length: 82 }, (_, i) => mkPulse(i, 1000, `b${i}`)), error_detail: 'pulse 58 boom' });
-    const done = mkJob({ id: 'b', status: 'complete', cursor: 3 });
-    const { client, tables } = makeMockSupabase({ pulse_load_jobs: [failed, done] });
-    const res = await resumeSession(client, 'tA', 'sess1');
-    expect(res.jobsResumed).toBe(1);
-    expect(res.pulsesRemaining).toBe(24);                 // 82 - 58, cursor preserved (not reset)
-    const rearmed = tables.pulse_load_jobs.find((j) => j.id === 'a')!;
-    expect(rearmed.status).toBe('enqueued');
-    expect(rearmed.cursor).toBe(58);                      // loaded pulses untouched — resume, not restart
-    expect(rearmed.error_detail).toBeNull();
-    expect(tables.pulse_load_jobs.find((j) => j.id === 'b')!.status).toBe('complete'); // complete left alone
-  });
-
-  it('does NOT resume a rolled_back job (rollback is terminal)', async () => {
-    const { client, tables } = makeMockSupabase({ pulse_load_jobs: [mkJob({ status: 'rolled_back', cursor: 0 })] });
-    const res = await resumeSession(client, 'tA', 'sess1');
-    expect(res.jobsResumed).toBe(0);
-    expect(tables.pulse_load_jobs[0].status).toBe('rolled_back');
-  });
+test('PG-A4: projectSessionLoadState sums loaded/total across jobs + derives status', () => {
+  const a = mkJob({ id: 'a', cursor: 3, status: 'complete', rows_loaded: 3000 });
+  const b = mkJob({ id: 'b', cursor: 1, status: 'loading', rows_loaded: 1000 });
+  const st = projectSessionLoadState('sess1', [a, b]);
+  assert.equal(st.pulsesLoaded, 4);
+  assert.equal(st.pulsesTotal, 6);
+  assert.equal(st.rowsLoaded, 4000);
+  assert.equal(st.status, 'loading');
 });
 
-describe('HF-360 — getSessionLoadState end-to-end over the mock', () => {
-  it('reads the session jobs and projects the aggregate', async () => {
-    const { client } = makeMockSupabase({ pulse_load_jobs: [mkJob({ cursor: 2, status: 'loading', rows_loaded: 2000 })] });
-    const st = await getSessionLoadState(client, 'tA', 'sess1');
-    expect(st.pulsesTotal).toBe(3);
-    expect(st.pulsesLoaded).toBe(2);
-    expect(st.status).toBe('loading');
+test('PG-A4: all complete ⇒ complete; any failed ⇒ failed; empty ⇒ empty', () => {
+  assert.equal(projectSessionLoadState('s', [mkJob({ status: 'complete', cursor: 3 }), mkJob({ status: 'complete', cursor: 3 })]).status, 'complete');
+  assert.equal(projectSessionLoadState('s', [mkJob({ status: 'complete', cursor: 3 }), mkJob({ status: 'failed', cursor: 1 })]).status, 'failed');
+  assert.equal(projectSessionLoadState('s', []).status, 'empty');
+});
+
+test('PG-B rollback: tenant-scoped delete of the job batches; other tenants untouched; jobs rolled_back', async () => {
+  const manifest = [mkPulse(0, 2, 'b0'), mkPulse(1, 2, 'b1')];
+  const job = mkJob({ manifest, cursor: 1, status: 'loading' });
+  const { client, tables, deleteScopes } = makeMockSupabase({
+    pulse_load_jobs: [job],
+    committed_data: [
+      { tenant_id: 'tA', import_batch_id: 'b0' }, { tenant_id: 'tA', import_batch_id: 'b0' },
+      { tenant_id: 'tA', import_batch_id: 'b1' },
+      { tenant_id: 'tOTHER', import_batch_id: 'bX' },
+    ],
+    import_batches: [{ id: 'b0', tenant_id: 'tA' }, { id: 'b1', tenant_id: 'tA' }],
   });
+  const res = await rollbackSession(client, 'tA', 'sess1');
+  assert.equal(res.rowsDeleted, 3);
+  assert.equal(res.batchesDeleted, 2);
+  assert.deepEqual(tables.committed_data, [{ tenant_id: 'tOTHER', import_batch_id: 'bX' }]);
+  assert.equal(tables.pulse_load_jobs[0].status, 'rolled_back');
+  assert.ok(deleteScopes.length > 0);
+  assert.ok(deleteScopes.every((d) => d.filters.tenant_id === 'tA')); // no unscoped delete
+});
+
+test('PG-B rollback: idempotent — re-running a rolled_back session deletes nothing more', async () => {
+  const job = mkJob({ status: 'rolled_back', cursor: 0 });
+  const { client } = makeMockSupabase({ pulse_load_jobs: [job] });
+  const res = await rollbackSession(client, 'tA', 'sess1');
+  assert.equal(res.rowsDeleted, 0);
+});
+
+test('PG-B resume: re-arm failed/loading from the PERSISTED cursor; loaded pulses untouched; complete left alone', async () => {
+  const failed = mkJob({ id: 'a', status: 'failed', cursor: 58, total_pulses: 82, manifest: Array.from({ length: 82 }, (_, i) => mkPulse(i, 1000, `b${i}`)), error_detail: 'pulse 58 boom' });
+  const done = mkJob({ id: 'b', status: 'complete', cursor: 3 });
+  const { client, tables } = makeMockSupabase({ pulse_load_jobs: [failed, done] });
+  const res = await resumeSession(client, 'tA', 'sess1');
+  assert.equal(res.jobsResumed, 1);
+  assert.equal(res.pulsesRemaining, 24); // 82 - 58, cursor preserved
+  const rearmed = tables.pulse_load_jobs.find((j) => j.id === 'a')!;
+  assert.equal(rearmed.status, 'enqueued');
+  assert.equal(rearmed.cursor, 58); // resume, not restart
+  assert.equal(rearmed.error_detail, null);
+  assert.equal(tables.pulse_load_jobs.find((j) => j.id === 'b')!.status, 'complete');
+});
+
+test('PG-B resume: does NOT resume a rolled_back job (rollback is terminal)', async () => {
+  const { client, tables } = makeMockSupabase({ pulse_load_jobs: [mkJob({ status: 'rolled_back', cursor: 0 })] });
+  const res = await resumeSession(client, 'tA', 'sess1');
+  assert.equal(res.jobsResumed, 0);
+  assert.equal(tables.pulse_load_jobs[0].status, 'rolled_back');
+});
+
+test('getSessionLoadState reads the session jobs and projects the aggregate', async () => {
+  const { client } = makeMockSupabase({ pulse_load_jobs: [mkJob({ cursor: 2, status: 'loading', rows_loaded: 2000 })] });
+  const st = await getSessionLoadState(client, 'tA', 'sess1');
+  assert.equal(st.pulsesTotal, 3);
+  assert.equal(st.pulsesLoaded, 2);
+  assert.equal(st.status, 'loading');
 });
