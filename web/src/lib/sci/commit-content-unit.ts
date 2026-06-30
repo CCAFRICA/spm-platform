@@ -476,13 +476,18 @@ export async function commitContentUnit(
   const batchId = crypto.randomUUID();
   const pulseBase = params.pulseBase ?? { landed: 0, total: 0 };
 
-  await supabase.from('import_batches').insert({
+  // HF-362 (Part A): the batch row is the FK target the hand-off worker's bulk_commit_from_storage needs.
+  // CHECK the insert error — a failed batch insert (e.g. an invalid status before the constraint migration
+  // is applied) must FAIL the commit cleanly here, never leave an orphan `batchId` in the pulse manifest
+  // that the worker then fails on with committed_data_import_batch_id_fkey (the HF-360 silent-failure bug).
+  const { error: batchInsertErr } = await supabase.from('import_batches').insert({
     id: batchId,
     tenant_id: tenantId,
     file_name: fileName,
     file_type: 'sci',
     // HF-360 (Part A): a hand-off pulse is STAGED, not loaded — the pg_cron worker flips it to 'completed'
     // when it loads the staged CSV. A synchronous commit (handOff falsy) is 'processing' as before.
+    // ('staged' is allowed by the HF-362 constraint migration; it is reconciler-exempt + visibility-hidden.)
     status: params.handOff ? 'staged' : 'processing',
     row_count: rows.length,
     // HF-196 Phase 1F — file-level hash retained for audit (supersedure trigger
@@ -496,6 +501,18 @@ export async function commitContentUnit(
       classification,
     } as unknown as Json,
   });
+  if (batchInsertErr) {
+    console.error(`[commitContentUnit] import_batches insert failed for "${tabName}" (status=${params.handOff ? 'staged' : 'processing'}): ${batchInsertErr.message}`);
+    await accumulateUnitCommitFields({
+      tenantId, importSessionId: proposalId, unitId: unit.contentUnitId,
+      fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+    }, supabase);
+    return {
+      batchId, totalInserted: 0, dataType, entityIdField: null, fieldIdentities: {},
+      earliestDate: null, latestDate: null, dateCount: 0, success: false,
+      error: `import_batches insert failed: ${batchInsertErr.message}`,
+    };
+  }
 
   // OB-203 Phase D Hook 2 (batch created): the unit's expected work is now
   // known — record it on the session telemetry row, piggybacked on the batch

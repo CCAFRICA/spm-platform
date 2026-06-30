@@ -37,7 +37,7 @@ import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 // HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
-import { discoverUploadByteBudget, estimatePulseTotal, MAX_PULSE_ROWS } from './pulse-budget';
+import { discoverUploadByteBudget, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
 import { planPulses } from './pulse-accumulator';
 // HF-359 (Part B): restored pulse progression — emit cumulative pulse index + rows through the EXISTING
 // per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
@@ -62,10 +62,8 @@ export interface WindowedCommitParams {
    * entity_id_field. Best-effort: a throw is swallowed (matches the non-windowed non-blocking calls).
    */
   onWindowCommitted?: (rows: Record<string, unknown>[], rowOffset: number, entityIdField: string | null) => Promise<void>;
-  // HF-360 (Part A): stage each pulse's CSV (do not load) and collect the manifest — the session enqueues
-  // ONE pulse_load_jobs row and the pg_cron worker loads off the serverless clock. Default false ⇒ the
-  // synchronous load path is byte-identical (HF-359 behavior preserved for any caller not opted in).
-  handOff?: boolean;
+  // HF-362 (Part B): the hand-off decision is no longer a caller flag — the driver decides per unit
+  // (handOff = estTotalPulses > 1) from the byte budget. No param.
 }
 
 export interface WindowedCommitResult {
@@ -138,6 +136,12 @@ export async function commitUnitWindowed(
   const sample = params.reader.readWindow(0, Math.min(200, totalRows));
   const avgRowBytes = sample.length > 0 ? Math.ceil(sample.reduce((s, r) => s + rowBytes(r), 0) / sample.length) : 2000;
   const estTotalPulses = estimatePulseTotal(totalRows, avgRowBytes, budget.byteBudget);
+  // HF-362 (Part B) — DYNAMIC pulse activation: hand off iff this unit needs MORE than one pulse. A unit that
+  // fits in one pulse commits synchronously (fast, under the ceiling); a multi-pulse unit hands off to the
+  // worker (the synchronous path would risk the serverless ceiling). The byte budget that sizes pulses
+  // (HF-359) also decides whether pulsing is needed — no env var, no new threshold (the directive's removed
+  // PULSE_LOAD_HANDOFF). One path, runtime branch (like the isLargeByBytes streaming branch).
+  const handOff = shouldHandOff(estTotalPulses);
   await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
     fields: { sheetName: params.tabName, expectedRows: totalRows, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
 
@@ -168,7 +172,7 @@ export async function commitUnitWindowed(
           fileHashSha256: params.fileHashSha256,
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
-          handOff: params.handOff,
+          handOff: handOff,
         });
       } catch (err) {
         // HF-359 (Part A, PG-A6): prior pulses stay committed (resumable); the failure is recorded at the
@@ -182,7 +186,7 @@ export async function commitUnitWindowed(
         return { totalInserted, totalRows, success: false, entityIdField, batchIds, stagedPulses, error: res.error };
       }
       pulsesLanded += 1;
-      if (params.handOff && res.stagedPulse) {
+      if (handOff && res.stagedPulse) {
         // HF-360: STAGED, not loaded — collect the manifest row; the worker loads it. No load-truth
         // telemetry write (rows have not landed); the truthful surface reads the job for load progress.
         stagedPulses.push(res.stagedPulse);
@@ -205,7 +209,7 @@ export async function commitUnitWindowed(
 
   // HF-360 (Part A): hand-off completeness — every row must have been STAGED (the worker performs the
   // per-pulse load HALT-DATA-LOSS). Σ staged == totalRows, else the staging itself dropped rows.
-  if (params.handOff) {
+  if (handOff) {
     if (stagedRows !== totalRows) {
       const reason = `HALT-DATA-LOSS (staging): staged ${stagedRows} of ${totalRows} rows across ${stagedPulses.length} pulses for "${params.tabName}".`;
       console.error(`[windowed-commit] ${reason}`);
@@ -244,8 +248,7 @@ export interface StreamedCommitParams {
   fileHashSha256: string;
   windowRows?: number;
   onWindowCommitted?: (rows: Record<string, unknown>[], rowOffset: number, entityIdField: string | null) => Promise<void>;
-  // HF-360 (Part A): stage pulses + collect the manifest instead of loading inline (see WindowedCommitParams).
-  handOff?: boolean;
+  // HF-362 (Part B): the driver decides hand-off per unit (estTotalPulses > 1); no caller flag.
 }
 
 /**
@@ -286,6 +289,9 @@ export async function commitUnitStreamed(
     ? Math.ceil(meta.sample.reduce((s, r) => s + rowBytes(r), 0) / meta.sample.length)
     : 2000;
   const estTotalPulses = totalRowsKnown > 0 ? estimatePulseTotal(totalRowsKnown, avgRowBytes, budget.byteBudget) : 1;
+  // HF-362 (Part B) — DYNAMIC pulse activation: hand off iff this unit needs MORE than one pulse (see
+  // commitUnitWindowed). The byte budget decides; no env var, no new threshold. One path, runtime branch.
+  const handOff = shouldHandOff(estTotalPulses);
   // Seed the existing per-unit counters: exact total rows + the ~Y estimate; nothing landed yet.
   await accumulateUnitCommitFields({ tenantId: params.tenantId, importSessionId: params.proposalId, unitId: params.unit.contentUnitId,
     fields: { sheetName: params.tabName, expectedRows: totalRowsKnown, pulsesTotal: estTotalPulses, pulsesLanded: 0, rowsCommitted: 0, batchCommitted: false } }, supabase);
@@ -319,13 +325,13 @@ export async function commitUnitStreamed(
           fileHashSha256: params.fileHashSha256,
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
-          handOff: params.handOff,
+          handOff: handOff,
         });
       } catch (err) { failure = `window @${offset}: ${String(err)}`; return; }
       if (r.batchId) batchIds.push(r.batchId);
       if (!r.success) { failure = r.error ?? 'window commit failed'; return; }
       pulsesLanded += 1;
-      if (params.handOff && r.stagedPulse) {
+      if (handOff && r.stagedPulse) {
         // HF-360: STAGED, not loaded — collect the manifest row; the worker loads off the serverless clock.
         stagedPulses.push(r.stagedPulse);
         stagedRows += r.stagedPulse.expectedRows;
@@ -355,7 +361,7 @@ export async function commitUnitStreamed(
   }
   // HF-360 (Part A): hand-off completeness — every streamed row must have been STAGED (the worker does the
   // per-pulse load HALT-DATA-LOSS). Σ staged == streamed totalRows, else staging dropped rows.
-  if (params.handOff) {
+  if (handOff) {
     if (stagedRows !== res.totalRows) {
       const reason = `HALT-DATA-LOSS (staging): staged ${stagedRows} of ${res.totalRows} streamed rows across ${stagedPulses.length} pulses for "${params.tabName}".`;
       console.error(`[streamed-commit] ${reason}`);

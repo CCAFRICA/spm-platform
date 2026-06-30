@@ -36,7 +36,11 @@ export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
   // from a category table), deleted .eq('tenant_id') (I1); committed_data stays FIRST for its EDGE-1
   // calc_traces sever. import_batches (the receipt log) is intentionally preserved — the cockpit now
   // reads live committed_data, so it self-heals without wiping history.
-  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events'] },
+  // HF-362: pulse_load_jobs (the HF-360 hand-off load ledger) is cleared too — a non-terminal job left
+  // behind would let the pg_cron worker REPOPULATE committed_data after the wipe. Tenant-scoped leaf (no
+  // inbound category FK); the worker re-reads the now-deleted job by id and stops gracefully. committed_data
+  // stays FIRST (EDGE-1); pulse_load_jobs is appended.
+  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs'] },
   { key: 'intelligence', label: 'Intelligence layer', tables: ['classification_signals', 'structural_fingerprints'] },
 ] as const;
 
@@ -256,7 +260,7 @@ export const DELETE_TENANT_TABLES: readonly string[] = [
   // plan / assignment
   'rule_set_assignments', 'rule_set_lifecycle_events', 'rule_sets', 'plan_interpretation_runs',
   // data / ingestion
-  'committed_data', 'import_batches', 'ingestion_events', 'ingestion_configs', 'processing_jobs', 'file_objects',
+  'pulse_load_jobs', 'committed_data', 'import_batches', 'ingestion_events', 'ingestion_configs', 'processing_jobs', 'file_objects',
   // reconciliation / approvals / disputes / lifecycle
   'reconciliation_sessions', 'approval_requests', 'disputes', 'reassignment_events',
   // entities

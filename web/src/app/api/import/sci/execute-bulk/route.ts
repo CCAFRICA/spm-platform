@@ -37,13 +37,15 @@ import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-conten
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, exceedsCellCeiling, type SheetWindow } from '@/lib/sci/sheet-window';
 import { commitUnitWindowed, commitUnitStreamed } from '@/lib/sci/windowed-commit';
-// HF-360 (Part A): hand-off — stage every pulse, then enqueue ONE pulse_load_jobs row; the pg_cron worker
-// loads off the serverless clock. Gated by the activation flag until the architect schedules the worker.
+// HF-360/362: hand-off — drivers stage pulses for multi-pulse units (HF-362 dynamic decision); execute-bulk
+// enqueues ONE pulse_load_jobs row and the pg_cron worker loads off the serverless clock.
 import { enqueuePulseLoadJob } from '@/lib/sci/pulse-load-enqueue';
-import { isPulseHandoffEnabled } from '@/lib/sci/pulse-load-config';
 import type { PulseManifestEntry } from '@/lib/sci/pulse-load-types';
 // HF-358 (Part B-1): no silent commit failure — record the reason + a terminal status on the import job.
 import { recordCommitFailureOnJob } from '@/lib/sci/job-failure';
+// HF-362: fire entity resolution SERVER-SIDE for the synchronous path (the internal cron principal lets
+// execute-bulk POST finalize-import cookielessly, like the hand-off finalize-sweep does for the worker path).
+import { internalCronHeaders } from '@/lib/sci/cron-principal';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
 import { isLargeByBytes } from '@/lib/sci/sheet-stream';
@@ -516,10 +518,10 @@ export async function POST(req: NextRequest) {
     }
 
     trace(`unit-loop-start units=${sortedUnits.length}`);
-    // HF-360 (Part A): hand off the loads to the pg_cron worker (stage every pulse, enqueue ONE job after
-    // the loop) instead of spending the load duration in this serverless invocation. Off until the architect
-    // schedules the worker (then the commit path is byte-identical to HF-359). Evaluated once per request.
-    const handOff = isPulseHandoffEnabled();
+    // HF-362 (Part B): the hand-off decision is no longer a global flag — each commit driver decides per unit
+    // (handOff = estTotalPulses > 1, from the byte budget). A unit that needs >1 pulse stages + hands off to
+    // the pg_cron worker; a single-pulse unit commits synchronously. execute-bulk just collects whatever
+    // staged pulses the drivers produced and enqueues ONE job if any (below).
     for (const unit of sortedUnits) {
       if (handledPlanUnitIds.has(unit.contentUnitId)) continue; // HF-239: handled in batch
 
@@ -580,7 +582,6 @@ export async function POST(req: NextRequest) {
               tenantId, proposalId, tabName,
               fileName: `sci-bulk-${proposalId}`,
               fileHashSha256: parse.fileHash,
-              handOff,
               onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
                 if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
               },
@@ -614,7 +615,6 @@ export async function POST(req: NextRequest) {
               tenantId, proposalId, tabName,
               fileName: `sci-bulk-${proposalId}`,
               fileHashSha256: parse.fileHash,
-              handOff,
               onWindowCommitted: cls === 'reference' ? undefined : async (wrows, _o, eid) => {
                 if (eid) await populateStoreMetadata(supabase, tenantId, wrows, eid);
               },
@@ -665,7 +665,7 @@ export async function POST(req: NextRequest) {
           result = await processContentUnit(
             supabase, tenantId, proposalId, profileId,
             effectiveUnit.unit, effectiveUnit.rows, parse.fileNameFromPath, tabName,
-            parse.fileHash, handOff,
+            parse.fileHash,
           );
         }
         results.push(result);
@@ -754,32 +754,31 @@ export async function POST(req: NextRequest) {
     // staged + durable in Storage, recoverable by replay. No-op when the hand-off is off (sync path loaded
     // inline already) or when nothing staged. session_id = proposalId so the truthful surface (Part C)
     // correlates the job with the import telemetry.
+    // HF-362 (Part B): collect whatever staged pulses the drivers produced — present only for the units that
+    // decided to hand off (estTotalPulses > 1). Single-pulse units already committed synchronously and
+    // contribute none. Only enqueue staged pulses from SUCCESSFUL units: a unit whose staging FAILED mid-way
+    // returns its partial prefix + success:false (bypassing the staging-completeness HALT) — loading that
+    // prefix would put PARTIAL data into committed_data (wrong calc), so its pulses are dropped (the unit is
+    // reported failed via recordCommitFailureOnJob; the orphaned staged CSVs are transient). A failed-staging
+    // unit is unit-atomic in hand-off: all of it loads or none does (re-import to redo it).
     let pulseLoadJob: { jobId: string; totalPulses: number; totalRows: number } | null = null;
     let pulseEnqueueFailed = false;
-    if (handOff) {
-      // Only enqueue staged pulses from SUCCESSFUL units. A unit whose staging FAILED mid-way returns its
-      // partial prefix + success:false (bypassing the staging-completeness HALT) — loading that prefix would
-      // put PARTIAL data into committed_data (wrong calc), so its pulses are dropped (the unit is reported
-      // failed via recordCommitFailureOnJob; the orphaned staged CSVs are transient). A failed-staging unit
-      // is unit-atomic in hand-off: all of it loads or none does (re-import to redo it).
-      const sessionPulses: Array<Omit<PulseManifestEntry, 'index'>> = results.filter((r) => r.success).flatMap((r) => r.stagedPulses ?? []);
-      if (sessionPulses.length > 0) {
-        pulseLoadJob = await enqueuePulseLoadJob(supabase, {
-          tenantId,
-          sessionId: proposalId,
-          unitId: '(session)',
-          fileName: traceLabel,
-          stagedPulses: sessionPulses,
-        });
-        trace(`pulse-load-enqueued job=${pulseLoadJob?.jobId ?? 'none'} pulses=${pulseLoadJob?.totalPulses ?? 0} rows=${pulseLoadJob?.totalRows ?? 0}`);
-        if (!pulseLoadJob) {
-          // Staging SUCCEEDED but the job INSERT failed — the rows are staged + durable in Storage, yet
-          // nothing will load them. NEVER render a false "0 rows imported" success: surface a failure (record
-          // it on the job + flag the response so the client shows an error, not completion). Recoverable by
-          // re-import. (Gated off in practice by the activation flag — the table exists before the flag is on.)
-          pulseEnqueueFailed = true;
-          await recordCommitFailureOnJob(supabase, tenantId, sessionId, 'Hand-off enqueue failed — staged rows were not handed to the loader (re-import to retry).');
-        }
+    const sessionPulses: Array<Omit<PulseManifestEntry, 'index'>> = results.filter((r) => r.success).flatMap((r) => r.stagedPulses ?? []);
+    if (sessionPulses.length > 0) {
+      pulseLoadJob = await enqueuePulseLoadJob(supabase, {
+        tenantId,
+        sessionId: proposalId,
+        unitId: '(session)',
+        fileName: traceLabel,
+        stagedPulses: sessionPulses,
+      });
+      trace(`pulse-load-enqueued job=${pulseLoadJob?.jobId ?? 'none'} pulses=${pulseLoadJob?.totalPulses ?? 0} rows=${pulseLoadJob?.totalRows ?? 0}`);
+      if (!pulseLoadJob) {
+        // Staging SUCCEEDED but the job INSERT failed — the rows are staged + durable in Storage, yet nothing
+        // will load them. NEVER render a false "0 rows imported" success: surface a failure (record it on the
+        // job + flag the response so the client shows an error, not completion). Recoverable by re-import.
+        pulseEnqueueFailed = true;
+        await recordCommitFailureOnJob(supabase, tenantId, sessionId, 'Hand-off enqueue failed — staged rows were not handed to the loader (re-import to retry).');
       }
     }
 
@@ -815,6 +814,30 @@ export async function POST(req: NextRequest) {
     if (!response.overallSuccess) {
       const reason = results.filter(r => !r.success).map(r => `${r.contentUnitId}: ${r.error ?? 'commit failed'}`).join(' | ').slice(0, 2000);
       await recordCommitFailureOnJob(supabase, tenantId, sessionId, `Commit failed — ${reason}`);
+    }
+
+    // HF-362 (CRITICAL — entity construction on the synchronous path): when the import committed
+    // SYNCHRONOUSLY (no hand-off — every unit fit in one pulse, the common BCL/small-file case after Part B),
+    // the rows are in committed_data NOW, so entity resolution must run. HF-360 deferred finalize to the
+    // CLIENT (handleExecutionComplete) for the sync path and to the finalize-sweep for the hand-off path; but
+    // a client that navigates away (or never drives the commit) leaves committed_data with NULL entity_id and
+    // ZERO entities — exactly the BCL regression. Fire finalize-import SERVER-SIDE here (its own invocation +
+    // 300s budget, cookieless internal-cron principal) so entity resolution is GUARANTEED on the synchronous
+    // path, independent of the client — mirroring the finalize-sweep on the hand-off path. waitUntil keeps
+    // this invocation alive long enough to dispatch the POST; finalize-import then runs to completion on its
+    // own. Idempotent (matches external_id; skips already-resolved rows) — safe alongside the client's fire.
+    if (response.overallSuccess && !pulseLoadJob) {
+      try {
+        waitUntil(
+          fetch(`${req.nextUrl.origin}/api/import/sci/finalize-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...internalCronHeaders() },
+            body: JSON.stringify({ tenantId, proposalId }),
+          })
+            .then((r) => console.log(`[HF-362] server-side synchronous finalize dispatched: HTTP ${r.status}`))
+            .catch((err) => console.warn('[HF-362] server-side finalize dispatch failed (client fire is the fallback):', err instanceof Error ? err.message : err)),
+        );
+      } catch { /* non-Vercel context — the fetch still runs detached */ }
     }
 
     // HF-300 (C3, DIAG-071): the CRITICAL post-commit work — entity resolution + entity_id back-link
@@ -966,20 +989,20 @@ async function processContentUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
-  // HF-360 (Part A): stage this unit's single pulse for the worker instead of loading inline.
-  handOff: boolean,
   // HF-257: `storagePath` parameter removed — only the deleted per-unit `case 'plan'`
   // (executePlanPipeline) used it; the four data pipelines bind by parsed rows.
 ): Promise<ContentUnitResult> {
+  // HF-362 (Part B): the direct path is a SINGLE commitContentUnit call (one pulse) → always synchronous.
+  // Multi-pulse units go through commitUnitStreamed/Windowed (which decide hand-off). No handOff here.
   switch (unit.confirmedClassification) {
     case 'entity':
-      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256, handOff);
+      return processEntityUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, fileHashSha256);
     case 'target':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256, handOff);
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'target', fileHashSha256);
     case 'transaction':
-      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256, handOff);
+      return processDataUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, 'transaction', fileHashSha256);
     case 'reference':
-      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256, handOff);
+      return processReferenceUnit(supabase, tenantId, proposalId, unit, rows, fileName, tabName, profileId, fileHashSha256);
     case 'plan':
       // HF-257 (AP-17): the per-unit plan duplicate (executePlanPipeline) is REMOVED.
       // Plan interpretation runs EXCLUSIVELY in executeBatchedPlanInterpretation. The
@@ -1017,7 +1040,6 @@ async function processEntityUnit(
   fileName: string,
   tabName: string,
   fileHashSha256: string,
-  handOff: boolean,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity' };
@@ -1252,7 +1274,6 @@ async function processEntityUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
-    handOff,
     // Phase C: compose entity-phase pulses with commit pulses on one number line.
     pulseBase: { landed: entityPulsesLanded, total: entityPulsesTotal },
   });
@@ -1273,11 +1294,9 @@ async function processEntityUnit(
   // route.ts:226-308 — that gate re-derives when stale without needing a
   // blanket clear on every import.
 
-  // HF-360 (Part A): in hand-off mode the rows are STAGED, not loaded — report 0 loaded + the staged pulse
-  // (the truthful surface reads the job). The entities themselves ARE created synchronously (above).
-  return handOff && commitResult.stagedPulse
-    ? { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: 0, pipeline: 'entity', stagedPulses: [commitResult.stagedPulse] }
-    : { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
+  // HF-362 (Part B): the direct entity path is single-pulse → always synchronous (entities AND committed_data
+  // both land here). Multi-pulse units take the streamed/windowed path that decides hand-off.
+  return { contentUnitId: unit.contentUnitId, classification: 'entity', success: true, rowsProcessed: rows.length, pipeline: 'entity' };
 }
 
 // ── Target/Transaction pipeline (committed_data bulk insert) ──
@@ -1292,7 +1311,6 @@ async function processDataUnit(
   tabName: string,
   classification: 'target' | 'transaction',
   fileHashSha256: string,
-  handOff: boolean,
 ): Promise<ContentUnitResult> {
   if (rows.length === 0) {
     return { contentUnitId: unit.contentUnitId, classification, success: true, rowsProcessed: 0, pipeline: classification };
@@ -1309,7 +1327,6 @@ async function processDataUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
-    handOff,
   });
   const totalInserted = commitResult.totalInserted;
 
@@ -1339,8 +1356,6 @@ async function processDataUnit(
     success: true,
     rowsProcessed: totalInserted,
     pipeline: classification,
-    // HF-360 (Part A): present when staged — the worker loads it; rowsProcessed (0 here) is the loaded truth.
-    stagedPulses: handOff && commitResult.stagedPulse ? [commitResult.stagedPulse] : undefined,
   };
 }
 
@@ -1357,7 +1372,6 @@ async function processReferenceUnit(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string,
   fileHashSha256: string,
-  handOff: boolean,
 ): Promise<ContentUnitResult> {
   // OB-195 Layer 1: Reference pipeline → committed_data (Decision 111)
   // Previously wrote to reference_data + reference_items (deprecated).
@@ -1378,7 +1392,6 @@ async function processReferenceUnit(
     fileName: `sci-bulk-${proposalId}`,
     source: 'sci-bulk',
     fileHashSha256,
-    handOff,
   });
   if (!commitResult.success && commitResult.totalInserted === 0) {
     return {
@@ -1397,8 +1410,6 @@ async function processReferenceUnit(
 
   return {
     contentUnitId: unit.contentUnitId, classification: 'reference', success: true, rowsProcessed: totalInserted, pipeline: 'reference',
-    // HF-360 (Part A): present when staged — the worker loads it.
-    stagedPulses: handOff && commitResult.stagedPulse ? [commitResult.stagedPulse] : undefined,
   };
 }
 
