@@ -74,6 +74,9 @@ export interface CollateralEffect {
 
 export interface TableDeleteResult {
   table: string;
+  // HF-359 (Part C): rows present BEFORE the delete (tenant-scoped count), so the audit answers
+  // "present-before → deleted" per table. null when the pre-count could not be read.
+  rowsBefore: number | null;
   deleted: number | null; // rows deleted, or null when skipped/errored
   status: 'deleted' | 'skipped_missing' | 'skipped_no_tenant_id' | 'error';
   error?: string;
@@ -88,17 +91,25 @@ function classifyError(err: { code?: string; message?: string }): TableDeleteRes
   return 'error';
 }
 
-/** ALWAYS tenant-scoped delete of one table (I1). Returns a per-table result; never throws. */
-async function deleteTenantScoped(sb: SupabaseClient, table: string, tenantId: string): Promise<TableDeleteResult> {
+/** ALWAYS tenant-scoped delete of one table (I1). Returns a per-table result; never throws.
+ *  HF-359 (Part C): captures rowsBefore (a tenant-scoped pre-count) so the audit records what was cleared. */
+export async function deleteTenantScoped(sb: SupabaseClient, table: string, tenantId: string): Promise<TableDeleteResult> {
+  // Rows present BEFORE the delete (tenant-scoped, head-only count). Best-effort: a read failure → null
+  // rowsBefore (the delete still runs + reports its own count).
+  let rowsBefore: number | null = null;
+  try {
+    const { count: before, error: beforeErr } = await sb.from(table).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId);
+    if (!beforeErr) rowsBefore = before ?? 0;
+  } catch { /* leave rowsBefore null */ }
   try {
     const { count, error } = await sb.from(table).delete({ count: 'exact' }).eq('tenant_id', tenantId);
     if (error) {
       const status = classifyError(error);
-      return { table, deleted: null, status, error: status === 'error' ? error.message : undefined };
+      return { table, rowsBefore, deleted: null, status, error: status === 'error' ? error.message : undefined };
     }
-    return { table, deleted: count ?? 0, status: 'deleted' };
+    return { table, rowsBefore, deleted: count ?? 0, status: 'deleted' };
   } catch (e) {
-    return { table, deleted: null, status: 'error', error: e instanceof Error ? e.message : String(e) };
+    return { table, rowsBefore, deleted: null, status: 'error', error: e instanceof Error ? e.message : String(e) };
   }
 }
 
