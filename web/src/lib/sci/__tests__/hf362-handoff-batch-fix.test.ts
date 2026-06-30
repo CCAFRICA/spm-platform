@@ -98,6 +98,19 @@ test('PG-B2: byte-identical output — both branches build rows via the SAME com
   assert.ok(/if \(params\.handOff\) \{[\s\S]*?stagedPulse:/.test(COMMIT), 'hand-off stages the already-built CSV (no separate row build)');
 });
 
+// ── PG-A4 (CRITICAL): entity construction fires on BOTH paths ────────────────────────────────────────────
+test('PG-A4: entity resolution (finalize-import) fires SERVER-SIDE on the synchronous path', () => {
+  // The synchronous commit (no hand-off) must trigger entity resolution server-side — independent of the
+  // client — else committed_data is left with NULL entity_id + zero entities (the BCL regression). Gated on
+  // the synchronous path (!pulseLoadJob); the hand-off path is covered by the finalize-sweep.
+  assert.ok(/response\.overallSuccess && !pulseLoadJob/.test(EXECUTE), 'fires only on the synchronous (non-hand-off) success path');
+  assert.ok(/\/api\/import\/sci\/finalize-import/.test(EXECUTE) && /internalCronHeaders\(\)/.test(EXECUTE),
+    'execute-bulk POSTs finalize-import server-side with the internal cron principal');
+  // both paths: sync → execute-bulk server-side fire (here); hand-off → the finalize-sweep (HF-360).
+  const SWEEP = read('src/app/api/import/sci/pulse-load/finalize-sweep/route.ts');
+  assert.ok(/finalize-import/.test(SWEEP), 'the hand-off path finalizes via the sweep');
+});
+
 test('PG-B3: single path — the env-var mechanism is GONE; no second commit route', () => {
   // the static toggle is removed entirely.
   assert.ok(!/isPulseHandoffEnabled/.test(EXECUTE), 'execute-bulk no longer reads the env flag');

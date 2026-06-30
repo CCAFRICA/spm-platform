@@ -43,6 +43,9 @@ import { enqueuePulseLoadJob } from '@/lib/sci/pulse-load-enqueue';
 import type { PulseManifestEntry } from '@/lib/sci/pulse-load-types';
 // HF-358 (Part B-1): no silent commit failure — record the reason + a terminal status on the import job.
 import { recordCommitFailureOnJob } from '@/lib/sci/job-failure';
+// HF-362: fire entity resolution SERVER-SIDE for the synchronous path (the internal cron principal lets
+// execute-bulk POST finalize-import cookielessly, like the hand-off finalize-sweep does for the worker path).
+import { internalCronHeaders } from '@/lib/sci/cron-principal';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
 import { isLargeByBytes } from '@/lib/sci/sheet-stream';
@@ -811,6 +814,30 @@ export async function POST(req: NextRequest) {
     if (!response.overallSuccess) {
       const reason = results.filter(r => !r.success).map(r => `${r.contentUnitId}: ${r.error ?? 'commit failed'}`).join(' | ').slice(0, 2000);
       await recordCommitFailureOnJob(supabase, tenantId, sessionId, `Commit failed — ${reason}`);
+    }
+
+    // HF-362 (CRITICAL — entity construction on the synchronous path): when the import committed
+    // SYNCHRONOUSLY (no hand-off — every unit fit in one pulse, the common BCL/small-file case after Part B),
+    // the rows are in committed_data NOW, so entity resolution must run. HF-360 deferred finalize to the
+    // CLIENT (handleExecutionComplete) for the sync path and to the finalize-sweep for the hand-off path; but
+    // a client that navigates away (or never drives the commit) leaves committed_data with NULL entity_id and
+    // ZERO entities — exactly the BCL regression. Fire finalize-import SERVER-SIDE here (its own invocation +
+    // 300s budget, cookieless internal-cron principal) so entity resolution is GUARANTEED on the synchronous
+    // path, independent of the client — mirroring the finalize-sweep on the hand-off path. waitUntil keeps
+    // this invocation alive long enough to dispatch the POST; finalize-import then runs to completion on its
+    // own. Idempotent (matches external_id; skips already-resolved rows) — safe alongside the client's fire.
+    if (response.overallSuccess && !pulseLoadJob) {
+      try {
+        waitUntil(
+          fetch(`${req.nextUrl.origin}/api/import/sci/finalize-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...internalCronHeaders() },
+            body: JSON.stringify({ tenantId, proposalId }),
+          })
+            .then((r) => console.log(`[HF-362] server-side synchronous finalize dispatched: HTTP ${r.status}`))
+            .catch((err) => console.warn('[HF-362] server-side finalize dispatch failed (client fire is the fallback):', err instanceof Error ? err.message : err)),
+        );
+      } catch { /* non-Vercel context — the fetch still runs detached */ }
     }
 
     // HF-300 (C3, DIAG-071): the CRITICAL post-commit work — entity resolution + entity_id back-link
