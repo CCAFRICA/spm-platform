@@ -42,13 +42,13 @@ function makeMockSupabase(seed: { pulse_load_jobs?: unknown[]; committed_data?: 
         rows.push(...arr.map((r) => ({ ...r })));
         return Promise.resolve({ error: null });
       },
-      select(_cols?: string) {
+      select() {
         const filters: Record<string, unknown> = {};
         const inFilters: Record<string, unknown[]> = {};
         const chain = {
           eq(col: string, val: unknown) { filters[col] = val; return chain; },
           in(col: string, vals: unknown[]) { inFilters[col] = vals; return chain; },
-          order(_c: string, _o?: unknown) {
+          order() {
             const out = rows.filter((r) =>
               Object.entries(filters).every(([k, v]) => r[k] === v) &&
               Object.entries(inFilters).every(([k, vs]) => vs.includes(r[k])));
@@ -70,7 +70,7 @@ function makeMockSupabase(seed: { pulse_load_jobs?: unknown[]; committed_data?: 
         };
         return chain;
       },
-      delete(_opts?: { count?: string }) {
+      delete() {
         const filters: Record<string, unknown> = {};
         const chain = {
           eq(col: string, val: unknown) { filters[col] = val; return chain; },
