@@ -741,8 +741,14 @@ export async function POST(req: NextRequest) {
     // inline already) or when nothing staged. session_id = proposalId so the truthful surface (Part C)
     // correlates the job with the import telemetry.
     let pulseLoadJob: { jobId: string; totalPulses: number; totalRows: number } | null = null;
+    let pulseEnqueueFailed = false;
     if (handOff) {
-      const sessionPulses: Array<Omit<PulseManifestEntry, 'index'>> = results.flatMap((r) => r.stagedPulses ?? []);
+      // Only enqueue staged pulses from SUCCESSFUL units. A unit whose staging FAILED mid-way returns its
+      // partial prefix + success:false (bypassing the staging-completeness HALT) — loading that prefix would
+      // put PARTIAL data into committed_data (wrong calc), so its pulses are dropped (the unit is reported
+      // failed via recordCommitFailureOnJob; the orphaned staged CSVs are transient). A failed-staging unit
+      // is unit-atomic in hand-off: all of it loads or none does (re-import to redo it).
+      const sessionPulses: Array<Omit<PulseManifestEntry, 'index'>> = results.filter((r) => r.success).flatMap((r) => r.stagedPulses ?? []);
       if (sessionPulses.length > 0) {
         pulseLoadJob = await enqueuePulseLoadJob(supabase, {
           tenantId,
@@ -752,6 +758,14 @@ export async function POST(req: NextRequest) {
           stagedPulses: sessionPulses,
         });
         trace(`pulse-load-enqueued job=${pulseLoadJob?.jobId ?? 'none'} pulses=${pulseLoadJob?.totalPulses ?? 0} rows=${pulseLoadJob?.totalRows ?? 0}`);
+        if (!pulseLoadJob) {
+          // Staging SUCCEEDED but the job INSERT failed — the rows are staged + durable in Storage, yet
+          // nothing will load them. NEVER render a false "0 rows imported" success: surface a failure (record
+          // it on the job + flag the response so the client shows an error, not completion). Recoverable by
+          // re-import. (Gated off in practice by the activation flag — the table exists before the flag is on.)
+          pulseEnqueueFailed = true;
+          await recordCommitFailureOnJob(supabase, tenantId, sessionId, 'Hand-off enqueue failed — staged rows were not handed to the loader (re-import to retry).');
+        }
       }
     }
 
@@ -769,10 +783,12 @@ export async function POST(req: NextRequest) {
     const response: SCIExecutionResult = {
       proposalId,
       results,
-      overallSuccess: results.every(r => r.success),
+      overallSuccess: results.every(r => r.success) && !pulseEnqueueFailed,
       // HF-360 (Part A): the hand-off job, so the client/surface can poll load progress (the rows are
       // staged + loading, not in committed_data yet). Absent when not handing off or nothing staged.
       ...(pulseLoadJob ? { pulseLoadJob } : {}),
+      // HF-360: staging succeeded but the enqueue failed — the client must surface a failure, not completion.
+      ...(pulseEnqueueFailed ? { pulseLoadEnqueueFailed: true } : {}),
     };
     trace('response');
 

@@ -22,7 +22,8 @@ export async function POST(req: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId is required.' }, { status: 400 });
   }
-  const authz = await authorizePulseLoadCaller(tenantId);
+  // Destructive: a tenant member must hold data.import (not bare membership); platform operators bypass.
+  const authz = await authorizePulseLoadCaller(tenantId, 'data.import');
   if (!authz.ok) return authz.response;
 
   try {

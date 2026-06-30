@@ -547,6 +547,12 @@ export default function OperateImportPage() {
   }, []);
 
   const handleExecutionComplete = useCallback((result: SCIExecutionResult) => {
+    // HF-360 (Part C): staging succeeded but the hand-off enqueue failed — the rows are staged yet nothing
+    // will load them. Surface a clear, recoverable error; never a false "0 rows imported" completion.
+    if (result.pulseLoadEnqueueFailed) {
+      setState({ phase: 'error', error: 'Your data was staged but could not be handed to the loader. No rows were loaded. Please re-import to try again.', canRetry: true });
+      return;
+    }
     // HF-360 (Part C): the import HANDED OFF its loads — the rows are STAGED, not in committed_data yet.
     // Wait in the 'loading' phase (truthful surface) and DO NOT finalize now (entity resolution would read
     // an empty table). handleLoadComplete fires finalize + flywheel once the worker has loaded every pulse.

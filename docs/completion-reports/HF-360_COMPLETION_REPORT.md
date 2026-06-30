@@ -95,59 +95,61 @@ into the reconstructed result so the page enters the loading phase.
 
 ## Tests / build
 
-- **11/11** HF-360 unit tests (`hf360-pulse-load.test.ts`, `node:test`): PG-A1 snapshot partition (58-of-82),
+- **12/12** HF-360 unit tests (`hf360-pulse-load.test.ts`, `node:test`): PG-A1 snapshot partition (58-of-82),
   PG-A2 enqueue (reindex + Σ + null-on-empty), PG-A4 session projection, PG-B rollback (tenant-scoped +
-  idempotent + other-tenants-untouched), PG-B resume (cursor-preserving + terminal-rollback).
-- **524/524** full suite — no regressions.
+  idempotent + other-tenants-untouched), PG-B resume (cursor-preserving + terminal-rollback +
+  healthy-vs-stale-loading).
+- **525/525** full suite — no regressions.
 - `tsc` clean; `next build` green (BUILD_ID present — verified per the HF-358 lesson, not the exit code).
 
 ## Adversarial verification
 
-A 7-dimension adversarial workflow (each dimension: independent review → skeptic refute) ran over the
-committed code: Decision-158/no-LLM, no-data-loss/Σ, worker-SQL correctness, one-path/no-divergence,
-deferred-finalize/in-flow-deps, authz/RLS/tenant-isolation, truthful-surface/resume. The skeptics refuted
-the bulk of findings, and the positive dimensions confirmed: **Decision 158 holds** (the worker calls only
-`bulk_commit_from_storage` + table updates — no LLM/remediation; the staged CSV is built from
-`correctedRows`), **one path** holds (the hand-off is a branch inside the existing commit, flag-off is
-behaviorally inert), and **no in-flow committed_data read** exists (the `waitUntil` best-effort work reads
-in-memory parsed rows, not committed_data; entity resolution is client-deferred to `handleLoadComplete`).
+A 7-dimension adversarial workflow (38 agents: each dimension independent review → skeptic refute over the
+committed code) confirmed the core invariants — **Decision 158 holds** (the worker calls only
+`bulk_commit_from_storage` + table updates; the staged CSV is built from `correctedRows`), **one path** holds
+(the hand-off is a branch inside the existing commit; flag-off is behaviorally inert), and **no in-flow
+committed_data read** exists (the `waitUntil` best-effort work reads in-memory parsed rows; entity resolution
+is deferred) — and surfaced **7 findings that survived refutation. All addressed:**
 
-**Five findings I independently judged REAL and FIXED** (regardless of the lenient auto-verdicts):
+1. **[CRITICAL] Stale-loading reclaim double-loads a slow pulse** — the heartbeat is not refreshed *during* a
+   single FDW load, and the job row is unlocked during it; a pulse slower than the 2-min reclaim window lets
+   an overlapping cron tick re-claim the same cursor and double-insert (the count check can't detect a
+   duplicate; the delete-first is MVCC-blind to a live concurrent inserter). **Fix:** re-acquire the job row
+   `FOR UPDATE` at the top of each pulse and hold it through the load + COMMIT — a concurrent tick's
+   `SKIP LOCKED` claim then skips the job while a pulse is loading (any duration), and workers serialize on
+   the row lock. The cursor is read from the row (authoritative).
+2. **[CRITICAL] `COMMIT` inside the per-pulse `EXCEPTION` handler is illegal PL/pgSQL** — would abort the
+   worker on the first failed pulse + reclaim-loop forever. **Fix:** capture the error in `v_err`, handle +
+   `COMMIT` in the main body.
+3. **[HIGH] Partial-staged pulses of a FAILED unit were enqueued + loaded** — a mid-staging failure returned a
+   partial prefix (bypassing the completeness HALT) that would load PARTIAL data (wrong calc). **Fix:**
+   enqueue only `results.filter(r => r.success)` — a failed-staging unit is unit-atomic in hand-off (re-import).
+4. **[HIGH] Leaving the page during loading orphaned the post-commit finalize** — entity resolution (reads
+   committed_data) was fired only client-side from `handleLoadComplete`; a user who left never triggered it
+   (the DIAG-071 NULL-entity_id failure mode). **Fix:** a server-side **finalize sweep**
+   (`/api/import/sci/pulse-load/finalize-sweep`, internal-cron principal) finalizes any complete-but-unfinalized
+   session exactly once (`finalized` flag, idempotent) — decoupled from the client.
+5. **[MEDIUM] Enqueue failure produced a false "0 rows" success** — staging could succeed while the job INSERT
+   failed, orphaning staged pulses + showing completion. **Fix:** on enqueue-failure-after-staging, record the
+   failure + flag the response (`pulseLoadEnqueueFailed`) → the client shows a recoverable error, not success.
+6. **[MEDIUM] Destructive rollback gated by bare tenant membership** — any member could wipe an import. **Fix:**
+   the rollback route requires the `data.import` capability of a tenant member (platform operators bypass).
+7. **[CONFIRMED-on-apply] `COMMIT`-per-pulse under `pg_cron`** — a transaction-controlling procedure must be
+   invoked via top-level `CALL`. Documented in the migration + architect-pending; pg_cron 1.6.4 supports it.
 
-1. **[CRITICAL] `COMMIT` inside the per-pulse `EXCEPTION` handler is illegal PL/pgSQL** — a block with an
-   exception handler is a subtransaction; `COMMIT` there raises at runtime, so the FIRST failed pulse would
-   abort the procedure, never persist `failed`, and the job would reclaim-loop forever. **Fix:** capture the
-   error in `v_err` inside the block, then handle + `COMMIT` in the main body (legal).
-2. **[real] Rollback-vs-worker race → orphan rows** — the worker looped on local cursor/manifest and never
-   re-checked the job status, so a rollback mid-load would delete earlier batches while the worker kept
-   loading later pulses (orphans). **Fix:** re-read the live status at the top of each iteration; stop if it
-   is no longer `loading` (bounds any orphan to the one in-flight pulse; rollback is idempotent). Plus the
-   final `complete` transition is guarded `where status = 'loading'`.
-3. **[real] Resume could re-arm a HEALTHY in-flight `loading` job → double-claim** — `resumeSession` re-armed
-   any `loading` job. **Fix:** re-arm only `failed` jobs and `loading` jobs whose heartbeat is stale (older
-   than the worker's 2-min reclaim window); a healthy load is left alone.
-4. **[hardening] Double-load not caught by the row-count check** — the per-pulse `loaded == expected` check
-   cannot detect a duplicate load. **Fix:** the worker `DELETE`s the batch's `committed_data` (tenant-scoped)
-   immediately before each `bulk_commit_from_storage`, in the same transaction — so a reclaimed/resumed/concurrent
-   pulse re-load is idempotent (0 rows on the normal first load). Combined with the per-batch foreign-table
-   name collision in `bulk_commit_from_storage`, concurrent double-load is doubly prevented.
-5. **[verify, architect] `COMMIT`-per-pulse under `pg_cron`** — a procedure that does transaction control must
-   be invoked by `pg_cron` via top-level `CALL` (not wrapped in an outer transaction). Documented in the
-   migration + the architect-pending list; pg_cron 1.6.4 supports it, the architect confirms on apply.
+Also addressed: the **idempotent pulse re-load** (the worker `DELETE`s the batch's `committed_data`,
+tenant-scoped, before each `bulk_commit` — belt-and-suspenders with #1) and the **`.maybeSingle()`
+multi-profile** finding (now uses the canonical array-tolerant `resolveIdentity`).
 
-**Findings DOCUMENTED as known characteristics (not bugs / out of scope):**
+**Documented as a known characteristic (not fixed — inherited + out of scope):**
 
 - **Supersession window on a failed re-import** — supersession (HF-213, by `content_unit_hash`) runs at the
   batch-create (stage) step, so a re-import marks the prior batch superseded before the new data loads. This
   is **inherited from the synchronous path** (its `failCommit` likewise leaves the prior batch superseded on a
-  failed re-import) — HF-360 does not introduce it, only widens the window. **The natural recovery for a
-  re-import is RESUME** (finish loading the new data → prior superseded + new loaded = correct). A `rollback`
-  removes the new data but does not auto-restore prior superseded data (same as a failed sync re-import);
-  restoring the original requires re-importing it. Supersession-reversal on rollback is a deeper
-  data-lifecycle change (HALT-CALC-sensitive) deliberately left out of this scope.
-- **`profiles` lookup uses `.maybeSingle()`** — a multi-tenant user with >1 profile row gets a 500/deny
-  (fail-closed, never a bypass). Matches the established HF-355 enqueue gate exactly; unchanged for parity.
-- **Incremental batch visibility during loading** — by design (the truthful surface shows pulses landing).
+  failed re-import); hand-off only widens the window. **The natural recovery for a re-import is RESUME** (finish
+  the new load → prior superseded + new loaded = correct). `rollback` removes the new data but does not
+  auto-restore prior superseded data (same as a failed sync re-import). Supersession-reversal on rollback is a
+  deeper, HALT-CALC-sensitive data-lifecycle change deliberately left out of this scope.
 
 ---
 
@@ -157,12 +159,16 @@ in-memory parsed rows, not committed_data; entity resolution is client-deferred 
 2. **Schedule** the worker — uncomment/run the `cron.schedule('hf360-pulse-loader', '30 seconds', $$ call
    public.process_pulse_load_jobs(); $$)` at the bottom of the migration. Confirm `pg_cron` executes a
    COMMIT-ing procedure via top-level `CALL` (pg_cron 1.6.4).
-3. **Activate** — set env `PULSE_LOAD_HANDOFF=true` **after** (1) + (2). **Deploy ordering**: the migration +
-   cron must be live before the flag is set, else staged pulses would never load. (Flag off until then = the
-   existing synchronous path, byte-identical — safe to deploy the code first.)
-4. **Retire the old Vercel cron** (this replaces it) and, once proven, the synchronous commit branch + the
-   activation flag (leaving the hand-off as the sole path).
-5. **Re-run the 86,607-row import** with the flag on (live proof PG-3, architect-side).
+3. **Schedule the finalize sweep** — a Vercel cron (every 1–2 min) → `POST /api/import/sci/pulse-load/finalize-sweep`
+   (internal-cron principal). This runs entity resolution server-side when a job completes, so a user who
+   leaves the page during the load does not orphan it (the DIAG-071 failure mode). Required before the flag is
+   on for full reliability.
+4. **Activate** — set env `PULSE_LOAD_HANDOFF=true` **after** (1)–(3). **Deploy ordering**: the migration +
+   both crons must be live before the flag is set, else staged pulses would never load. (Flag off until then =
+   the existing synchronous path, byte-identical — safe to deploy the code first.)
+5. **Retire the old Vercel dispatch cron** (this replaces the load) and, once proven, the synchronous commit
+   branch + the activation flag (leaving the hand-off as the sole path).
+6. **Re-run the 86,607-row import** with the flag on (live proof PG-3, architect-side).
 
 > Note (Gate 1, architect-measurable): the function still spends remediation CONSTRUCT + CSV-build + upload
 > per pulse at STAGE time. The measurement plan in the ADR stands — if staging itself approaches the ceiling

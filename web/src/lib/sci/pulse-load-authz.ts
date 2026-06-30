@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveIdentity } from '@/lib/auth/resolve-identity';
 
 const PLATFORM_DATA_OPERATIONS = 'platform.data_operations';
 
@@ -15,7 +16,13 @@ export type PulseLoadAuthz =
   | { ok: true; service: SupabaseClient; isPlatformOperator: boolean; callerId: string }
   | { ok: false; response: NextResponse };
 
-export async function authorizePulseLoadCaller(tenantId: string | null | undefined): Promise<PulseLoadAuthz> {
+export async function authorizePulseLoadCaller(
+  tenantId: string | null | undefined,
+  // For a DESTRUCTIVE operation (rollback), require this capability of a TENANT MEMBER in addition to
+  // membership — so not every member can wipe an import. A platform operator (platform.data_operations) is
+  // always allowed. Omit for read-only/recovery operations (state/resume), which membership alone gates.
+  requireTenantCapability?: string,
+): Promise<PulseLoadAuthz> {
   if (!tenantId) {
     return { ok: false, response: NextResponse.json({ error: 'tenantId is required.' }, { status: 400 }) };
   }
@@ -32,17 +39,15 @@ export async function authorizePulseLoadCaller(tenantId: string | null | undefin
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
-  // 2. Resolve the caller's profile + AUTHORIZE before any handle is used (I7).
-  const { data: profile, error: profErr } = await service
-    .from('profiles')
-    .select('tenant_id, capabilities')
-    .eq('auth_user_id', authUser.id)
-    .maybeSingle();
-  if (profErr) {
+  // 2. Resolve the caller's identity + AUTHORIZE before any handle is used (I7). resolveIdentity is THE
+  // sanctioned profiles-by-auth_user lookup — array-tolerant, so a multi-tenant member with >1 profile row
+  // resolves deterministically instead of erroring on .maybeSingle().
+  const identity = await resolveIdentity(service, authUser.id);
+  if (!identity) {
     return { ok: false, response: NextResponse.json({ error: 'Could not resolve your profile to authorize the operation.' }, { status: 500 }) };
   }
-  const caps: string[] = Array.isArray(profile?.capabilities) ? (profile!.capabilities as string[]) : [];
-  const isTenantMember = !!profile?.tenant_id && profile.tenant_id === tenantId;
+  const caps: string[] = identity.capabilities;
+  const isTenantMember = !!identity.tenantId && identity.tenantId === tenantId;
   const isPlatformOperator = caps.includes(PLATFORM_DATA_OPERATIONS);
   if (!isTenantMember && !isPlatformOperator) {
     return {
@@ -50,6 +55,17 @@ export async function authorizePulseLoadCaller(tenantId: string | null | undefin
       response: NextResponse.json({
         error: 'Not authorized for this tenant. A platform operator needs the platform.data_operations capability; a tenant member can act only on their own tenant.',
         code: 'PULSE_LOAD_FORBIDDEN',
+      }, { status: 403 }),
+    };
+  }
+  // Destructive-op capability gate: a tenant member must ALSO hold the named capability. Platform operators
+  // (already trusted via platform.data_operations) bypass — they are the cross-tenant operators by design.
+  if (requireTenantCapability && isTenantMember && !isPlatformOperator && !caps.includes(requireTenantCapability)) {
+    return {
+      ok: false,
+      response: NextResponse.json({
+        error: `This action requires the ${requireTenantCapability} capability.`,
+        code: 'PULSE_LOAD_CAPABILITY_REQUIRED',
       }, { status: 403 }),
     };
   }

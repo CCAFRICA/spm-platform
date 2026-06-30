@@ -181,6 +181,7 @@ export function SCIExecution({
   // job(s) the pg_cron worker drains. Accumulates totals across file groups (all share session_id =
   // proposal.proposalId). Present ⇒ the page enters the truthful 'loading' phase instead of 'complete'.
   const pulseLoadJobRef = useRef<{ jobId: string; totalPulses: number; totalRows: number } | null>(null);
+  const pulseEnqueueFailedRef = useRef(false);
   // HF-087: Track elapsed time for active processing
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   // OB-151: useRef as secondary guard (works for strict mode double-invocation)
@@ -381,6 +382,7 @@ export function SCIExecution({
               ? { jobId: prev.jobId, totalPulses: prev.totalPulses + bulkResult.pulseLoadJob.totalPulses, totalRows: prev.totalRows + bulkResult.pulseLoadJob.totalRows }
               : bulkResult.pulseLoadJob;
           }
+          if (bulkResult?.pulseLoadEnqueueFailed) pulseEnqueueFailedRef.current = true;
           if (bulkResult && Array.isArray(bulkResult.results)) {
             seedFromResults(bulkResult.results);
             const present = new Set(bulkResult.results.map(r => r.contentUnitId));
@@ -776,6 +778,8 @@ export function SCIExecution({
       // are staged + loading on the worker, not in committed_data yet — the reconstructed per-unit
       // rowsProcessed are 0 at stage time; PulseLoadProgress reads the job for the real load progress).
       ...(pulseLoadJobRef.current ? { pulseLoadJob: pulseLoadJobRef.current } : {}),
+      // HF-360: staging succeeded but the enqueue failed — surface a failure, not a false completion.
+      ...(pulseEnqueueFailedRef.current ? { pulseLoadEnqueueFailed: true } : {}),
     };
 
     onComplete(result);

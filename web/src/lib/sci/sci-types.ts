@@ -445,6 +445,9 @@ export interface SCIExecutionResult {
   // HF-360 (Part A): when the import HANDED OFF its loads to the pg_cron worker, the enqueued job — the rows
   // are staged + loading (not in committed_data yet). The truthful surface polls load progress by session.
   pulseLoadJob?: { jobId: string; totalPulses: number; totalRows: number };
+  // HF-360: staging succeeded but the hand-off ENQUEUE failed — the rows are staged but nothing will load
+  // them. The client surfaces a failure (never a false "0 rows" success); recoverable by re-import.
+  pulseLoadEnqueueFailed?: boolean;
 }
 
 export interface ContentUnitResult {

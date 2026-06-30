@@ -26,11 +26,19 @@ create table if not exists public.pulse_load_jobs (
   rows_loaded   integer not null default 0,          -- Σ verified-loaded rows for pulses [0, cursor)
   error_detail  text,
   audit         jsonb not null default '[]'::jsonb,  -- append-only transition log
+  -- HF-360 (finalize sweep): once a job is 'complete', the post-commit finalize (entity resolution, which
+  -- READS committed_data) must run. The client fires it when present, but a user who leaves the page would
+  -- orphan it — so a server-side sweep (finalize-sweep endpoint, architect-scheduled cron) finalizes any
+  -- complete-but-unfinalized job. Idempotent (finalize-import is safe to call repeatedly); this flag stops
+  -- the sweep from re-firing.
+  finalized     boolean not null default false,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()   -- heartbeat: a stale 'loading' (> 2 min) is reclaimable
 );
 create index if not exists pulse_load_jobs_drain_idx on public.pulse_load_jobs (status, updated_at);
 create index if not exists pulse_load_jobs_session_idx on public.pulse_load_jobs (tenant_id, session_id);
+-- the sweep's hot path: complete jobs not yet finalized.
+create index if not exists pulse_load_jobs_finalize_idx on public.pulse_load_jobs (status, finalized) where status = 'complete' and finalized = false;
 
 alter table public.pulse_load_jobs enable row level security;
 -- The function (enqueue) + the worker run under service_role (full access). Authenticated callers may READ
@@ -82,16 +90,21 @@ begin
 
   -- Load remaining pulses, COMMITting after each (per-pulse durability ⇒ a later failure leaves prior
   -- pulses committed and resumable from the cursor).
-  while v_cursor < v_total loop
-    -- Responsiveness to external state (a Part-B ROLLBACK marking the job 'rolled_back', or a failure from a
-    -- concurrent path): re-read the live status before loading the next pulse and STOP if it is no longer
-    -- 'loading'. Bounds any rollback-vs-worker race to at most the one in-flight pulse (rollback is
-    -- idempotent — re-running cleans up that pulse). Without this the worker would keep loading orphan rows
-    -- past a rollback that already deleted the earlier batches.
-    select status into v_status from public.pulse_load_jobs where id = v_id;
+  loop
+    -- CRITICAL concurrency guard: re-acquire the job row lock (FOR UPDATE) for THIS pulse and read the
+    -- AUTHORITATIVE cursor + status from the row. The lock is held through this pulse's load + COMMIT, so an
+    -- overlapping cron tick (the SKIP-LOCKED claim above) cannot grab this job while a pulse is loading —
+    -- even a pulse SLOWER than the 2-min stale-heartbeat window (the very regime HF-360 exists for). Without
+    -- this, a slow pulse leaves the row unlocked + the heartbeat stale, so a second tick would re-load the
+    -- SAME pulse concurrently and double-insert (the per-pulse count check cannot detect a duplicate; the
+    -- delete-first below is MVCC-blind to a live concurrent inserter). Reading the cursor from the row (not a
+    -- local) also makes a concurrent advance / external change authoritative, and the status read STOPS the
+    -- worker if a Part-B ROLLBACK marked the job (bounds any orphan to zero — the lock serializes them).
+    select cursor, status into v_cursor, v_status from public.pulse_load_jobs where id = v_id for update;
     if v_status is distinct from 'loading' then
-      return;
+      return;  -- rolled_back / failed / external change — FOR UPDATE released on return (rollback)
     end if;
+    exit when v_cursor >= v_total;  -- all pulses loaded; mark complete below (still holding the lock → safe)
 
     v_pulse    := v_manifest -> v_cursor;
     v_batch    := (v_pulse ->> 'batchId')::uuid;
