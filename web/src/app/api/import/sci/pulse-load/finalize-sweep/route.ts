@@ -21,7 +21,10 @@ import { PULSE_LOAD_JOBS_TABLE } from '@/lib/sci/pulse-load-types';
 
 const MAX_SESSIONS_PER_SWEEP = 25; // bound the work per tick
 
-export async function POST(req: NextRequest) {
+// HF-361 follow-up: Vercel Cron invokes its scheduled path with a GET request, but this handler only
+// exported POST → every cron tick returned 405 Method Not Allowed (after the middleware 401 was fixed).
+// Export BOTH GET (the Vercel cron convention) and POST (manual / server-side invocation) over one handler.
+async function handleSweep(req: NextRequest): Promise<NextResponse> {
   if (!isInternalCronCaller(req)) {
     return NextResponse.json({ error: 'Forbidden — internal cron principal required.' }, { status: 403 });
   }
@@ -87,3 +90,8 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, sessionsFinalized, jobsMarked });
 }
+
+// Vercel Cron sends GET; POST retained for manual / server-side invocation. Both authenticate via the
+// internal cron principal inside handleSweep (CRON_SECRET / x-vercel-cron).
+export async function GET(req: NextRequest): Promise<NextResponse> { return handleSweep(req); }
+export async function POST(req: NextRequest): Promise<NextResponse> { return handleSweep(req); }
