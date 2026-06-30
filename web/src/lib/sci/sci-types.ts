@@ -442,6 +442,9 @@ export interface SCIExecutionResult {
       gaps: Array<{ component: string; reason: string; resolution: string; referenceDataAvailable?: boolean }>;
     }>;
   };
+  // HF-360 (Part A): when the import HANDED OFF its loads to the pg_cron worker, the enqueued job — the rows
+  // are staged + loading (not in committed_data yet). The truthful surface polls load progress by session.
+  pulseLoadJob?: { jobId: string; totalPulses: number; totalRows: number };
 }
 
 export interface ContentUnitResult {
@@ -471,4 +474,9 @@ export interface ContentUnitResult {
     lastAttemptAt: string;
   }>;
   partialSuccess?: boolean;
+  // HF-360 (Part A): when this unit STAGED its pulses for the hand-off worker (instead of loading inline),
+  // the ordered staged pulses (index assigned at session scope). The session collects these across all
+  // units into the one pulse_load_jobs manifest. `rowsProcessed` stays the LOADED count (0 at stage time —
+  // the worker loads them); the truthful surface reads the job for load progress.
+  stagedPulses?: Array<Omit<import('./pulse-load-types').PulseManifestEntry, 'index'>>;
 }
