@@ -1,4 +1,4 @@
-# DIAG-078 — Streamed-Commit Pulse Boundary (read-only)
+# DIAG-079 — Streamed-Commit Pulse Boundary (read-only)
 
 **Branch:** `diag-078-pulse-boundary` off `main` (`c3b7a62d` — Merge #630, HF-358).
 **Mode:** READ-ONLY. Zero code changes, no live import, no migration, no merge. The only file written is this report.
