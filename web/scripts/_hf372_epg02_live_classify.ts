@@ -75,9 +75,10 @@ async function main() {
     fileSheets.push({ sourceFile: cfg.fileName, sheetName: s.sheetName });
   }
 
-  // decomposed comprehension (REAL LLM) — route lines 267-293
+  // decomposed comprehension (REAL LLM) — route lines 267-293 (HF-372: all sheets, warm atoms claim)
   const t0 = Date.now();
-  const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
+  const sheetsNeedingHC = sheets;
+  void sheetMatchTier1;
   if (sheetsNeedingHC.length > 0) {
     const dc = await runDecomposedComprehension(
       profileMap,

@@ -218,10 +218,6 @@ export async function POST(req: NextRequest) {
 
     // Per-sheet helpers (DIAG-021 H3 fix).
     const sheetTier = (sheetName: string): 1 | 2 | 3 => (sheetFlywheelResults.get(sheetName)?.tier ?? 3);
-    const sheetMatchTier1 = (sheetName: string) => {
-      const r = sheetFlywheelResults.get(sheetName);
-      return r?.tier === 1 && r.match;
-    };
 
     // Job-level tier retained for processing_jobs.recognition_tier column backward compat
     // (trace surface and downstream consumers expect a single tier per job). Use primarySheet's
@@ -263,8 +259,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
-    const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
+    // Header comprehension — HF-372 (F-NEW-1): EVERY sheet goes through decomposed comprehension.
+    // The former Tier-1 skip left `profile.headerComprehension` absent for a warm sheet, and the
+    // HF-367/368 classifier reads the model's per-column bare primitives from exactly that surface —
+    // so a re-import of an already-seen file threw MissingRecognitionError (worker 500, job stranded
+    // in 'classifying'). Decomposed comprehension IS the warm path: known atoms claim from the
+    // flywheel without an LLM dispatch (read-before-derive); only the novel/identifier residue
+    // comprehends. One recognition surface, warm or cold (AP-17).
+    const sheetsNeedingHC = sheets;
     // OB-203 Phase 2 (5b): decomposed comprehension — atom read-before-derive, per-unit failures.
     const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
     let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
@@ -291,7 +293,7 @@ export async function POST(req: NextRequest) {
         );
       }
     }
-    const skipHC = sheetsNeedingHC.length === 0;
+    const skipHC = sheetsNeedingHC.length === 0; // HF-372: only true for a sheetless file now
 
     // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
     for (const [sheetName, profile] of Array.from(profileMap.entries())) {

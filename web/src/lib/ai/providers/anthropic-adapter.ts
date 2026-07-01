@@ -846,9 +846,9 @@ For each column, provide these characterization channels:
 - identifies: a free-form sentence, in your own words, describing WHAT this column identifies and why (used for display/audit only). Explain the scope you see; do not pick from a list.
 - data_nature: a free-form sentence, in your own words, describing the column's data nature (used for display/audit only). Describe it as you see it; do not pick from a list.
 - scope_role: which of the platform's THREE fixed structural ROLES this column plays. Reply with EXACTLY ONE bare token, no other words:
-    - "entity"      — the column identifies a recurring subject the rows are ABOUT and group by (it repeats across many rows).
-    - "transaction" — the column identifies a distinct per-row event/record (one value per row; the rows ARE the events).
-    - "reference"   — the column identifies a dimensional lookup / grouping category the rows point to.
+    - "entity"      — the column identifies a recurring subject the rows are ABOUT and group by (it repeats across many rows, or the sheet is the roster/master listing those subjects).
+    - "transaction" — the column identifies an OCCURRENCE: the rows are events/observations that HAPPENED (typically dated and/or measured), and this column names each occurrence. A unique code in a sheet that DEFINES or CATALOGS things (a spec, a rule list, a lookup) is NOT a transaction identifier — that sheet's rows are definitions, not events; use "reference".
+    - "reference"   — the column identifies an item of a dimensional lookup / catalog / definition list that other data points to — including the primary code column OF that catalog sheet itself.
     - "none"        — the column identifies no scope (e.g. a measured amount, a date, a descriptive attribute).
   Decide from your OWN understanding of the column in ANY language — do not match words. Put all explanation in the characterization field, not here.
 - nature_role: which of the platform's FIVE fixed value-NATURES this column is. Reply with EXACTLY ONE bare token, no other words:

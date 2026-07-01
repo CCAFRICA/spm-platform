@@ -24,12 +24,33 @@ test('structural roles inferred (identifier / measure / temporal) — no domain 
   assert.equal(measureAtom.features.flags.measureLike, true);    // repeated numeric measure
 });
 
-test('DI-3: column NAME is not part of identity — same structure, different name -> same hash', () => {
+test('HF-372 v4: IDENTITY-KEYED — same structure, different header -> DISTINCT hashes (collision class closed)', () => {
   const values = Array.from({ length: 100 }, (_, i) => `x${1000 + i}`); // near-unique ids
   const a = computeAtomFingerprint('alpha_id', values);
   const b = computeAtomFingerprint('beta_code', values);
   assert.notEqual(a.columnName, b.columnName);
-  assert.equal(a.hash, b.hash); // identity is structural, not lexical
+  assert.notEqual(a.hash, b.hash); // distinct columns can no longer share a recognition entry
+});
+
+test('HF-372 v4: true re-encounter — same header, same shape -> SAME hash (warm path preserved)', () => {
+  const values = Array.from({ length: 100 }, (_, i) => `x${1000 + i}`);
+  const a = computeAtomFingerprint('alpha_id', values);
+  const b = computeAtomFingerprint('alpha_id', [...values]);
+  assert.equal(a.hash, b.hash);
+  // cosmetic header variance (case / surrounding whitespace / NFC form) is canonicalized, not identity
+  const c = computeAtomFingerprint('  ALPHA_ID ', values);
+  assert.equal(a.hash, c.hash);
+});
+
+test('HF-372 v4 Korean Test: a Hangul header keys identity with zero language-specific code', () => {
+  const values = Array.from({ length: 50 }, (_, i) => `EMP-${2000 + i}`);
+  const ko = computeAtomFingerprint('사원번호', values);
+  const es = computeAtomFingerprint('ID_Empleado', values);
+  assert.notEqual(ko.hash, es.hash);            // distinct headers → distinct atoms
+  const ko2 = computeAtomFingerprint('사원번호', values);
+  assert.equal(ko.hash, ko2.hash);              // stable re-encounter
+  // the raw header never appears in the persisted features
+  assert.ok(!JSON.stringify(ko.features).includes('사원번호'));
 });
 
 test('DI-10: features carry NO raw values — buckets/flags/type only', () => {
@@ -65,19 +86,21 @@ test('DI-2 read-before-derive: 28 known + 2 novel atoms -> residue is exactly th
   assert.equal(residue.length, 2); // comprehension covers exactly 2, not 30
 });
 
-test('EPG-2.1 cross-vocabulary: identical structure in a different token language -> identical atom hashes', () => {
+test('EPG-2.1 cross-vocabulary (v4): structural FEATURES are vocabulary-blind; identity is per-column', () => {
   const latin = generateStructuralAnalog({ seed: 5, vocabulary: 'random-latin' });
   const cyr = generateStructuralAnalog({ seed: 5, vocabulary: 'non-latin' });
-  // same structural skeleton (verified in generator test); compute composition per sheet and compare.
+  // same structural skeleton (verified in generator test): the FEATURES (the name-free half of the
+  // v4 identity) must be identical across vocabularies — the code carries zero language-specific
+  // behavior. The HASH differs per column since v4 (HF-372): the header is identity DATA, so two
+  // differently-named columns are two atoms — in ANY language, equally.
   for (let i = 0; i < latin.sheets.length; i++) {
     const ls = latin.sheets[i], cs = cyr.sheets[i];
+    const lFeats = ls.columns.map(c => JSON.stringify(computeAtomFingerprint(c, col(ls, c)).features)).sort();
+    const cFeats = cs.columns.map(c => JSON.stringify(computeAtomFingerprint(c, col(cs, c)).features)).sort();
+    assert.deepEqual(lFeats, cFeats, `sheet ${i} (${ls.kind}) structural features must match across vocabularies`);
+    // determinism within each vocabulary: recomputation reproduces the identical composition.
     const lHashes = ls.columns.map(c => computeAtomFingerprint(c, col(ls, c)).hash);
-    const cHashes = cs.columns.map(c => computeAtomFingerprint(c, col(cs, c)).hash);
-    // structural identity is vocabulary-blind: the recognizer sees the SAME atoms in both languages.
-    assert.equal(
-      computeCompositionFingerprint(lHashes),
-      computeCompositionFingerprint(cHashes),
-      `sheet ${i} (${ls.kind}) composition must match across vocabularies`,
-    );
+    const lHashes2 = ls.columns.map(c => computeAtomFingerprint(c, col(ls, c)).hash);
+    assert.equal(computeCompositionFingerprint(lHashes), computeCompositionFingerprint(lHashes2));
   }
 });

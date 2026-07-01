@@ -321,3 +321,103 @@ lines from a browser import re-verify in Phase G.)
 sheet-granularity fingerprint rows deleted (regenerate on next import; with-or-without them the warm
 path throws — see F-NEW-1/2); Casa Diaz atoms written by the probe runs were deleted to restore the
 pre-probe state; one synthetic finalize-claim row inserted and removed.
+
+---
+
+## Phase A — Recognition integrity: identity-keyed atoms (D1 + F-NEW-1 + F-NEW-2)
+
+**Phase 0 findings answered.** EPG-0.1 (value-shape-only hash collides distinct columns), F-NEW-1
+(Tier-1 skip leaves no recognition surface → MissingRecognitionError on every re-import), F-NEW-2
+(atom write drops the bare primitives → every fresh import re-creates incomplete atoms).
+
+**Changes.**
+
+1. **Identity-keyed fingerprint, v4** (`web/src/lib/sci/atom-fingerprint.ts`):
+   `ATOM_ALGORITHM_VERSION` 3 → 4; the atom hash is now sha256 over the structural features PLUS a
+   one-way digest of the header's identity key:
+   ```ts
+   export function headerIdentityKey(columnName: string): string {
+     return columnName.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+   }
+   export function hashAtomIdentity(columnName: string, f: AtomFeatures): string {
+     const headerDigest = createHash('sha256').update(headerIdentityKey(columnName), 'utf8').digest('hex');
+     return createHash('sha256').update(`${canonical(f)}|${headerDigest}`).digest('hex');
+   }
+   ```
+   The header participates as DATA (generic Unicode canonicalization only — NFC/trim/whitespace/case;
+   zero language-specific literals, zero vocabulary; Korean Test holds: `사원번호` keys identity with no
+   developer edit). The raw header is never persisted in the identity row (one-way digest; DI-10
+   preserved). The v4 bump invalidates every collided v3 entry by the established mechanism. The
+   sheet-level fingerprint already keyed on column names (`structural-fingerprint.ts:81`) — only the
+   atom layer was name-blind.
+
+2. **F-NEW-2 closed** (`web/src/lib/sci/header-comprehension.ts:585`): the atom write now carries
+   `scope_role`/`nature_role` (they were already present on `r.atomsToWrite` from
+   `decomposed-comprehension.ts:111,152` and already persisted by `writeAtoms`/`buildAtomRow` — the
+   single dropped link was this push).
+
+3. **F-NEW-1 closed** (`web/src/app/api/import/sci/process-job/route.ts`): every sheet now goes
+   through decomposed comprehension — the former Tier-1 skip left `profile.headerComprehension`
+   absent, which the HF-367/368 classifier fail-louds on. Decomposed comprehension IS the warm path:
+   known atoms claim from the flywheel with zero LLM dispatch; only the novel/identifier residue
+   comprehends. One recognition surface, warm or cold (AP-17). (`sheetMatchTier1` helper deleted —
+   its only consumer was the removed filter.)
+
+4. **Recognition-layer definitional fix** (`web/src/lib/ai/providers/anthropic-adapter.ts`,
+   header_comprehension prompt): the `transaction` scope's definition said "one value per row; the
+   rows ARE the events" — a catalog's code column (Plan General `#`: C1..C5) literally satisfies
+   "one value per row", and the model named it a transaction identifier while its own prose said
+   "allowing other sheets to point back" (reference semantics). The fixed-skeleton definitions now
+   state the ESSENCE and CONTRAST: transaction = OCCURRENCES that happened (dated/measured events),
+   explicitly NOT a code column of a sheet that DEFINES/CATALOGS things (that is reference).
+   Structural semantics only — no synonyms, no vocabulary (HALT-2 clean).
+
+**EPG-A1 — distinct atoms, live.** `npx tsx scripts/_hf372_epg01_bcl_probe.ts` (v4):
+
+```
+Cross-column collisions: 0
+  Plan_Comisiones_2025 [Plan General] "Componente" → 423f04549814
+  Plantilla_Personal   [Personal] "Nombre_Completo" → 3bede79230e4
+  Datos_Ene2026        [Datos] "Nombre_Completo" → 3bede79230e4     ← true re-encounter: SAME atom
+  Plan_Comisiones_2025 [Metas Mensuales] "Nivel" → 711fe6428dcc
+  Plan_Comisiones_2025 [Metas Mensuales] "Meta Colocación ($)" → dbb3ce59830e
+  Plan_Comisiones_2025 [Metas Mensuales] "Meta Depósitos ($)" → 67f7f791856e
+```
+
+Casa Diaz workbook (was 21 collisions): `106 column-atoms, 95 distinct hashes, Hashes shared by
+DISTINCT column names: 0` (remaining shared hashes are the same header+shape across sheets — true
+re-encounters, e.g. AUTORIZA).
+
+**EPG-A2 — live comprehension on the fixed code** (`_hf372_epg02_live_classify.ts bcl`, real LLM;
+run 2 exercises the WARM path against run 1's v4 atoms):
+
+```
+[OB-203][atom-claim] sheet=Plan General col=Componente hash=423f04549814 -> CLAIMED
+  role=A human-readable label/name for each incentive component.@0.92        ← its OWN recognition
+[OB-203][atom-claim] sheet=Plan General col=# hash=98c2767c8f38 -> NOVEL … — will comprehend
+[OB-203][atom-residue] sheet=Plan General known=4/5 novel=1 [#]              ← identifier re-comprehends (HF-370 O1 re-verified)
+[OB-203][atom-residue] sheet=Tablas de Tasas known=7/7 novel=0 []            ← zero LLM
+[OB-203][atom-residue] sheet=Metas Mensuales known=3/3 novel=0 []            ← zero LLM
+
+  "#"           scope_role=reference  nature_role=identifier                 ← was transaction pre-fix
+  "Componente"  scope_role=reference  nature_role=name
+  "<0.70" … "≥0.95"  scope_role=none  nature_role=measure                    ← each cell column its own atom
+
+── SHEET VERDICTS ──
+  [Plan General]    → reference @0.92        ← was entity (roster) on corrupted memory
+  [Tablas de Tasas] → reference @0.93  + plan ::split @0.8
+  [Metas Mensuales] → reference @0.88        ← was ambiguous-churn reference@0.75
+```
+
+The warm path CLASSIFIES (F-NEW-1/2 closed): warm claims carry complete primitives; one LLM dispatch
+total for the warm workbook (the identifier residue). No roster misread; no person-name claim.
+
+**Named carry-forward (no silent deferral, HALT-4):** EPG-A2's third clause — "plan interpretation
+receives the plan sheets it previously lost" — is gated on the plan ::split emission, which today is
+decided by the `natureIsPlanRule` word-regex over prose (`negotiation.ts:53-55`, EPG-0.4 item 1).
+On this run only `Tablas de Tasas` splits (interpretation sheet count 1 of 3). That surface is
+Phase C's subtraction target; the sheet-count gate is demonstrated there.
+
+**Suite/build:** 572/572 tests pass; `tsc` clean except two pre-existing TS2802 hits in HF-350/370
+test files (verified present on the branch base); `npm run build` → `.next/BUILD_ID` present;
+`localhost:3000` responds (HTTP 307 auth redirect).

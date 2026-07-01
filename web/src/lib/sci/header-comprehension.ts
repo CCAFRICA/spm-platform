@@ -582,7 +582,10 @@ export async function runDecomposedComprehension(
     const sheet = sheets.find(s => s.sheetName === r.sheetName)!;
     for (const a of r.atomsToWrite) {
       // HF-341 R4: carry the OB-231 expression into the atom write so the recognition survives the cache.
-      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships });
+      // HF-372 (F-NEW-2): carry the model's bare primitives too — dropping them here persisted every
+      // fresh atom WITHOUT scope_role/nature_role, so the very next warm recall served incomplete
+      // recognition and the classifier fail-louded (MissingRecognitionError on any re-import).
+      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, scope_role: a.scope_role, nature_role: a.nature_role });
     }
   }
 
