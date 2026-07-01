@@ -95,4 +95,49 @@ CHOSEN: Scenario C, fix in structural-construction.ts — because the evidence
         change nothing — a 50KB file never streams. Honest carrier: OB-254, not HF-362.
 ```
 
-**HALT-3 report:** The regression is NOT HF-362. The `Parsed 0 rows` log originates from `process-job/route.ts:173` in the non-streaming `XLSX.read` path, and the 0-row value is produced by `constructStructure` (`structural-construction.ts`, OB-254 / PR #629). Per the directive's HALT-3 instruction ("Report the actual carrier with file:line evidence — the regression may not be HF-362"), the fix is applied to the true carrier. The directive's objective — make the Plantilla parse its 85 rows — is delivered.
+**HALT-3 report:** The regression is NOT HF-362. The `Parsed 0 rows` log originates from `process-job/route.ts:173` in the non-streaming `XLSX.read` path, and the 0-row value is produced by `constructStructure` (`structural-construction.ts`, OB-254 / PR #629). Per the directive's HALT-3 instruction ("Report the actual carrier with file:line evidence — the regression may not be HF-362"), the fix is applied to the true carrier. The directive's objective — make the Plantilla parse its 85 rows — is delivered. HALT-1 (streaming intentionally removed) and HALT-2 (byte gate breaks Casa Diaz) do not apply — the streaming path and its threshold are unmodified.
+
+---
+
+## Phase 2: Implementation
+
+**One file changed:** `web/src/lib/sci/structural-construction.ts` (+~30 lines, one guard between banner detection and header recovery). Nothing else — the streaming gate (`sheet-stream.ts`), the 20MB `STREAM_BYTES_THRESHOLD`, `execute-bulk`, and `process-job` are untouched.
+
+**The restored behavior:** immediately before header recovery, if `classes.findIndex(c === 'DATA') < 0` (no numeric anchor anywhere on the sheet), split header from data by structural equality:
+
+```ts
+if (classes.findIndex((c, i) => c === 'DATA' && i !== bannerIdx) < 0) {
+  let lead = 0;
+  while (lead < rows.length && (classes[lead] !== 'HEADER' || lead === bannerIdx)) lead++;
+  if (lead < rows.length) {
+    const rowSig = (i) => { /* non-empty trimmed cells over nCols, JSON */ };
+    const headerSig = rowSig(lead);
+    for (let i = lead + 1; i < rows.length; i++)
+      if (classes[i] === 'HEADER' && rowSig(i) !== headerSig) classes[i] = 'DATA';
+  }
+}
+```
+
+The leading HEADER row is the header; every later HEADER-classified row that is NOT byte-equal to it is demoted to DATA (a genuine repeated header — equal — stays sidecar'd). This is the structural inverse of OB-254's existing block-context pass (which promotes text sub-rows to HEADER when a numeric anchor is *ahead*). No new threshold, no magic number, no language/domain token — pure cell-tuple equality (Korean-clean, Decision 158 deterministic). It fires ONLY on a sheet with zero numeric cells, so a sheet with any measure value is byte-identical.
+
+## Phase 3: Verification
+
+**EPG-3.1 — small/all-text parse test:** new `structural-construction.test.ts` cases prove an all-text 12-row roster yields 12 records with the clean 8-column header (was 0 rows / a giant concatenated header); banner + all-text keeps 1 header row + records; a verbatim mid-sheet repeated header is sidecar'd, not a record (Carry-Everything holds). Direct reproduction on an 85-row Plantilla: **0 → 85 records**; the same roster with one numeric column was 85 before and after (byte-identical).
+
+**EPG-3.2 — large-file streaming guard:** new `sheet-stream.test.ts` case pins `STREAM_BYTES_THRESHOLD === 20_000_000`, `isLargeByBytes(52_000_000) === true` (Casa Diaz streams), `isLargeByBytes(200_000)`/`isLargeByBytes(50_000) === false` (BCL anchors + Plantilla use SheetJS). Confirms the routing gate is intact and untouched.
+
+**EPG-3.3 — SCI suite:** `npx tsx --test 'src/lib/sci/__tests__/*.test.ts'` → **244 tests, 244 pass, 0 fail** (241 pre-existing + 3 de-bander + 1 threshold guard). Zero regressions. (The directive's `**` glob reports one phantom failure — the runner tries to import a non-existent `__tests__/index.json`; the `*.test.ts` glob is the true count.)
+
+**EPG-3.4 — build gate:** `rm -rf .next && npm run build` → exit **0**, `.next/BUILD_ID` present (`lM5rBE2YR_S1_RBM6Tgwk`).
+
+---
+
+## ARTIFACT SYNC
+
+**MC:** `Parsed 0 rows` on all-text rosters CLOSED — true carrier is the OB-254 de-bander (`structural-construction.ts`), not HF-362 / the streaming gate (HALT-3 reported with file:line evidence).
+
+**R1:** small/all-text files parse correctly → PASS (85-row Plantilla: 0 → 85 records; numeric sheets byte-identical; 244/244 SCI; build 0).
+
+**BOARD:** BCL Plantilla import unblocked — the roster now parses 85 rows and reaches classification (which will recognize the entity roster instead of defaulting to `reference@0.50` on empty input). Streaming path for Casa Diaz (52MB) preserved unchanged.
+
+**Residuals:** (1) A records sheet that is all-text AND has a genuine *multi-row* header (no numeric data anywhere) would keep only its first row as the header and treat the rest as data — a graceful degradation matching the legacy keyed read; not observed in any anchor file. (2) A sheet with a *single* stray numeric cell has `firstDataIdx >= 0`, so this guard is skipped; if such a mixed roster ever mis-parses, extend the discriminator from "no DATA at all" to "DATA rows share the all-text footprint." (3) VLTEST2 end-to-end (Clean Slate → Plantilla 85 rows/entity → datos transaction → calc $312,033) is architect-only per SR-44.
