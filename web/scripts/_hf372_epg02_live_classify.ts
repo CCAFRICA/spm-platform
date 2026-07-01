@@ -98,7 +98,7 @@ async function main() {
     const interpMap = profile.headerComprehension?.interpretations;
     const interps = interpMap ? Array.from(interpMap.values()) : [];
     for (const it of interps as unknown as Array<Record<string, unknown>>) {
-      console.log(`  "${it.columnName}"  scope_role=${it.scope_role}  nature_role=${it.nature_role}  src=${it.decisionSource ?? ''}`);
+      console.log(`  "${it.columnName}"  scope_role=${it.scope_role}  nature_role=${it.nature_role}  plan_role=${it.plan_role}`);
       console.log(`      identifies: ${String(it.identifies ?? '').slice(0, 110)}`);
     }
     console.log('');

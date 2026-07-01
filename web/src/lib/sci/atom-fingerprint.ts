@@ -37,7 +37,12 @@ import { createHash } from 'crypto';
 // together with the structural shape. Distinct columns can no longer share a recognition entry;
 // a true re-encounter (same header, same shape) still warm-recalls. The version bump invalidates
 // every collided v3 entry by the established mechanism (version is in the hash).
-export const ATOM_ALGORITHM_VERSION = 4;
+// v5 (HF-372 Phase C): the stored RECOGNITION schema gained the model's bare `plan_role`
+// (rule_parameter | none) — the plan-parameter recognition that replaces the OB-255
+// natureIsPlanRule word-regex. Per the HF-369 lesson, a column_roles schema change MUST bump this
+// version so pre-plan_role atoms (v4, written only by this branch's own live proofs) re-comprehend
+// instead of warm-serving incomplete recognition.
+export const ATOM_ALGORITHM_VERSION = 5;
 
 export type AtomDataType = 'integer' | 'decimal' | 'date' | 'boolean' | 'text' | 'empty' | 'mixed';
 

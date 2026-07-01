@@ -17,54 +17,42 @@ import type {
 import { isEntityIdentifierAgent } from './sci-types'; // HF-285-B (value import)
 
 // ============================================================
-// OB-231 — CHARACTERIZATION READERS (file-local, free-form; no shared enum utility).
-// Each predicate reads the LLM's own words (data_nature + characterization + identifies) via a
-// tolerant regex — NOT equality against a quoted role literal (so the EPG holds) and NOT a shared
-// classification surface. Mirrors the readers in header-comprehension.ts; kept local per design.
+// HF-372 Phase C — BARE-PRIMITIVE READERS (registry subtraction).
+// The OB-231/OB-255 bilingual word-regexes over the model's prose are DELETED. Each predicate now
+// reads the model's OWN bare primitive (scope_role / nature_role / plan_role — HF-368/HF-372) by
+// EQUALITY against the fixed structural set (structural-primitives.ts). The model names the
+// primitive from its own recognition in ANY language; no developer word list participates.
+// A recognition the model did not render (nature_role absent) reads as SILENT — the affinity
+// rules' structural arms handle it (a legitimate structural fallback, not a default classification).
 // ============================================================
 
-const natureNorm = (interp: HeaderInterpretation): string =>
-  `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`.toLowerCase();
-
 function natureIsTemporal(interp: HeaderInterpretation): boolean {
-  return /\b(date|time|temporal|month|year|quarter|period|day|week|timestamp|fecha)\b/i.test(natureNorm(interp));
+  return interp.nature_role === 'temporal';
 }
 function natureIsMeasure(interp: HeaderInterpretation): boolean {
-  return /\b(measure|metric|amount|quantity|count|numeric|value|sum|total|monto|importe)\b/i.test(`${interp.data_nature ?? ''}`.toLowerCase());
+  return interp.nature_role === 'measure';
 }
 function natureIsName(interp: HeaderInterpretation): boolean {
-  return /\b(name|nombre|display[_ ]?name|full[_ ]?name|label)\b/i.test(natureNorm(interp));
+  return interp.nature_role === 'name';
 }
 function natureIsIdentifier(interp: HeaderInterpretation): boolean {
-  return /\b(identifier|identif|\bid\b|document|dni|code|número|numero|key)\b/i.test(natureNorm(interp));
+  return interp.nature_role === 'identifier' && interp.scope_role !== 'reference';
 }
-// A reference-key nature is an identifier that points at another sheet/dimension rather than this row.
+// A reference-key: an identifier the model scopes at a dimensional lookup rather than this row.
 function natureIsReferenceKey(interp: HeaderInterpretation): boolean {
-  return /\b(reference[_ ]?key|ref[_ ]?key|foreign[_ ]?key|lookup[_ ]?key|hierarch|reports[_ ]?to|points[_ ]?to|link)\b/i.test(natureNorm(interp));
+  return interp.nature_role === 'identifier' && interp.scope_role === 'reference';
 }
 function natureIsAttribute(interp: HeaderInterpretation): boolean {
-  return /\b(attribute|categor|property|tag|flag|status|type|class|grouping|atributo)\b/i.test(natureNorm(interp));
+  return interp.nature_role === 'categorical';
 }
-// OB-255 — A plan-rule nature: the LLM characterized this column as a COMMISSION-RULE PARAMETER — a
-// rate, a commission/payout base, a calculation formula, a payment policy, a tier/bracket, or a pay
-// cadence. Reads the model's free-form characterization (its own words, multilingual), exactly as the
-// other readers do — NOT the source-data tokens (Korean Test: the gate is the LLM's semantic OUTPUT,
-// which it renders in natural language; the same basis on which natureIsMeasure matches "monto"/"importe").
+// OB-255 → HF-372: the model NAMES a column a plan-rule parameter via the bare plan_role primitive
+// (rate / payout base / formula / policy / tier boundary / cadence — the plan-vs-data distinction).
 function natureIsPlanRule(interp: HeaderInterpretation): boolean {
-  return /\b(rate|percentage|commission|payout|formula|policy|tier|bracket|cadence|pay[_ ]?period|comisi[oó]n|tasa|porcentaje|pol[ií]tica|f[oó]rmula)\b/i.test(natureNorm(interp));
+  return interp.plan_role === 'rule_parameter';
 }
-// HC is "silent" when there is no interpretation, or its words convey no recognizable nature.
+// HC is "silent" when there is no interpretation or the model rendered no bare nature primitive.
 function natureIsSilent(interp?: HeaderInterpretation): boolean {
-  if (!interp) return true;
-  return !(
-    natureIsTemporal(interp) ||
-    natureIsMeasure(interp) ||
-    natureIsName(interp) ||
-    natureIsIdentifier(interp) ||
-    natureIsReferenceKey(interp) ||
-    natureIsAttribute(interp) ||
-    natureIsPlanRule(interp)
-  );
+  return !interp || !(interp.nature_role && interp.nature_role.trim());
 }
 
 // ============================================================

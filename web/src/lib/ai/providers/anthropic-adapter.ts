@@ -886,6 +886,10 @@ For each column, provide these characterization channels:
     - "name"        — a human-readable label/name for a subject.
     - "categorical" — a discrete category/attribute that is neither an id, a measure, a time, nor a name.
   Decide from your OWN understanding in ANY language — do not match words. Put all explanation in the characterization field.
+- plan_role: whether this column is a parameter OF a compensation plan. Reply with EXACTLY ONE bare token:
+    - "rule_parameter" — the column DEFINES how compensation is computed: a commission/bonus rate, a payout base or its formula, a payment policy or condition, a tier/band boundary or target that selects a payout, a pay cadence, a plan component's name/code/description. Plan-defining sheets (rule catalogs, rate tables, target/tier tables) are made of these.
+    - "none"           — the column is measured/observed business data (transactions, performance actuals, roster attributes), not a definition of the plan's rules.
+  Decide from your OWN understanding in ANY language — do not match words.
 - relationships: an array of free-form observations about how this column relates to OTHER columns in the sheet (e.g., "pairs with Nombre_Vendedor, which is this entity's display name"; "this amount is the sum the rate column is applied to"). Empty array if none.
 - confidence: 0.0 to 1.0.
 
@@ -903,6 +907,7 @@ Respond ONLY with valid JSON, no preamble, no markdown:
           "data_nature": "...",
           "scope_role": "entity | transaction | reference | none",
           "nature_role": "identifier | measure | temporal | name | categorical",
+          "plan_role": "rule_parameter | none",
           "relationships": ["...", "..."],
           "confidence": 0.00
         }

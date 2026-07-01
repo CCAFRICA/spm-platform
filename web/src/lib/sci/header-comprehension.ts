@@ -76,6 +76,7 @@ export interface LLMHeaderResponse {
     // HF-368: the model's BARE structural primitives (the fixed roles/natures it names).
     scope_role?: string;
     nature_role?: string;
+    plan_role?: string; // HF-372 Phase C: the bare plan primitive (rule_parameter | none)
     relationships?: string[];
     confidence: number;
   }> }>;
@@ -272,32 +273,30 @@ export async function callLLMForHeaders(
 // source as the fingerprint fieldBindings enrichment (AP-17). No dead scaffolding remains.
 
 // ============================================================
-// OB-231 — CHARACTERIZATION READERS (file-local, free-form; no shared enum utility per §5.1).
-// Each predicate reads the LLM's own words via a tolerant regex — NOT equality against a quoted
-// role literal (so the §5.5 EPG holds) and NOT a shared classification surface. They are reading
-// aids local to this file's profile-enhancement consumers, mirroring isNonMonetaryMeasureMeaning.
+// HF-372 Phase C — BARE-PRIMITIVE READERS (registry subtraction).
+// The OB-231 bilingual word-regexes over the model's prose (incl. the scopeIsEntity
+// seller/vendedor/employee synonym list — a Korean Test violation) are DELETED. Each predicate
+// reads the model's OWN bare primitive by EQUALITY against the fixed structural set. Absent
+// primitive → false (the structural pattern arms these feed keep their own detection).
 // ============================================================
 
-const norm = (interp: HeaderInterpretation): string =>
-  `${interp.data_nature ?? ''} ${interp.characterization ?? ''} ${interp.identifies ?? ''}`.toLowerCase();
-
 function natureIsTemporal(interp: HeaderInterpretation): boolean {
-  return /\b(date|time|temporal|month|year|quarter|period|day|week|timestamp|fecha)\b/i.test(norm(interp));
+  return interp.nature_role === 'temporal';
 }
 function natureIsMeasure(interp: HeaderInterpretation): boolean {
-  return /\b(measure|metric|amount|quantity|count|numeric|value|sum|total|monto|importe)\b/i.test(`${interp.data_nature ?? ''}`.toLowerCase());
+  return interp.nature_role === 'measure';
 }
 function natureIsName(interp: HeaderInterpretation): boolean {
-  return /\b(name|nombre|display[_ ]?name|full[_ ]?name|label)\b/i.test(`${interp.data_nature ?? ''} ${interp.characterization ?? ''}`.toLowerCase());
+  return interp.nature_role === 'name';
 }
 function natureIsIdentifier(interp: HeaderInterpretation): boolean {
-  return /\b(identifier|identif|\bid\b|document|dni|code|número|numero|key)\b/i.test(`${interp.data_nature ?? ''} ${interp.characterization ?? ''}`.toLowerCase());
+  return interp.nature_role === 'identifier';
 }
 function scopeIsEntity(interp: HeaderInterpretation): boolean {
-  return /\b(entity|seller|vendedor|employee|empleado|person|persona|account|cuenta|organization|member|rep|staff|worker|salesperson|agent)\b/i.test(`${interp.identifies ?? ''}`.toLowerCase());
+  return interp.scope_role === 'entity';
 }
 function scopeIsReference(interp: HeaderInterpretation): boolean {
-  return /\b(reference|referencia|lookup|hub|dimension|branch|sucursal|location|región|region)\b/i.test(`${interp.identifies ?? ''}`.toLowerCase());
+  return interp.scope_role === 'reference';
 }
 
 // ============================================================
@@ -322,9 +321,10 @@ function buildComprehensionFromLLM(
         data_nature: interp.data_nature || 'unknown',
         identifies: interp.identifies || 'nothing',
         // HF-368: carry the model's bare primitives through verbatim (undefined if the model
-        // omitted them → the bridge fails loud; never defaulted here).
+        // omitted them → the bridge fails loud; never defaulted here). HF-372: plan_role too.
         scope_role: interp.scope_role,
         nature_role: interp.nature_role,
+        plan_role: interp.plan_role,
         relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
         confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
       });
@@ -489,6 +489,7 @@ export async function runDecomposedComprehension(
               identifies: interp.identifies || 'nothing',
               scope_role: interp.scope_role,
               nature_role: interp.nature_role,
+              plan_role: interp.plan_role, // HF-372 Phase C
               relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
               confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
             };
@@ -544,9 +545,10 @@ export async function runDecomposedComprehension(
         data_nature: k.role,
         identifies: k.identifies ?? 'nothing',
         // HF-368: the model's bare primitives, recalled from the atom (legacy atoms → undefined →
-        // the bridge fails loud → the sheet re-imports fresh with the primitives).
+        // the bridge fails loud → the sheet re-imports fresh with the primitives). HF-372: plan_role too.
         scope_role: k.scope_role,
         nature_role: k.nature_role,
+        plan_role: k.plan_role,
         relationships: k.relationships ?? [],
         confidence: k.confidence,
       });
@@ -554,7 +556,7 @@ export async function runDecomposedComprehension(
     // novel atoms -> full LLM interpretation (characterization text present -> currency suppression can fire here).
     for (const c of (r.comprehendedColumns ?? [])) {
       const i = c.interpretation;
-      interpretations.set(c.columnName, { columnName: c.columnName, characterization: i.characterization, dataExpectation: i.dataExpectation, data_nature: i.data_nature, identifies: i.identifies, scope_role: i.scope_role, nature_role: i.nature_role, relationships: i.relationships ?? [], confidence: i.confidence });
+      interpretations.set(c.columnName, { columnName: c.columnName, characterization: i.characterization, dataExpectation: i.dataExpectation, data_nature: i.data_nature, identifies: i.identifies, scope_role: i.scope_role, nature_role: i.nature_role, plan_role: i.plan_role, relationships: i.relationships ?? [], confidence: i.confidence });
     }
 
     profile.headerComprehension = {
@@ -585,7 +587,7 @@ export async function runDecomposedComprehension(
       // HF-372 (F-NEW-2): carry the model's bare primitives too — dropping them here persisted every
       // fresh atom WITHOUT scope_role/nature_role, so the very next warm recall served incomplete
       // recognition and the classifier fail-louded (MissingRecognitionError on any re-import).
-      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, scope_role: a.scope_role, nature_role: a.nature_role });
+      atomsToWrite.push({ atom: computeAtomFingerprint(a.columnName, sheet.rows.map(row => row[a.columnName])), role: a.role, roleConfidence: a.roleConfidence, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, scope_role: a.scope_role, nature_role: a.nature_role, plan_role: a.plan_role });
     }
   }
 
@@ -655,7 +657,7 @@ export function extractFieldIdentitiesFromTrace(
   if (!classificationTrace) return null;
 
   const hcData = classificationTrace.headerComprehension as
-    { interpretations?: Record<string, { data_nature?: string; characterization?: string; confidence?: number; nature_role?: string }> } | null;
+    { interpretations?: Record<string, { data_nature?: string; characterization?: string; confidence?: number; nature_role?: string; scope_role?: string }> } | null;
 
   if (!hcData?.interpretations) return null;
 
@@ -666,6 +668,7 @@ export function extractFieldIdentitiesFromTrace(
       contextualIdentity: interp.characterization || 'unknown',
       confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
       natureRole: interp.nature_role, // HF-368: bare nature primitive for remediation
+      scopeRole: interp.scope_role,   // HF-372: bare scope primitive for entity resolution
     };
   }
 

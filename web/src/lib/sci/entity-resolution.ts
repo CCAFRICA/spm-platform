@@ -27,21 +27,33 @@ export function looksLikeRowIndex(values: string[]): boolean {
   return sorted[0] <= 1 && sorted[sorted.length - 1] <= sorted.length + 1;
 }
 
-// OB-231: the fixed column-role enum was retired for a free-form LLM data_nature string.
-// These file-local helpers read that free-form text tolerantly (regex/contains) so this
-// consumer reads the characterization directly — no shared classifier intermediary (by design).
-// Each predicate takes the structuralType (the column's data_nature value, possibly empty/null).
-function natureIsName(dataNature: string | null | undefined): boolean {
-  return /\b(name|label|full[\s_-]?name|display)\b/i.test(dataNature ?? '');
+// HF-372 Phase C (registry subtraction): the OB-231 prose regexes are DELETED. Each predicate
+// reads the field identity's BARE primitives (natureRole/scopeRole — the model's own named
+// primitives, persisted since HF-368/HF-372) by EQUALITY against the fixed structural set.
+// A legacy field identity without bare primitives reads as NO SIGNAL (loud abstention at the
+// consumer — never a prose word-list read, never a silent default guess).
+type BareFieldIdentity = { natureRole?: string; scopeRole?: string } | null | undefined;
+function natureIsName(fi: BareFieldIdentity): boolean {
+  return fi?.natureRole === 'name';
 }
-function natureIsIdentifier(dataNature: string | null | undefined): boolean {
-  return /\b(identifier|id|key|code)\b/i.test(dataNature ?? '') && !natureIsReferenceKey(dataNature);
+function natureIsIdentifier(fi: BareFieldIdentity): boolean {
+  return fi?.natureRole === 'identifier' && fi?.scopeRole !== 'reference';
 }
-function natureIsReferenceKey(dataNature: string | null | undefined): boolean {
-  return /reference[\s_-]?key|foreign[\s_-]?key|\bfk\b|grouping|dimension/i.test(dataNature ?? '');
+function natureIsReferenceKey(fi: BareFieldIdentity): boolean {
+  return fi?.natureRole === 'identifier' && fi?.scopeRole === 'reference';
 }
-function natureIsAttribute(dataNature: string | null | undefined): boolean {
-  return /\b(attribute|property|trait)\b/i.test(dataNature ?? '');
+function natureIsAttribute(fi: BareFieldIdentity): boolean {
+  return fi?.natureRole === 'categorical';
+}
+// Loud legacy detection: field_identities exist but none carries a bare primitive (a pre-HF-368
+// import). Fallbacks ABSTAIN (idColumn stays null → calc-time resolution); re-import restores.
+function warnLegacyFieldIdentities(batchId: string, fieldIds: Record<string, { natureRole?: string }> | undefined): boolean {
+  if (!fieldIds || Object.keys(fieldIds).length === 0) return false;
+  const legacy = Object.values(fieldIds).every(fi => !fi?.natureRole);
+  if (legacy) {
+    console.error(`[entity-resolution] HF-372: batch ${batchId} field_identities carry NO bare primitives (legacy import) — nature-based fallbacks ABSTAIN (no prose word-list read); re-import self-heals`);
+  }
+  return legacy;
 }
 
 // HF-341 R7 (D1): value-overlap entity-key reconciliation. An entity is identified
@@ -188,9 +200,9 @@ export async function resolveEntitiesFromCommittedData(
       // provenance here; the reference-key nature in field_identities is the carried-reality signal.
       const meta = row.metadata as Record<string, unknown> | null;
       if (!meta) continue;
-      const fieldIdsForScope = meta.field_identities as Record<string, { structuralType?: string }> | undefined;
+      const fieldIdsForScope = meta.field_identities as Record<string, { structuralType?: string; natureRole?: string; scopeRole?: string }> | undefined;
       const isEventUnit = fieldIdsForScope
-        ? Object.values(fieldIdsForScope).some(fi => natureIsReferenceKey(fi.structuralType))
+        ? Object.values(fieldIdsForScope).some(fi => natureIsReferenceKey(fi))
         : false;
 
       const label = (meta.informational_label as string) || '';
@@ -216,7 +228,10 @@ export async function resolveEntitiesFromCommittedData(
       const fieldIds = meta.field_identities as Record<string, {
         structuralType?: string;
         contextualIdentity?: string;
+        natureRole?: string;
+        scopeRole?: string;
       }> | undefined;
+      const legacyFieldIds = warnLegacyFieldIdentities(batchId, fieldIds);
 
       if (fieldIds && Object.keys(fieldIds).length > 0) {
         // HF-263 (corrected): Korean Test — select by the column's free-form data_nature ONLY. The
@@ -225,9 +240,9 @@ export async function resolveEntitiesFromCommittedData(
         // entity_id_field (above) remains the authoritative override; these are first-match
         // structural fallbacks.
         // Name: first name-natured column (OB-231: tolerant read of the free-form data_nature)
-        if (!nameColumn) {
+        if (!nameColumn && !legacyFieldIds) {
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (natureIsName(fi.structuralType)) {
+            if (natureIsName(fi)) {
               nameColumn = colName;
               break;
             }
@@ -243,7 +258,7 @@ export async function resolveEntitiesFromCommittedData(
           // reference-key-natured column; an entity/reference unit discovers from an identifier-natured one.
           const matchesFallback = isEventUnit ? natureIsReferenceKey : natureIsIdentifier;
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (matchesFallback(fi.structuralType)) {
+            if (!legacyFieldIds && matchesFallback(fi)) {
               idColumn = colName;
               break;
             }
@@ -271,7 +286,9 @@ export async function resolveEntitiesFromCommittedData(
         // field_identities carries the column (Meridian reference batch: idColumn=Hub via
         // semantic_roles, but field_identities[Hub].structuralType reads as a reference-key nature).
         const idFi = fieldIds?.[idColumn];
-        if (idFi?.structuralType) batchIdStructType.set(batchId, idFi.structuralType);
+        // HF-372 Phase C: record the BARE key kind (equality on the model's primitives), never prose.
+        if (natureIsIdentifier(idFi)) batchIdStructType.set(batchId, 'identifier');
+        else if (natureIsReferenceKey(idFi)) batchIdStructType.set(batchId, 'reference_key');
 
         // HF-199 D3: discover attribute columns from field_identities (Korean Test compliant —
         // reads each column's free-form data_nature only; no language-specific column-name matching).
@@ -281,7 +298,7 @@ export async function resolveEntitiesFromCommittedData(
         const attributeColumns: string[] = [];
         if (fieldIds && Object.keys(fieldIds).length > 0) {
           for (const [colName, fi] of Object.entries(fieldIds)) {
-            if (natureIsAttribute(fi.structuralType)) {
+            if (natureIsAttribute(fi)) {
               attributeColumns.push(colName);
             }
           }
@@ -459,9 +476,11 @@ export async function resolveEntitiesFromCommittedData(
       // OB-231: the set now holds free-form data_nature strings, so test membership tolerantly.
       const structTypes = extIdStructTypes.get(extId);
       const natures = structTypes ? Array.from(structTypes) : [];
-      const entityType = natures.some(natureIsIdentifier)
+      // HF-372 Phase C: the set holds bare key-kind tokens recorded above ('identifier' /
+      // 'reference_key') — fixed-set equality, never prose.
+      const entityType = natures.includes('identifier')
         ? 'individual'
-        : natures.some(natureIsReferenceKey)
+        : natures.includes('reference_key')
           ? 'location'
           : 'individual';
       newEntities.push({

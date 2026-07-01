@@ -45,17 +45,13 @@ import type { PlanComponent } from '@/types/compensation-plan';
 
 export type AttributionPattern = 'additive' | 'qualified' | 'non-attributable' | 'clawback';
 
-// OB-231: the fixed column-role enum was retired for a free-form LLM data_nature string carried in
-// FieldIdentity.structuralType. This file-local predicate reads that free-form text tolerantly
-// (regex/contains) so this consumer reads the characterization directly — no shared classifier
-// intermediary (by design). It excludes reference-key/foreign-key natures so a grouping/dimension
-// column is not mistaken for a transaction identifier. The pre-OB-231 stored value "identifier"
-// still matches, so behavior is preserved (DD-7). Korean Test: nature text only, no column names.
-function natureIsReferenceKey(dataNature: string | null | undefined): boolean {
-  return /reference[\s_-]?key|foreign[\s_-]?key|\bfk\b|grouping|dimension/i.test(dataNature ?? '');
-}
-function natureIsIdentifier(dataNature: string | null | undefined): boolean {
-  return /\b(identifier|id|key|code)\b/i.test(dataNature ?? '') && !natureIsReferenceKey(dataNature);
+// HF-372 Phase C (registry subtraction): the OB-231 prose regexes are DELETED. The predicate reads
+// the field identity's BARE primitives (natureRole/scopeRole — the model's own named primitives,
+// persisted since HF-368/HF-372) by EQUALITY against the fixed structural set. A legacy field
+// identity without bare primitives reads as NO SIGNAL (the ref extraction abstains, loudly) —
+// never a prose word-list read; a re-import restores the primitives.
+function natureIsIdentifier(fi: { natureRole?: string; scopeRole?: string } | null | undefined): boolean {
+  return fi?.natureRole === 'identifier' && fi?.scopeRole !== 'reference';
 }
 
 /**
@@ -246,9 +242,14 @@ export function extractTransactionRef(
 ): string | null {
   if (!rowData || !metadata) return null;
   const fieldIdentities = metadata.field_identities as
-    | Record<string, { structuralType?: string; contextualIdentity?: string }>
+    | Record<string, { structuralType?: string; contextualIdentity?: string; natureRole?: string; scopeRole?: string }>
     | undefined;
   if (!fieldIdentities || typeof fieldIdentities !== 'object') return null;
+  // HF-372: legacy batch (no bare primitives anywhere) → abstain LOUDLY, never read prose.
+  if (Object.values(fieldIdentities).every(fi => !fi?.natureRole)) {
+    console.error('[per-row-attribution] HF-372: field_identities carry NO bare primitives (legacy import) — transaction_ref extraction ABSTAINS; re-import self-heals');
+    return null;
+  }
 
   // OB-218: exclude BOTH the convergence binding's entity_identifier column (passed in) AND the
   // row's own metadata.entity_id_field. On transaction sheets these can differ (e.g. binding key
@@ -257,11 +258,8 @@ export function extractTransactionRef(
   const metaEntityIdField = typeof metadata.entity_id_field === 'string' ? metadata.entity_id_field : null;
   const candidates: Array<{ col: string; isTxn: boolean }> = [];
   for (const [col, fi] of Object.entries(fieldIdentities)) {
-    // OB-231: structuralType now carries a free-form data_nature string — read it tolerantly
-    // (was an exact equality against the retired identifier-nature enum value). The pre-OB-231
-    // stored identifier-nature value still matches; reference-key/grouping natures are excluded
-    // so a dimension column is not picked as the transaction ref.
-    if (!fi || !natureIsIdentifier(fi.structuralType)) continue;
+    // HF-372: equality on the model's bare primitives — an identifier NOT scoped at a dimension.
+    if (!fi || !natureIsIdentifier(fi)) continue;
     if (entityIdField && col === entityIdField) continue;
     if (metaEntityIdField && col === metaEntityIdField) continue;
     if (rowData[col] === null || rowData[col] === undefined || rowData[col] === '') continue;

@@ -32,8 +32,9 @@ function profileWithUniqueIdentifier(): ContentProfile {
   // OB-231: free-form characterization shape. data_nature='identifier' (identifier nature) with NO
   // `identifies` scope → forces the deterministic/classification-aware fallback (entity vs transaction
   // decided by the sheet classification), exactly the pre-OB-231 columnRole='identifier'+no-identifiesWhat case.
-  const interpretations = new Map<string, { columnName: string; data_nature: string; identifies: string; confidence: number; characterization: string; dataExpectation: string; relationships: string[] }>();
-  interpretations.set('location_id', { columnName: 'location_id', data_nature: 'identifier', identifies: '', confidence: 0.85, characterization: 'id', dataExpectation: '', relationships: [] });
+  const interpretations = new Map<string, { columnName: string; data_nature: string; nature_role?: string; identifies: string; confidence: number; characterization: string; dataExpectation: string; relationships: string[] }>();
+  // HF-372 Phase C: the readers are bare-primitive equality — the fixture carries nature_role.
+  interpretations.set('location_id', { columnName: 'location_id', data_nature: 'identifier', nature_role: 'identifier', identifies: '', confidence: 0.85, characterization: 'id', dataExpectation: '', relationships: [] });
 
   return {
     contentUnitId: 'f::Sucursales::0',

@@ -94,7 +94,7 @@ export interface ClassificationTrace {
   // Phase B: Header comprehension
   headerComprehension: {
     available: boolean;
-    interpretations: Record<string, { characterization: string; data_nature: string; identifies?: string; relationships?: string[]; confidence: number; scope_role?: string; nature_role?: string }>;
+    interpretations: Record<string, { characterization: string; data_nature: string; identifies?: string; relationships?: string[]; confidence: number; scope_role?: string; nature_role?: string; plan_role?: string }>;
     crossSheetInsights: string[];
     llmCalled: boolean;
     llmDuration: number | null;

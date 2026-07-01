@@ -541,3 +541,78 @@ occurrence selection, grammar validation of constructed trees, byte-determinism)
 **State altered (proof tenants, self-healing):** rule_sets "BANCO CUMBRE DEL LITORAL" (VLTEST2) and
 "COMISIONES SUCURSALES LOCALES REFAC" (Casa Diaz) persisted by the live EPG runs; a probe copy of the
 Casa Diaz workbook uploaded at `2d9979ba-…/hf372-epgb2/`. Phase G clean-slates both tenants.
+
+---
+
+## Phase C — Registry subtraction with expression preservation (D3, corrected per HALT-1)
+
+**Phase 0 finding answered.** EPG-0.4: the directive's named lists (`MEASURE_NATURE`/`TEMPORAL_NATURE`)
+were already deleted by HF-368; the surviving registry class lived at `negotiation.ts:29-67` (7
+bilingual regexes → field affinities incl. the plan ::split), `header-comprehension.ts:284-301` (6 more,
+incl. the `seller|vendedor|empleado` scopeIsEntity synonym list), `entity-resolution.ts:34-45` (+3 call
+sites), `per-row-attribution.ts:54-58` (calc layer).
+
+**Changes.**
+
+1. **New bare primitive `plan_role` ∈ {rule_parameter, none}** (`structural-primitives.ts` — the plan-vs-
+   data architectural dimension, Decision 158): the MODEL names per column whether it is a parameter OF
+   the compensation plan; code reads it by equality. Threaded end-to-end exactly like HF-368's
+   scope/nature: producer prompt + JSON contract (`anthropic-adapter.ts`), `HeaderInterpretation`
+   (`sci-types.ts`), `LLMHeaderResponse` + claim/comprehended reconstruction + atom write
+   (`header-comprehension.ts`), `ComprehendedInterpretation` + both atomsToWrite pushes
+   (`decomposed-comprehension.ts`), `AtomExpression`/`KnownAtom` + buildAtomRow + lookupAtoms +
+   exprToStore (`atom-flywheel.ts`), planner claim expr (`comprehension-planner.ts`), classification
+   trace (`resolver.ts`, `synaptic-ingestion-state.ts`), novel-value fail-loud
+   (`validatePlanRole`, wired into the classifier's validation loop). **`ATOM_ALGORITHM_VERSION` 4 → 5**
+   (the HF-369 lesson: a column_roles schema change MUST bump the version; v4 existed only in this
+   branch's own live proofs).
+2. **negotiation.ts** — all 7 word-regexes DELETED; readers are equality on the model's primitives
+   (`natureIsPlanRule` = `plan_role === 'rule_parameter'`; `natureIsReferenceKey` = identifier scoped
+   `reference`; `natureIsSilent` = no bare nature rendered → the structural affinity arms handle it,
+   a structural fallback, not a default classification).
+3. **header-comprehension.ts** — all 6 local word-regexes DELETED (equality readers).
+4. **entity-resolution.ts** — prose predicates DELETED; equality readers over field_identities'
+   `natureRole`/`scopeRole`; the batch key-kind is recorded as a bare token ('identifier' /
+   'reference_key') and entity typing reads it by fixed-set membership. A LEGACY batch (field_identities
+   with no bare primitives anywhere) ABSTAINS LOUDLY (`console.error` naming the batch; idColumn stays
+   null → calc-time resolution; re-import self-heals) — never a prose read, never a silent guess.
+5. **per-row-attribution.ts** (calc layer) — same conversion; legacy batches abstain loudly and
+   `extractTransactionRef` returns null (no prose read).
+6. **field-identities carry the primitives everywhere**: `extractFieldIdentitiesFromTrace` now carries
+   `scopeRole` (it carried natureRole since HF-368); `buildFieldIdentitiesFromBindings` (the no-trace
+   fallback) maps each controlled SemanticRole to its bare natureRole/scopeRole so bindings-built
+   identities read identically.
+
+**EPG-C1 evidence.**
+
+Post-removal grep over `src/lib/sci` + `src/lib/calculation` for prose-scanning word lists: the only
+remaining hits are (a) `remediation-stage.ts:49` `NON_TEXT_ROLE` — scans the platform's CONTROLLED
+SemanticRole enum tokens (assigned values, not model prose) as the SECONDARY signal behind the
+bare-natureRole equality read — justified, kept; (b) `classification-signal-service.ts:810-813`
+(lookupLexicalPrior buckets) and (c) `tenant-context.ts:150` (computeEntityIdOverlap looksEntityId) —
+both write to state fields (`priorSignals`, `entityIdOverlaps`) that have ZERO readers on main
+(verified by grep; HF-364 §6A's "inert" disposition confirmed) — justified as non-classifying dead
+surfaces, named as follow-on cleanup residuals (§6A).
+
+Live classification on the fixed code (real LLM, v5 atoms, `_hf372_epg02_live_classify.ts bcl`):
+
+```
+  "#"                 scope_role=reference nature_role=identifier  plan_role=rule_parameter
+  "Componente"        scope_role=reference nature_role=name        plan_role=rule_parameter
+  "Tipo de Cálculo"   scope_role=reference nature_role=categorical plan_role=rule_parameter
+  "Cumplimiento \ Calidad" … plan_role=rule_parameter   (and every rate-band column)
+  "Nivel" / "Meta Colocación ($)" / "Meta Depósitos ($)" … plan_role=rule_parameter
+
+── SHEET VERDICTS ──
+  [Plan General]    → reference @0.97  + plan ::split @0.8      ← the split the word-regex missed
+  [Tablas de Tasas] → reference @0.95  + plan ::split @0.8
+  [Metas Mensuales] → reference @0.88  + plan ::split @0.8      ← now reaches plan interpretation
+```
+
+**EPG-A2 carry-forward CLOSED**: all three plan sheets split as plan via the model's own plan_role →
+plan interpretation receives its full sheet set (EPG-B1's live run already exercised the 3-sheet
+batched interpretation: "[SCI plan-interp] Batched interpretation: 3 sheets", "de-banded text
+extracted … from 3 sheets" → the full C1-C4 component structure, both variants).
+
+**Suite/build:** 580/580 (two fixture files updated from prose-only to bare-primitive shape — the
+post-HF-368 reality the readers now demand); build → `.next/BUILD_ID` present.
