@@ -32,7 +32,8 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit, findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcEntityIdColumn, findHcEntityIdCandidates } from '@/lib/sci/commit-content-unit';
+import { looksLikeRowIndex } from '@/lib/sci/entity-resolution';
 // OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
 import { openSheetWindow, exceedsCellCeiling, type SheetWindow } from '@/lib/sci/sheet-window';
@@ -1049,17 +1050,38 @@ async function processEntityUnit(
   const nameBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_name');
   const licenseBinding = unit.confirmedBindings.find(b => b.semanticRole === 'entity_license');
 
-  // HF-285-A (DIAG-066): the entity identifier lives on ONE canonical surface —
-  // the HC interpretation's data_nature reading 'identifier' (HC_IDENTIFIER_THRESHOLD),
-  // the surface commitContentUnit.resolveEntityIdField already trusts. The
-  // confirmedBindings.semanticRole vocabulary is a SECOND surface that the warm
-  // flywheel can populate with a non-entity role (transaction_identifier) when its
-  // cold write diverged from the cold proposal. When the semantic binding is
-  // absent, read the canonical surface — blind to producer (AUD-009: a future
-  // third producer needs no change here; Decision 64 v3 one-surface).
-  const idSourceField = idBinding?.sourceField ?? findHcEntityIdColumn(unit.classificationTrace);
+  // HF-370 (O2, Decision 158): entity creation derives ONLY from the MODEL's recognition of a genuine
+  // entity identifier — findHcEntityIdColumn reads the model's bare scope_role==='entity' &&
+  // nature_role==='identifier' (commit-content-unit.ts). This is now PRIMARY. The confirmedBindings
+  // entity_identifier surface is a SECOND, heuristic-tainted surface: negotiation.ts assigns
+  // entity_identifier via cardinality / sequential-integer / first-column fallbacks, which can pick a
+  // `#` row-ordinal or a rate-table band label (`<70%`, `≥120%`) that the model recognized as a row
+  // index / categorical — spawning phantom entities. So the binding is used ONLY as a fallback when the
+  // model recognized NO entity id, and that fallback is row-index-guarded. The model never picks a `#`
+  // or a band label (their nature_role is not 'identifier'), so the phantom paths are closed.
+  // The set of columns the MODEL recognized as entity-scope identifiers (scope_role==='entity' &&
+  // nature_role==='identifier'). A `#` row ordinal or a rate-table band label is NEVER in this set.
+  const modelCandidates = findHcEntityIdCandidates(unit.classificationTrace);
+  let idSourceField: string | null =
+    // The heuristic binding is honored ONLY when it agrees with the model (preserves the multi-
+    // candidate disambiguation, e.g. ID_Empleado chosen over ID_Gerente). Otherwise the model wins.
+    (idBinding && modelCandidates.includes(idBinding.sourceField))
+      ? idBinding.sourceField
+      : (findHcEntityIdColumn(unit.classificationTrace) ?? null);
+  if (!idSourceField && idBinding) {
+    // The model recognized NO entity identifier and the only surface is the heuristic binding — allow
+    // it ONLY if it is not a row index (a `#` / ordinal column can never spawn entities). Band labels
+    // are already excluded above (they are never model candidates and a lone reference sheet has no
+    // entity binding); the row-index guard closes the remaining ordinal case.
+    const sample = rows.slice(0, 50).map(r => (r[idBinding.sourceField] == null ? '' : String(r[idBinding.sourceField]).trim())).filter(Boolean);
+    if (looksLikeRowIndex(sample)) {
+      console.warn(`[SCI Bulk][HF-370] Refused heuristic entity_identifier "${idBinding.sourceField}" for ${unit.tabName}: values look like a row index and the model recognized no entity identifier — not spawning entities.`);
+    } else {
+      idSourceField = idBinding.sourceField;
+    }
+  }
   if (!idSourceField) {
-    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No entity identifier found on any surface (semanticBinding or HC data_nature)' };
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No model-recognized entity identifier (scope_role=entity, nature_role=identifier); the heuristic binding was absent or a row-index — refusing to spawn entities from a non-identifier column (HF-370 O2)' };
   }
 
   // Collect unique external IDs with metadata + enrichment attributes

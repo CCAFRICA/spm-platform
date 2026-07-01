@@ -13,7 +13,9 @@ import { hiddenBatchIdsForTenant, applyCommittedDataVisibility } from '@/lib/sci
 
 // HF-110: Guard against row index misidentification
 // If most values are sequential small integers (0,1,2... or 1,2,3...), it's likely row indices
-function looksLikeRowIndex(values: string[]): boolean {
+// HF-370 (O2): exported so processEntityUnit guards its untrusted heuristic-binding fallback with the
+// SAME row-index test the entity-resolution path already uses (a `#` column can't spawn entities).
+export function looksLikeRowIndex(values: string[]): boolean {
   if (values.length < 3) return false;
   const nums: number[] = [];
   for (const v of values) {
