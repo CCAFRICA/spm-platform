@@ -421,3 +421,123 @@ Phase C's subtraction target; the sheet-count gate is demonstrated there.
 **Suite/build:** 572/572 tests pass; `tsc` clean except two pre-existing TS2802 hits in HF-350/370
 test files (verified present on the branch base); `npm run build` → `.next/BUILD_ID` present;
 `localhost:3000` responds (HTTP 307 auth redirect).
+
+---
+
+## Phase B — Deterministic rate-table construction (D2)
+
+**Phase 0 findings answered.** EPG-0.3: the LLM emitted every rate cell (40-52s/matrix, truncation
+class, temperature-dropped Opus nondeterminism); the de-banded grid already held every cell value.
+
+**Changes.**
+
+1. **Recognition contract** (`anthropic-adapter.ts`, plan_component prompt): a component backed by a
+   FIXED rate table emits `rateMatrixRecognition` — sheet, sectionLabel (a value actually present in
+   the `__section` column), rowAxis/columnAxis with per-band `{rowLabel|gridColumn, gte, lt,
+   occurrence}` half-open edges (Decision 127), `valueGridColumn` (1D), `applyToField` (rate×base) —
+   or `inexpressible: {reason}` verbatim. Cells are NEVER emitted by the model. Per-row column rates
+   and non-grid components keep the existing DAG emission unchanged (DD-7); the skeleton's
+   `rateTableCellCount` is documented as an estimate, not a command (a wrongly-declared "table"
+   whose values come from prose emits the normal DAG via the loudly-logged DECLARED-TABLE path).
+2. **Deterministic constructor** (`web/src/lib/sci/rate-matrix-construction.ts`, new):
+   `constructRateMatrixIntent(recognition, grid)` reads EVERY cell from the de-banded grid at the
+   recognized locations and builds the exact PrimeNode cascade (sorted half-open bands, and(gte,lt)
+   conditions, unbounded-below band as terminal else, else terminal constant(0); meta on edge
+   constants mirrors the emitted-DAG shape). Cell values parse via a documented deterministic
+   numeric parser (`parseNumericCell`: currency symbols, thousands/decimal separators, %, parens
+   negatives — throws loud on unparseable). The constructed tree passes the SAME
+   `validateComponentIntent` gate with `expectedCellCount` DERIVED from the recognition (rows×cols)
+   — the completeness oracle is no longer an LLM emission.
+3. **Carry Everything at construction** (`assembleConstructionGrid`): live EPG-B1 exposed a
+   de-bander data-loss: BCL "Tablas de Tasas" stacks the C2 captación band tables whose rows the
+   OB-254 classifier removed as SUBTOTAL (only "Nivel 5" survived as data). The construction grid is
+   assembled from the tidy rows PLUS the data-shaped sidecar rows (SUBTOTAL/NARRATIVE only — never
+   banners/headers) in SOURCE ORDER, with recovered rows inheriting the `__section` of the LAST
+   SECTION_LABEL above them (mirroring the de-bander's own carry — its surviving rows hold exactly
+   that value). The OB-254 classifier itself is UNTOUCHED (no reclassification, no ripple).
+4. **Full-row flattening for grid-scale sheets** (`plan-interpretation.ts`): sheets ≤40 rows are
+   shown in full (a >12-row fixed grid was structurally unemittable from the 12-row sample —
+   EPG-0.3 §3b); the interleaved emission also annotates removed banner rows positionally
+   (`>>> [removed SECTION_LABEL row]: …`) so the model binds stacked identical-label blocks to the
+   banner that names them. Sampling unchanged for larger sheets.
+5. **Orchestrator wiring** (`plan-orchestration.ts`): recognition branch constructs + validates and
+   logs `[plan-component] CONSTRUCTED … cells=N constructMs=…`; construction failures retry WITH
+   the verbatim error fed back (the model corrects its recognition); `inexpressible` retries with
+   feedback and is terminal HALT-6 with the model's verbatim reason when it survives the retry
+   budget. `debandedSheets` grids threaded from `interpretPlanGroup`.
+
+**EPG-B1 — BCL plan workbook, live (real LLM, real storage file, persisted rule_set).**
+Run 6 (`_hf372_epgb1_bcl_plan.ts`): **6/6 components succeeded** — the full C1-C4 structure, both
+variants, persisted as rule_set "BANCO CUMBRE DEL LITORAL":
+
+```
+[plan-component] CONSTRUCTED component=c1-colocacion-ejecutivo … cells=30 constructMs=1 llmLatencyMs=12391
+[plan-component] CONSTRUCTED component=c1-colocacion-senior    … cells=30 constructMs=0 llmLatencyMs=15067
+[plan-component] CONSTRUCTED component=c2-captacion-ejecutivo  … section="Ejecutivo" cells=5 constructMs=0
+[plan-component] CONSTRUCTED component=c2-captacion-senior     … section="Ejecutivo Senior" cells=5 constructMs=1
+[plan-orchestrator] Phase B complete — 6/6 components succeeded    TOTAL wall time: 48848ms
+
+  [Ejecutivo Senior] "Colocación de Crédito" method=rate_matrix_constructed
+    cells (30): 0,80,120,160,200, 80,120,180,240,300, 120,180,260,340,420, 180,260,360,460,560,
+                240,360,480,600,700, 300,420,560,680,700          ← grid rows 1-6 VERBATIM
+  [Ejecutivo] "Colocación de Crédito" cells (30): 0,50,80,110,140 … 210,300,400,480,500  ← rows 7-12 VERBATIM
+  [Ejecutivo Senior] "Captación de Depósitos" cells (5): 0,120,250,400,550   ← RECOVERED sidecar rows
+  [Ejecutivo] "Captación de Depósitos"        cells (5): 0,80,180,300,420    ← RECOVERED sidecar rows
+```
+
+Every constructed cell matches the pasted de-banded grid exactly (the grid is in the Phase 0/EPG-B1
+logs; C2's five bands were reconstructed from rows the de-bander had destroyed). Construction 0-3ms
+per matrix vs the observed 40-52s emissions. **Determinism repeat** (reset + fresh run 7): 6/6 again;
+both 30-cell matrices byte-identical across runs. Honest residuals: recognition-level expression may
+vary within semantic equivalence (run 7 expressed Nivel-1 as gte:0 instead of unbounded — same
+cells, one extra terminal constant(0)); non-grid `prime_dag` components (C4 gate) retain the
+pre-existing LLM-emission variance (out of D2's surface; the temperature-drop mechanism is named in
+EPG-0.3 §5a for architect disposition).
+
+**EPG-B2 — Casa Diaz rate-bearing sheet, live.** LOCALES REFAC through the same entry
+(`_hf372_epgb2_casa_plan.ts`): **10/10 components succeeded**, rule_set "COMISIONES SUCURSALES
+LOCALES REFAC" persisted. Every per-row-rate component correctly took the DAG path (recognition mode
+did NOT fire — these are not fixed grids) with verbatim column references and no hardcoded rates:
+
+```
+[Gerente] "Comisión Ventas Facturadas Propias" method=prime_dag
+  references: "BASE COMISION", "% AUTORIZADO"     plain constants (0):
+[plan-orchestrator] Phase B complete — 10/10 components succeeded   TOTAL wall time: 53145ms
+```
+
+**Architect review items (requested mid-phase):**
+
+1. *Band-label character scans in construction code*: **zero.** Band labels are matched by trimmed
+   equality ONLY (`rate-matrix-construction.ts:261`: `String(r[gridColumn] ?? '').trim() ===
+   band.rowLabel.trim()`); band MEANING comes exclusively from the model's `gte`/`lt` numbers. The
+   only regexes in the module are in `parseNumericCell` (lines 126-146) and operate on CELL VALUES
+   (currency symbols, thousands/decimal separators, %, parens negatives) — never on band labels,
+   never to infer edges. Disclosed in full; grep output pasted in the session log.
+2. *No label-format enumeration; no confidence gate*: confirmed. `parseRateMatrixRecognition`
+   validates SHAPE only (fields present, edges coherent, ≤1 unbounded per side) — no acceptable-label
+   list anywhere. No confidence threshold or weighting gates construction: the only `confidence` in
+   the module is the fixed 0.9 META on edge constants (mirroring the emitted-DAG compare-constant
+   shape for the HF-279 scale validator), read by nothing as a gate.
+3. *Model-named rowLabel with no verbatim-equal grid cell*: `constructRateMatrixIntent` throws
+   `RateMatrixConstructionError` naming the label and match count
+   (`rate-matrix-construction.ts:262-271`). No normalization retry exists in code (the ONLY
+   transform on both sides is whitespace `trim()`); the orchestrator feeds the verbatim error back
+   into the model's RETRY (the model corrects its recognition) — code never remaps, fuzzy-matches,
+   or falls back. Terminal failure carries the verbatim error.
+4. *HALT-6 handling*: `inexpressible` retries with the model's verbatim reason fed back (live
+   evidence: a premature inexpressible on C2-senior was disproven by its sibling variant one attempt
+   later), and is TERMINAL with the verbatim reason when it survives the retry budget
+   (`plan-orchestration.ts` recognition branch). There is no code path that generates an LLM DAG for
+   a recognized matrix. The one adjacent path, disclosed: the MODEL may itself emit
+   `calculationIntent` instead of a recognition (skeleton declarations are estimates — e.g. "Pad
+   System", whose two rates come from prose, not a grid); that path is loudly logged
+   (`DECLARED-TABLE …emitted a DAG… accepting via the guarded emission path`) and remains
+   exhaustive_emission-guarded. It is model judgment made visible, never a silent code fallback.
+
+**Suite/build:** 580/580 tests pass (8 new constructor tests incl. Korean-clean cell parsing,
+occurrence selection, grammar validation of constructed trees, byte-determinism); build →
+`.next/BUILD_ID` present.
+
+**State altered (proof tenants, self-healing):** rule_sets "BANCO CUMBRE DEL LITORAL" (VLTEST2) and
+"COMISIONES SUCURSALES LOCALES REFAC" (Casa Diaz) persisted by the live EPG runs; a probe copy of the
+Casa Diaz workbook uploaded at `2d9979ba-…/hf372-epgb2/`. Phase G clean-slates both tenants.

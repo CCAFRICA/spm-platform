@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import type { ContentUnitExecution, ContentUnitResult } from './sci-types';
 import { debandWorksheet } from './deband-sheet';
+import { assembleConstructionGrid } from './rate-matrix-construction';
 // HF-259 Q3/Q6: idempotency (single-flight + fingerprint reuse) + lifecycle audit. Degrade-safe.
 import {
   computePlanContentHash,
@@ -189,6 +190,9 @@ async function interpretPlanGroup(
   let documentContent = '';
   let pdfBase64ForAI: string | undefined;
   let pdfMediaType: string | undefined;
+  // HF-372 Phase B: de-banded grids captured during flattening — the deterministic rate-matrix
+  // constructor reads cell values from here (the model only recognizes the structure).
+  const debandedSheets = new Map<string, { columns: string[]; rows: Record<string, unknown>[] }>();
 
   if (ext === 'pdf') {
     pdfBase64ForAI = fileBuffer.toString('base64');
@@ -208,15 +212,24 @@ async function interpretPlanGroup(
     // the skeleton token budget (the truncated-JSON failure). Cap to a representative sample per sheet,
     // covering distinct __section groups, and state the true total so the model generalizes.
     const PLAN_SAMPLE_ROWS = 12;
+    // HF-372 Phase B: a sheet small enough to BE a rate grid is shown IN FULL — the model must see
+    // every band row to recognize the matrix (EPG-0.3: a >12-row fixed grid was unemittable from a
+    // 12-row sample). The 12-row sampling survives for genuinely large per-row DATA sheets.
+    const FULL_ENUMERATION_MAX_ROWS = 40;
     const flattenDebanded = (sheetName: string): string[] => {
       const worksheet = workbook.Sheets[sheetName];
       if (!worksheet) return [];
       const db = debandWorksheet(XLSX, worksheet, sheetName);
       if (db.rows.length === 0) return [];
+      // HF-372 Phase B: keep the CONSTRUCTION grid for the deterministic rate-matrix constructor —
+      // the tidy rows PLUS the data-shaped sidecar rows (Carry Everything: a second table's band
+      // rows misclassified SUBTOTAL must stay addressable), in source order.
+      const assembled = assembleConstructionGrid(db);
+      debandedSheets.set(sheetName, assembled);
       // representative sample: spread across __section groups if present, else the head
       const sectionCol = db.columns.includes('__section') ? '__section' : null;
       let sample = db.rows;
-      if (db.rows.length > PLAN_SAMPLE_ROWS) {
+      if (db.rows.length > FULL_ENUMERATION_MAX_ROWS && db.rows.length > PLAN_SAMPLE_ROWS) {
         if (sectionCol) {
           const bySection = new Map<string, Record<string, unknown>[]>();
           for (const r of db.rows) { const k = String(r[sectionCol] ?? ''); if (!bySection.has(k)) bySection.set(k, []); bySection.get(k)!.push(r); }
@@ -227,9 +240,44 @@ async function interpretPlanGroup(
         }
       }
       const out: string[] = [`=== Sheet: ${sheetName} (${db.rows.length} rows total; ${sample.length} shown) ===`, db.columns.join('\t')];
-      for (const rec of sample) {
-        const values = db.columns.map(c => String(rec[c] ?? '').trim());
-        if (values.some(v => v !== '')) out.push(values.join('\t'));
+      if (sample === db.rows) {
+        // HF-372 Phase B: FULL enumeration — emit the CONSTRUCTION grid (tidy + recovered data-shaped
+        // sidecar rows) as data lines in source order, and interleave the removed BANNER/section rows
+        // as annotations at their positions, so the model can bind stacked identical-label blocks to
+        // the banner that names each block (EPG-B1 live finding). The model's addressable universe is
+        // exactly the constructor's grid.
+        // the model's addressable universe IS the constructor's assembled grid (tidy + recovered
+        // rows with inherited __section) — emitted in source order with banner annotations between.
+        const assembledQueue = [...assembled.rows];
+        const recoveredPositions = new Set<number>();
+        const annotatable = new Map<number, string>();
+        for (const s of db.result.sidecar) {
+          if (s.reason === 'SUBTOTAL' || s.reason === 'NARRATIVE') {
+            if ((s.cells ?? []).some(c => String(c ?? '').trim() !== '')) recoveredPositions.add(s.sourceRowIndex);
+          } else {
+            const text = (s.cells ?? []).map(c => String(c ?? '').trim()).filter(Boolean).join(' ');
+            if (text) annotatable.set(s.sourceRowIndex, `>>> [removed ${s.reason} row]: ${text}`);
+          }
+        }
+        const emitRec = (rec: Record<string, unknown> | undefined) => {
+          if (!rec) return;
+          const values = db.columns.map(c => String(rec[c] ?? '').trim());
+          if (values.some(v => v !== '')) out.push(values.join('\t'));
+        };
+        for (const t of db.result.transformMap.rows) {
+          if (t.tidy || recoveredPositions.has(t.sourceRowIndex)) {
+            emitRec(assembledQueue.shift());
+          } else if (annotatable.has(t.sourceRowIndex)) {
+            out.push(annotatable.get(t.sourceRowIndex)!);
+          }
+        }
+        // safety: any rows not covered by the transform map (defensive) still get emitted
+        for (const rec of assembledQueue) emitRec(rec);
+      } else {
+        for (const rec of sample) {
+          const values = db.columns.map(c => String(rec[c] ?? '').trim());
+          if (values.some(v => v !== '')) out.push(values.join('\t'));
+        }
       }
       out.push('');
       return out;
@@ -393,6 +441,7 @@ async function interpretPlanGroup(
     resumeSkipIds: resumeCtx.resumeSkipIds,
     priorComponents: resumeCtx.priorComponents,
     fieldComprehension: comprehendedFields, // HF-270
+    debandedSheets, // HF-372 Phase B: grids for deterministic rate-matrix construction
   });
 
   const interpretation = orchestration.interpretation as unknown as Record<string, unknown>;
