@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/import/sci/pulse-load/finalize-sweep",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/import/sci/dispatch-jobs",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/import/sci/execute-bulk/route.ts": { "memory": 3008, "maxDuration": 300 },
+    "src/app/api/import/sci/process-job/route.ts": { "memory": 3008, "maxDuration": 300 }
+  }
+}

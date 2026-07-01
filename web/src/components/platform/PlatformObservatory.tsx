@@ -29,6 +29,7 @@ import {
   Brain,
   Radar,
   Building2,
+  Upload,
 } from 'lucide-react';
 
 // Lazy-load tab components
@@ -48,12 +49,18 @@ const VigilTab = lazy(() => import('./VigilTab').then(m => ({ default: m.VigilTa
 // OB-252: Tenant Admin — the Observatory-confined tenant-management surface
 // (identity + agent entitlement + admin users). The fleet-card "Manage tenant" opens it here.
 const TenantManagementTab = lazy(() => import('./TenantManagementTab').then(m => ({ default: m.TenantManagementTab })));
+// HF-370 (O3): Ingestion — the LIVE async-worker queue (processing_jobs) + per-job kill switch.
+// The component and its /api/platform/observatory?tab=ingestion data source already existed
+// (HF-356) but were never wired into the Observatory nav — a runaway import was invisible and
+// unkillable to operators. Surfacing it here makes import runs observable and stoppable.
+const IngestionTab = lazy(() => import('./IngestionTab').then(m => ({ default: m.IngestionTab })));
 
-type TabId = 'command-center' | 'tenant-management' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings' | 'vigil';
+type TabId = 'command-center' | 'tenant-management' | 'ingestion' | 'users' | 'intelligence' | 'recognition' | 'ai-models' | 'ai-cost' | 'revenue' | 'settings' | 'vigil';
 
 const TABS: { id: TabId; label: string; icon: React.ComponentType<{ style?: React.CSSProperties }> }[] = [
   { id: 'command-center', label: 'Command Center', icon: Activity },
   { id: 'tenant-management', label: 'Tenant Admin', icon: Building2 },
+  { id: 'ingestion', label: 'Ingestion', icon: Upload },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles },
   { id: 'recognition', label: 'Recognition Curve', icon: Brain },
@@ -210,6 +217,7 @@ export function PlatformObservatory() {
               onExit={() => setActiveTab('command-center')}
             />
           )}
+          {activeTab === 'ingestion' && <IngestionTab />}
           {activeTab === 'users' && <UsersTab />}
           {activeTab === 'intelligence' && <AIIntelligenceTab />}
           {activeTab === 'recognition' && <RecognitionCurvePanel />}
