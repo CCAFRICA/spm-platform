@@ -26,9 +26,16 @@ export interface CleanSlateCategory {
 
 // The 5 categories (directive §1), in CROSS-category dependents-first order
 // (calc → plan → entity → data → intelligence). Every table carries tenant_id (§5.2 probe).
+// HF-370 (O5): each category now covers ALL its tenant-scoped LEAF tables (previously ~15 of the 39
+// tenant-scoped tables were cleared; the rest lingered across a Clean Slate). Added tables are
+// tenant-scoped leaves placed in the SAME dependents-first order as DELETE_TENANT_TABLES (the
+// production-tested full-removal order), so no new FK-block hazard is introduced. The FK-hazardous
+// subset (the reference_data NO-ACTION chain, `periods` with its inbound period_id FKs) and the
+// deliberately-preserved `import_batches` are dispositioned in TENANT_SCOPED_DISPOSITION below and, per
+// SR-44 (destructive scope = architect sign-off), are NOT auto-added to this selectable wipe here.
 export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
-  { key: 'calc', label: 'Calculation layer', tables: ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts'] },
-  { key: 'plan', label: 'Plan / assignment layer', tables: ['rule_set_assignments', 'rule_sets'] },
+  { key: 'calc', label: 'Calculation layer', tables: ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'calculation_batches'] },
+  { key: 'plan', label: 'Plan / assignment layer', tables: ['rule_set_assignments', 'rule_set_lifecycle_events', 'plan_interpretation_runs', 'rule_sets'] },
   { key: 'entity', label: 'Entity layer', tables: ['entity_relationships', 'entities'] },
   // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state — processing_jobs
   // (the DS-016 job ledger), import_session_telemetry and ingestion_events — so a Clean Slate leaves
@@ -40,9 +47,32 @@ export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
   // behind would let the pg_cron worker REPOPULATE committed_data after the wipe. Tenant-scoped leaf (no
   // inbound category FK); the worker re-reads the now-deleted job by id and stops gracefully. committed_data
   // stays FIRST (EDGE-1); pulse_load_jobs is appended.
-  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs'] },
-  { key: 'intelligence', label: 'Intelligence layer', tables: ['classification_signals', 'structural_fingerprints'] },
+  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects'] },
+  { key: 'intelligence', label: 'Intelligence layer', tables: ['classification_signals', 'structural_fingerprints', 'surface_bindings', 'synaptic_density', 'comprehension_artifacts', 'intelligence_artifacts', 'ai_call_metrics', 'agent_invocations'] },
 ] as const;
+
+// HF-370 (O5): the AUTHORITATIVE disposition of EVERY tenant-scoped table (a table carrying a
+// tenant_id column). The drift guard (hf370-clean-slate-coverage.test.ts) reconciles this against the
+// live migration schema and FAILS if any tenant-scoped table is undispositioned — so the delete set
+// "cannot drift" (directive §5). Foundational / cross-tenant stores (no tenant_id: foundational_patterns,
+// domain_patterns, promoted_patterns, platform_settings, tenants) appear in NONE of these sets and are
+// NEVER touched.
+//   • CLEARED here  = the tenant's data/import/calc/plan/intelligence footprint (the CLEAN_SLATE_CATEGORIES
+//     above + the entity-cascade collateral reassignment_events / period_entity_state).
+//   • KEEP          = tenant IDENTITY / ACCESS / BILLING / AUDIT that must survive a data reset (a Clean
+//     Slate keeps the tenant usable). Never wiped by Clean Slate; removed only by Delete Tenant.
+//   • ARCHITECT_REVIEW = tenant-scoped but FK-hazardous (reference_data NO-ACTION chain; `periods` inbound
+//     period_id FKs) or a deliberate preservation (`import_batches` — the cockpit reads live committed_data)
+//     or workflow state whose wipe is a destructive-scope judgment. These are cleared by Delete Tenant
+//     (DELETE_TENANT_TABLES) and are flagged for architect sign-off before joining the selectable Clean Slate.
+export const CLEAN_SLATE_KEEP: readonly string[] = ['profiles', 'profile_scope', 'usage_metering', 'audit_logs'];
+export const CLEAN_SLATE_CASCADE_CLEARED: readonly string[] = ['reassignment_events', 'period_entity_state'];
+export const CLEAN_SLATE_ARCHITECT_REVIEW: readonly string[] = [
+  'reference_data', 'reference_items', 'alias_registry', // NO-ACTION FK chain (delete alias→items→data)
+  'periods',                                              // inbound period_id FKs from calc/data/entity
+  'import_batches',                                       // deliberately preserved (cockpit reads live committed_data)
+  'reconciliation_sessions', 'approval_requests', 'disputes', 'agent_inbox', 'user_journey', // workflow/user state
+];
 
 // B1 (cross-category CASCADE): deleting `entities` fires ON DELETE CASCADE into other tables that the
 // TS code did not .delete() — Postgres cascades cannot be stopped by the application. The full entity
