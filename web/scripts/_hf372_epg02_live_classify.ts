@@ -10,6 +10,8 @@ config({ path: '.env.local' });
 import { readFileSync } from 'fs';
 import * as XLSX from 'xlsx';
 import { debandWorksheet } from '../src/lib/sci/deband-sheet';
+import { isLargeByBytes, streamSheetMeta, listSheetNames } from '../src/lib/sci/sheet-stream';
+import { CHUNK_ROW_SIZE } from '../src/lib/sci/sheet-window';
 import { generateContentProfileStats, generateContentProfilePatterns } from '../src/lib/sci/content-profile';
 import { runDecomposedComprehension } from '../src/lib/sci/header-comprehension';
 import { createIngestionState, buildProposalFromState } from '../src/lib/sci/synaptic-ingestion-state';
@@ -35,6 +37,13 @@ const SETS: Record<string, { tenant: string; fileName: string; path: string; she
     path: '/Users/AndrewAfrica/Desktop/ViaLuce AI/2026 Customer Data/Casa Diaz/wetransfer_ventas-demo_2026-06-26_2117/COMISIONES % AUTORIZADOS - copia.xlsx',
     sheets: ['LOCALES REFAC', 'FORANEAS REFAC'], // two structurally distinct sheets per EPG-0.2(b)
   },
+  // HF-372 Phase E (EPG-E1): the REAL ~42MB JDE extract — exercises the STREAMED classify branch
+  // (isLargeByBytes → streamSheetMeta bounded sample), i.e. the oversized path post-A/B/C.
+  casalarge: {
+    tenant: '2d9979ba-5032-48a7-bccf-1928f3e6dadf',
+    fileName: 'Abril_00001_1 demo REF.xlsx',
+    path: '/Users/AndrewAfrica/Desktop/ViaLuce AI/2026 Customer Data/Casa Diaz/wetransfer_ventas-demo_2026-06-26_2117/Abril_00001_1 demo REF.xlsx',
+  },
 };
 
 async function main() {
@@ -44,14 +53,26 @@ async function main() {
   const tenantId = cfg.tenant;
   console.log(`=== HF-372 EPG-0.2 LIVE classify: ${cfg.fileName} (tenant ${tenantId.slice(0, 8)}…) ===\n`);
 
-  const workbook = XLSX.read(readFileSync(cfg.path), { type: 'buffer', dense: true });
+  const buffer = readFileSync(cfg.path);
   const sheets: Array<{ sheetName: string; columns: string[]; rows: Record<string, unknown>[]; totalRowCount: number }> = [];
-  for (const sheetName of workbook.SheetNames) {
-    if (cfg.sheets && !cfg.sheets.includes(sheetName)) continue;
-    const ws = workbook.Sheets[sheetName];
-    if (!ws) continue;
-    const deband = debandWorksheet(XLSX, ws, sheetName);
-    sheets.push({ sheetName, columns: deband.columns, rows: deband.rows as Record<string, unknown>[], totalRowCount: deband.rows.length });
+  if (isLargeByBytes(buffer.byteLength)) {
+    // STREAMED classify branch — pipeline-identical to process-job/route.ts:137-144
+    console.log(`STREAMING branch: ${(buffer.byteLength / 1048576).toFixed(1)}MB ≥ 20MB gate`);
+    const names = await listSheetNames(buffer);
+    for (const sheetName of names.length ? names : [undefined]) {
+      const meta = await streamSheetMeta(buffer, { sampleRows: CHUNK_ROW_SIZE, targetSheet: sheetName });
+      sheets.push({ sheetName: meta.sheetName, columns: meta.headers, rows: meta.sample as Record<string, unknown>[], totalRowCount: meta.totalRows });
+      console.log(`STREAM: ${meta.sheetName} ${meta.totalRows}r×${meta.headers.length}c — classify on ${meta.sample.length}-row sample`);
+    }
+  } else {
+    const workbook = XLSX.read(buffer, { type: 'buffer', dense: true });
+    for (const sheetName of workbook.SheetNames) {
+      if (cfg.sheets && !cfg.sheets.includes(sheetName)) continue;
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) continue;
+      const deband = debandWorksheet(XLSX, ws, sheetName);
+      sheets.push({ sheetName, columns: deband.columns, rows: deband.rows as Record<string, unknown>[], totalRowCount: deband.rows.length });
+    }
   }
 
   // flywheel lookup (tier per sheet) — route lines 205-217

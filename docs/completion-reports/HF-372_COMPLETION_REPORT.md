@@ -709,3 +709,75 @@ the import screen during a browser import; terminal transition (no post-completi
 kill from both surfaces; fleet tab truthful/on-brand rendering; migration 20260703_hf372 applied
 (then the phase columns of the EPG-D1 probe re-run populate). The full-arc phase record through the
 real routes is re-verified in Phase G's browser import.
+
+---
+
+## Phase E — Large-file admission and the oversized path (D6)
+
+**Phase 0 finding answered.** EPG-0.7: `ingestion-raw.file_size_limit = NULL` → the 40MB fallback
+floor governs; the static 50MB client gate said nothing about the real limit; a storage-side
+rejection died in the console while the user saw "Please retry" with no limit named.
+
+**EPG-E1 — the blocker, quantified on the REAL files** (live bucket read + `discoverUploadByteBudget`):
+
+```
+discoverUploadByteBudget(ingestion-raw): {"byteBudget":33554432,"effectiveLimit":41943040,"limitSource":"fallback"}
+Abril_00001_1 demo REF.xlsx: 42,402,023 bytes → REJECTED at the door (exceeds 41,943,040 fallback)
+MAYO_00001_1 demo REF.xlsx:  42,854,669 bytes → REJECTED at the door (exceeds 41,943,040 fallback)
+Abril_00001_1_2 demo MAQ.xlsx: 41,553,548 bytes → admitted
+MAYO_00001_2 demo MAQ.xlsx:    29,873,898 bytes → admitted
+```
+
+**ARCHITECT ACTION (SR-44 — prepared, not executed):** set the bucket limit so the budget derives
+from the real limit. SQL Editor:
+```sql
+update storage.buckets set file_size_limit = 104857600 where id = 'ingestion-raw';  -- 100MB
+```
+(or Dashboard → Storage → ingestion-raw → File size limit → 100 MB). 100MB gives the ~42MB JDE class
+2.3× headroom; the commit pulse budget becomes 0.8×100MB = 80MB. Also confirm the Supabase
+PROJECT-level global upload limit is ≥ the bucket limit.
+
+**Code changes (C2 — loud, actual-limit-named admission):**
+
+1. **New route `GET /api/import/sci/upload-budget`** — exposes `discoverUploadByteBudget`'s
+   `{effectiveLimit, limitSource, byteBudget}` to the browser (the bucket config is a storage-admin
+   read the client cannot perform).
+2. **`SCIUpload.tsx`** — the static 50MB gate is now the FALLBACK only; the admission limit is
+   discovered from the route on mount, and a rejection names the actual limit and its source
+   ("the ingestion storage limit" vs "the conservative fallback limit … ask your administrator to
+   set one").
+3. **`page.tsx`** — a storage-side upload rejection now reaches the user VERBATIM (file name, size,
+   and the storage error text) instead of the generic "Please retry" (the silent-stall C2 violation).
+
+**EPG-E1 — the oversized (streamed) path against the current recognition surfaces (post-A/B/C),
+live on the REAL 42.4MB JDE extract** (`_hf372_epg02_live_classify.ts casalarge`, real LLM):
+
+```
+STREAMING branch: 40.4MB ≥ 20MB gate
+STREAM: Exportar Hoja de Trabajo 86607r×87c — classify on 20000-row sample
+STREAM: SQL 0r×1c — classify on 0-row sample
+provenance: Exportar Hoja de Trabajo … novelCount=79 llmCalled=true   (all 87 columns comprehended)
+── SHEET VERDICTS ──
+  [Exportar Hoja de Trabajo] → transaction @0.85
+  [SQL] → reference @0.55
+```
+
+Commit routing on this class: 86,607 rows → `MAX_PULSE_ROWS`(20,000) caps at ~5 pulses →
+`shouldHandOff(5)=true` → staged CSV + pg_cron loader + finalize-sweep (the HF-360/362 path). The
+real browser-driven 86K commit is the architect's Phase G action (EPG-G2).
+
+**Header recovery on the windowed path (named, §6A):** the streamed/windowed paths key on the raw
+row-1 header (no de-band) — SUFFICIENT for this class (clean JDE row-1 headers: DCT, DOC, SDKCOO, …,
+verified in the live run). A BANDED large file still has no header recovery on the oversized path —
+the known follow-on, forward-referenced in §6A; it does not block EPG-G2 (the JDE class is clean).
+
+**Found-and-fixed while running the live EPG:** header-comprehension batches are NON-STREAMED
+responses — a quiet socket until the generation completes. At current per-column output (~3s/col
+with the full recognition channels) a 25-column batch (~80s) dies on any environment with a ~60s
+idle cut (locally reproduced deterministically: 25-col batches failed 3/3 attempts; 12-col 39s ✓,
+15-col 51s ✓). `HC_COLUMN_BATCH_SIZE` is now env-overridable (`SCI_HC_BATCH_SIZE`, default 25
+unchanged — prod Vercel sockets hold); the live EPG ran at 12. Flagged for the architect: if prod
+batch latency has grown similarly, retune via the env var (the HF-350 telemetry line shows per-batch
+timing).
+
+**Suite/build:** 583/583; build → BUILD_ID present.

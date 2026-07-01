@@ -104,7 +104,12 @@ type LLMHeaderOutcome =
 // ~15-20s/batch. It is a tuning constant (telemetry in the diagnostic log lets the
 // architect retune from production), NOT a magic number, and is STRUCTURAL — by column
 // count only, never by column name or type (Korean Test).
-const HC_COLUMN_BATCH_SIZE = 25;
+// HF-372 Phase E: env-overridable (SCI_HC_BATCH_SIZE) — the per-batch generation time scales with
+// column count (~3s/col at current API throughput with the full recognition channels), and a
+// NON-STREAMED response is a QUIET socket until done: environments with a ~60s idle cut (local
+// NAT; some proxies) kill batches ≥ ~18 columns. 25 stays the default (prod Vercel sockets hold);
+// the knob lets an operator match the environment without a code change.
+const HC_COLUMN_BATCH_SIZE = Number(process.env.SCI_HC_BATCH_SIZE ?? '') > 0 ? Number(process.env.SCI_HC_BATCH_SIZE) : 25;
 // Bounded parallelism for the batch calls: wall-clock ≈ slowest batch while staying
 // within the Anthropic concurrency/rate budget.
 const HC_BATCH_CONCURRENCY = 4;
