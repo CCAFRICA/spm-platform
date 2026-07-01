@@ -1,45 +1,53 @@
-// HF-364 — Structural-dominance classification (replaces the HF-341 R6 / HF-351 F2
-// ordered branch ladder, which was the last enumerated registry in the SCI
-// classification chain).
+// HF-367 — Direct read of the model's recognition (eradicates the keyword-scan classifier
+// and the HF-364 structural-dominance derivation).
 //
-// This is the SOLE producer of a content unit's classification. It reads ONLY the
-// LLM's free-form expression — the per-column `data_nature` / `characterization`
-// the model assessed, and the `identifies` scope — and maps it to the four data
-// natures the calc partitions on (entity / target / transaction / reference). The
-// classification value becomes committed_data.data_type (the calc sheet-bucket
-// partition key) via the identity map in data-type-resolver.ts.
+// This is the SOLE producer of a content unit's classification. It reads ONLY the model's
+// per-column recognition — the `identifies` SCOPE and the `data_nature` NATURE the model
+// assessed for each column (OB-231) — and CONSTRUCTS the sheet-level classification (entity /
+// transaction / reference) from what the model already recognized. It does NOT re-decide,
+// score, weight, count, or second-guess that recognition. The classification value becomes
+// committed_data.data_type (the calc sheet-bucket partition key) via the identity map in
+// data-type-resolver.ts.
 //
-// What HF-364 deleted:
-//   • the ordered if/else branch ladder (Branch 1 → 2 → 2.5 → 3 → 4). Branch ordering
-//     was load-bearing: whichever branch fired first won, regardless of whether a later
-//     branch was structurally more correct. Branch 2.5 (HF-351 F2, commit 8e84a68a)
-//     returned `entity` for any sheet with an entity-scope id + a name + no event id, and
-//     did NOT yield to a temporal + measures sheet (per-period performance data). The BCL
-//     `datos` sheet (ID_Empleado + Nombre_Completo + Periodo + measures) hit Branch 2.5
-//     and was misclassified `entity` → 0 transaction rows → $0 grand total (DIAG-080).
-//   • the per-branch confidence constants (0.50 / 0.85 / 0.88 / 0.90).
+// WHAT HF-367 DELETED (and why):
+//   • Layer A — the `natureText` blob (`data_nature + characterization`) and every predicate
+//     that keyword-scanned it (isReferenceKey / isIdentifier / isMeasure / isName / isTemporal).
+//     The blob mixed the model's crisp `data_nature` assessment with its free-form EXPLANATORY
+//     sentence, and `isReferenceKey` — checked first, suppressing `isIdentifier` — matched the
+//     word "reference"/"foreign key" that incidentally appears in the model's DESCRIPTION of an
+//     identifier column ("…used to reference employees"), flipping the model's
+//     data_nature="identifier"/identifies="entity" to a reference-key. The model's own
+//     explanation was used as evidence against the model's structured judgment (DIAG-081).
+//   • Layer B — the weighted-facet structural-dominance derivation (buildDominanceFacets /
+//     classifyByDominance). A clean adder summing Layer-A's poisoned booleans still produced a
+//     poisoned result; and, per Decision 158, deterministic code does not DERIVE the
+//     classification at all — the model already produces it via `identifies` / `data_nature`.
+//   • Both silent `→ reference@0.50` defaults. A missing recognition is now a loud error.
 //
-// What replaces it: each LLM-recognized structural signal contributes weighted support
-// to the data natures it structurally constitutes. The four natures' supports are summed
-// from a FLAT facet list and the classification is the argmax. The derivation is
-// ORDER-INDEPENDENT — summing facet support is commutative, and the winner is chosen by
-// argmax over a fixed structural-specificity precedence, never by code position.
-// Rearranging the facet list, or the score expressions, produces byte-identical output.
+// WHAT REPLACES BOTH: a direct read. Per column, the model's dedicated `identifies` (scope)
+// and `data_nature` (nature) channels are read via the single-source scope-predicates — the
+// SAME canonical surface the entity-id resolver (commit-content-unit.ts) reads on the SAME
+// `identifies` channel. The `characterization` prose is NEVER read here. The sheet class is
+// constructed with plain booleans:
+//   • a column the model scopes as a TRANSACTION identifier → the rows are events → transaction;
+//   • else a column the model scopes as an ENTITY identifier, WITH period + measures → per-period
+//     performance over that entity (NOT a roster) → transaction (DIAG-080: never entity);
+//   • else an ENTITY identifier, without per-period measures → a roster/master → entity;
+//   • else no entity- and no transaction-identifying column → a dimensional lookup → reference.
+// No weighted scoring, no facet summing, no cardinality/uniqueness check, no default-on-absence.
 //
-// Korean Test (LOCKED): every signal is read from the LLM's free-form expression
-// (data_nature / characterization / identifies) with tolerant regex — never a column name,
-// never a language-specific pattern, never a value-content check, never a row-count ratio.
+// Korean Test: the model emits `identifies` / `data_nature` as FREE-FORM PROSE by design
+// (producer prompt: "do NOT select from a fixed list"; OB-231). Reading prose to a concept
+// therefore uses the platform's canonical MULTILINGUAL structural word-class predicates
+// (scope-predicates.ts) — structural, extensible by recognition, single-source, never a
+// column name, never a value-content check, never a row-count ratio, never the prose blob.
 //
-// HALT-CALC: this reproduces the EXACT classification the branch ladder reached for every
-// signal combination EXCEPT the one it was wrong on — a sheet carrying temporal + measures
-// is no longer forced to `entity`. The HF-351 F2 roster (entity-scope id + name, NO
-// temporal, NO event id) is preserved by the ABSENCE of a temporal signal, not by ordering.
-// Confidence values changed (now coverage-derived); the calc partitions on the
-// classification label, not its confidence — the only consumer (resolver.ts) requires the
-// winner to clear the analyzeSplit gap of 0.25, which the 0.50 confidence floor satisfies.
+// C2 FAIL-LOUD: if the model recognized NOTHING usable (no header comprehension, or every
+// column's `data_nature` is empty / the producer's `unknown` sentinel), this raises a
+// structured error naming the sheet and the missing field — it does NOT guess or default.
 
 import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
-import { TXN_SCOPE, ENTITY_SCOPE } from './scope-predicates';
+import { ENTITY_SCOPE, TXN_SCOPE, IDENTIFIER_NATURE, MEASURE_NATURE, TEMPORAL_NATURE } from './scope-predicates';
 
 export interface ExpressionClassification {
   classification: AgentType;
@@ -47,239 +55,93 @@ export interface ExpressionClassification {
   matchedConditions: string[];
 }
 
-// ============================================================
-// NATURE PRIMITIVES — free-form readers (OB-231)
-// ============================================================
-// Each reads the LLM's free-form `data_nature` (+ `characterization` as backup)
-// with tolerant regex. FILE-LOCAL by design — the architecture forbids a shared
-// matching utility; each consumer reads the LLM's words for itself.
-
-function natureText(interp: HeaderInterpretation): string {
-  return `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-}
-
-// A column has an assessed nature when its free-form text is non-empty and the
-// LLM did not mark it indeterminate.
-function hasNature(interp: HeaderInterpretation): boolean {
-  const txt = natureText(interp).trim();
-  if (!txt) return false;
-  return !/\b(unknown|indeterminate|unclear|unrecognized)\b/i.test(interp.data_nature ?? '');
-}
-
-// Reference-key: a foreign key / lookup pointer to another entity. Read FIRST so it
-// stays disjoint from the plain identifier primitive (reference wins when present).
-function isReferenceKey(interp: HeaderInterpretation): boolean {
-  return /\b(reference|foreign[\s_-]?key|lookup|dimensional)\b/i.test(natureText(interp));
-}
-
-// Identifier: the row's own identity (id/identity/key) and NOT a reference.
-function isIdentifier(interp: HeaderInterpretation): boolean {
-  if (isReferenceKey(interp)) return false;
-  return /\b(identifier|identity|\bid\b|primary[\s_-]?key|unique[\s_-]?key)\b/i.test(natureText(interp));
-}
-
-// Measure: a quantitative / monetary value (currency wording folds in here).
-function isMeasure(interp: HeaderInterpretation): boolean {
-  return /\b(measure|amount|metric|quantity|numeric|monetary|currency|value)\b/i.test(natureText(interp));
-}
-
-// Name: a human-readable label for an entity.
-function isName(interp: HeaderInterpretation): boolean {
-  return /\b(name|label|title|description)\b/i.test(natureText(interp));
-}
-
-// Temporal: a date/time/period marker.
-function isTemporal(interp: HeaderInterpretation): boolean {
-  return /\b(date|time|temporal|month|year|period|day|quarter|week)\b/i.test(natureText(interp));
-}
-
-// A transaction-scope identifier: a per-row event id (folio/receipt/invoice) the
-// LLM expressed in the free-form `identifies` scope. This is the expression that
-// distinguishes an EVENT sheet (rows are transactions) from per-entity records.
-function isTxnScopeIdentifier(interp: HeaderInterpretation): boolean {
-  return TXN_SCOPE.test(`${interp.identifies ?? ''}`);
-}
-
-// ============================================================
-// STRUCTURAL SIGNALS
-// ============================================================
-// The recognized structural signals a sheet exposes. Booleans come from the LLM's
-// free-form expression (via the primitives above); the counts are derived the same way.
-// This is the complete input to the dominance derivation — there is nothing else to read.
-
-export interface StructuralSignals {
-  hasEntityScopeIdentifier: boolean;
-  hasName: boolean;
-  hasTxnScopeIdentifier: boolean;
-  hasTemporal: boolean;
-  hasMeasure: boolean;
-  hasReferenceKey: boolean;
-  identifierCount: number;
-  measureCount: number;
-}
-
-function readStructuralSignals(interps: HeaderInterpretation[]): StructuralSignals {
-  const identifierCount = interps.filter(isIdentifier).length;
-  const measureCount = interps.filter(isMeasure).length;
-  return {
-    identifierCount,
-    measureCount,
-    hasMeasure: measureCount > 0,
-    hasReferenceKey: interps.some(isReferenceKey),
-    hasName: interps.some(isName),
-    hasTemporal: interps.some(isTemporal),
-    hasTxnScopeIdentifier: interps.some(i => isIdentifier(i) && isTxnScopeIdentifier(i)),
-    // An identifier the LLM scoped as the ENTITY itself (a recurring person/account),
-    // not a per-row event id. Distinguishes a per-entity record from an event.
-    hasEntityScopeIdentifier: interps.some(i =>
-      isIdentifier(i) && ENTITY_SCOPE.test(`${i.identifies ?? ''}`) && !TXN_SCOPE.test(`${i.identifies ?? ''}`)),
-  };
-}
-
-// ============================================================
-// STRUCTURAL DOMINANCE — facets, support, argmax
-// ============================================================
-// A facet is a self-contained structural claim about ONE nature. `weight` is the facet's
-// structural specificity on a 3-level scale, NOT a confidence: 3 = a defining/dominant
-// structural mark, 2 = a compound structural pattern, 1 = a corroborating signal. The four
-// natures' supports are the sum of their satisfied facets' weights. Because support is a
-// sum, the order of this list does not affect the result.
-
-interface DominanceFacet {
-  nature: AgentType;
-  weight: number;
-  satisfied: boolean;
-  reason: string;
-}
-
-// The four natures in fixed structural-specificity precedence (most-specific structural
-// claim first). Used to iterate supports and to break the (in practice non-occurring) tie
-// deterministically — never as a position-dependent classification rule.
-const NATURE_PRECEDENCE: AgentType[] = ['transaction', 'target', 'entity', 'reference'];
-
-export function buildDominanceFacets(s: StructuralSignals): DominanceFacet[] {
-  const hasId = s.identifierCount >= 1;
-  return [
-    // ── TRANSACTION — per-event records ──
-    {
-      nature: 'transaction', weight: 3,
-      satisfied: s.hasTxnScopeIdentifier,
-      // contains "transaction-scope identifier" for diagnostic continuity (HF-341 R6)
-      reason: 'per-row transaction-scope identifier (event id) — each row is a distinct event',
-    },
-    {
-      nature: 'transaction', weight: 2,
-      satisfied: s.hasMeasure && s.hasReferenceKey && hasId,
-      reason: 'measured rows carry a foreign key — events reference entities',
-    },
-    {
-      nature: 'transaction', weight: 1,
-      satisfied: s.hasMeasure && s.hasTemporal && s.hasReferenceKey,
-      reason: 'per-period measured rows reference entities — per-period events',
-    },
-
-    // ── TARGET — entity-level measured records (quotas / per-period performance) ──
-    {
-      nature: 'target', weight: 2,
-      satisfied: s.hasMeasure && hasId && !s.hasTxnScopeIdentifier && !s.hasReferenceKey,
-      reason: 'measures attributed to an identifier, no event id, no foreign key — entity-level records',
-    },
-    {
-      nature: 'target', weight: 1,
-      satisfied: s.hasMeasure && s.hasTemporal && hasId && !s.hasTxnScopeIdentifier,
-      // temporal dominance: a per-period measured sheet over an identifier is performance
-      // data, NOT a roster definition.
-      reason: 'temporal + measures over an identifier — per-period performance (temporal dominance: not a roster)',
-    },
-
-    // ── ENTITY — a population definition (roster / master / org chart) ──
-    {
-      nature: 'entity', weight: 3,
-      satisfied: s.hasEntityScopeIdentifier && s.hasName && !s.hasTemporal && !s.hasTxnScopeIdentifier,
-      // contains "roster/master" for diagnostic continuity (HF-351 F2). The !hasTemporal
-      // condition is the fix: a temporal + measures sheet (BCL datos) does NOT match.
-      reason: 'entity-scope identifier + name, no temporal, no event id — a roster/master (entity remainder)',
-    },
-    {
-      nature: 'entity', weight: 2,
-      satisfied: !s.hasMeasure,
-      reason: 'no measures — the sheet defines entities rather than measuring them',
-    },
-
-    // ── REFERENCE — a lookup / dimensional table (relationships or parameters) ──
-    {
-      nature: 'reference', weight: 3,
-      satisfied: s.hasReferenceKey && s.identifierCount === 0,
-      reason: 'reference key with no identifier — a pure lookup (reference isolation)',
-    },
-    {
-      nature: 'reference', weight: 1,
-      satisfied: s.hasMeasure && s.identifierCount === 0,
-      reason: 'measures with no identifier — an aggregate parameter table',
-    },
-  ];
-}
-
-// Reduce a facet list to a classification. ORDER-INDEPENDENT: supports are summed (a
-// commutative reduction) and the winner is the argmax over NATURE_PRECEDENCE. Passing the
-// facets in any order — or any permutation of the score expressions — yields identical
-// output. Confidence is derived from the score margin (no per-classification constant).
-export function classifyByDominance(facets: DominanceFacet[]): ExpressionClassification {
-  const support: Record<AgentType, number> = { transaction: 0, target: 0, entity: 0, reference: 0, plan: 0 };
-  const reasonsByNature: Record<AgentType, string[]> = { transaction: [], target: [], entity: [], reference: [], plan: [] };
-
-  for (const f of facets) {
-    if (!f.satisfied) continue;
-    support[f.nature] += f.weight;
-    reasonsByNature[f.nature].push(f.reason);
+// Raised when the model produced no recognition to read. C2: a comprehension gap is surfaced
+// loudly, never papered over with a default classification.
+export class MissingRecognitionError extends Error {
+  constructor(sheet: string, missing: string) {
+    super(`HF-367: cannot classify sheet "${sheet}" — the model's recognition is absent (${missing}). ` +
+      `The classification is READ from the model's per-column identifies/data_nature; there is no default. ` +
+      `Fix at the comprehension layer (the model must emit the recognition), not here.`);
+    this.name = 'MissingRecognitionError';
   }
-
-  // argmax with deterministic, order-independent tiebreak (structural-specificity
-  // precedence). strictly-greater keeps the first precedence-nature on a tie.
-  let winner: AgentType = NATURE_PRECEDENCE[0];
-  for (const nature of NATURE_PRECEDENCE) {
-    if (support[nature] > support[winner]) winner = nature;
-  }
-
-  // No structural support for any nature (only reachable on a degenerate signal set) →
-  // dimensional reference, never the precedence-default transaction.
-  if (support[winner] === 0) {
-    return { classification: 'reference', confidence: 0.50, matchedConditions: ['NO structural support — defaulted to reference'] };
-  }
-
-  // Confidence from the margin between the top two nature supports — more decisive support
-  // ⇒ higher confidence. One global formula; the +1 smoothing bounds it below 1.0 and
-  // handles the single-facet win. Floor 0.50 keeps the resolver's analyzeSplit gap (>0.25)
-  // satisfied for the synthesized winner-vs-0.05 vector.
-  const ranked = NATURE_PRECEDENCE.map(n => support[n]).sort((a, b) => b - a);
-  const top = ranked[0];
-  const second = ranked[1] ?? 0;
-  const confidence = 0.5 + 0.5 * (top - second) / (top + second + 1);
-
-  return {
-    classification: winner,
-    confidence,
-    matchedConditions: reasonsByNature[winner],
-  };
 }
 
+// The producer's non-recognition sentinel for `data_nature` (header-comprehension.ts /
+// decomposed-comprehension.ts write exactly `'unknown'` when the model recognized nothing).
+// A column is "recognized" when its dedicated `data_nature` channel carries a real assessment.
+function isRecognized(interp: HeaderInterpretation): boolean {
+  const nature = (interp.data_nature ?? '').trim();
+  return nature.length > 0 && nature.toLowerCase() !== 'unknown';
+}
+
+// ── Per-column reads of the model's DEDICATED channels (never `characterization`) ──
+// scope ← `identifies`; nature ← `data_nature`. Each is a single-source structural read.
+const scopeIsEntity = (i: HeaderInterpretation) => ENTITY_SCOPE.test(i.identifies ?? '');
+const scopeIsTxn = (i: HeaderInterpretation) => TXN_SCOPE.test(i.identifies ?? '');
+const natureIsIdentifier = (i: HeaderInterpretation) => IDENTIFIER_NATURE.test(i.data_nature ?? '');
+const natureIsMeasure = (i: HeaderInterpretation) => MEASURE_NATURE.test(i.data_nature ?? '');
+const natureIsTemporal = (i: HeaderInterpretation) => TEMPORAL_NATURE.test(i.data_nature ?? '');
+
 // ============================================================
-// EXPRESSION → CLASSIFICATION
+// EXPRESSION → CLASSIFICATION  (read the model, construct the sheet class)
 // ============================================================
 
 export function deriveClassificationFromExpression(profile: ContentProfile): ExpressionClassification {
   const hc = profile.headerComprehension;
+  const sheet = profile.tabName || profile.sourceFile || profile.contentUnitId || 'unknown';
 
-  // Precondition (degenerate input): the LLM produced no recognized expression to read.
-  // There is no Bayesian fallback (deleted). A sheet with zero recognized columns is not
-  // the entity population and carries no entity-keyed measures we can attribute, so it is
-  // treated as dimensional reference data. Loud, inspectable provenance for the architect.
-  // This is OUTSIDE the dominance derivation — there are no signals to derive from.
-  const interps = hc ? Array.from(hc.interpretations.values()).filter(hasNature) : [];
-  if (interps.length === 0) {
-    return { classification: 'reference', confidence: 0.50, matchedConditions: ['NO recognized expression — defaulted to reference'] };
+  // C2 fail-loud: the model must have produced recognition to read.
+  if (!hc) throw new MissingRecognitionError(sheet, 'no header comprehension');
+  const recognized = Array.from(hc.interpretations.values()).filter(isRecognized);
+  if (recognized.length === 0) {
+    throw new MissingRecognitionError(sheet, 'no column carries a usable data_nature (all empty or "unknown")');
   }
 
-  const signals = readStructuralSignals(interps);
-  return classifyByDominance(buildDominanceFacets(signals));
+  // The model's per-column recognition, as the model expressed it. An identifier column the
+  // model scoped as a TRANSACTION identifies an event; as an ENTITY, a recurring entity.
+  const txnIdCol = recognized.find(i => natureIsIdentifier(i) && scopeIsTxn(i));
+  const entityIdCol = recognized.find(i => natureIsIdentifier(i) && scopeIsEntity(i));
+  const hasMeasure = recognized.some(natureIsMeasure);
+  const hasPeriod = recognized.some(natureIsTemporal);
+
+  // Construct the sheet class from what the model recognized. Confidence = the model's own
+  // confidence in the deciding recognition (Decision 158) — not a synthesized constant.
+  if (txnIdCol) {
+    return {
+      classification: 'transaction',
+      confidence: txnIdCol.confidence,
+      matchedConditions: [`model scopes "${txnIdCol.columnName}" as a transaction identifier — each row is an event`],
+    };
+  }
+
+  if (entityIdCol) {
+    if (hasMeasure && hasPeriod) {
+      // Per-period measured records over an entity: performance data, NEVER a roster (DIAG-080).
+      return {
+        classification: 'transaction',
+        confidence: entityIdCol.confidence,
+        matchedConditions: [
+          `model scopes "${entityIdCol.columnName}" as an entity identifier, with period + measures — per-period performance over the entity (not a roster)`,
+        ],
+      };
+    }
+    // An entity identifier without per-period measures: the sheet identifies entities and does
+    // not measure them over time — a roster/master.
+    return {
+      classification: 'entity',
+      confidence: entityIdCol.confidence,
+      matchedConditions: [`model scopes "${entityIdCol.columnName}" as an entity identifier, no per-period measures — a roster/master`],
+    };
+  }
+
+  // No column the model scopes as an entity- or transaction-identifier: a dimensional lookup.
+  // Confidence = the model's strongest column recognition (it recognized the columns; none is
+  // an identifier). This is the residual per Decision 158, NOT a silent default (recognition
+  // is present — fail-loud already fired above if it were absent).
+  const strongest = recognized.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+  return {
+    classification: 'reference',
+    confidence: strongest.confidence,
+    matchedConditions: ['model recognized no entity- and no transaction-identifying column — a dimensional lookup (reference)'],
+  };
 }
