@@ -52,6 +52,8 @@ export interface ComprehendedInterpretation {
   identifies: string;
   relationships: string[];
   confidence: number;
+  scope_role?: string;   // HF-368: the model's bare scope primitive
+  nature_role?: string;  // HF-368: the model's bare nature primitive
 }
 
 /** Injected residue comprehender — already includes the one repair retry. */
@@ -106,7 +108,7 @@ export async function decomposeComprehension(
       const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number } & AtomExpression> = [];
       for (const a of plan.atoms) {
         // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
-        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships });
+        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, scope_role: a.scope_role, nature_role: a.nature_role });
       }
 
       if (plan.novelColumns.length === 0) {
@@ -147,7 +149,7 @@ export async function decomposeComprehension(
         // carries the full EXPRESSION (identifies/characterization/relationships) into the atom.
         if (interp.data_nature && interp.data_nature !== 'unknown') {
           const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence, identifies: interp.identifies, characterization: interp.characterization, relationships: interp.relationships });
+          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence, identifies: interp.identifies, characterization: interp.characterization, relationships: interp.relationships, scope_role: interp.scope_role, nature_role: interp.nature_role });
         }
       }
 

@@ -39,7 +39,7 @@ export function planSheetComprehension(
 ): SheetComprehensionPlan {
   const knownSet = knownAtomHashes(known, minConfidence);
   const atoms: PlannedAtom[] = [];
-  const knownColumns: Array<{ columnName: string; role: string; confidence: number }> = [];
+  const knownColumns: Array<{ columnName: string; role: string; confidence: number } & AtomExpression> = [];
   const novelColumns: string[] = [];
 
   for (const columnName of columns) {
@@ -49,7 +49,7 @@ export function planSheetComprehension(
       // D5 fix: claim at the STABLE role confidence (from comprehension), NOT the maturing recognition
       // confidence — so downstream pattern thresholds (e.g. temporal ≥0.80) don't flip by maturation.
       // HF-341 R4: carry the stored EXPRESSION (identifies/characterization/relationships) through.
-      const expr = { identifies: k.identifies, characterization: k.characterization, relationships: k.relationships };
+      const expr = { identifies: k.identifies, characterization: k.characterization, relationships: k.relationships, scope_role: k.scope_role, nature_role: k.nature_role };
       atoms.push({ columnName, hash: fp.hash, known: true, role: k.role, confidence: k.roleConfidence, ...expr });
       knownColumns.push({ columnName, role: k.role, confidence: k.roleConfidence, ...expr });
       console.log(`[OB-203][atom-claim] sheet=${sheetName} col=${columnName} hash=${fp.hash.slice(0, 12)} -> CLAIMED role=${k.role}@${k.roleConfidence.toFixed(2)} (stable role-conf; recog=${k.confidence.toFixed(2)})`);
