@@ -145,7 +145,138 @@ CHOSEN: B — producer prompt renders the bare primitive; bridge reads it; scope
 **HALT-0:** not triggered — every CONFIRM is answered as required.
 
 ## Phase 2: Implementation
-_(filled in Phase 2)_
+
+**Deleted:** `web/src/lib/sci/scope-predicates.ts` (the whole file — all five synonym regexes).
+
+**Added:** `web/src/lib/sci/structural-primitives.ts` — the FIXED primitives (three scopes, five
+natures) + `PrimitiveRecognitionError` + `isScope/NaturePrimitive` + `validateScope/validateNature`.
+No synonyms; equality/Set membership only.
+
+**Producer prompt** (`anthropic-adapter.ts`, `header_comprehension`): added `scope_role` and
+`nature_role`, each defined as "which of the platform's fixed structural roles/natures does this
+column play; reply with EXACTLY ONE bare token" with a STRUCTURAL definition of each primitive
+(e.g. `entity` = "a recurring subject the rows are ABOUT and group by") and the instruction
+"Decide from your OWN understanding in ANY language — do not match words." The pre-existing
+`identifies`/`data_nature` prose bullets were stripped of their example word-lists (now pure
+free-form display). NO synonym list anywhere.
+
+**Fork B plumbing** (bare fields flow fresh + warm; additive, no migration — `column_roles` is
+jsonb): types (`HeaderInterpretation`, `ColumnCharacterization`, `FieldIdentity.natureRole`,
+`AtomExpression`, `ComprehendedInterpretation`, `LLMHeaderResponse`, `ClassificationTrace`,
+planner `knownColumns`); fresh parse (`buildComprehensionFromLLM`, residue parse); warm recall
+(`header-comprehension.ts` known+novel reconstruction); persistence (atom write/read in
+`atom-flywheel.ts`, `decomposed-comprehension.ts`, `comprehension-planner.ts`); trace carry
+(`resolver.ts`); `field-identities` → `natureRole`.
+
+**Bridge re-pointed to bare equality:**
+- `expression-classifier.ts` — reads `scope_role`/`nature_role` by `===`; fail-loud (absent →
+  `MissingRecognitionError`; novel → `PrimitiveRecognitionError` via `validateScope/Nature`).
+- `commit-content-unit.ts` `findHcEntityIdCandidates` — `scope_role==='entity' && nature_role==='identifier'`.
+- `remediation-stage.ts` (off-path, import forced the change) — reads `FieldIdentity.natureRole`
+  via `NON_TEXT_NATURES` Set membership; scope-predicates import removed; prose regexes deleted.
 
 ## Phase 3: Verification
-_(filled in Phase 3)_
+
+### EPG-3.1 — structural anti-registry audit (whole non-test diff)
+```
+A: surviving scope-predicates refs  → only comments naming the DELETED file (structural-
+   primitives.ts, expression-classifier.ts, commit-content-unit.ts, remediation-stage.ts). No code.
+B: regex/keyword MECHANISM on model text (.test/.match/.includes/.indexOf/RegExp/=/…/)  → <none>
+C: regex-literal constants introduced  → <none>
+```
+No regex over model text, no word list, no synonym enumeration survives in any bridge file.
+
+**Full producer prompt (scope_role/nature_role) — affirmed SYNONYM-FREE:** each role/nature is
+defined structurally (what the primitive MEANS), the three scopes + five natures are named as the
+platform's fixed architecture, and NO word-equivalents are listed. "Decide from your OWN
+understanding in ANY language — do not match words." (Full text in `anthropic-adapter.ts:841–885`.)
+
+**Bridge files pasted + affirmed clean (§0 rule 3):**
+
+`structural-primitives.ts` — the FIXED primitives, NOT a synonym registry (compares the model's
+bare token to the three scopes / five natures; lists no synonyms; `.has()`/`===` only, no regex):
+```
+SCOPE_PRIMITIVES  = ['entity','transaction','reference','none']
+NATURE_PRIMITIVES = ['identifier','measure','temporal','name','categorical']
+isScopePrimitive(v)  = SCOPE_SET.has(v)      isNaturePrimitive(v) = NATURE_SET.has(v)
+validateScope/validateNature → throw PrimitiveRecognitionError on a value OUTSIDE the fixed set
+```
+`expression-classifier.ts` bridge read — no word list, no regex:
+```
+validateScope(sheet, col, i.scope_role); validateNature(sheet, col, i.nature_role);  // novel → throw
+recognized = all.filter(i => i.nature_role?.trim())                                   // absent → throw
+txnIdCol    = recognized.find(i => i.nature_role==='identifier' && i.scope_role==='transaction')
+entityIdCol = recognized.find(i => i.nature_role==='identifier' && i.scope_role==='entity')
+hasMeasure  = recognized.some(i => i.nature_role==='measure');  hasPeriod = …==='temporal'
+```
+`commit-content-unit.ts` `findHcEntityIdCandidates` bridge read — no word list, no regex:
+```
+if (interp.scope_role === 'entity' && interp.nature_role === 'identifier') candidates.push(colName);
+```
+
+### EPG-3.2 — Korean Test proof (LIVE model call through the real prompt)
+A KOREAN employee roster (`직원명부`: `사원번호`, `성명`, `부서`, `입사일`) — terms the deleted
+regex `entity|entidad|seller|…` matches NONE of. The live model rendered:
+```
+사원번호  scope_role="entity"      nature_role="identifier"
+성명      scope_role="entity"      nature_role="name"
+부서      scope_role="reference"   nature_role="categorical"
+입사일    scope_role="none"        nature_role="temporal"
+→ CLASSIFICATION: entity @ 0.98   (from 사원번호's bare scope_role='entity' — NO developer word list, NO edit)
+```
+This is the point of the HF: recognition no longer depends on a developer typing the word. It
+also proves HALT-2 does not fire — the model reliably renders bare tokens when asked.
+
+### EPG-3.3 — regression (LIVE model call + real classifier)
+```
+Spanish Plantilla (ID_Empleado entity/identifier, no measures)         → entity @ 0.97
+Spanish datos (ID_Empleado entity/identifier + Periodo temporal + Ventas/Comision measure) → transaction @ 0.97
+```
+Driven by the model's bare primitives; no list.
+
+### EPG-3.4 — fail-loud, BOTH triggers (unit tests, in the suite)
+- **absent** (columns carry no bare `nature_role`, only prose) → `MissingRecognitionError` naming
+  the sheet. Never defaults to `reference`.
+- **novel** (`scope_role="product"` / `nature_role="quantum"` — outside the fixed set) →
+  `PrimitiveRecognitionError` surfacing the novel value. Never word-matched, never defaulted.
+
+### EPG-3.5 — suite + build
+- `src/lib/sci/__tests__/*.test.ts`: **240 tests, 240 pass, 0 fail.**
+- `npm run build`: **green** (`.next/BUILD_ID` present).
+- Tests updated: `expression-classifier.test.ts` rewritten to bare primitives (adds the Korean-Test
+  and novel/absent fail-loud tests); `hf351-entity-id-selection.test.ts` `trace()` fixtures moved
+  from `identifies`/`data_nature` prose to `scope_role`/`nature_role`.
+
+## Residuals (OFF-PATH, proven independent of data_type/entity_id — §6A)
+1. `header-comprehension.ts:281–298` local regexes → set `profile.patterns.*`, which the classifier
+   and resolver never read back (traced). They read the untouched prose `data_nature`/`identifies`
+   → unaffected by this HF. Same defect class; separate follow-up.
+2. `signatures.ts:32–36` local regexes → `detectSignatures` has ZERO call sites (dead since the
+   HF-341 R6 CRR removal). Off-path.
+3. `entity-resolution.ts:32–43` local regexes → entity-key reconciliation over `structuralType`
+   (prose) + row values; off the data_type/entity_id path; reads the untouched prose → unaffected.
+4. `remediation-stage.ts` `NON_TEXT_ROLE` → reads the platform's CONTROLLED `SemanticRole` enum
+   (assigned tokens), NOT the model's free-form recognition text; left as-is (not a Korean-Test
+   surface). Its scope-predicates dependency IS removed here.
+
+## Behavior note
+Warm recall of PRE-migration atoms/fingerprints (which lack the bare primitives) → the bridge
+fails loud → the sheet re-imports fresh, where the model renders the primitives (verified live).
+The architect's Clean Slate + re-import (SR-44) regenerates all recognition with the new prompt.
+
+## ARTIFACT SYNC
+- **MC:** the bilingual synonym registry `scope-predicates.ts` (ENTITY_SCOPE/TXN_SCOPE/
+  IDENTIFIER_NATURE/MEASURE_NATURE/TEMPORAL_NATURE) is ERADICATED, not relocated. The MODEL names
+  the bare structural primitive (`scope_role`/`nature_role`); the classifier and entity-id resolver
+  read it by equality against the fixed set (structural-primitives.ts). No word list in any file,
+  including the prompt.
+- **REGISTRY:** the last developer word-list on the classification/resolution path is closed.
+  `structural-primitives.ts` holds only the platform's fixed primitives (the skeleton), which is
+  architecture, not vocabulary. HF-367's `MEASURE_NATURE`/`TEMPORAL_NATURE` additions are gone.
+- **R1:** BCL Plantilla → entity (live @0.97); a Korean roster → entity (live @0.98) with no edit.
+- **BOARD:** recognition is language-independent — a Korean/Portuguese/novel-word roster classifies
+  because the multilingual model maps its recognition onto the fixed primitive; no developer edit.
+- **SUBSTRATE:** Decision 158 restored across BOTH the classifier and the entity-id resolver — the
+  model recognizes and names the primitive; deterministic code reads that name. Korean Test held
+  structurally (no language-specific matching survives on the path). C2 fail-loud: absent OR novel
+  primitive raises; never a default, never a word-match.
