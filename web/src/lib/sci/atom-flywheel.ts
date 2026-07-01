@@ -84,10 +84,30 @@ export function resolveAtomRole(existingRole: string | undefined | null, newRole
   return newRole;
 }
 
+// HF-370 (O1, sequence-independence): an atom whose recognition is an IDENTIFIER carries a
+// sheet-CONTEXTUAL scope_role — entity (a roster/master key) vs transaction (a per-row event id) vs
+// reference (a lookup key). Which one it is depends on the SHEET's composition, and it is the field
+// the classifier and the entity-id resolver key on. The atom fingerprint is context-free (value
+// distribution only, name excluded), so a cached identifier scope learned in one sheet must NEVER be
+// inherited into another — that made a column's classification depend on IMPORT ORDER (a roster's
+// entity id colliding with a lookup's reference key would pollute each other's scope). Identifier
+// atoms are therefore not claimed from the warm cache: they re-comprehend so their scope is decided
+// from THIS sheet's composition, every time (Decision 158, sequence-independence HARD FACT). This is
+// scoped to the classification-critical field only: non-identifier atoms (measure/temporal/name/
+// categorical) carry a scope that affects no outcome, so the flywheel still accelerates them; and a
+// fully-known SHEET reuses its context-complete sheet-level fingerprint, so an identical re-import is
+// still cheap (no atom re-analysis). Legacy atoms without a nature_role predate the v3 schema and were
+// already invalidated (HF-369), so this reads the model's bare primitive, never a name/word heuristic.
+function isContextualIdentifierAtom(a: KnownAtom): boolean {
+  return a.nature_role === 'identifier' || a.scope_role === 'entity' || a.scope_role === 'transaction';
+}
+
 export function knownAtomHashes(known: Map<string, KnownAtom>, minConfidence = 0.5): Set<string> {
   const s = new Set<string>();
   for (const [h, a] of Array.from(known.entries())) {
-    if (a.confidence >= minConfidence && a.role && a.role !== 'unknown' && a.role !== AMBIGUOUS_ROLE) s.add(h);
+    if (a.confidence < minConfidence || !a.role || a.role === 'unknown' || a.role === AMBIGUOUS_ROLE) continue;
+    if (isContextualIdentifierAtom(a)) continue; // identifier scope is sheet-contextual → re-comprehend per sheet
+    s.add(h);
   }
   return s;
 }
