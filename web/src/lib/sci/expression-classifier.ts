@@ -79,6 +79,18 @@ function isRecognized(interp: HeaderInterpretation): boolean {
   return !!(interp.nature_role && interp.nature_role.trim());
 }
 
+// HF-369 — a column the model COMPREHENDED (its free-form `data_nature` carries a real assessment,
+// not the producer's `unknown` sentinel) but which lacks its bare `nature_role`. This is INCOMPLETE
+// recognition — typically a stale flywheel atom warm-recalled from before the scope_role/nature_role
+// schema (HF-368). Such a column is silently dropped by `isRecognized`; if it hides the sheet's
+// entity/transaction identifier, the classifier would default to `reference`. C2 forbids that
+// silent default → the reference residual fails loud when any such column is present.
+function isComprehendedButIncomplete(interp: HeaderInterpretation): boolean {
+  const nature = (interp.data_nature ?? '').trim();
+  const comprehended = nature.length > 0 && nature.toLowerCase() !== 'unknown';
+  return comprehended && !(interp.nature_role && interp.nature_role.trim());
+}
+
 // ============================================================
 // EXPRESSION → CLASSIFICATION  (read the model, construct the sheet class)
 // ============================================================
@@ -140,10 +152,24 @@ export function deriveClassificationFromExpression(profile: ContentProfile): Exp
     };
   }
 
+  // HF-369 C2: about to return the `reference` residual (no entity/transaction identifier found).
+  // If any column was comprehended but lacks its bare primitive, the recognition is INCOMPLETE —
+  // the missing column may BE the entity/transaction identifier (BCL Datos: ID_Empleado warm-
+  // recalled from a pre-HF-368 atom with nature_role undefined). Raise instead of silently
+  // defaulting to reference; the flywheel must serve complete recognition (fixed by the v3 atom
+  // version bump → stale atoms re-comprehend fresh, which emits the bare primitives).
+  const incomplete = all.filter(isComprehendedButIncomplete);
+  if (incomplete.length > 0) {
+    throw new MissingRecognitionError(
+      sheet,
+      `${incomplete.length} comprehended column(s) lack a bare nature_role (${incomplete.map(i => i.columnName).join(', ')}) — INCOMPLETE recognition (likely stale flywheel atoms pre-HF-368); refusing to default to reference`,
+    );
+  }
+
   // No column the model scopes as an entity- or transaction-identifier: a dimensional lookup.
   // Confidence = the model's strongest column recognition (it recognized the columns; none is
   // an identifier). This is the residual per Decision 158, NOT a silent default (recognition
-  // is present — fail-loud already fired above if it were absent).
+  // is present and COMPLETE — fail-loud fired above for absent or incomplete recognition).
   const strongest = recognized.reduce((a, b) => (b.confidence > a.confidence ? b : a));
   return {
     classification: 'reference',

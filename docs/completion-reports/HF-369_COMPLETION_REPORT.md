@@ -145,7 +145,89 @@ CHOSEN: version bump (re-comprehend stale atoms → complete bare primitives) + 
 ```
 
 ## Phase 2: Implementation
-_(filled in Phase 2)_
+
+Two changes, both at the recognition/completeness layer (per HALT-3), neither a heuristic,
+word list, scoring table, or `data_type` re-derivation:
+
+1. **`atom-fingerprint.ts` — `ATOM_ALGORITHM_VERSION` `2 → 3`.** The one-line remedy HF-368
+   omitted: HF-368 added `scope_role`/`nature_role` to the atom `column_roles` recognition schema
+   but left the version at 2, so pre-HF-368 atoms (without the bare primitives) are still claimed
+   and warm-recalled incomplete. Bumping to v3 makes v2 atoms non-matchable → they re-comprehend
+   via the fresh LLM path (which emits the bare primitives, proven live) → the classifier sees the
+   entity id → `transaction`.
+
+2. **`expression-classifier.ts` — fail-loud on INCOMPLETE recognition (the directive's C2 ADR
+   requirement).** Before returning the `reference` residual, if any comprehended column (non-empty
+   `data_nature`, not the `unknown` sentinel) lacks its bare `nature_role`, raise
+   `MissingRecognitionError` naming those columns — do NOT silently default to `reference`. This is
+   the exact silent-default that hid the bug (BCL Datos: `ID_Empleado` warm-recalled incomplete →
+   silently dropped → reference). A TRUE reference sheet (all columns complete, none an
+   entity/transaction identifier) is unaffected — its columns carry `nature_role`, so the residual
+   is legitimately reached and returned.
 
 ## Phase 3: Verification
-_(filled in Phase 3)_
+
+### EPG-3.2 / EPG-3.3 — mechanism proof (LIVE model call + real classifier)
+A FRESH comprehension of the full BCL Datos sheet — exactly what the v3 bump forces when the stale
+`ID_Empleado` atom is re-comprehended on re-import:
+```
+ID_Empleado            : scope_role="entity"  nature_role="identifier"   ← now present (was undefined)
+Periodo                : scope_role="none"    nature_role="temporal"
+Cumplimiento_Colocacion: scope_role="none"    nature_role="measure"
+→ CLASSIFICATION: transaction @ 0.98
+  [model scopes "ID_Empleado" as an entity identifier, with period + measures — per-period performance]
+```
+The reference residual is gone: with `ID_Empleado`'s bare primitives present, the classifier finds
+the entity id + period + measures → `transaction`. (The clean-slate re-import + committed_data SQL
+query + convergence-binding + payout gates are the architect's browser-driven step per §4/SR-44 —
+this proves the deterministic mechanism the re-import will exercise.)
+
+### EPG-3.4 — no regression on the large file (Casa Diaz, read-only)
+```
+Exportar Hoja de Trabajo :: transaction: 1000
+```
+Remains `transaction`. (The v3 bump and the fail-loud affect future imports/classification only;
+already-committed rows are untouched. A Casa Diaz re-import re-comprehends fresh — its export sheet
+has an entity id + measures and classifies `transaction`, same as today.)
+
+### EPG-3.5 — fail-loud on incomplete recognition (unit test, in the suite)
+```
+test 'HF-369: incomplete recognition (comprehended column, no bare nature_role) → raises, no reference default'
+  input: ID_Empleado (data_nature prose, NO nature_role) + Periodo(temporal) + Ventas(measure)
+  result: throws MissingRecognitionError — message names sheet "BCL_Datos_stale", column "ID_Empleado",
+          and "INCOMPLETE" — does NOT return reference.  → pass
+```
+
+### EPG-3.6 — suite + build
+```
+src/lib/sci/__tests__/*.test.ts : 241 tests, 241 pass, 0 fail
+npm run build                   : green (.next/BUILD_ID present)
+```
+
+## HALT conditions
+- **HALT-0A (TRIGGERED, reported):** `resolved_data_type`/`data_type` is NOT derived from the
+  `semantic_roles` reference-claim layer — it is `resolveDataTypeFromClassification(confirmedClassification)`,
+  the expression classifier's verdict (`decisionSource: expression`). The reference verdict is that
+  classifier's residual, caused by warm-recalled stale atoms lacking the bare primitives. The fix is
+  the atom-version bump + classifier fail-loud, not a data_type re-derivation.
+- **HALT-2 (deferred to architect):** the convergence-binding / non-zero-payout gates require the
+  live clean-slate re-import (browser pipeline). If, after Datos classifies `transaction`, convergence
+  still yields 0 bindings, that is the SEPARATE convergence field-matching / percent-scale gap noted in
+  §5/§6A — not expanded here.
+- **HALT-3 (honored):** the entity-id recognition was genuinely absent from the warm-recalled
+  `field_identities` (stale atom), so the fix belongs at the flywheel/comprehension-recall layer (the
+  version bump) — NOT a data_type heuristic reading `natureRole` (which is itself undefined there).
+
+## ARTIFACT SYNC
+- **MC:** the sci-bulk `data_type` is the expression classifier's verdict (identity map from
+  `confirmedClassification`), NOT a `semantic_roles` override. BCL Datos classified `reference`
+  because warm-recalled pre-HF-368 flywheel atoms served the entity-id/name/categorical columns
+  without `scope_role`/`nature_role`. Fixed by `ATOM_ALGORITHM_VERSION 2→3` (re-comprehend stale
+  atoms → complete bare primitives) + classifier fail-loud on incomplete recognition.
+- **REGISTRY:** no classifier/word-list/scoring added; the fix REMOVES a silent reference default
+  and restores complete model recognition on the flywheel path.
+- **R1:** BCL Datos → transaction (live mechanism proof @0.98); Casa Diaz export stays transaction.
+- **BOARD:** the directive's premise (semantic_roles override) was refuted by Phase-0 evidence; the
+  real defect was an un-versioned recognition-schema change in HF-368.
+- **SUBSTRATE:** Decision 158 upheld — the flywheel may skip the LLM only when it carries COMPLETE
+  recognition; C2 fail-loud on incomplete recognition replaces the silent reference default.

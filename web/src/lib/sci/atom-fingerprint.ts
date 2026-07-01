@@ -20,7 +20,14 @@ import { createHash } from 'crypto';
 // (uniform vs varied length) and name vs free-text (short/low-var vs long/high-var). The version is
 // in the hash, so v1 atoms (different hash) are not matched at v2 — DI-9 bridge: prior-version rows
 // remain readable and version-isolated, never stranded into the new algorithm.
-export const ATOM_ALGORITHM_VERSION = 2;
+// v3 (HF-369): the atom's stored RECOGNITION schema changed — HF-368 added the model's bare
+// structural primitives (scope_role/nature_role in column_roles) that the sheet classifier now
+// reads, but did NOT bump this version. v2 atoms cached before HF-368 carry the primitives as
+// undefined; warm-recalling them serves INCOMPLETE recognition (the entity-id's scope_role/
+// nature_role are missing), so the classifier cannot see the entity identifier and falls to
+// `reference` (BCL Datos → reference instead of transaction). Bumping to v3 invalidates the stale
+// rows → they re-comprehend via the fresh LLM path, which emits the bare primitives.
+export const ATOM_ALGORITHM_VERSION = 3;
 
 export type AtomDataType = 'integer' | 'decimal' | 'date' | 'boolean' | 'text' | 'empty' | 'mixed';
 
