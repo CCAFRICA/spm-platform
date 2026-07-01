@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-361: finalize-sweep fires this cookielessly
+import { claimFinalize, completeFinalize } from '@/lib/sci/finalize-coalesce'; // HF-371: one finalize per import
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
@@ -50,6 +51,18 @@ export async function POST(req: NextRequest) {
 
     const trace = (phase: string) => console.log(`[SCI Finalize] ${tenantId} | ${phase} | +${Date.now() - t0}ms`);
     trace(`start proposal=${proposalId ?? 'n/a'}`);
+
+    // HF-371 (Root 1): coalesce concurrent finalize passes for ONE import to exactly one. The sync path
+    // fires this from BOTH the client and execute-bulk's server-side waitUntil; without this claim they run
+    // simultaneously and disagree (one creates the entities, the other reports 0 and links fewer rows). The
+    // first caller claims; a concurrent duplicate no-ops here. Stale/failed claims are retryable; if the
+    // claim table is absent (migration pending) the claim is granted and the run proceeds on idempotency.
+    const claim = await claimFinalize(supabase, tenantId, proposalId);
+    if (!claim.granted) {
+      trace(`coalesced: ${claim.reason}`);
+      return NextResponse.json({ ok: true, tenantId, coalesced: true, reason: claim.reason, durationMs: Date.now() - t0 });
+    }
+    trace(`claim: ${claim.reason}`);
 
     // 1. Entity resolution + entity_id back-link — the work that left 99% of committed_data NULL when
     //    it ran in the dead waitUntil background (DIAG-071). Whole-tenant, idempotent (matches external_id).
@@ -127,6 +140,10 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[SCI Finalize] insight engine failed:', err instanceof Error ? err.message : err);
     }
+
+    // HF-371: mark the claim done so a later duplicate for THIS import coalesces (and a re-import with a
+    // new proposalId claims fresh). A hard failure leaves the claim 'running' → stale after 15 min → retryable.
+    await completeFinalize(supabase, tenantId, proposalId, true);
 
     trace('done');
     return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, comprehension, summary, insights, durationMs: Date.now() - t0 });
