@@ -44,7 +44,30 @@ So **current `main` classifies Plan General as `reference` (not entity) and find
 - **Root 3 (phantom): not operative on current code** — Plan General classifies reference; no entity id. Phase C = verify + note the guard.
 
 ## Phase B — Deterministic single-pass finalize (Root 1)
-_(filled in Phase B)_
+
+**Change.** Exactly one finalize runs per import, via an atomic per-(tenant, proposal) claim + an
+idempotency backstop:
+1. **`lib/sci/finalize-coalesce.ts`** — `claimFinalize` atomically INSERTs into a new
+   `import_finalize_runs` (unique PK `(tenant_id, proposal_id)`). The first caller claims; a concurrent
+   duplicate hits `23505` and **coalesces (no-op)**. A `failed` or STALE (>15 min, crashed) claim is
+   retryable; a `done` claim coalesces later duplicates. If the table is absent (migration pending) or
+   the claim errors, it **degrades gracefully** (grants, proceeds on idempotency). Decision core
+   `decideFinalizeClaim` is pure + unit-tested.
+2. **`finalize-import/route.ts`** — claims at entry; if not granted, returns `{coalesced:true}` without
+   running; marks the claim `done` on success (so the sync-path double-fire — client + execute-bulk
+   `waitUntil` — now runs the work exactly once).
+3. **`entity-resolution.ts`** — entity creation changed from `insert` to `upsert(onConflict:
+   'tenant_id,external_id', ignoreDuplicates)` — the backstop so a stale-takeover race can't conflict/
+   break/under-link (the losing pass no longer errors; `entityLookup` re-fetches so linking stays
+   complete). Migration `20260702_hf371_import_finalize_runs.sql` (architect applies, SR-44); the table
+   is tenant-scoped → added to Clean Slate's `data` category (HF-370 O5 drift guard stays green).
+
+**EPG-B1.** Unit tests (`hf371-finalize-coalesce.test.ts`, all pass): first caller granted; concurrent
+duplicate of a fresh running claim → coalesced; stale/failed → retried; `done` → coalesced; table
+absent → granted (idempotency); other error → granted (never blocks the import). The claim key coalesces
+the double-fire for ONE import (same proposalId) while a re-import (new proposalId) claims fresh — so a
+repeated import yields an identical result via one pass. 284/284 tests, build green, dev serves :3000.
+The live "one finalize pass per import + repeat-identical" evidence is EPG-E1 (architect re-import, SR-44).
 
 ## Phase C — Classification correctness / no phantom entities (Root 3)
 _(filled in Phase C)_

@@ -485,9 +485,15 @@ export async function resolveEntitiesFromCommittedData(
     const CHUNK = 500;
     for (let i = 0; i < newEntities.length; i += CHUNK) {
       const chunk = newEntities.slice(i, i + CHUNK);
-      const { error } = await supabase.from('entities').insert(chunk);
+      // HF-371 (Root 1): UPSERT, not INSERT. A concurrent finalize pass (the sync-path double-fire) may
+      // create the SAME entity between this pass's existing-entity read and its write; a plain insert then
+      // conflicts on the unique (tenant_id, external_id), errors, breaks the loop, and this pass links
+      // FEWER rows (the observed 425↔0 swing). onConflict do-nothing makes concurrent creation race-safe —
+      // both passes converge on the same entity set. (The finalize claim already coalesces to one pass;
+      // this is the belt-and-suspenders so the outcome is deterministic even under a stale-takeover race.)
+      const { error } = await supabase.from('entities').upsert(chunk, { onConflict: 'tenant_id,external_id', ignoreDuplicates: true });
       if (error) {
-        console.error('[Entity Resolution] Insert failed:', error);
+        console.error('[Entity Resolution] Upsert failed:', error);
         break;
       }
       created += chunk.length;

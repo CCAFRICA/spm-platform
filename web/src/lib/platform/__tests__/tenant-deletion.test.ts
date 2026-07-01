@@ -13,14 +13,15 @@ import {
 test('Clean Slate categories match the directive (5 categories, dependents-first tables)', () => {
   assert.deepEqual(CLEAN_SLATE_CATEGORIES.map((c) => c.key), ['calc', 'plan', 'entity', 'data', 'intelligence']);
   const byKey = Object.fromEntries(CLEAN_SLATE_CATEGORIES.map((c) => [c.key, c.tables]));
-  assert.deepEqual(byKey.calc, ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts']);
-  assert.deepEqual(byKey.plan, ['rule_set_assignments', 'rule_sets']); // assignments before rule_sets
+  // HF-370 O5 expanded each category to the full tenant-scoped leaf footprint (dependents-first,
+  // DELETE_TENANT_TABLES order); HF-371 appended import_finalize_runs (the finalize coalescing ledger).
+  assert.deepEqual(byKey.calc, ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'calculation_batches']);
+  assert.deepEqual(byKey.plan, ['rule_set_assignments', 'rule_set_lifecycle_events', 'plan_interpretation_runs', 'rule_sets']); // dependents before rule_sets
   assert.deepEqual(byKey.entity, ['entity_relationships', 'entities']); // relationships before entities
   // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state so a Clean Slate leaves
   // no stale "in progress"/"N imports" residue. committed_data stays FIRST (EDGE-1 calc_traces sever).
-  // HF-362: pulse_load_jobs appended (the hand-off worker would else repopulate committed_data post-wipe).
-  assert.deepEqual(byKey.data, ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs']);
-  assert.deepEqual(byKey.intelligence, ['classification_signals', 'structural_fingerprints']);
+  assert.deepEqual(byKey.data, ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects', 'import_finalize_runs']);
+  assert.deepEqual(byKey.intelligence, ['classification_signals', 'structural_fingerprints', 'surface_bindings', 'synaptic_density', 'comprehension_artifacts', 'intelligence_artifacts', 'ai_call_metrics', 'agent_invocations']);
 });
 
 test('B1 cascade-dependency: entity REQUIRES calc + plan; others self-contained', () => {
