@@ -111,6 +111,21 @@ function ContentUnitCard({
   const isDocPlan = unit.classification === 'plan' && !!unit.documentMetadata;
   const stateKey = liveState?.state;
 
+  // HF-370 (O4): the model's per-column recognition (what each column was recognized AS) — the atom
+  // signal information the operator inspects at completion. Read directly from the classification
+  // trace's header comprehension (Decision 158: surface the model's structured recognition, do not
+  // re-derive). Empty when the trace carries no interpretations.
+  const columnRecognition: Array<{ col: string; scope: string; nature: string; conf: number }> = (() => {
+    const hc = (unit.classificationTrace as { headerComprehension?: { interpretations?: Record<string, { scope_role?: string; nature_role?: string; data_nature?: string; confidence?: number }> } } | undefined)?.headerComprehension?.interpretations;
+    if (!hc) return [];
+    return Object.entries(hc).map(([col, i]) => ({
+      col,
+      scope: i.scope_role || '—',
+      nature: i.nature_role || (i.data_nature ? '(prose only)' : '—'),
+      conf: typeof i.confidence === 'number' ? i.confidence : 0,
+    }));
+  })();
+
   // HF-341 R6: the workbook-graph structural role cross-check is removed (the graph was a
   // structural classifier; classification is now expression-derived). No graphEvidence chip.
 
@@ -189,6 +204,17 @@ function ContentUnitCard({
           </span>
         )}
 
+        {/* HF-370 (O4): tier + resolver telemetry on EVERY unit (was previously visible only in the
+            failed-unit detail panel). Tier-1 = recognized from the sheet flywheel (no LLM); Tier-3 =
+            fresh comprehension (LLM). Surfaces the model→memory boundary to the operator live. */}
+        {(liveState?.tier ?? unit.recognitionTier) != null && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-300/80 border border-indigo-500/20" title="Recognition tier · resolver (flywheel memory vs fresh LLM)">
+            Tier-{liveState?.tier ?? unit.recognitionTier}
+            {' · '}{(unit.recognitionProvenance ? !unit.recognitionProvenance.llmCalled : (liveState?.tier ?? unit.recognitionTier) === 1) ? 'flywheel' : 'LLM'}
+            {typeof liveState?.knownCount === 'number' ? ` · ${liveState.knownCount} known` : ''}
+          </span>
+        )}
+
         <span className="text-xs text-zinc-500 flex-1 truncate">
           {isFailed ? `Could not interpret — ${(liveState?.failureClass ?? unit.failedInterpretation?.failureClass ?? 'failed').replace(/_/g, ' ')}` : (unit.verdictSummary || unit.reasoning)}
         </span>
@@ -263,6 +289,37 @@ function ContentUnitCard({
                   </div>
                 ))}
                 {displayBindings.length > 6 && <p className="text-xs text-zinc-600 pl-4">+ {displayBindings.length - 6} more fields</p>}
+              </div>
+            </div>
+          )}
+
+          {/* HF-370 (O4): per-column recognition — the model's bare scope_role / nature_role for each
+              column (the atom/signal info restored to the operator). Shows exactly what the model
+              recognized each column AS, per Decision 158. */}
+          {columnRecognition.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Column recognition (model)</h4>
+              <div className="rounded bg-zinc-900/60 p-2 overflow-x-auto">
+                <table className="w-full text-[11px] text-zinc-400">
+                  <thead>
+                    <tr className="text-zinc-500">
+                      <th className="text-left font-medium pr-4 pb-1">column</th>
+                      <th className="text-left font-medium pr-4 pb-1">scope_role</th>
+                      <th className="text-left font-medium pr-4 pb-1">nature_role</th>
+                      <th className="text-right font-medium pb-1">conf</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {columnRecognition.map(r => (
+                      <tr key={r.col}>
+                        <td className="pr-4 py-0.5"><code className="text-zinc-300">{r.col}</code></td>
+                        <td className="pr-4 py-0.5">{r.scope}</td>
+                        <td className="pr-4 py-0.5">{r.nature}</td>
+                        <td className="py-0.5 text-right tabular-nums">{r.conf > 0 ? `${Math.round(r.conf * 100)}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
