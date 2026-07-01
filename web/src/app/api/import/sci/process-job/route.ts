@@ -52,6 +52,8 @@ const ANALYSIS_SAMPLE_SIZE = 50;
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
 
+  // HF-372 Phase D: hoisted so the outer catch can mark THIS job failed (EPG-0.5 gap 1d).
+  let caughtJobId: string | null = null;
   try {
     // Auth check — accept EITHER a logged-in user (client-fire) OR the internal/cron principal
     // (dispatch-jobs fires this worker server-side with no session; that 401'd every cron job — RC2).
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
     if (!jobId) {
       return NextResponse.json({ error: 'jobId required' }, { status: 400 });
     }
+    caughtJobId = jobId;
 
     // Fetch the job
     const { data: job, error: jobErr } = await supabase
@@ -558,6 +561,17 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     console.error('[SCI-WORKER] Error:', err);
+    // HF-372 Phase D (EPG-0.5 gap 1d): a classification exception previously wrote NOTHING to the
+    // job — it sat stranded in 'classifying' with no recorded reason until the reclaimer retried it
+    // into the same throw. Record the truthful terminal state (guarded: only the claiming worker's
+    // own 'classifying' row; retries via dispatch-jobs requeue still apply up to MAX_RETRIES).
+    try {
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      await sb.from('processing_jobs').update({
+        status: 'failed',
+        error_detail: `Classification failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 2000),
+      }).eq('id', caughtJobId ?? '').eq('status', 'classifying');
+    } catch { /* best-effort — never mask the original error */ }
     return NextResponse.json(
       { error: 'Worker processing failed', details: String(err) },
       { status: 500 },

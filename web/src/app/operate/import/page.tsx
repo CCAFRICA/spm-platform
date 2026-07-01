@@ -487,19 +487,9 @@ export default function OperateImportPage() {
     // Backwards compat: first path as single storagePath
     const storagePath = Object.values(storagePaths)[0] || undefined;
 
-    // OB-251: confirm advances the async jobs classified → committing (the durable lifecycle the
-    // cockpit/dispatcher observe). No-op for the synchronous path (no jobs). RLS now allows tenant
-    // members (profiles.auth_user_id) after the reconcile migration.
-    if (asyncSessionIdRef.current && tenantId) {
-      // processing_jobs is not in the generated database.types.ts (matches the existing async insert).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = createClient() as any;
-      void sb.from('processing_jobs')
-        .update({ status: 'committing' })
-        .eq('tenant_id', tenantId)
-        .eq('session_id', asyncSessionIdRef.current)
-        .in('status', ['classified', 'confirming']);
-    }
+    // HF-372 Phase D: the browser NO LONGER writes job status. The server is the single writer —
+    // execute-bulk stamps 'committing' at entry (service-role, immune to the platform-operator RLS
+    // hole that silently no-oped this write and left every such import lying at 'classified').
 
     setState({
       phase: 'executing',
@@ -529,16 +519,9 @@ export default function OperateImportPage() {
       .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
       .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
 
-    if (asyncSessionIdRef.current) {
-      // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = createClient() as any;
-      void sb.from('processing_jobs')
-        .update({ status: 'committed', completed_at: new Date().toISOString() })
-        .eq('tenant_id', tenantId)
-        .eq('session_id', asyncSessionIdRef.current)
-        .in('status', ['committing', 'classified', 'confirming']);
-    }
+    // HF-372 Phase D: the browser's 'committed' write is REMOVED — execute-bulk writes 'committed'
+    // server-side when the rows are durable, and finalize-import writes 'finalized' when entity
+    // resolution + assignments complete. The durable record can no longer depend on this tab.
     void fetch('/api/import/sci/aggregate-flywheel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

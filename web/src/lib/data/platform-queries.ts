@@ -169,17 +169,22 @@ export interface MeteringEvent {
   periodKey: string;
 }
 
+// HF-372 Phase D: the ingestion metrics derive from processing_jobs + import_batches — the records
+// the SCI pipeline ACTUALLY writes. The prior shape aggregated `ingestion_events`, which the SCI
+// pipeline never writes (EPG-0.5: KPI cards read 0.0% beside a populated queue; the "No ingestion
+// events yet" panel contradicted the queue below it).
 export interface IngestionMetricsData {
-  totalEvents: number;
-  committedCount: number;
-  quarantinedCount: number;
-  rejectedCount: number;
-  totalBytesIngested: number;
-  avgValidationPassRate: number;
-  classificationAccuracy: number;
+  jobStats: {
+    total24h: number;
+    inFlight: number;              // pending | classifying | committing (truly active)
+    awaitingConfirmation: number;  // classified — a HUMAN gate, not done (was styled green as if finished)
+    completed24h: number;          // committed | finalized
+    failed24h: number;
+    stuck: number;                 // non-terminal, no progress past the stale window
+  };
+  rowsCommitted24h: number;        // sum of completed import_batches.row_count (24h)
+  classificationAccuracy: number;  // classification_signals (SCI DOES write these)
   perTenant: IngestionTenantMetrics[];
-  recentEvents: IngestionRecentEvent[];
-  // HF-356 (RC4/I9): the async-worker queue (processing_jobs) for the Observatory ops panel + kill switch.
   processingJobs: ProcessingJobOps[];
 }
 
@@ -190,23 +195,25 @@ export interface ProcessingJobOps {
   tenantId: string;
   tenantName: string;
   fileName: string | null;
-  status: string;            // pending | classifying | classified | committing | committed | failed
+  status: string;            // pending | classifying | classified | committing | committed | finalized | failed
+  phase: string | null;      // HF-372: the REAL step from metadata.phase (interpreting_plan / committing / …)
   retryCount: number;
   errorDetail: string | null;
   createdAt: string;
   startedAt: string | null;
-  // pending | classifying | committing → still in flight, so the operator can cancel it.
-  isActive: boolean;
+  completedAt: string | null;
+  // HF-372: pending | classifying | classified | committing → cancellable (a stuck 'classified'
+  // was previously green AND unkillable).
+  cancellable: boolean;
 }
 
 export interface IngestionTenantMetrics {
   tenantId: string;
   tenantName: string;
-  totalEvents: number;
-  committed: number;
-  quarantined: number;
-  rejected: number;
-  bytesIngested: number;
+  jobs24h: number;
+  completed24h: number;
+  failed24h: number;
+  rowsCommitted24h: number;
 }
 
 export interface IngestionRecentEvent {

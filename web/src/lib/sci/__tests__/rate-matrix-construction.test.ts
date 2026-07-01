@@ -97,7 +97,7 @@ test('cascade structure: unbounded-below band is the terminal else (total functi
   const rec = parseRateMatrixRecognition(RECOGNITION_2D);
   const built = constructRateMatrixIntent(rec, GRID);
   // outermost conditional tests the TOP row band (gte 1.0, no upper)
-  const outer = built.intent as Record<string, never> as { prime: string; condition: { prime: string; op: string }; else: unknown };
+  const outer = built.intent as unknown as { prime: string; condition: { prime: string; op: string }; else: unknown };
   assert.equal(outer.prime, 'conditional');
   assert.equal(outer.condition.op, 'gte');
   // walk to the outer terminal else: it is the <80% row's INNER cascade (not constant(0)) because

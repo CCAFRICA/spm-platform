@@ -616,3 +616,96 @@ extracted … from 3 sheets" → the full C1-C4 component structure, both varian
 
 **Suite/build:** 580/580 (two fixture files updated from prose-only to bare-primitive shape — the
 post-HF-368 reality the readers now demand); build → `.next/BUILD_ID` present.
+
+---
+
+## Phase D — Truthful, dynamic import status with inline control (D4 + D5 re-scoped)
+
+**Phase 0 findings answered.** EPG-0.5 (client-only status advancement; platform-operator RLS hole;
+process-job catch writing nothing; forked vercel.json → watchdog unscheduled; dead ingestion_events
+KPIs; the "0 of 4 while the server finished" settle gap; stuck-classified uncancellable), EPG-0.6
+(insights inside the finalize claim window; failure swallowed with the claim stamped done).
+
+**The machine and its single writer** (`web/src/lib/sci/job-status.ts`, new):
+
+```
+pending → classifying → classified → committing → committed → finalized
+                                   ↘ failed (error_detail)                (terminal)
+```
+
+plus the REAL step in `metadata.phase` (queued | classifying | awaiting_confirmation |
+interpreting_plan | committing | loading | finalizing | completed | failed | cancelled). Transitions
+are RANKED (`statusMayAdvance`, unit-tested): a late writer can never downgrade, and `failed` never
+overwrites durable `committed`/`finalized`. All writes are SERVER-side service-role — immune to the
+RLS hole that silently no-oped every platform-operator browser write.
+
+**Write sites (one per real step):** enqueue → `pending` (existing); process-job claim →
+`classifying`, proposal → `classified` (existing), and the outer catch NOW writes `failed` +
+error_detail (EPG-0.5 gap 1d closed — no more stranded 'classifying'); execute-bulk entry →
+`committing` + stamps `metadata.proposal_id`; plan units → phase `interpreting_plan`; sync success →
+`committed` + phase `finalizing`; hand-off → phase `loading` (status truthfully stays `committing`
+until the DB worker loads the rows); any unit failure → `failed` + reason (existing helper) + phase;
+finalize-import → phase `finalizing` at claim, then **`finalized` + phase `completed` + completed_at**
+via `markJobsByProposal` (works on ALL three dispatch paths — client fire, waitUntil, sweep — because
+execute-bulk stamped the proposal id). **The two client-side browser writes (page.tsx) are DELETED.**
+
+**Migration** `web/supabase/migrations/20260703_hf372_processing_jobs_metadata.sql` (ARCHITECT
+APPLIES, SR-44): `processing_jobs.metadata jsonb` + proposal-id index. Live probing revealed the
+column did not exist (the prism/cleared route's metadata insert had to be failing too). Every writer
+and reader DEGRADES pre-migration (42703/PGRST204 detected → status-only writes still land; phase
+display simply absent) — no deploy-ordering breakage, but apply the migration first.
+
+**Read paths (both surfaces read the ONE record):**
+- Import screen, execute phase (`SCIExecution.tsx`): a 2.5s poller renders the live phase
+  (`ExecutionProgress`: "3 of 4 · Committing rows") and — the "0 of 4 at 183s" fix — when the record
+  says every job is terminal, the UI settles FROM THE RECORD (all-complete → completion path;
+  any-failed → failed with the recorded reason). Never a spinner after the server finished.
+- Inline stop/kill: a "Stop import" control in `ExecutionProgress` (execute phase) and `ImportProgress`
+  (classify phase) → **new route `/api/import/sci/cancel`** (auth'd user; service-role guarded update:
+  `failed` + 'Cancelled by user' + retry_count 99 + phase `cancelled`; terminal jobs never flipped —
+  a finished commit keeps its truth).
+- Fleet IngestionTab: REWRITTEN. Reads processing_jobs (+ import_batches rollups + the real
+  classification_signals accuracy). The `ingestion_events` KPI cards and "Recent Ingestion Events"
+  panel are REMOVED (SCI never writes that table — the dead 0.0% metrics and the self-contradictory
+  empty panel). Truthful vocabulary: `classified` renders as amber **"awaiting confirmation"** (a
+  human gate — no longer green-as-done); committed/finalized green; failed red; the live phase shown
+  per job. KPIs: jobs 24h / in flight / awaiting confirmation / completed / failed / **stuck**
+  (non-terminal past the 10-min stale window). Cancel now covers `classified` too (the observatory
+  cancel guard extended — a job stranded at the human gate was green AND unkillable). Light Vialuce
+  theme (white cards, indigo #2D2F8F, gold accents).
+- **Watchdog actually scheduled**: `dispatch-jobs` cron added to `web/vercel.json` (the real Vercel
+  root — it carries the live 3008MB function config); the repo-root `vercel.json` (HF-370 O3's
+  duplicate, inert) DELETED. The reclaim sweep (stale classifying/committing → requeue → terminal
+  failed at MAX_RETRIES) now actually runs every 5 minutes.
+
+**D5 re-scoped (per the Phase 0 HALT-1 correction):** in finalize-import, `generateInsights` moved
+AFTER `completeFinalize` + the job's `finalized` write — the import's completion gates on committed
+data + entity resolution + assignments, never on insights. An insight failure is loud
+(`INSIGHT ENGINE FAILED (import already complete…)`) and visible in the response
+(`insights.error`); it can no longer hold the claim window (~76s retry backoff) or ride a
+done-stamped claim silently.
+
+**EPG-D1 evidence** (live, `_hf372_epgd1_status_probe.ts` — synthetic jobs on VLTEST2 via the SAME
+writer functions the routes call; pre-migration, so phases show [pre-migration] and the status
+machine is the demonstrated half):
+
+```
+── minted (enqueue): pending ──                    a,b,c,d: status=pending
+── worker: classifying → classified (a, b) ──
+── execute-bulk entry (markSessionJobs) ──          all: status=committing
+── commit durable ──                                all: status=committed
+── forced failure (recordCommitFailureOnJob) ──     c: status=failed err=FORCED failure … storage upload rejected
+── late committing write after failed ──            NO-OP (rank guard: failed/committed keep their truth)
+── kill path (the cancel route's guarded update) ── c: status=failed retry=99 (phase cancelled post-migration)
+reclaimPatch('classifying', retry=2, max=3) → {"status":"failed","retry_count":3,
+  "error_detail":"Reclaimed 3 times without completing (likely repeated worker crash/OOM) — giving up."}
+```
+
+`statusMayAdvance` unit-tested (3 tests: ladder, failed-guard, unknown-rank). Suite 583/583; build →
+BUILD_ID present; localhost:3000 responds.
+
+**Awaiting architect-rendered verification (SR-44 — CC does not close these):** live phase visible on
+the import screen during a browser import; terminal transition (no post-completion spinner); inline
+kill from both surfaces; fleet tab truthful/on-brand rendering; migration 20260703_hf372 applied
+(then the phase columns of the EPG-D1 probe re-run populate). The full-arc phase record through the
+real routes is re-verified in Phase G's browser import.

@@ -3,6 +3,10 @@
     {
       "path": "/api/import/sci/pulse-load/finalize-sweep",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/import/sci/dispatch-jobs",
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {

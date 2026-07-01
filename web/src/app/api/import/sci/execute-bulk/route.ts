@@ -44,6 +44,7 @@ import { enqueuePulseLoadJob } from '@/lib/sci/pulse-load-enqueue';
 import type { PulseManifestEntry } from '@/lib/sci/pulse-load-types';
 // HF-358 (Part B-1): no silent commit failure — record the reason + a terminal status on the import job.
 import { recordCommitFailureOnJob } from '@/lib/sci/job-failure';
+import { markSessionJobs } from '@/lib/sci/job-status';
 // HF-362: fire entity resolution SERVER-SIDE for the synchronous path (the internal cron principal lets
 // execute-bulk POST finalize-import cookielessly, like the hand-off finalize-sweep does for the worker path).
 import { internalCronHeaders } from '@/lib/sci/cron-principal';
@@ -192,6 +193,12 @@ export async function POST(req: NextRequest) {
     }
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
+
+    // HF-372 Phase D: the SERVER writes 'committing' (the browser's fire-and-forget write is removed —
+    // it silently no-oped for platform operators under RLS and lied on navigate-away). proposal_id is
+    // stamped onto the session's jobs so finalize-import (which knows only the proposalId) can mark
+    // them 'finalized' on every dispatch path.
+    await markSessionJobs(supabase, tenantId, sessionId, { status: 'committing', phase: 'committing', proposalId });
 
     // ── OB-203 D16.1: reconcile stale/partial batches from a prior outage, BEFORE committing new data ──
     // A batch stuck in `processing` past its liveness window (an outage killed the request mid-commit) is
@@ -404,6 +411,7 @@ export async function POST(req: NextRequest) {
     console.log(`[SCI Bulk] HF-270 comprehended-field set: ${comprehendedFields.length} fields from ${comprehendedSheetCount} data sheets`);
 
     if (planUnits.length > 0) {
+      await markSessionJobs(supabase, tenantId, sessionId, { phase: 'interpreting_plan' }); // HF-372 Phase D: the REAL step
       // HF-256: group plan units by their source file; each plan file is interpreted with
       // its OWN storage path, producing its own rule set (the proven multi-plan shape).
       // For a single plan file this is one group with one path — identical to pre-HF.
@@ -815,6 +823,16 @@ export async function POST(req: NextRequest) {
     if (!response.overallSuccess) {
       const reason = results.filter(r => !r.success).map(r => `${r.contentUnitId}: ${r.error ?? 'commit failed'}`).join(' | ').slice(0, 2000);
       await recordCommitFailureOnJob(supabase, tenantId, sessionId, `Commit failed — ${reason}`);
+      await markSessionJobs(supabase, tenantId, sessionId, { phase: 'failed' }); // HF-372 Phase D
+    } else if (pulseLoadJob) {
+      // HF-372 Phase D: hand-off — rows are STAGED, not durable; the truthful status stays
+      // 'committing' with phase 'loading' until the DB worker finishes and the sweep finalizes.
+      await markSessionJobs(supabase, tenantId, sessionId, { phase: 'loading' });
+    } else {
+      // HF-372 Phase D: synchronous path — the rows ARE durable in committed_data now. The SERVER
+      // writes 'committed' (this was the browser-only write that lied); finalize (dispatched below)
+      // advances to 'finalized' when entity resolution + assignments complete.
+      await markSessionJobs(supabase, tenantId, sessionId, { status: 'committed', phase: 'finalizing' });
     }
 
     // HF-362 (CRITICAL — entity construction on the synchronous path): when the import committed

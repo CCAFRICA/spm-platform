@@ -65,6 +65,11 @@ interface ExecutionProgressProps {
   elapsedSeconds?: number;
   /** HF-087: Whether retry is in progress (disables button) */
   isRetrying?: boolean;
+  /** HF-372 Phase D: the server's live phase from the durable job record (metadata.phase). */
+  livePhase?: string | null;
+  /** HF-372 Phase D: the inline stop/kill — cancels the session's non-terminal jobs server-side. */
+  onCancel?: () => void;
+  cancelRequested?: boolean;
 }
 
 export function ExecutionProgress({
@@ -75,7 +80,17 @@ export function ExecutionProgress({
   onContinue,
   elapsedSeconds = 0,
   isRetrying = false,
+  livePhase = null,
+  onCancel,
+  cancelRequested = false,
 }: ExecutionProgressProps) {
+  // HF-372 Phase D: human labels for the job record's phase vocabulary (display only).
+  const PHASE_LABEL: Record<string, string> = {
+    queued: 'Queued', classifying: 'Classifying', awaiting_confirmation: 'Awaiting confirmation',
+    interpreting_plan: 'Interpreting plan', committing: 'Committing rows', loading: 'Loading staged rows',
+    finalizing: 'Finalizing (entities & assignments)', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled',
+  };
+  const livePhaseLabel = livePhase ? (PHASE_LABEL[livePhase] ?? livePhase) : null;
   const isVialuce = useIsVialuce(); // HF-315: SCI import progress → design-spec .card + per-item .tbl + .pill status
   const { t } = useLocale();
   const doneCount = items.filter(i => i.status === 'done').length;
@@ -123,13 +138,33 @@ export function ExecutionProgress({
             />
           </div>
 
-          {/* Progress label */}
-          <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
-            {doneCount} of {totalCount}
-            {totalRows > 0 && (
-              <span> &middot; {totalRows.toLocaleString()} rows committed</span>
+          {/* Progress label + HF-372 live server phase (the dynamic pulse) + inline stop */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <p style={{ fontFamily: 'var(--vl-font-mono)', fontSize: '11px', color: 'var(--vl-text-soft)', margin: 0 }}>
+              {doneCount} of {totalCount}
+              {totalRows > 0 && (
+                <span> &middot; {totalRows.toLocaleString()} rows committed</span>
+              )}
+              {!allDone && livePhaseLabel && (
+                <span style={{ color: 'var(--vialuce-indigo)' }}> &middot; {livePhaseLabel}</span>
+              )}
+            </p>
+            {!allDone && onCancel && (
+              <button
+                onClick={onCancel}
+                disabled={cancelRequested}
+                className="pill"
+                style={{
+                  fontSize: '11px', padding: '2px 10px', cursor: cancelRequested ? 'default' : 'pointer',
+                  color: cancelRequested ? 'var(--vl-text-soft)' : '#b42318',
+                  background: 'transparent', border: '1px solid var(--vl-line-soft)', borderRadius: 'var(--vl-r-pill)',
+                }}
+                title="Stop this import — cancels its jobs on the server"
+              >
+                {cancelRequested ? 'Stopping…' : 'Stop import'}
+              </button>
             )}
-          </p>
+          </div>
 
           {/* HF-087: Elapsed time + reassurance for long operations */}
           {!allDone && hasActive && elapsedSeconds > 5 && (
