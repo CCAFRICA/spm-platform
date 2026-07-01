@@ -10,7 +10,19 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import * as XLSX from 'xlsx';
-import { streamSheetWindows } from '../sheet-stream';
+import { streamSheetWindows, isLargeByBytes, STREAM_BYTES_THRESHOLD } from '../sheet-stream';
+
+// HF-366 (EPG-3.2): the parse-routing gate is byte size ONLY, at the 20MB HF-358 threshold. The BCL
+// Plantilla "0 rows" defect was NOT a routing regression — a 50KB file is far below this gate and never
+// streams (its 0 rows came from the OB-254 de-bander, fixed in structural-construction.ts). This guard
+// pins the threshold so a future change cannot silently push a HALT-CALC anchor onto the streaming path.
+test('HF-366: byte gate separates small (SheetJS) from large (streaming); threshold pinned at 20MB', () => {
+  assert.equal(STREAM_BYTES_THRESHOLD, 20_000_000);
+  assert.equal(isLargeByBytes(52_000_000), true);   // Casa Diaz (52MB) → streaming
+  assert.equal(isLargeByBytes(200_000), false);      // BCL datos (~200KB) → SheetJS
+  assert.equal(isLargeByBytes(50_000), false);       // BCL Plantilla (~50KB) → SheetJS (never streams)
+  assert.equal(isLargeByBytes(STREAM_BYTES_THRESHOLD), true); // boundary is inclusive (>=)
+});
 
 // Fixtures written with SheetJS. The jszip reader reads zip entries by NAME (order-independent), so it
 // consumes SheetJS-, Excel-, and JDE-written files alike; this lets us assert equivalence directly

@@ -73,3 +73,43 @@ test('OB-254: banded report — section lifts to __section; repeated header + ca
   // Carry Everything: every source row is accounted for — a record or in the sidecar (nothing dropped).
   assert.equal(rec.rows.length + r.sidecar.length, grid.length);
 });
+
+// ── HF-366: all-text records sheet (an employee/customer roster with alphanumeric IDs, text dates, and NO
+//    numeric measure value) must NOT be mis-read as one giant header. Before the fix, the mostly-text HEADER
+//    rule fired on EVERY row, firstDataIdx was -1, and 0 records were produced (the BCL Plantilla regression).
+test('HF-366: all-text roster (no numeric cell anywhere) yields records, header is row 1', () => {
+  const header = ['ID_Empleado', 'Nombre_Completo', 'Cargo', 'Nivel_Cargo', 'Sucursal_ID', 'Fecha_Ingreso', 'ID_Gerente', 'Region'];
+  const grid: unknown[][] = [header];
+  for (let i = 1; i <= 12; i++) {
+    grid.push([`EMP${String(i).padStart(3, '0')}`, `Nombre ${i}`, ['Gerente', 'Vendedor', 'Cajero'][i % 3], ['N1', 'N2', 'N3'][i % 3], `SUC${String((i % 9) + 1).padStart(2, '0')}`, `2020-0${(i % 9) + 1}-15`, `EMP${String((i % 5) + 1).padStart(3, '0')}`, ['Norte', 'Sur'][i % 2]]);
+  }
+  const rec = records(constructStructure(grid, { fullGrid: true, defvalEmpty: true }));
+  assert.equal(rec.rows.length, 12);
+  assert.deepEqual(rec.header, header); // clean names, NOT the concatenation of every column value
+  assert.equal(rec.rows[0]['ID_Empleado'], 'EMP001');
+  assert.equal(rec.header.some((h) => h.includes('__EMPTY')), false);
+});
+
+test('HF-366: all-text roster with a title banner above the header keeps 1 header row + records', () => {
+  const header = ['ID_Empleado', 'Nombre_Completo', 'Cargo', 'Region'];
+  const grid: unknown[][] = [['PLANTILLA DE PERSONAL', null, null, null], header];
+  for (let i = 1; i <= 6; i++) grid.push([`EMP${i}`, `Nombre ${i}`, 'Vendedor', 'Sur']);
+  const r = constructStructure(grid, { fullGrid: true, defvalEmpty: true });
+  const rec = records(r);
+  assert.equal(rec.rows.length, 6);
+  assert.equal(rec.header[0], 'ID_Empleado');
+  assert.equal(r.sidecar.some((s) => s.sourceRowIndex === 0), true); // banner sidecar'd
+});
+
+test('HF-366: an all-text header REPEATED verbatim mid-sheet is a repeated header (sidecar), not a record', () => {
+  const header = ['ID_Empleado', 'Nombre_Completo', 'Cargo', 'Region'];
+  const grid: unknown[][] = [header];
+  for (let i = 1; i <= 4; i++) grid.push([`EMP${i}`, `N ${i}`, 'Cajero', 'Norte']);
+  grid.push([...header]); // repeated header verbatim
+  for (let i = 5; i <= 8; i++) grid.push([`EMP${i}`, `N ${i}`, 'Cajero', 'Sur']);
+  const r = constructStructure(grid, { fullGrid: true, defvalEmpty: true });
+  const rec = records(r);
+  assert.equal(rec.rows.length, 8); // 8 employees, the repeated header is NOT one of them
+  assert.equal(r.sidecar.some((s) => s.reason === 'REPEATED_HEADER'), true);
+  assert.equal(rec.rows.length + r.sidecar.length, grid.length); // Carry Everything
+});

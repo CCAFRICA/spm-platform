@@ -247,6 +247,35 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
     if (bs.populated === 1 && bs.numCells === 0) bannerIdx = firstNonBlank;
   }
 
+  // ── HF-366: all-text records sheet — recover the header/data split the numeric heuristic cannot ──
+  //    classifyRow (2a) labels a mostly-text, footprint-covering row a HEADER, which is right for a real
+  //    header. But a records sheet whose cells are ALL non-numeric — an employee/customer master with
+  //    alphanumeric IDs (EMP001), text-formatted dates (2020-01-15), branch/category codes, and NO measure
+  //    value anywhere — has no 'measure' column, so every data row has measPop===0 AND numCells===0 and
+  //    trips the SAME rule. No row is DATA, firstDataIdx is -1, canonicalBand swallows the whole sheet, and
+  //    every record is sidecar'd as one giant header → zero records (the BCL Plantilla regression). A sheet
+  //    with ANY numeric data keeps its anchor-based separation untouched — this guard is skipped entirely.
+  //    Structural discriminator (no word/language match, Korean-clean): a real header labels the columns and
+  //    REPEATS verbatim as a per-section header (Casa Diaz FORANEAS); a text DATA row carries DISTINCT values.
+  //    So when nothing is DATA, keep the LEADING HEADER row as the header and demote every LATER HEADER row
+  //    that is not byte-equal to it (a genuine repeated header — equal — stays sidecar'd). Runs BEFORE header
+  //    recovery so firstDataIdx, canonicalBand, and the walk all see the corrected classes.
+  if (classes.findIndex((c, i) => c === 'DATA' && i !== bannerIdx) < 0) {
+    let lead = 0;
+    while (lead < rows.length && (classes[lead] !== 'HEADER' || lead === bannerIdx)) lead++;
+    if (lead < rows.length) {
+      const rowSig = (i: number): string => {
+        const cells: (string | null)[] = [];
+        for (let c = 0; c < nCols; c++) cells.push(isNonEmpty(rows[i][c]) ? String(rows[i][c]).trim() : null);
+        return JSON.stringify(cells);
+      };
+      const headerSig = rowSig(lead);
+      for (let i = lead + 1; i < rows.length; i++) {
+        if (classes[i] === 'HEADER' && rowSig(i) !== headerSig) classes[i] = 'DATA';
+      }
+    }
+  }
+
   const observations: StructuralObservation[] = [];
 
   // ── header recovery (2a–2b): the CANONICAL header band is the contiguous run of HEADER rows
