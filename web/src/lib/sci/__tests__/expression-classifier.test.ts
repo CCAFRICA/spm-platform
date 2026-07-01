@@ -128,6 +128,28 @@ test('HF-368: absent bare primitive → MissingRecognitionError (no default)', (
   );
 });
 
+// HF-369 C2: INCOMPLETE recognition — a comprehended column (data_nature present) lacks its bare
+// nature_role (e.g. a stale flywheel atom warm-recalled from before HF-368). Reaching the reference
+// residual with such a column present MUST raise (the missing column may be the entity id — BCL
+// Datos: ID_Empleado), NOT silently default to reference.
+test('HF-369: incomplete recognition (comprehended column, no bare nature_role) → raises, no reference default', () => {
+  assert.throws(
+    () => deriveClassificationFromExpression(profileFrom([
+      // ID_Empleado: model comprehended it (data_nature prose) but the bare primitive is missing (stale atom)
+      { col: 'ID_Empleado', data_nature: 'A structured alphanumeric code serving as a primary key', conf: 0.99 },
+      { col: 'Periodo', nature_role: 'temporal', scope_role: 'none', conf: 0.95, data_nature: 'temporal' },
+      { col: 'Ventas', nature_role: 'measure', scope_role: 'none', conf: 0.96, data_nature: 'measure' },
+    ], 'BCL_Datos_stale')),
+    (err: unknown) => {
+      assert.ok(err instanceof MissingRecognitionError);
+      assert.match((err as Error).message, /BCL_Datos_stale/);
+      assert.match((err as Error).message, /ID_Empleado/);
+      assert.match((err as Error).message, /INCOMPLETE/);
+      return true;
+    },
+  );
+});
+
 // C2 fail-loud: the model rendered a NOVEL primitive outside the fixed set → raise, surfacing it.
 test('HF-368: novel scope primitive → PrimitiveRecognitionError surfacing the novel value', () => {
   assert.throws(
