@@ -70,10 +70,68 @@ repeated import yields an identical result via one pass. 284/284 tests, build gr
 The live "one finalize pass per import + repeat-identical" evidence is EPG-E1 (architect re-import, SR-44).
 
 ## Phase C — Classification correctness / no phantom entities (Root 3)
-_(filled in Phase C)_
+
+**Current-main already classifies correctly** (Phase A live comprehension, re-pasted):
+`Plan General → reference @0.97`, `#`→`scope_role="reference"`, `findHcEntityIdCandidates: []`;
+`Datos → transaction @0.97`, `ID_Empleado`→`scope_role="entity"`. So `processEntityUnit` never runs for
+Plan General → no phantom entities (closed by HF-368 model recognition + HF-370 O2 entity-id-from-model).
+
+**Change (EPG-C1 structural guarantee — "code guarantees" half of Decision 158).** HF-370 O2 applied the
+row-ordinal guard only to the untrusted fallback binding. HF-371 extends it to the **final chosen entity-id
+column, regardless of source (model or binding)**: in `processEntityUnit`, if the selected id column's
+values are the row ordinals (`looksLikeRowIndex` — 1..N in row order; a structural/arithmetic fact, zero
+language strings), the entity unit is refused with a loud error rather than minting phantom "people". So a
+`#`/ordinal column mis-tagged as an identifier can NEVER be an entity key even if the model guessed entity.
+(`BCL-5xxx` ids are unaffected; only literal row-position columns are refused — a rare, intentional
+trade-off per the directive's "regardless of the model's semantic guess".)
+
+**EPG-C1.** Mechanism proven live (Plan General → reference, no candidates). The `data_type`-by-sheet +
+entity-list-with-no-phantoms on a FRESH import is EPG-E3 (architect re-import, SR-44) — the current
+committed 89-entity state is stale (old deployed code) and self-heals on re-import with current `main`.
 
 ## Phase D — Order-independent linking (Root 2)
-_(filled in Phase D)_
+
+**No code change needed beyond Phase B's upsert** — the linker is already order-independent create-or-link:
+`resolveEntitiesFromCommittedData` (`entity-resolution.ts`) runs **tenant-wide** (not proposal-scoped),
+keys on the id-column VALUE matched against `entities.external_id`, **creates** entities for external_ids
+with no existing entity and **links** the rest (`existingMap` + `entityLookup` re-fetch backfills
+`entity_id` on ALL batches). `reconcileEntityKeysByValueOverlap` re-keys a roster to the transaction
+identity domain (import-order independent — the id column's `data_nature` characterizes it the same way
+regardless of import order). Phase B's `upsert` removed the last order/concurrency hazard (a losing race no
+longer errors and under-links).
+
+**EPG-D1.** Current committed state (Phase A): `Datos: 510 rows, 510 linked, 0 unlinked`; key overlap 85/85.
+The linker's log line `DS-009 3.3: N created, N rows linked` and `unlinked=0` on a FRESH ordered re-import
+is EPG-E2/E4 (architect, SR-44).
 
 ## Phase E — End-to-end proof
-_(filled in Phase E)_
+
+**CC-verifiable (pasted):**
+- **EPG-E6 (suite + build):** `284 tests, 284 pass, 0 fail` (SCI + platform); `npm run build` green
+  (`BUILD_ID` present); dev serves `localhost:3000`.
+- **Mechanism (live LLM + current classifier):** Plan General → reference / no entity candidates; Datos →
+  transaction / `ID_Empleado` candidate. Finalize coalescing decision core unit-tested (9 cases).
+
+**Architect-verifiable (SR-44 — live re-import; the report marks these as the architect's reconciliation
+evidence):** EPG-E1 (clean-slate → plan→roster→6×Datos → exactly one finalize pass; re-import identical),
+EPG-E2 (`unlinked=0`, 510 linked), EPG-E3 (85 entities, no phantoms; Datos=transaction, Plan General=
+reference/plan), EPG-E4 (Datos-alone + a third order → identical linked result), EPG-E5 (calculation:
+convergence bindings + `[CalcRecon-T2]` payouts; total reported verbatim). **The migration
+`20260702_hf371_import_finalize_runs.sql` must be applied before the deploy** (else the claim degrades to
+graceful-grant, i.e. no coalescing until applied).
+
+## HALT status
+- **HALT-1 (evidence vs roots):** reported, not forced — Roots 2/3 are already closed on current `main`
+  (proven live); the stale committed state reflects old deployed code. Root 1 (finalize race) is the
+  operative defect and is fixed (Phase B). No fix was forced onto a non-operative cause.
+- **HALT-2 (registry):** none — the classifier reads the model's bare primitives; the row-ordinal guard is
+  pure arithmetic (values == row positions), zero language strings.
+- **HALT-3 (order dependence):** the linker is tenant-wide value-keyed create-or-link; the flywheel
+  identifier-atom re-comprehension (HF-370 O1) + Phase B upsert close the residual order/concurrency paths.
+- **HALT-4 (silent narrowing):** none — the "Roots 2/3 already closed" finding is reported explicitly, not
+  used to skip a phase; each phase has its evidence.
+
+## §6A residual (unchanged, forward-referenced)
+Convergence field-matching / percent-scale (`cumplimiento`→`Cumplimiento_Colocacion`, `calidad`→
+`Indice_Calidad_Cartera`; plan thresholds in %, data in ratios) — EPG-E5 surfaces whether it is live; if
+bindings remain 0 with linking correct, it is the next directive, not a Phase D regression.

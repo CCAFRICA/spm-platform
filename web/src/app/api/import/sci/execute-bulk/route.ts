@@ -1084,6 +1084,17 @@ async function processEntityUnit(
     return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: 'No model-recognized entity identifier (scope_role=entity, nature_role=identifier); the heuristic binding was absent or a row-index — refusing to spawn entities from a non-identifier column (HF-370 O2)' };
   }
 
+  // HF-371 (Root 3, EPG-C1): the "code guarantees" half of Decision 158. A column whose VALUES ARE THE
+  // ROW POSITIONS (1,2,3…N in row order) carries no identity beyond position — it can NEVER be an entity
+  // key, regardless of the model's semantic guess (a plan-component sheet's `#` mis-tagged as an
+  // identifier would otherwise mint phantom "people" 1,2,3…). This is a structural/arithmetic fact — zero
+  // language strings (Korean Test) — applied to the FINAL chosen id column, whether it came from the model
+  // or the heuristic binding. (HF-370 O2 guarded only the fallback; this guards the model candidate too.)
+  const idSample = rows.slice(0, 200).map(r => (r[idSourceField as string] == null ? '' : String(r[idSourceField as string]).trim())).filter(Boolean);
+  if (looksLikeRowIndex(idSample)) {
+    return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `Refusing entity key "${idSourceField}" — its values are the row ordinals (1..N); a row-position column can never identify entities (HF-371 EPG-C1 structural guard).` };
+  }
+
   // Collect unique external IDs with metadata + enrichment attributes
   const entityData = new Map<string, { name: string; role?: string; licenses?: string; enrichment: Record<string, string> }>();
   // OB-177: Detect enrichment fields — entity_attribute bindings that are text (not ID/name)
