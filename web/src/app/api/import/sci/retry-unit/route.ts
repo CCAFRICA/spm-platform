@@ -11,7 +11,10 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isInternalCronCaller } from '@/lib/sci/cron-principal';
 import { runDecomposedComprehension } from '@/lib/sci/header-comprehension';
+import { debandWorksheet } from '@/lib/sci/deband-sheet';
 import {
   retryUnitComprehension,
   productionRetryDeps,
@@ -22,6 +25,14 @@ import { fireSignal, buildResolutionSignal } from '@/lib/sci/comprehension-signa
 
 export async function POST(req: NextRequest) {
   try {
+    // HF-372 Phase F (EPG-0.8 §1b): this was the THIRD classify entry with NO in-route auth at all
+    // (service-role work behind only the middleware). Same principal set as process-job.
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authUser } } = await authClient.auth.getUser();
+    if (!authUser && !isInternalCronCaller(req)) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { tenantId, importSessionId, storagePath, unitId } = body as {
       tenantId?: string; importSessionId?: string; storagePath?: string; unitId?: string;
@@ -56,8 +67,12 @@ export async function POST(req: NextRequest) {
     if (!ws) {
       return NextResponse.json({ error: `sheet '${sheetName}' not found in ${storagePath}` }, { status: 404 });
     }
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    // HF-372 Phase F (EPG-0.8 §1b): de-band like the OTHER classify entries (process-job,
+    // execute-bulk's commit parse) — a retried banded unit previously re-parsed RAW (__EMPTY keys),
+    // producing a different recognition surface than the original classify pass. One parse law.
+    const deband = debandWorksheet(XLSX, ws, sheetName);
+    const rows = deband.rows as Record<string, unknown>[];
+    const columns = deband.columns;
 
     // SAME decomposed dispatch as analyze (adapter narrows the return to the retry contract).
     const dispatch: DecomposedDispatch = async (pm, sheets, t, u, k) => {

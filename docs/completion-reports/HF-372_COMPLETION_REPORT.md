@@ -781,3 +781,31 @@ batch latency has grown similarly, retune via the env var (the HF-350 telemetry 
 timing).
 
 **Suite/build:** 583/583; build → BUILD_ID present.
+
+---
+
+## Phase F — Pathway unification (D7, bounded to the EPG-0.8 inventory)
+
+Disposition of every EPG-0.8 divergence — unified, or reported with risk (HALT-5, no silent leftovers):
+
+| # | Divergence | Disposition |
+|---|---|---|
+| 1b | analyze route: Tier-1 skip + fieldBindings FABRICATION without bare primitives (the F-NEW-1 sibling — every Tier-1 sheet on the sync path threw MissingRecognitionError) | **UNIFIED**: every sheet goes through `runDecomposedComprehension` (identical to process-job post-Phase-A); the fabrication block and the Tier-1-only batched state emit are DELETED. One recognition surface — literally the same function — on both classify entries. |
+| 1b | retry-unit (third classify entry): NO in-route auth; raw re-parse (no de-band) | **UNIFIED**: same principal set as process-job (`authUser \|\| isInternalCronCaller`); the retried sheet re-parses through `debandWorksheet` — one parse law across all three entries. |
+| 1a | analyze route consumes CLIENT-parsed 50-row samples (no server de-band possible: the sync path receives parsed rows, not the file) | **REPORTED (HALT-5)**: unifying requires the sync mixed-file path to upload-and-reparse server-side — a redesign beyond convergence. RISK: a banded sheet in a MIXED (document+spreadsheet) import classifies on raw-keyed samples; commit-side de-band (execute-bulk) still covers the committed rows. All-spreadsheet imports (the Casa Diaz/BCL flows) never take this path. |
+| 2-A | streamed commit skipped `filterFieldsForPartialClaim` | **UNIFIED**: a bounded streamed sample (50 rows) feeds the SAME filter the windowed path applies. |
+| 2-B | streamed entity-id resolution = `candidates[0]`, no tie-break (the HF-351 F5 failure mode) | **UNIFIED**: same law as windowed/direct — 1 candidate → it; 0 → binding; ≥2 → value-overlap tie-break against the tenant entity domain over a bounded streamed sample of the candidate columns. |
+| 2-C | entity unit on a streaming-scale file silently "succeeded" with 0 rows | **UNIFIED (fail-loud)**: explicit `success:false` naming the class — never a silent 0-row success. |
+| 2-D | rollback: unit-atomic (direct) vs pulse-atomic (windowed/streamed) | **REPORTED, kept BY DESIGN** (HF-359 PG-A6: pulse-atomicity is what makes an interrupted big load resumable). RISK: none new — semantics documented at both sites. |
+| 2-E | hand-off decision exists only on windowed/streamed (direct = always sync) | **REPORTED, kept** (HF-362 Part B's deliberate shape; the HF-363 follow-up owns byte-budget-unified routing). |
+| 3 | N parallel trace-readers of `headerComprehension` | **REPORTED, kept**: the trace shape is the de-facto contract and — post-Phase-C — consistently carries the bare primitives at every reader. A shared reader module is cleanup, not convergence; named residual. |
+| 4 | finalize: three dispatchers behind ONE claim (verified live, EPG-0.9); `aggregate-flywheel` was CLIENT-ONLY | **UNIFIED**: finalize-import now runs `runFlywheelAggregation` server-side (fire-and-forget, idempotent, off the critical path) — a navigate-away import keeps its flywheel learning. |
+| 5 | forked vercel.json (watchdog unscheduled) | **UNIFIED in Phase D** (root duplicate deleted; cron scheduled in web/vercel.json). |
+
+**EPG-F1 — identical recognition semantics through both branches (live):** the standard branch is the
+Phase C live run (de-band → all-sheets decomposed comprehension → bare-primitive verdicts: Plan
+General reference@0.97 + plan); the size-gated branch is the Phase E live run (STREAM 86607r×87c →
+the SAME `runDecomposedComprehension` → transaction@0.85). One recognition surface; the size gate
+selects the parse strategy, never a second classifier.
+
+**Suite/build:** 583/583; build → BUILD_ID present.

@@ -198,7 +198,13 @@ export async function POST(req: NextRequest) {
       // Phase B: OB-203 Phase 2 (5b) — DECOMPOSED comprehension for sheets where sheet-Tier-1
       // did not hit. Atom-level read-before-derive: known atoms claim roles (no LLM), only novel
       // residue is comprehended (bounded), failures are per-unit, atoms accumulate (gated).
-      const sheetsNeedingHC = file.sheets.filter(s => !sheetSkipHC(s.sheetName));
+      // HF-372 Phase F (converged with process-job, AP-17): EVERY sheet goes through decomposed
+      // comprehension. The former Tier-1 skip + fieldBindings fabrication left interpretations
+      // WITHOUT the model's bare primitives — the HF-367/368 classifier fail-louds on exactly that
+      // (the analyze-route sibling of F-NEW-1). Decomposed comprehension IS the warm path: known
+      // atoms claim from the flywheel without an LLM dispatch; only the novel/identifier residue
+      // comprehends.
+      const sheetsNeedingHC = file.sheets;
       let hcMetrics: import('@/lib/sci/sci-types').HeaderComprehensionMetrics | { llmCalled: boolean; llmCallDuration: number; averageConfidence: number; columnsInterpreted: number; crossSheetInsightCount: number };
       const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
       let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
@@ -261,73 +267,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // HF-181 Layer 1 / HF-197B: For each Tier 1 match, inject that sheet's OWN cached
-      // fieldBindings into that sheet's OWN profile (was: always injected into sheets[0]).
-      // HF-254 Fix 2: the cached binding's native data_nature is read directly. With Fix 2a
-      // the fingerprint write always carries native data_nature server-side, so a tier-1
-      // cache hit reliably yields real natures here (no registry, no HF-236 divert). Legacy
-      // pre-HF-254 cache rows that lack native data_nature self-heal on clean re-import
-      // (§6A); the HF-247 read-surface column_roles-'unknown' gate remains the failure guard.
+      // HF-372 Phase F: the HF-181/HF-254 Tier-1 fieldBindings INJECTION is DELETED — it fabricated
+      // headerComprehension without the model's bare primitives (scope_role/nature_role/plan_role),
+      // which the classifier reads by equality; every Tier-1 sheet then threw MissingRecognitionError.
+      // Recognition now comes from decomposed comprehension for every sheet (warm atoms claim, above).
       const injectedBindingsBySheet = new Map<string, number>();
-      for (const sheet of file.sheets) {
-        const flywheelResult = sheetFlywheelResults.get(sheet.sheetName);
-        if (!sheetSkipHC(sheet.sheetName) || !flywheelResult?.classificationResult) continue;
 
-        const flywheelBindings = (flywheelResult.classificationResult as Record<string, unknown>)?.fieldBindings as Array<{
-          sourceField: string;
-          semanticRole: string;
-          confidence: number;
-          displayContext?: string;
-          data_nature?: string;
-          identifies?: string;
-        }> | undefined;
-        if (!flywheelBindings || flywheelBindings.length === 0) continue;
-
-        const sheetProfile = profileMap.get(sheet.sheetName);
-        if (!sheetProfile) continue;
-
-        const interpretations = new Map<string, import('@/lib/sci/sci-types').HeaderInterpretation>();
-        for (const fb of flywheelBindings) {
-          // HF-254 Fix 2a: native data_nature reliably present on the cached binding.
-          interpretations.set(fb.sourceField, {
-            columnName: fb.sourceField,
-            characterization: fb.displayContext || fb.semanticRole,
-            dataExpectation: '',
-            data_nature: fb.data_nature!,
-            identifies: fb.identifies ?? '',
-            relationships: [],
-            confidence: fb.confidence,
-          });
-        }
-        sheetProfile.headerComprehension = {
-          interpretations,
-          crossSheetInsights: [],
-          llmCallDuration: 0,
-          llmModel: 'flywheel-tier1',
-          fromVocabularyBinding: false,
-        };
-        injectedBindingsBySheet.set(sheet.sheetName, flywheelBindings.length);
-        console.log(`[SCI-FINGERPRINT] Tier 1: injected ${flywheelBindings.length} fieldBindings from flywheel into ${sheet.sheetName} (native data_nature, HF-254)`);
-        ob203Trace('binding', { sheet: sheet.sheetName, injected: flywheelBindings.length, source: 'flywheel-tier1' });
-      }
-
-      // OB-203 D13: the decomposed-dispatch sheets STREAMED their comprehended/failed state per unit
-      // (above). Here we emit `comprehended` ONLY for the Tier-1 (recognized, no-dispatch) sheets,
-      // which carry injected headerComprehension and never entered the dispatch.
-      await emitUnitStates(
-        Array.from(profileMap.keys()).filter(sheetName => sheetSkipHC(sheetName) && !perSheetFailure.has(sheetName))
-          .map(sheetName => {
-            // D17: Tier-1 recognized sheets carry tier + knownCount on the stream too, so the live
-            // counters show the memory-bypass (these are the warm path — LLM bypassed by recognition).
-            const colCount = profileMap.get(sheetName)?.structure.columnCount ?? 0;
-            const novel = provenanceMap.get(sheetName)?.novelCount ?? 0;
-            const tier = sheetFlywheelResults.get(sheetName)?.tier ?? 1;
-            ob203Trace('llm', { sheet: sheetName, tier, decision: 'bypassed-by-memory' });
-            return stateBase(sheetName, 'comprehended', 3, { tier, knownCount: Math.max(0, colCount - novel), novelCount: novel });
-          }),
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      );
+      // HF-372 Phase F: the Tier-1-only batched `comprehended` emit is DELETED — every sheet now
+      // enters decomposed comprehension and streams its own state via the per-sheet callback above
+      // (a second batch emit here would double-count). sheetSkipHC survives only as flywheel
+      // telemetry input (tier display), not a recognition gate.
+      void sheetSkipHC;
 
       // OB-203 Phase 4 (R3): tier-of-resolution + composition signals per comprehended unit
       // (fire-and-forget; DI-5 write-side). resolver = flywheel when Tier-1 recognition skipped the

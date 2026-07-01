@@ -50,7 +50,7 @@ import { markSessionJobs } from '@/lib/sci/job-status';
 import { internalCronHeaders } from '@/lib/sci/cron-principal';
 // OB-251 HOTFIX: a file big enough to OOM XLSX.read is STREAMED (jszip) — the workbook is never
 // materialized. Gated by byte size, above every HALT-CALC anchor's file (anchors stay on SheetJS).
-import { isLargeByBytes } from '@/lib/sci/sheet-stream';
+import { streamSheetMeta, isLargeByBytes } from '@/lib/sci/sheet-stream';
 import { debandWorksheet } from '@/lib/sci/deband-sheet';
 // OB-203 Phase C: batch entity enrichment (pure merge) + entity-phase pulses
 // through the one observability spine (VERBOSE 'pulse' + session record).
@@ -583,8 +583,18 @@ export async function POST(req: NextRequest) {
           const cls = unit.confirmedClassification;
           if (cls === 'target' || cls === 'transaction' || cls === 'reference') {
             trace(`unit:${tabName}:streamed-commit bytes=${parse.buffer.byteLength}`);
+            // HF-372 Phase F (EPG-0.8 divergence 2-A): the streamed path previously committed the RAW
+            // unit — a PARTIAL-claim unit big enough to stream bypassed field filtering entirely.
+            // A bounded streamed sample gives the same filter the windowed path applies.
+            let effStreamUnit = unit;
+            try {
+              const sMeta = await streamSheetMeta(parse.buffer, { sampleRows: 50, targetSheet: tabName });
+              effStreamUnit = filterFieldsForPartialClaim(unit, sMeta.sample).unit;
+            } catch (sampleErr) {
+              console.warn(`[SCI Bulk] streamed sample for field filter failed (committing unfiltered): ${sampleErr instanceof Error ? sampleErr.message : sampleErr}`);
+            }
             const sres = await commitUnitStreamed(supabase, {
-              unit,
+              unit: effStreamUnit,
               buffer: parse.buffer,
               targetSheet: tabName,
               classification: cls,
@@ -597,6 +607,20 @@ export async function POST(req: NextRequest) {
             });
             result = { contentUnitId: unit.contentUnitId, classification: cls, success: sres.success, rowsProcessed: sres.totalInserted, pipeline: cls, error: sres.error, stagedPulses: sres.stagedPulses };
             trace(`unit:${tabName}:streamed-commit-end committed=${sres.totalInserted} ok=${sres.success}`);
+          } else {
+            // HF-372 Phase F (EPG-0.8 divergence 2-C): an ENTITY unit on a streaming-scale file
+            // previously fell through to the no-sheet-data branch and reported SUCCESS with 0 rows —
+            // a silent loss. Fail LOUD; the oversized-roster class needs explicit handling if it
+            // ever occurs (rosters are not expected at this scale — that expectation is now enforced,
+            // not assumed).
+            result = {
+              contentUnitId: unit.contentUnitId,
+              classification: cls,
+              success: false,
+              rowsProcessed: 0,
+              pipeline: cls,
+              error: `HF-372: '${cls}' unit on a streaming-scale file (${parse.buffer.byteLength} bytes) has no streamed commit path — refusing a silent 0-row success. Split the roster out of the oversized file or import it separately.`,
+            };
           }
         }
 

@@ -25,7 +25,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   commitContentUnit,
   findHcEntityIdCandidates,
-  findHcEntityIdColumn,
   selectEntityIdFieldByOverlap,
   readTenantEntityDomain,
   makeRowByteEstimator,
@@ -264,12 +263,30 @@ export async function commitUnitStreamed(
   supabase: SupabaseClient,
   params: StreamedCommitParams,
 ): Promise<WindowedCommitResult> {
-  // Trace-derived entity-id (no rows): single entity-scope identifier is deterministic; reference → null.
-  const entityIdField = params.classification === 'reference'
-    ? null
-    : (findHcEntityIdColumn(params.unit.classificationTrace)
-        ?? params.unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField
-        ?? null);
+  // HF-372 Phase F (EPG-0.8 divergence 2-B): the streamed path previously took the FIRST candidate
+  // with no tie-break — a ≥2-candidate sheet (branch id + employee id) resolved by emission order,
+  // exactly the HF-351 F5 failure mode removed elsewhere. Same law as the windowed/direct paths:
+  // 1 candidate → it; 0 → the entity_identifier binding; ≥2 → value-overlap tie-break against the
+  // tenant's entity domain over a bounded streamed sample of the candidate columns.
+  let entityIdField: string | null = null;
+  if (params.classification !== 'reference') {
+    const candidates = findHcEntityIdCandidates(params.unit.classificationTrace);
+    if (candidates.length === 1) {
+      entityIdField = candidates[0];
+    } else if (candidates.length === 0) {
+      entityIdField = params.unit.confirmedBindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField ?? null;
+    } else {
+      const sampleMeta = await streamSheetMeta(params.buffer, { sampleRows: CHUNK_ROW_SIZE, targetSheet: params.targetSheet }).catch(() => null);
+      const narrowRows = (sampleMeta?.sample ?? []).map((r) => {
+        const slim: Record<string, unknown> = {};
+        for (const c of candidates) slim[c] = (r as Record<string, unknown>)[c];
+        return slim;
+      });
+      const entityDomain = await readTenantEntityDomain(supabase, params.tenantId);
+      const sel = selectEntityIdFieldByOverlap(candidates, narrowRows, entityDomain);
+      entityIdField = sel.chosen || null;
+    }
+  }
 
   // HF-359 (Part A): discover the byte budget from the real storage limit, and a row-byte estimator that
   // measures each row's serialized CSV size with the SAME serializer + metadata commitContentUnit commits.

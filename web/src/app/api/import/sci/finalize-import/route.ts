@@ -21,6 +21,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-361: finalize-sweep fires this cookielessly
 import { claimFinalize, completeFinalize } from '@/lib/sci/finalize-coalesce'; // HF-371: one finalize per import
 import { markJobsByProposal } from '@/lib/sci/job-status'; // HF-372 Phase D: server-side job truth
+import { runFlywheelAggregation } from '@/lib/sci/flywheel-aggregation';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
@@ -161,6 +162,13 @@ export async function POST(req: NextRequest) {
       insights = { stored: 0, failed: 0, error: msg };
       console.error(`[SCI Finalize] INSIGHT ENGINE FAILED (import already complete; insights missing until next finalize): ${msg}`);
     }
+
+    // HF-372 Phase F (EPG-0.8 §4): flywheel aggregation was CLIENT-ONLY (page.tsx fire) — a
+    // navigate-away import got finalize (waitUntil/sweep) but never aggregation. Server-side
+    // backstop here, fire-and-forget + idempotent, off the critical path like insights.
+    void runFlywheelAggregation(supabase, tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+      .then(r => trace(`flywheel-aggregation-done ${JSON.stringify(r).slice(0, 120)}`))
+      .catch(err => console.warn('[SCI Finalize] flywheel aggregation failed (non-blocking):', err instanceof Error ? err.message : err));
 
     trace('done');
     return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, comprehension, summary, insights, durationMs: Date.now() - t0 });
