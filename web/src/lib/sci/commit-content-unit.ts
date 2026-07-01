@@ -30,7 +30,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
-import { ENTITY_SCOPE, TXN_SCOPE, IDENTIFIER_NATURE } from './scope-predicates';
 import type {
   AgentType,
   SemanticBinding,
@@ -172,12 +171,12 @@ const HC_IDENTIFIER_THRESHOLD = 0.80;
 // SCOPE (a recurring seller/employee/person/account) — NOT a per-row transaction identifier
 // (folio/receipt/invoice). The fixed `identifier` columnRole could not tell the two apart (MIR
 // Ventas had both Folio and DNI_Vendedor as `identifier`, so confidence ranking picked Folio).
-// Now we read the LLM's free-form `identifies` channel directly (Decision 158): DNI_Vendedor
-// "identifies":"entity"; Folio "identifies":"transaction". The highest-confidence entity-scope
-// column wins. Scope words (entity/transaction/...) are read free-form — no quoted role literal.
+// HF-368: we read the MODEL's BARE primitive directly (Decision 158): DNI_Vendedor
+// scope_role="entity"; Folio scope_role="transaction". The entity key is the column the model
+// scoped `entity` + nature `identifier` — read by EQUALITY, never a regex over prose. The
+// bilingual word-list registry scope-predicates.ts is DELETED (HF-368); the model names the
+// primitive, in any language, with no developer synonym list.
 // HF-285-A: exported so the execute-bulk entity gate reads the SAME canonical HC surface.
-// HF-341 R4: ENTITY_SCOPE / TXN_SCOPE / IDENTIFIER_NATURE moved to scope-predicates.ts (single source —
-// the sheet classifier reads the identical scope surface; no duplicated regex registry). Imported at top.
 
 /**
  * HF-351 F5: ALL columns the LLM scoped as entity-scope identifiers (≥ threshold),
@@ -190,7 +189,7 @@ export function findHcEntityIdCandidates(
 ): string[] {
   if (!classificationTrace) return [];
   const hcData = classificationTrace.headerComprehension as
-    | { interpretations?: Record<string, { identifies?: string; data_nature?: string; characterization?: string; confidence?: number }> }
+    | { interpretations?: Record<string, { scope_role?: string; nature_role?: string; confidence?: number }> }
     | undefined;
   const interpretations = hcData?.interpretations;
   if (!interpretations) return [];
@@ -198,10 +197,10 @@ export function findHcEntityIdCandidates(
   for (const [colName, interp] of Object.entries(interpretations)) {
     const conf = typeof interp.confidence === 'number' ? interp.confidence : 0;
     if (conf < HC_IDENTIFIER_THRESHOLD) continue;
-    const scope = `${interp.identifies ?? ''}`;
-    const natureText = `${interp.data_nature ?? ''} ${interp.characterization ?? ''}`;
-    // Entity-scope identifier only. A transaction-scope id (folio/receipt) is never the entity key.
-    if (ENTITY_SCOPE.test(scope) && !TXN_SCOPE.test(scope) && IDENTIFIER_NATURE.test(natureText)) {
+    // HF-368: the entity key is the column the MODEL named as an entity-scope identifier — read by
+    // EQUALITY against the fixed primitive (scope_role/nature_role), never a regex over prose. A
+    // transaction-scope id (scope_role==='transaction') is excluded by the bare equality itself.
+    if (interp.scope_role === 'entity' && interp.nature_role === 'identifier') {
       candidates.push(colName);
     }
   }
@@ -576,9 +575,9 @@ export async function commitContentUnit(
         entityDomain,
       );
 
-  // HF-341 R3 (V8 eradication): the entity-id is the column the LLM scoped as the entity identity
-  // (resolveEntityIdField → findHcEntityIdColumn reads the free-form `identifies` channel; a
-  // transaction/event id is already rejected by TXN_SCOPE). The prior OB-231/HF-333 CARDINALITY
+  // HF-341 R3 (V8 eradication): the entity-id is the column the model scoped as the entity identity
+  // (resolveEntityIdField → findHcEntityIdColumn reads the model's bare scope_role/nature_role; a
+  // transaction id is excluded by scope_role!=='entity'). The prior OB-231/HF-333 CARDINALITY
   // HEURISTIC — a developer rule (lowest-cardinality repeating identifier) that OVERRODE the recognized
   // answer — is DELETED (Validation Premise Law: a heuristic standing in front of recognition's output;
   // it can be made "more complete" by editing the ratio threshold → it is a registry of expectation).

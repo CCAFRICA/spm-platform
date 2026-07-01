@@ -18,6 +18,11 @@ export interface AtomExpression {
   identifies?: string;        // the scope the column identifies, in the LLM's own words ("the seller")
   characterization?: string;  // what the column IS, free-form
   relationships?: string[];   // OB-231 relationships
+  // HF-368: the model's BARE structural primitives, persisted so warm recall carries the model's
+  // named primitive (never re-derived from prose via a word list). Additive jsonb; legacy atom
+  // rows read back with these undefined → the consumer fails loud → the sheet re-imports fresh.
+  scope_role?: string;
+  nature_role?: string;
 }
 
 export interface KnownAtom extends AtomExpression {
@@ -48,7 +53,7 @@ export function buildAtomRow(tenantId: string, atom: AtomFingerprint, role: stri
     atom_features: atom.features as unknown as Record<string, unknown>,
     // HF-341 R4: store the OB-231 EXPRESSION alongside the role-stability label (additive; legacy rows
     // carry only {role,roleConfidence} and read back with identifies=undefined).
-    column_roles: { role, roleConfidence, ...(expr ? { identifies: expr.identifies, characterization: expr.characterization, relationships: expr.relationships } : {}) },
+    column_roles: { role, roleConfidence, ...(expr ? { identifies: expr.identifies, characterization: expr.characterization, relationships: expr.relationships, scope_role: expr.scope_role, nature_role: expr.nature_role } : {}) },
     // structural_fingerprints.classification_result is NOT NULL; an atom row has no sheet
     // classification, so an empty object is the benign placeholder (EPG-2.4 RUN-1 fix). For
     // tenant scope the DI-10 CHECK is satisfied by scope='tenant'. Foundational/vertical atoms
@@ -122,6 +127,10 @@ export async function lookupAtoms(
       identifies: typeof cr.identifies === 'string' ? cr.identifies : undefined,
       characterization: typeof cr.characterization === 'string' ? cr.characterization : undefined,
       relationships: Array.isArray(cr.relationships) ? (cr.relationships as string[]) : undefined,
+      // HF-368: carry the stored BARE primitives (legacy rows → undefined → warm recall fails loud
+      // at the bridge → the sheet re-imports fresh, which the model renders with the primitives).
+      scope_role: typeof cr.scope_role === 'string' ? cr.scope_role : undefined,
+      nature_role: typeof cr.nature_role === 'string' ? cr.nature_role : undefined,
     });
   }
   return out;
@@ -141,7 +150,7 @@ export async function writeAtoms(
 ): Promise<void> {
   if (atomsWithRoles.length === 0) return;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  for (const { atom, role, roleConfidence, identifies, characterization, relationships } of atomsWithRoles) {
+  for (const { atom, role, roleConfidence, identifies, characterization, relationships, scope_role, nature_role } of atomsWithRoles) {
     try {
       const { data: existing } = await supabase
         .from('structural_fingerprints')
@@ -170,8 +179,8 @@ export async function writeAtoms(
         // existing expression — the atom routes to comprehension anyway, so the stale expression is
         // never claimed. This preserves the structural-collision correctness the AMBIGUOUS sentinel gives.
         const exprToStore: AtomExpression = resolvedRole === AMBIGUOUS_ROLE
-          ? { identifies: cr.identifies as string | undefined, characterization: cr.characterization as string | undefined, relationships: Array.isArray(cr.relationships) ? cr.relationships : undefined }
-          : { identifies, characterization, relationships };
+          ? { identifies: cr.identifies as string | undefined, characterization: cr.characterization as string | undefined, relationships: Array.isArray(cr.relationships) ? cr.relationships : undefined, scope_role: cr.scope_role as string | undefined, nature_role: cr.nature_role as string | undefined }
+          : { identifies, characterization, relationships, scope_role, nature_role };
         await supabase
           .from('structural_fingerprints')
           .update({
@@ -184,7 +193,7 @@ export async function writeAtoms(
           .eq('id', existing.id)
           .eq('match_count', existing.match_count); // optimistic lock (mirrors sheet path)
       } else {
-        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence, { identifies, characterization, relationships }));
+        await supabase.from('structural_fingerprints').insert(buildAtomRow(tenantId, atom, role, roleConfidence, { identifies, characterization, relationships, scope_role, nature_role }));
       }
     } catch (err) {
       // Finding-A follow-through: a blocked atom-learning write must NOT be silent (DI-4/DI-7 spirit).

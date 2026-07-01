@@ -75,9 +75,15 @@ export interface ProfileObservation {
 // {semanticMeaning, columnRole, identifiesWhat}). No field is validated against an enumeration.
 export interface ColumnCharacterization {
   characterization: string;   // free-form description of what the column IS (was semanticMeaning)
-  identifies: string;         // free-form SCOPE the LLM assessed — e.g. entity, transaction, product, reference, nothing
-  data_nature: string;        // free-form NATURE the LLM assessed — e.g. identifier, measure, temporal, categorical, name, computed
+  identifies: string;         // free-form SCOPE prose (display/audit) — NEVER word-matched by the bridge
+  data_nature: string;        // free-form NATURE prose (display/audit) — NEVER word-matched by the bridge
   relationships: string[];    // free-form observations about how this column relates to others
+  // HF-368: the MODEL's bare structural PRIMITIVE (not prose, not a developer word list). The model
+  // names which of the platform's FIXED roles/natures the column plays; the bridge reads these by
+  // equality against the fixed primitive set. scope_role ∈ {entity,transaction,reference,none};
+  // nature_role ∈ {identifier,measure,temporal,name,categorical}.
+  scope_role?: string;
+  nature_role?: string;
 }
 
 // ============================================================
@@ -87,9 +93,10 @@ export interface ColumnCharacterization {
 // Field identity = what a column IS (stable, context-independent)
 // Stored in committed_data.metadata.field_identities
 export interface FieldIdentity {
-  structuralType: string;             // OB-231: free-form data-nature (was ColumnRole)
+  structuralType: string;             // OB-231: free-form data-nature prose (was ColumnRole) — kept for display/audit
   contextualIdentity: string;         // what kind of identifier/measure/etc (e.g., person_identifier, currency_amount)
   confidence: number;                 // 0.0-1.0
+  natureRole?: string;                // HF-368: the model's bare nature primitive (∈ 5 natures) — read by remediation via fixed-set membership, never regex
 }
 
 // LLM interpretation of a single column header — OB-231: free-form characterization channels.
@@ -97,10 +104,15 @@ export interface HeaderInterpretation {
   columnName: string;              // original header as customer wrote it
   characterization: string;        // free-form meaning in the LLM's words (was semanticMeaning)
   dataExpectation: string;         // what values should look like: 'integer_1_to_12', 'unique_numeric_id'
-  data_nature: string;             // free-form nature the LLM assessed (was columnRole)
-  identifies: string;              // free-form scope the LLM assessed (subsumes the former identifiesWhat)
+  data_nature: string;             // free-form nature prose (display/audit) — NEVER word-matched by the bridge
+  identifies: string;              // free-form scope prose (display/audit) — NEVER word-matched by the bridge
   relationships: string[];         // free-form cross-column observations
   confidence: number;              // LLM's confidence in this interpretation
+  // HF-368: the MODEL's bare structural PRIMITIVE (see ColumnCharacterization). The sheet classifier
+  // and the entity-id resolver read THESE by equality against the fixed primitive set — never a
+  // regex over the prose. Absent (empty/undefined) or novel (outside the fixed set) → fail-loud.
+  scope_role?: string;             // ∈ {entity, transaction, reference, none}
+  nature_role?: string;            // ∈ {identifier, measure, temporal, name, categorical}
 }
 
 // Result of LLM header comprehension for one sheet

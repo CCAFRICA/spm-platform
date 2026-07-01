@@ -94,6 +94,10 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
           identifies: interp.identifies,
           relationships: interp.relationships,
           confidence: interp.confidence,
+          // HF-368: carry the model's bare primitives into the trace — the entity-id resolver
+          // (findHcEntityIdCandidates) reads scope_role/nature_role from HERE, not the live interp.
+          scope_role: interp.scope_role,
+          nature_role: interp.nature_role,
         },
       ])
     ),

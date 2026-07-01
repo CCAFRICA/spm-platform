@@ -1,189 +1,169 @@
 /**
- * HF-367 — deriveClassificationFromExpression is now a DIRECT READ of the model's per-column
- * recognition (the `identifies` scope + `data_nature` nature the model assessed, OB-231). The
- * keyword-scan predicates (Layer A) and the HF-364 structural-dominance derivation (Layer B)
- * are DELETED. These tests assert the constructed behavior that drives the calc:
- *   • a transaction-scope identifier → transaction (rows are events);
- *   • an entity-scope identifier + period + measures → transaction (per-period performance,
- *     NEVER entity — the DIAG-080 fix);
- *   • an entity-scope identifier without per-period measures → entity (roster/master);
- *   • no entity- and no transaction-identifying column → reference (dimensional lookup);
- *   • NO default on absent recognition — it RAISES (C2 fail-loud);
- *   • the classification is identical regardless of the confidence scale the supplying layer
- *     used (cached === atom === fresh).
+ * HF-368 — deriveClassificationFromExpression reads the MODEL's BARE structural primitives
+ * (`scope_role` ∈ {entity,transaction,reference,none}, `nature_role` ∈
+ * {identifier,measure,temporal,name,categorical}) by EQUALITY against the fixed primitive set
+ * (structural-primitives.ts). The bilingual word-list registry scope-predicates.ts is DELETED;
+ * the classifier no longer regex-matches the model's prose. These tests assert:
+ *   • the bare primitive drives the class (transaction-scope id → transaction; entity id + period
+ *     + measures → transaction (DIAG-080); entity id, no per-period measures → entity; no id → reference);
+ *   • the prose fields (identifies/data_nature/characterization) are NEVER read — a roster whose
+ *     prose is Korean still classifies from scope_role='entity' with NO developer word list (Korean Test);
+ *   • C2 fail-loud: absent bare primitive → MissingRecognitionError; NOVEL primitive → PrimitiveRecognitionError;
+ *   • identical recognition classifies identically at any confidence.
  * Runner: node --test --import tsx.
  */
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import {
-  deriveClassificationFromExpression,
-  MissingRecognitionError,
-} from '../expression-classifier';
+import { deriveClassificationFromExpression, MissingRecognitionError } from '../expression-classifier';
+import { PrimitiveRecognitionError } from '../structural-primitives';
 import type { ContentProfile, HeaderInterpretation } from '../sci-types';
 
-// Build a profile from per-column model recognition. `nature` → data_nature (the dedicated
-// nature channel), `identifies` → the dedicated scope channel. `char` (characterization) is
-// set to a DELIBERATELY MISLEADING prose sentence in some tests to prove it is NEVER read.
+// Build a profile from per-column BARE primitives. `identifies`/`data_nature`/`char` are set to
+// DELIBERATELY misleading or non-English prose to prove the bridge reads ONLY the bare primitives.
 function profileFrom(
-  cols: Array<{ col: string; nature: string; conf: number; identifies?: string; char?: string }>,
+  cols: Array<{ col: string; scope_role?: string; nature_role?: string; conf: number; identifies?: string; data_nature?: string; char?: string }>,
   tab = 'Datos',
 ): ContentProfile {
   const interpretations = new Map<string, HeaderInterpretation>();
   for (const r of cols) {
     interpretations.set(r.col, {
       columnName: r.col,
-      characterization: r.char ?? r.nature,
+      characterization: r.char ?? 'prose that must never be word-matched',
       dataExpectation: '',
-      data_nature: r.nature,
-      identifies: r.identifies ?? 'nothing',
+      data_nature: r.data_nature ?? 'prose nature',
+      identifies: r.identifies ?? 'prose scope',
+      scope_role: r.scope_role,
+      nature_role: r.nature_role,
       relationships: [],
       confidence: r.conf,
     });
   }
   return {
     contentUnitId: 'cu', sourceFile: 'f.xlsx', tabName: tab, tabIndex: 0,
-    structure: {
-      rowCount: 200, columnCount: cols.length, sparsity: 0, headerQuality: 'clean',
-      numericFieldRatio: 0.7, categoricalFieldRatio: 0.1, categoricalFieldCount: 1,
-      identifierRepeatRatio: 1.0,
-    },
+    structure: { rowCount: 200, columnCount: cols.length, sparsity: 0, headerQuality: 'clean', numericFieldRatio: 0.7, categoricalFieldRatio: 0.1, categoricalFieldCount: 1, identifierRepeatRatio: 1.0 },
     fields: [],
-    patterns: {
-      hasEntityIdentifier: true, hasDateColumn: true, hasTemporalColumns: true, hasCurrencyColumns: 1,
-      hasPercentageValues: false, hasDescriptiveLabels: false, hasStructuralNameColumn: true,
-      rowCountCategory: 'transactional', volumePattern: 'many',
-    },
+    patterns: { hasEntityIdentifier: true, hasDateColumn: true, hasTemporalColumns: true, hasCurrencyColumns: 1, hasPercentageValues: false, hasDescriptiveLabels: false, hasStructuralNameColumn: true, rowCountCategory: 'transactional', volumePattern: 'many' },
     observations: [],
     headerComprehension: { interpretations, crossSheetInsights: [], llmCallDuration: 0, llmModel: 'test', fromVocabularyBinding: false },
   } as ContentProfile;
 }
 
-const measures = (conf: number) => Array.from({ length: 12 }, (_, i) => ({ col: `m${i}`, nature: 'measure', conf }));
+const measures = (conf: number) => Array.from({ length: 12 }, (_, i) => ({ col: `m${i}`, nature_role: 'measure', scope_role: 'none', conf }));
 
-// ── THE HF-367 FIX: the BCL Plantilla (real model output). An all-text employee roster.
-// The model scopes ID_Empleado as an entity identifier @0.99. The OLD classifier flipped it
-// to reference because the *characterization* prose ("…used to reference employees", "foreign
-// key", "…may also reference branch IDs") contained reference-words. The direct read reads the
-// dedicated identifies/data_nature channels and NEVER the characterization → entity. ──
-test('HF-367: BCL Plantilla (real model output) classifies as entity (was reference)', () => {
+// THE HF-368 POINT (Korean Test): a roster whose model PROSE is Korean/novel — the OLD regex
+// (entity|entidad|seller|…) would MISS every word — still classifies entity, because the
+// multilingual model rendered the bare primitive scope_role='entity'. No developer word list.
+test('HF-368 Korean Test: Korean-prose roster classifies entity from the bare primitive (no word list)', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'ID_Empleado', nature: 'identifier', conf: 0.99, identifies: 'entity (an individual employee who may recur across many records and sheets)', char: 'A unique alphanumeric identifier assigned to each employee, used to reference employees across sheets' },
-    { col: 'ID_Gerente', nature: 'identifier (foreign key referencing ID_Empleado in the same sheet)', conf: 0.99, identifies: 'entity (references another employee who is a manager)', char: 'The employee ID of this employee\'s direct manager — a foreign key' },
-    { col: 'Nombre_Completo', nature: 'name', conf: 0.99, identifies: 'entity (the human person behind the employee record)', char: 'The full legal name of the employee' },
-    { col: 'Sucursal_ID', nature: 'categorical identifier', conf: 0.82, identifies: 'reference (a branch or organizational unit that groups employees)', char: 'An identifier indicating which branch the employee belongs to; may also reference branch IDs' },
-    { col: 'Region', nature: 'categorical', conf: 0.96, identifies: 'reference (a geographic territory grouping employees)', char: 'The geographic region' },
-    { col: 'Nivel_Cargo', nature: 'categorical', conf: 0.97, identifies: 'reference (a seniority tier that categorizes multiple employees)' },
-    { col: 'Cargo', nature: 'categorical', conf: 0.97, identifies: 'nothing (describes a property of the employee)' },
-    { col: 'Fecha_Ingreso', nature: 'temporal', conf: 0.99, identifies: 'nothing (a temporal attribute of the employee record)' },
+    { col: '직원ID', scope_role: 'entity', nature_role: 'identifier', conf: 0.98, identifies: '직원 (반복되는 개인)', data_nature: '식별자', char: '각 직원의 고유 식별자' },
+    { col: '이름', scope_role: 'entity', nature_role: 'name', conf: 0.95, identifies: '사람', data_nature: '이름' },
+    { col: '부서', scope_role: 'reference', nature_role: 'categorical', conf: 0.9, identifies: '참조', data_nature: '범주' },
+  ], '직원명부'));
+  assert.equal(r.classification, 'entity');
+  assert.equal(r.confidence, 0.98);
+});
+
+// Plantilla shape (bare primitives) → entity. Prose set to reference-word-laden English to prove
+// the deleted isReferenceKey scan cannot resurrect: the bare scope_role='entity' wins.
+test('HF-368: BCL Plantilla (bare primitives) → entity, prose ignored', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'ID_Empleado', scope_role: 'entity', nature_role: 'identifier', conf: 0.99, identifies: 'entity (…used to reference employees)', data_nature: 'identifier', char: 'a foreign key that references employees' },
+    { col: 'Nombre_Completo', scope_role: 'entity', nature_role: 'name', conf: 0.99 },
+    { col: 'Sucursal_ID', scope_role: 'reference', nature_role: 'categorical', conf: 0.82 },
+    { col: 'Fecha_Ingreso', scope_role: 'none', nature_role: 'temporal', conf: 0.99 },
   ], 'BCL_Plantilla'));
   assert.equal(r.classification, 'entity');
-  assert.equal(r.confidence, 0.99); // the model's confidence in ID_Empleado — not a synthesized constant
-  assert.ok(r.matchedConditions.some(c => c.includes('ID_Empleado') && /entity identifier/.test(c)));
+  assert.ok(r.matchedConditions.some(c => c.includes('ID_Empleado')));
 });
 
-// A per-row TRANSACTION-scope identifier (Folio) — the model scoped the sheet as recording
-// events → transaction. Driven by the model's `identifies`, not a ratio.
-test('HF-367: transaction-scope identifier (per-row event id) -> transaction', () => {
+test('HF-368: transaction-scope identifier → transaction', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'Folio', nature: 'identifier', conf: 0.95, identifies: 'transaction (the sales receipt / folio)' },
-    { col: 'DNI_Vendedor', nature: 'identifier', conf: 0.97, identifies: 'entity (the seller)' },
+    { col: 'Folio', scope_role: 'transaction', nature_role: 'identifier', conf: 0.95 },
+    { col: 'DNI_Vendedor', scope_role: 'entity', nature_role: 'identifier', conf: 0.97 },
     ...measures(0.80),
-    { col: 'Mes', nature: 'temporal', conf: 0.30 },
+    { col: 'Mes', scope_role: 'none', nature_role: 'temporal', conf: 0.30 },
   ]));
   assert.equal(r.classification, 'transaction');
-  assert.ok(r.matchedConditions.some(c => c.includes('Folio') && /transaction identifier/.test(c)));
 });
 
-// DIAG-080: BCL datos — entity-scope id + name + PERIOD + measures. Per-period performance
-// over the entity → transaction, NEVER entity (the old Branch 2.5 called it entity → $0).
-test('HF-367 / DIAG-080: entity-scope id + period + measures is transaction, never entity', () => {
+test('HF-368 / DIAG-080: entity id + period + measures → transaction, never entity', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'ID_Empleado', nature: 'identifier', conf: 0.97, identifies: 'entity (an individual employee)' },
-    { col: 'Nombre_Completo', nature: 'name', conf: 0.95, identifies: 'entity (the person)' },
-    { col: 'Periodo', nature: 'temporal period', conf: 0.90, identifies: 'nothing' },
-    { col: 'Sucursal', nature: 'categorical', conf: 0.90, identifies: 'reference (the branch)' },
+    { col: 'ID_Empleado', scope_role: 'entity', nature_role: 'identifier', conf: 0.97 },
+    { col: 'Periodo', scope_role: 'none', nature_role: 'temporal', conf: 0.90 },
     ...measures(0.85),
   ]));
-  assert.notEqual(r.classification, 'entity');
   assert.equal(r.classification, 'transaction');
   assert.ok(r.matchedConditions.some(c => /per-period performance/.test(c)));
 });
 
-// A reference key with no entity- and no transaction-identifier -> dimensional reference.
-test('HF-367: no entity/transaction identifier -> reference', () => {
+test('HF-368: entity id, no measure → entity (roster)', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'Hub', nature: 'categorical', conf: 0.95, identifies: 'reference (the distribution hub)' },
-    { col: 'Capacidad', nature: 'measure', conf: 0.90, identifies: 'nothing' },
+    { col: 'No_Empleado', scope_role: 'entity', nature_role: 'identifier', conf: 0.95 },
+    { col: 'Nombre', scope_role: 'entity', nature_role: 'name', conf: 0.90 },
+  ]));
+  assert.equal(r.classification, 'entity');
+});
+
+test('HF-368: no entity/transaction identifier → reference', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'Hub', scope_role: 'reference', nature_role: 'categorical', conf: 0.95 },
+    { col: 'Capacidad', scope_role: 'none', nature_role: 'measure', conf: 0.90 },
   ]));
   assert.equal(r.classification, 'reference');
-  assert.equal(r.confidence, 0.95); // strongest recognized column
+  assert.equal(r.confidence, 0.95);
 });
 
-// No measure at all + entity-scope id -> the sheet DEFINES entities (roster), not measures them.
-test('HF-367: entity-scope id, no measure -> entity', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'No_Empleado', nature: 'identifier', conf: 0.95, identifies: 'entity (the employee)' },
-    { col: 'Nombre', nature: 'name', conf: 0.90, identifies: 'entity (the person)' },
-  ]));
-  assert.equal(r.classification, 'entity');
-});
-
-// HF-351 F2 roster: entity-scope id + NAME + a Salario measure + a branch reference, NO period.
-// Not per-period performance → a salaried roster → entity. (No name/reference-key heuristic; it
-// is entity because there is an entity id and no period+measure performance pattern.)
-test('HF-367: salaried roster (entity id + name + measure + reference, NO period) -> entity', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'vendedor_id', nature: 'identifier', conf: 0.99, identifies: 'entity (the seller)' },
-    { col: 'Nombre', nature: 'name', conf: 0.95, identifies: 'entity (the person)' },
-    { col: 'sucursal', nature: 'categorical', conf: 0.93, identifies: 'reference (the branch)' },
-    { col: 'Salario', nature: 'measure amount', conf: 0.90, identifies: 'nothing' },
-  ]));
-  assert.equal(r.classification, 'entity');
-});
-
-// C2 FAIL-LOUD: the model recognized nothing usable (every data_nature is the producer's
-// `unknown` sentinel) → RAISE, never default to reference.
-test('HF-367: no recognition raises MissingRecognitionError (no silent default)', () => {
+// C2 fail-loud: the model rendered NO bare nature primitive for any column → absent → raise.
+test('HF-368: absent bare primitive → MissingRecognitionError (no default)', () => {
   assert.throws(
     () => deriveClassificationFromExpression(profileFrom([
-      { col: 'c0', nature: 'unknown', conf: 0.10, identifies: 'nothing' },
-      { col: 'c1', nature: '', conf: 0.10, identifies: 'nothing' },
-    ], 'MysterySheet')),
+      { col: 'a', conf: 0.5, identifies: 'entity (prose only)', data_nature: 'identifier (prose only)' },
+      { col: 'b', conf: 0.5 },
+    ], 'StaleSheet')),
     (err: unknown) => {
       assert.ok(err instanceof MissingRecognitionError);
-      assert.match((err as Error).message, /MysterySheet/);
-      assert.match((err as Error).message, /data_nature/);
+      assert.match((err as Error).message, /StaleSheet/);
       return true;
     },
   );
 });
 
-// C2 FAIL-LOUD: no header comprehension at all → RAISE.
-test('HF-367: absent header comprehension raises', () => {
-  const p = profileFrom([{ col: 'x', nature: 'identifier', conf: 0.9, identifies: 'entity' }]);
+// C2 fail-loud: the model rendered a NOVEL primitive outside the fixed set → raise, surfacing it.
+test('HF-368: novel scope primitive → PrimitiveRecognitionError surfacing the novel value', () => {
+  assert.throws(
+    () => deriveClassificationFromExpression(profileFrom([
+      { col: 'Producto', scope_role: 'product', nature_role: 'identifier', conf: 0.9 },
+    ], 'NovelSheet')),
+    (err: unknown) => {
+      assert.ok(err instanceof PrimitiveRecognitionError);
+      assert.match((err as Error).message, /NovelSheet/);
+      assert.match((err as Error).message, /product/);
+      return true;
+    },
+  );
+});
+
+test('HF-368: novel nature primitive → PrimitiveRecognitionError', () => {
+  assert.throws(
+    () => deriveClassificationFromExpression(profileFrom([
+      { col: 'X', scope_role: 'entity', nature_role: 'quantum', conf: 0.9 },
+    ])),
+    PrimitiveRecognitionError,
+  );
+});
+
+test('HF-368: absent header comprehension raises', () => {
+  const p = profileFrom([{ col: 'x', scope_role: 'entity', nature_role: 'identifier', conf: 0.9 }]);
   (p as { headerComprehension?: unknown }).headerComprehension = undefined;
   assert.throws(() => deriveClassificationFromExpression(p), MissingRecognitionError);
 });
 
-// The `characterization` prose is NEVER read: a column whose characterization is a misleading
-// "this is a reference / foreign key" sentence still classifies from its data_nature/identifies.
-test('HF-367: characterization prose is ignored (only identifies/data_nature drive the class)', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'ID', nature: 'identifier', conf: 0.98, identifies: 'entity (the employee)', char: 'A reference / foreign key / lookup / dimensional pointer used to reference other records' },
-    { col: 'Nombre', nature: 'name', conf: 0.9, identifies: 'entity (the person)' },
-  ]));
-  assert.equal(r.classification, 'entity'); // reference-words in the characterization no longer flip it
-});
-
-// Cached === atom === fresh: identical role assignments classify identically regardless of the
-// confidence scale the supplying layer used. (Confidence now reflects the model's confidence,
-// so it differs by scale — but the CLASSIFICATION, which drives the calc, is invariant.)
-test('HF-367: identical recognition classifies identically at any confidence', () => {
+// Identical recognition classifies identically at any confidence (cached === atom === fresh).
+test('HF-368: identical recognition classifies identically at any confidence', () => {
   const base = (conf: number) => [
-    { col: 'Folio', nature: 'identifier', conf, identifies: 'transaction (the sale)' },
-    { col: 'No_Empleado', nature: 'identifier', conf, identifies: 'entity (the employee)' },
+    { col: 'Folio', scope_role: 'transaction', nature_role: 'identifier', conf },
+    { col: 'No_Empleado', scope_role: 'entity', nature_role: 'identifier', conf },
     ...measures(conf),
-    { col: 'Mes', nature: 'temporal', conf },
   ];
   const fresh = deriveClassificationFromExpression(profileFrom(base(0.98)));
   const atom = deriveClassificationFromExpression(profileFrom(base(0.75)));
@@ -191,19 +171,4 @@ test('HF-367: identical recognition classifies identically at any confidence', (
   assert.equal(fresh.classification, atom.classification);
   assert.equal(atom.classification, flywheel.classification);
   assert.equal(fresh.classification, 'transaction');
-});
-
-// The winner's confidence clears the resolver's analyzeSplit gap (> 0.25 vs the synthesized
-// 0.05 losers) for real recognitions (the model's confidences are high). Verified against the
-// deciding-column confidence, which is what the direct read reports.
-test('HF-367: derived confidence clears the analyzeSplit single-winner gap for real recognition', () => {
-  const samples = [
-    profileFrom([{ col: 'ID', nature: 'identifier', conf: 0.99, identifies: 'entity (emp)' }, { col: 'n', nature: 'name', conf: 0.9, identifies: 'entity' }]),
-    profileFrom([{ col: 'Folio', nature: 'identifier', conf: 0.82, identifies: 'transaction (sale)' }, ...measures(0.8)]),
-    profileFrom([{ col: 'Hub', nature: 'categorical', conf: 0.90, identifies: 'reference (hub)' }]),
-  ];
-  for (const p of samples) {
-    const r = deriveClassificationFromExpression(p);
-    assert.ok(r.confidence - 0.05 > 0.25, `winner-vs-loser gap must exceed analyzeSplit 0.25 (got ${r.confidence})`);
-  }
 });

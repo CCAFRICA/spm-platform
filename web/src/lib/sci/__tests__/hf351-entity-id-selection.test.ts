@@ -65,24 +65,25 @@ test('F5: overlap beats a higher-overlap-but-not-quite tie — domain present bu
 
 // ── candidate collection from the HC trace ──
 
-const trace = (cols: Record<string, { identifies?: string; data_nature?: string; confidence?: number }>) => ({
+// HF-368: the resolver reads the MODEL's BARE primitives (scope_role/nature_role), not prose.
+const trace = (cols: Record<string, { scope_role?: string; nature_role?: string; confidence?: number }>) => ({
   headerComprehension: { interpretations: cols },
 });
 
 test('findHcEntityIdCandidates: returns ALL entity-scope identifiers; excludes txn-scope + low-confidence', () => {
   const t = trace({
-    DNI_Vendedor: { identifies: 'entity', data_nature: 'identifier', confidence: 0.99 },
-    Almacen: { identifies: 'entity', data_nature: 'identifier key', confidence: 0.95 },
-    Folio: { identifies: 'transaction', data_nature: 'identifier', confidence: 0.98 }, // txn-scope → excluded
-    Nombre: { identifies: 'entity', data_nature: 'name', confidence: 0.97 },           // name nature → excluded
-    Weak: { identifies: 'entity', data_nature: 'identifier', confidence: 0.50 },        // < threshold → excluded
+    DNI_Vendedor: { scope_role: 'entity', nature_role: 'identifier', confidence: 0.99 },
+    Almacen: { scope_role: 'entity', nature_role: 'identifier', confidence: 0.95 },
+    Folio: { scope_role: 'transaction', nature_role: 'identifier', confidence: 0.98 }, // txn-scope → excluded
+    Nombre: { scope_role: 'entity', nature_role: 'name', confidence: 0.97 },           // name nature → excluded
+    Weak: { scope_role: 'entity', nature_role: 'identifier', confidence: 0.50 },        // < threshold → excluded
   });
   const cands = findHcEntityIdCandidates(t);
   assert.deepEqual(cands, ['DNI_Vendedor', 'Almacen']);
 });
 
 test('findHcEntityIdColumn (backward compat) returns the FIRST candidate (single-candidate path unchanged)', () => {
-  const t = trace({ ID_Empleado: { identifies: 'entity', data_nature: 'identifier', confidence: 0.99 } });
+  const t = trace({ ID_Empleado: { scope_role: 'entity', nature_role: 'identifier', confidence: 0.99 } });
   assert.equal(findHcEntityIdColumn(t), 'ID_Empleado');
   assert.equal(findHcEntityIdColumn(undefined), null);
 });

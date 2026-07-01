@@ -843,8 +843,21 @@ Return a JSON object with:
 For each column, provide these characterization channels:
 - characterization: a free-form description, in your own words, of what this column IS and how it functions in the sheet (e.g., "the seller's national identity document number, unique per seller, used to group every transaction by salesperson"; "the monthly gross-sales amount in soles"; "the calendar month the row covers").
 - dataExpectation: what the values should look like (e.g., "integer_1_to_12", "unique_numeric_id", "decimal_0_to_1").
-- identifies: your assessment of WHAT SCOPE this column identifies. Write the scope in your own words — for example: entity (a person/seller/employee/account that recurs across many rows), transaction (a per-row receipt/folio/invoice/order id), product, reference (a dimensional lookup key), or nothing (it identifies no scope). This tells downstream systems whether a column groups rows by a recurring entity or merely labels each individual record. Be precise: a seller's id "identifies": "entity"; a receipt/folio number "identifies": "transaction".
-- data_nature: your assessment of the column's DATA NATURE in your own words — for example: identifier, measure, temporal, categorical, name, computed. Not a selection from a list — describe it as you see it.
+- identifies: a free-form sentence, in your own words, describing WHAT this column identifies and why (used for display/audit only). Explain the scope you see; do not pick from a list.
+- data_nature: a free-form sentence, in your own words, describing the column's data nature (used for display/audit only). Describe it as you see it; do not pick from a list.
+- scope_role: which of the platform's THREE fixed structural ROLES this column plays. Reply with EXACTLY ONE bare token, no other words:
+    - "entity"      — the column identifies a recurring subject the rows are ABOUT and group by (it repeats across many rows).
+    - "transaction" — the column identifies a distinct per-row event/record (one value per row; the rows ARE the events).
+    - "reference"   — the column identifies a dimensional lookup / grouping category the rows point to.
+    - "none"        — the column identifies no scope (e.g. a measured amount, a date, a descriptive attribute).
+  Decide from your OWN understanding of the column in ANY language — do not match words. Put all explanation in the characterization field, not here.
+- nature_role: which of the platform's FIVE fixed value-NATURES this column is. Reply with EXACTLY ONE bare token, no other words:
+    - "identifier"  — a key whose value names a subject/event (an id, document number, code).
+    - "measure"     — a quantitative/monetary value that is summed or aggregated.
+    - "temporal"    — a point or span in time (a date, month, period).
+    - "name"        — a human-readable label/name for a subject.
+    - "categorical" — a discrete category/attribute that is neither an id, a measure, a time, nor a name.
+  Decide from your OWN understanding in ANY language — do not match words. Put all explanation in the characterization field.
 - relationships: an array of free-form observations about how this column relates to OTHER columns in the sheet (e.g., "pairs with Nombre_Vendedor, which is this entity's display name"; "this amount is the sum the rate column is applied to"). Empty array if none.
 - confidence: 0.0 to 1.0.
 
@@ -860,6 +873,8 @@ Respond ONLY with valid JSON, no preamble, no markdown:
           "dataExpectation": "...",
           "identifies": "...",
           "data_nature": "...",
+          "scope_role": "entity | transaction | reference | none",
+          "nature_role": "identifier | measure | temporal | name | categorical",
           "relationships": ["...", "..."],
           "confidence": 0.00
         }

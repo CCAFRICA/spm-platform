@@ -73,6 +73,9 @@ export interface LLMHeaderResponse {
     dataExpectation?: string;
     identifies?: string;
     data_nature?: string;
+    // HF-368: the model's BARE structural primitives (the fixed roles/natures it names).
+    scope_role?: string;
+    nature_role?: string;
     relationships?: string[];
     confidence: number;
   }> }>;
@@ -318,6 +321,10 @@ function buildComprehensionFromLLM(
         dataExpectation: interp.dataExpectation || 'unknown',
         data_nature: interp.data_nature || 'unknown',
         identifies: interp.identifies || 'nothing',
+        // HF-368: carry the model's bare primitives through verbatim (undefined if the model
+        // omitted them → the bridge fails loud; never defaulted here).
+        scope_role: interp.scope_role,
+        nature_role: interp.nature_role,
         relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
         confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
       });
@@ -480,6 +487,8 @@ export async function runDecomposedComprehension(
               dataExpectation: interp.dataExpectation || 'unknown',
               data_nature: interp.data_nature || 'unknown',
               identifies: interp.identifies || 'nothing',
+              scope_role: interp.scope_role,
+              nature_role: interp.nature_role,
               relationships: Array.isArray(interp.relationships) ? interp.relationships : [],
               confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
             };
@@ -534,6 +543,10 @@ export async function runDecomposedComprehension(
         dataExpectation: '',
         data_nature: k.role,
         identifies: k.identifies ?? 'nothing',
+        // HF-368: the model's bare primitives, recalled from the atom (legacy atoms → undefined →
+        // the bridge fails loud → the sheet re-imports fresh with the primitives).
+        scope_role: k.scope_role,
+        nature_role: k.nature_role,
         relationships: k.relationships ?? [],
         confidence: k.confidence,
       });
@@ -541,7 +554,7 @@ export async function runDecomposedComprehension(
     // novel atoms -> full LLM interpretation (characterization text present -> currency suppression can fire here).
     for (const c of (r.comprehendedColumns ?? [])) {
       const i = c.interpretation;
-      interpretations.set(c.columnName, { columnName: c.columnName, characterization: i.characterization, dataExpectation: i.dataExpectation, data_nature: i.data_nature, identifies: i.identifies, relationships: i.relationships ?? [], confidence: i.confidence });
+      interpretations.set(c.columnName, { columnName: c.columnName, characterization: i.characterization, dataExpectation: i.dataExpectation, data_nature: i.data_nature, identifies: i.identifies, scope_role: i.scope_role, nature_role: i.nature_role, relationships: i.relationships ?? [], confidence: i.confidence });
     }
 
     profile.headerComprehension = {
@@ -622,6 +635,7 @@ export function extractFieldIdentities(
       structuralType: interp.data_nature,
       contextualIdentity: interp.characterization,
       confidence: interp.confidence,
+      natureRole: interp.nature_role, // HF-368: bare nature primitive — remediation reads THIS, not the prose
     };
   }
 
@@ -638,7 +652,7 @@ export function extractFieldIdentitiesFromTrace(
   if (!classificationTrace) return null;
 
   const hcData = classificationTrace.headerComprehension as
-    { interpretations?: Record<string, { data_nature?: string; characterization?: string; confidence?: number }> } | null;
+    { interpretations?: Record<string, { data_nature?: string; characterization?: string; confidence?: number; nature_role?: string }> } | null;
 
   if (!hcData?.interpretations) return null;
 
@@ -648,6 +662,7 @@ export function extractFieldIdentitiesFromTrace(
       structuralType: interp.data_nature || 'unknown',
       contextualIdentity: interp.characterization || 'unknown',
       confidence: typeof interp.confidence === 'number' ? interp.confidence : 0.5,
+      natureRole: interp.nature_role, // HF-368: bare nature primitive for remediation
     };
   }
 

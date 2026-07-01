@@ -1,3 +1,8 @@
+// HF-368 — reads the model's BARE structural PRIMITIVE (`scope_role`/`nature_role`) by equality
+// against the fixed primitive set (structural-primitives.ts). The bilingual word-list registry
+// scope-predicates.ts (which HF-367 read and grew) is DELETED; the model — not a developer word
+// list — names which primitive each column is. No regex over the model's prose survives here.
+//
 // HF-367 — Direct read of the model's recognition (eradicates the keyword-scan classifier
 // and the HF-364 structural-dominance derivation).
 //
@@ -24,30 +29,30 @@
 //     classification at all — the model already produces it via `identifies` / `data_nature`.
 //   • Both silent `→ reference@0.50` defaults. A missing recognition is now a loud error.
 //
-// WHAT REPLACES BOTH: a direct read. Per column, the model's dedicated `identifies` (scope)
-// and `data_nature` (nature) channels are read via the single-source scope-predicates — the
-// SAME canonical surface the entity-id resolver (commit-content-unit.ts) reads on the SAME
-// `identifies` channel. The `characterization` prose is NEVER read here. The sheet class is
-// constructed with plain booleans:
-//   • a column the model scopes as a TRANSACTION identifier → the rows are events → transaction;
-//   • else a column the model scopes as an ENTITY identifier, WITH period + measures → per-period
-//     performance over that entity (NOT a roster) → transaction (DIAG-080: never entity);
+// WHAT REPLACES BOTH (updated by HF-368): a direct read of the model's BARE structural
+// PRIMITIVES. HF-367 read `identifies` / `data_nature` PROSE via the bilingual word-list registry
+// scope-predicates.ts; HF-368 DELETED that registry. Per column, the model now names the bare
+// primitive it emits — `scope_role` ∈ {entity,transaction,reference,none}, `nature_role` ∈
+// {identifier,measure,temporal,name,categorical} — read here by EQUALITY against the fixed set
+// (structural-primitives.ts). The prose (`identifies`/`data_nature`/`characterization`) is NEVER
+// read here. The sheet class is constructed with plain booleans:
+//   • a column the model scopes TRANSACTION + identifier → the rows are events → transaction;
+//   • else a column scoped ENTITY + identifier, WITH period + measures → per-period performance
+//     over that entity (NOT a roster) → transaction (DIAG-080: never entity);
 //   • else an ENTITY identifier, without per-period measures → a roster/master → entity;
 //   • else no entity- and no transaction-identifying column → a dimensional lookup → reference.
-// No weighted scoring, no facet summing, no cardinality/uniqueness check, no default-on-absence.
+// No word list, no regex over the model's text, no scoring, no cardinality, no default-on-absence.
 //
-// Korean Test: the model emits `identifies` / `data_nature` as FREE-FORM PROSE by design
-// (producer prompt: "do NOT select from a fixed list"; OB-231). Reading prose to a concept
-// therefore uses the platform's canonical MULTILINGUAL structural word-class predicates
-// (scope-predicates.ts) — structural, extensible by recognition, single-source, never a
-// column name, never a value-content check, never a row-count ratio, never the prose blob.
+// Korean Test: the multilingual MODEL maps its own recognition (in ANY language) onto the fixed
+// primitive; the code compares the bare token to the fixed architecture — never a developer
+// synonym list. A Korean roster classifies with NO developer edit.
 //
-// C2 FAIL-LOUD: if the model recognized NOTHING usable (no header comprehension, or every
-// column's `data_nature` is empty / the producer's `unknown` sentinel), this raises a
-// structured error naming the sheet and the missing field — it does NOT guess or default.
+// C2 FAIL-LOUD: no header comprehension, or no column carrying a bare `nature_role` → raise
+// MissingRecognitionError (absent). A `scope_role`/`nature_role` OUTSIDE the fixed set → raise
+// PrimitiveRecognitionError (novel). Never a default, never a word-match fallback.
 
 import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
-import { ENTITY_SCOPE, TXN_SCOPE, IDENTIFIER_NATURE, MEASURE_NATURE, TEMPORAL_NATURE } from './scope-predicates';
+import { validateScope, validateNature } from './structural-primitives';
 
 export interface ExpressionClassification {
   classification: AgentType;
@@ -55,32 +60,24 @@ export interface ExpressionClassification {
   matchedConditions: string[];
 }
 
-// Raised when the model produced no recognition to read. C2: a comprehension gap is surfaced
-// loudly, never papered over with a default classification.
+// Raised when the model produced no bare-primitive recognition to read. C2: a comprehension gap
+// is surfaced loudly, never papered over with a default classification. (A NOVEL primitive — one
+// outside the fixed set — raises PrimitiveRecognitionError from structural-primitives.ts instead.)
 export class MissingRecognitionError extends Error {
   constructor(sheet: string, missing: string) {
-    super(`HF-367: cannot classify sheet "${sheet}" — the model's recognition is absent (${missing}). ` +
-      `The classification is READ from the model's per-column identifies/data_nature; there is no default. ` +
-      `Fix at the comprehension layer (the model must emit the recognition), not here.`);
+    super(`HF-368: cannot classify sheet "${sheet}" — the model's bare primitive recognition is absent (${missing}). ` +
+      `The classification is READ from the model's per-column scope_role/nature_role; there is no word-list fallback and no default. ` +
+      `Fix at the comprehension layer (the model must render the bare primitive), not here.`);
     this.name = 'MissingRecognitionError';
   }
 }
 
-// The producer's non-recognition sentinel for `data_nature` (header-comprehension.ts /
-// decomposed-comprehension.ts write exactly `'unknown'` when the model recognized nothing).
-// A column is "recognized" when its dedicated `data_nature` channel carries a real assessment.
+// HF-368 — read the MODEL's bare structural PRIMITIVE (never the prose, never a word list).
+// A column is "recognized" when the model rendered its bare `nature_role`. The scope/nature are
+// compared by EQUALITY against the fixed primitive (structural-primitives.ts) — no regex.
 function isRecognized(interp: HeaderInterpretation): boolean {
-  const nature = (interp.data_nature ?? '').trim();
-  return nature.length > 0 && nature.toLowerCase() !== 'unknown';
+  return !!(interp.nature_role && interp.nature_role.trim());
 }
-
-// ── Per-column reads of the model's DEDICATED channels (never `characterization`) ──
-// scope ← `identifies`; nature ← `data_nature`. Each is a single-source structural read.
-const scopeIsEntity = (i: HeaderInterpretation) => ENTITY_SCOPE.test(i.identifies ?? '');
-const scopeIsTxn = (i: HeaderInterpretation) => TXN_SCOPE.test(i.identifies ?? '');
-const natureIsIdentifier = (i: HeaderInterpretation) => IDENTIFIER_NATURE.test(i.data_nature ?? '');
-const natureIsMeasure = (i: HeaderInterpretation) => MEASURE_NATURE.test(i.data_nature ?? '');
-const natureIsTemporal = (i: HeaderInterpretation) => TEMPORAL_NATURE.test(i.data_nature ?? '');
 
 // ============================================================
 // EXPRESSION → CLASSIFICATION  (read the model, construct the sheet class)
@@ -92,17 +89,26 @@ export function deriveClassificationFromExpression(profile: ContentProfile): Exp
 
   // C2 fail-loud: the model must have produced recognition to read.
   if (!hc) throw new MissingRecognitionError(sheet, 'no header comprehension');
-  const recognized = Array.from(hc.interpretations.values()).filter(isRecognized);
-  if (recognized.length === 0) {
-    throw new MissingRecognitionError(sheet, 'no column carries a usable data_nature (all empty or "unknown")');
+
+  // Validate every column's bare primitives against the FIXED set — a NOVEL scope/nature (the
+  // model recognized something outside our primitives) raises loudly (never word-matched away).
+  const all = Array.from(hc.interpretations.values());
+  for (const i of all) {
+    validateScope(sheet, i.columnName, i.scope_role);
+    validateNature(sheet, i.columnName, i.nature_role);
   }
 
-  // The model's per-column recognition, as the model expressed it. An identifier column the
-  // model scoped as a TRANSACTION identifies an event; as an ENTITY, a recurring entity.
-  const txnIdCol = recognized.find(i => natureIsIdentifier(i) && scopeIsTxn(i));
-  const entityIdCol = recognized.find(i => natureIsIdentifier(i) && scopeIsEntity(i));
-  const hasMeasure = recognized.some(natureIsMeasure);
-  const hasPeriod = recognized.some(natureIsTemporal);
+  const recognized = all.filter(isRecognized);
+  if (recognized.length === 0) {
+    throw new MissingRecognitionError(sheet, 'no column carries a bare nature_role — the model rendered no structural primitive');
+  }
+
+  // The model's per-column recognition, read by EQUALITY against the fixed primitive. An
+  // identifier the model scopes as a TRANSACTION identifies an event; as an ENTITY, a recurring entity.
+  const txnIdCol = recognized.find(i => i.nature_role === 'identifier' && i.scope_role === 'transaction');
+  const entityIdCol = recognized.find(i => i.nature_role === 'identifier' && i.scope_role === 'entity');
+  const hasMeasure = recognized.some(i => i.nature_role === 'measure');
+  const hasPeriod = recognized.some(i => i.nature_role === 'temporal');
 
   // Construct the sheet class from what the model recognized. Confidence = the model's own
   // confidence in the deciding recognition (Decision 158) — not a synthesized constant.

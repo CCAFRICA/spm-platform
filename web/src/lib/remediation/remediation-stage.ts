@@ -19,7 +19,6 @@
 // a classifier) is also the I4 way.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IDENTIFIER_NATURE } from '@/lib/sci/scope-predicates';
 import type {
   RemediationAgent,
   RemediationInput,
@@ -38,10 +37,11 @@ import {
 
 const SYNTHETIC_KEYS = new Set(['_sheetName', '_rowIndex']);
 
-// Non-text natures that must NEVER be rewritten as variant text. Matched against the platform's
-// OWN structural nature/role/identity vocabulary (the same surface commitContentUnit + field-
-// identities.ts write) — not external field names, so Korean Test holds.
-const MEASURE_TEMPORAL_NATURE = /\b(meas\w*|tempor\w*|date\w*|numeric|amount|count|currency|percent\w*|rate|threshold|period)\b/i;
+// HF-368: the fixed NATURE primitives that must NEVER be rewritten as variant text. Read by
+// EQUALITY against the model's bare `natureRole` (field_identities), never a regex over the prose
+// `structuralType`. `identifier`/`measure`/`temporal` are protected; `name`/`categorical` stay
+// remediation-eligible. Comparing to the platform's fixed primitives is not a word list.
+const NON_TEXT_NATURES: ReadonlySet<string> = new Set(['identifier', 'measure', 'temporal']);
 // Precise role-token scan (NOT the broad identifier regex, which false-positives on attribute
 // roles like `category_code` / `descriptive_label`). Matches only the platform's actual
 // identifier / key / measure / temporal SemanticRole tokens, so genuine text-attribute roles
@@ -49,7 +49,7 @@ const MEASURE_TEMPORAL_NATURE = /\b(meas\w*|tempor\w*|date\w*|numeric|amount|cou
 const NON_TEXT_ROLE = /(identifier|reference_key|amount|count|target|baseline|rate_value|tier|payout|date|period_marker)/i;
 
 type SemanticRolesMap = Record<string, { role?: string } | undefined>;
-type FieldIdentitiesMap = Record<string, { structuralType?: string; contextualIdentity?: string } | undefined>;
+type FieldIdentitiesMap = Record<string, { structuralType?: string; contextualIdentity?: string; natureRole?: string } | undefined>;
 
 /**
  * The hard exclusion set: columns remediation may never touch. Protects the calc join key, all
@@ -68,15 +68,13 @@ export function computeRemediationExclusions(
     if (SYNTHETIC_KEYS.has(col)) { excluded.add(col); continue; }
     const fi = fieldIdentities[col];
     const sr = semanticRoles[col];
-    const structuralType = `${fi?.structuralType ?? ''}`;
-    const contextualIdentity = `${fi?.contextualIdentity ?? ''}`;
+    const natureRole = `${fi?.natureRole ?? ''}`;
     const role = `${sr?.role ?? ''}`;
-    // PRIMARY signal: the controlled structuralType enum (identifier/measure/temporal/attribute/name).
-    if (IDENTIFIER_NATURE.test(structuralType) || MEASURE_TEMPORAL_NATURE.test(structuralType)) { excluded.add(col); continue; }
-    // SAFETY NET on the (sometimes free-form) contextualIdentity — conservative: a description
-    // column whose identity sentence mentions id/measure words is left untouched (safe failure).
-    if (MEASURE_TEMPORAL_NATURE.test(contextualIdentity) || IDENTIFIER_NATURE.test(contextualIdentity)) { excluded.add(col); continue; }
-    // ROLE token scan (precise — keeps category_code / descriptive_label / entity_name eligible).
+    // PRIMARY signal (HF-368): the model's BARE nature primitive — protect identifier/measure/temporal
+    // by equality against the fixed set (no regex over prose; the deleted scope-predicates surface).
+    if (NON_TEXT_NATURES.has(natureRole)) { excluded.add(col); continue; }
+    // ROLE token scan over the platform's CONTROLLED SemanticRole enum (assigned tokens, NOT model
+    // recognition prose) — precise; keeps category_code / descriptive_label / entity_name eligible.
     if (NON_TEXT_ROLE.test(role)) { excluded.add(col); continue; }
   }
   return excluded;
