@@ -1,39 +1,49 @@
 /**
- * HF-341 R6 — deriveClassificationFromExpression (replaces the deleted heuristic
- * classifyByHCPattern + the Bayesian CRR scorer). The classification is now derived
- * SOLELY from the LLM's free-form expression (data_nature / identifies). These tests
- * assert the BEHAVIOR that drives the calc:
- *   • the expression decides the data nature (a transaction-scope id → transaction;
- *     entity-scope id + measure → target; no measure → entity; reference-key → reference);
- *   • it ALWAYS produces a classification (no coverage-gate null — there is no Level-2
- *     to hand off to);
- *   • identical role assignments produce an identical classification regardless of the
- *     confidence scale the supplying layer used (the R4/R5 cached === atom === fresh
- *     guarantee — the real cached-vs-fresh divergence protection).
+ * HF-367 — deriveClassificationFromExpression is now a DIRECT READ of the model's per-column
+ * recognition (the `identifies` scope + `data_nature` nature the model assessed, OB-231). The
+ * keyword-scan predicates (Layer A) and the HF-364 structural-dominance derivation (Layer B)
+ * are DELETED. These tests assert the constructed behavior that drives the calc:
+ *   • a transaction-scope identifier → transaction (rows are events);
+ *   • an entity-scope identifier + period + measures → transaction (per-period performance,
+ *     NEVER entity — the DIAG-080 fix);
+ *   • an entity-scope identifier without per-period measures → entity (roster/master);
+ *   • no entity- and no transaction-identifying column → reference (dimensional lookup);
+ *   • NO default on absent recognition — it RAISES (C2 fail-loud);
+ *   • the classification is identical regardless of the confidence scale the supplying layer
+ *     used (cached === atom === fresh).
  * Runner: node --test --import tsx.
  */
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import {
   deriveClassificationFromExpression,
-  buildDominanceFacets,
-  classifyByDominance,
-  type StructuralSignals,
+  MissingRecognitionError,
 } from '../expression-classifier';
 import type { ContentProfile, HeaderInterpretation } from '../sci-types';
 
-function profileFrom(roles: Array<{ col: string; role: string; conf: number; identifies?: string }>): ContentProfile {
+// Build a profile from per-column model recognition. `nature` → data_nature (the dedicated
+// nature channel), `identifies` → the dedicated scope channel. `char` (characterization) is
+// set to a DELIBERATELY MISLEADING prose sentence in some tests to prove it is NEVER read.
+function profileFrom(
+  cols: Array<{ col: string; nature: string; conf: number; identifies?: string; char?: string }>,
+  tab = 'Datos',
+): ContentProfile {
   const interpretations = new Map<string, HeaderInterpretation>();
-  for (const r of roles) {
+  for (const r of cols) {
     interpretations.set(r.col, {
-      columnName: r.col, characterization: r.role, dataExpectation: '',
-      data_nature: r.role, identifies: r.identifies ?? '', relationships: [], confidence: r.conf,
+      columnName: r.col,
+      characterization: r.char ?? r.nature,
+      dataExpectation: '',
+      data_nature: r.nature,
+      identifies: r.identifies ?? 'nothing',
+      relationships: [],
+      confidence: r.conf,
     });
   }
   return {
-    contentUnitId: 'cu', sourceFile: 'f.xlsx', tabName: 'Datos', tabIndex: 0,
+    contentUnitId: 'cu', sourceFile: 'f.xlsx', tabName: tab, tabIndex: 0,
     structure: {
-      rowCount: 200, columnCount: roles.length, sparsity: 0, headerQuality: 'clean',
+      rowCount: 200, columnCount: cols.length, sparsity: 0, headerQuality: 'clean',
       numericFieldRatio: 0.7, categoricalFieldRatio: 0.1, categoricalFieldCount: 1,
       identifierRepeatRatio: 1.0,
     },
@@ -48,244 +58,152 @@ function profileFrom(roles: Array<{ col: string; role: string; conf: number; ide
   } as ContentProfile;
 }
 
-const measures = (conf: number) => Array.from({ length: 12 }, (_, i) => ({ col: `m${i}`, role: 'measure', conf }));
+const measures = (conf: number) => Array.from({ length: 12 }, (_, i) => ({ col: `m${i}`, nature: 'measure', conf }));
 
-// A per-row TRANSACTION-scope identifier (an event id, e.g. Folio) — the LLM expressed
-// that the sheet records events → transaction. Driven by `identifies`, not a ratio.
-test('transaction-scope identifier (per-row event id) -> transaction', () => {
+// ── THE HF-367 FIX: the BCL Plantilla (real model output). An all-text employee roster.
+// The model scopes ID_Empleado as an entity identifier @0.99. The OLD classifier flipped it
+// to reference because the *characterization* prose ("…used to reference employees", "foreign
+// key", "…may also reference branch IDs") contained reference-words. The direct read reads the
+// dedicated identifies/data_nature channels and NEVER the characterization → entity. ──
+test('HF-367: BCL Plantilla (real model output) classifies as entity (was reference)', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'Folio', role: 'identifier', conf: 0.95, identifies: 'the sales transaction' },
-    { col: 'DNI_Vendedor', role: 'identifier', conf: 0.97, identifies: 'the seller' },
+    { col: 'ID_Empleado', nature: 'identifier', conf: 0.99, identifies: 'entity (an individual employee who may recur across many records and sheets)', char: 'A unique alphanumeric identifier assigned to each employee, used to reference employees across sheets' },
+    { col: 'ID_Gerente', nature: 'identifier (foreign key referencing ID_Empleado in the same sheet)', conf: 0.99, identifies: 'entity (references another employee who is a manager)', char: 'The employee ID of this employee\'s direct manager — a foreign key' },
+    { col: 'Nombre_Completo', nature: 'name', conf: 0.99, identifies: 'entity (the human person behind the employee record)', char: 'The full legal name of the employee' },
+    { col: 'Sucursal_ID', nature: 'categorical identifier', conf: 0.82, identifies: 'reference (a branch or organizational unit that groups employees)', char: 'An identifier indicating which branch the employee belongs to; may also reference branch IDs' },
+    { col: 'Region', nature: 'categorical', conf: 0.96, identifies: 'reference (a geographic territory grouping employees)', char: 'The geographic region' },
+    { col: 'Nivel_Cargo', nature: 'categorical', conf: 0.97, identifies: 'reference (a seniority tier that categorizes multiple employees)' },
+    { col: 'Cargo', nature: 'categorical', conf: 0.97, identifies: 'nothing (describes a property of the employee)' },
+    { col: 'Fecha_Ingreso', nature: 'temporal', conf: 0.99, identifies: 'nothing (a temporal attribute of the employee record)' },
+  ], 'BCL_Plantilla'));
+  assert.equal(r.classification, 'entity');
+  assert.equal(r.confidence, 0.99); // the model's confidence in ID_Empleado — not a synthesized constant
+  assert.ok(r.matchedConditions.some(c => c.includes('ID_Empleado') && /entity identifier/.test(c)));
+});
+
+// A per-row TRANSACTION-scope identifier (Folio) — the model scoped the sheet as recording
+// events → transaction. Driven by the model's `identifies`, not a ratio.
+test('HF-367: transaction-scope identifier (per-row event id) -> transaction', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'Folio', nature: 'identifier', conf: 0.95, identifies: 'transaction (the sales receipt / folio)' },
+    { col: 'DNI_Vendedor', nature: 'identifier', conf: 0.97, identifies: 'entity (the seller)' },
     ...measures(0.80),
-    { col: 'Mes', role: 'temporal', conf: 0.30 },
+    { col: 'Mes', nature: 'temporal', conf: 0.30 },
   ]));
   assert.equal(r.classification, 'transaction');
-  assert.ok(r.matchedConditions.some(c => c.includes('transaction-scope identifier')));
+  assert.ok(r.matchedConditions.some(c => c.includes('Folio') && /transaction identifier/.test(c)));
 });
 
-// An entity-scope identifier + measures, no event id, no reference key -> per-entity
-// records (target). The event discriminant is the LLM's expressed scope, never a ratio.
-test('entity-scoped identifier + measure, no event id -> target', () => {
+// DIAG-080: BCL datos — entity-scope id + name + PERIOD + measures. Per-period performance
+// over the entity → transaction, NEVER entity (the old Branch 2.5 called it entity → $0).
+test('HF-367 / DIAG-080: entity-scope id + period + measures is transaction, never entity', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'No_Empleado', role: 'identifier', conf: 0.95, identifies: 'the employee' },
-    ...measures(0.80),
-    { col: 'Mes', role: 'temporal', conf: 0.30 },
+    { col: 'ID_Empleado', nature: 'identifier', conf: 0.97, identifies: 'entity (an individual employee)' },
+    { col: 'Nombre_Completo', nature: 'name', conf: 0.95, identifies: 'entity (the person)' },
+    { col: 'Periodo', nature: 'temporal period', conf: 0.90, identifies: 'nothing' },
+    { col: 'Sucursal', nature: 'categorical', conf: 0.90, identifies: 'reference (the branch)' },
+    ...measures(0.85),
   ]));
-  assert.equal(r.classification, 'target');
+  assert.notEqual(r.classification, 'entity');
+  assert.equal(r.classification, 'transaction');
+  assert.ok(r.matchedConditions.some(c => /per-period performance/.test(c)));
 });
 
-// A reference key with no entity identifier -> dimensional reference (lookup table).
-test('reference key, no identifier -> reference', () => {
+// A reference key with no entity- and no transaction-identifier -> dimensional reference.
+test('HF-367: no entity/transaction identifier -> reference', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'Hub', role: 'reference key to the hub', conf: 0.95 },
-    { col: 'Capacidad', role: 'measure', conf: 0.90 },
+    { col: 'Hub', nature: 'categorical', conf: 0.95, identifies: 'reference (the distribution hub)' },
+    { col: 'Capacidad', nature: 'measure', conf: 0.90, identifies: 'nothing' },
   ]));
   assert.equal(r.classification, 'reference');
+  assert.equal(r.confidence, 0.95); // strongest recognized column
 });
 
-// No measure at all -> the sheet DEFINES entities (roster), not measures them.
-test('no measure -> entity', () => {
+// No measure at all + entity-scope id -> the sheet DEFINES entities (roster), not measures them.
+test('HF-367: entity-scope id, no measure -> entity', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'No_Empleado', role: 'identifier', conf: 0.95, identifies: 'the employee' },
-    { col: 'Nombre', role: 'name', conf: 0.90 },
+    { col: 'No_Empleado', nature: 'identifier', conf: 0.95, identifies: 'entity (the employee)' },
+    { col: 'Nombre', nature: 'name', conf: 0.90, identifies: 'entity (the person)' },
   ]));
   assert.equal(r.classification, 'entity');
 });
 
-// R6: there is NO coverage gate and NO Level-2 fallback — the function ALWAYS returns a
-// classification. A sheet with no recognized expression defaults to reference (loud).
-test('always returns — empty/unrecognized expression defaults to reference (no null)', () => {
+// HF-351 F2 roster: entity-scope id + NAME + a Salario measure + a branch reference, NO period.
+// Not per-period performance → a salaried roster → entity. (No name/reference-key heuristic; it
+// is entity because there is an entity id and no period+measure performance pattern.)
+test('HF-367: salaried roster (entity id + name + measure + reference, NO period) -> entity', () => {
   const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'c0', role: 'unknown', conf: 0.10 },
-    { col: 'c1', role: 'unknown', conf: 0.10 },
+    { col: 'vendedor_id', nature: 'identifier', conf: 0.99, identifies: 'entity (the seller)' },
+    { col: 'Nombre', nature: 'name', conf: 0.95, identifies: 'entity (the person)' },
+    { col: 'sucursal', nature: 'categorical', conf: 0.93, identifies: 'reference (the branch)' },
+    { col: 'Salario', nature: 'measure amount', conf: 0.90, identifies: 'nothing' },
   ]));
-  assert.equal(r.classification, 'reference');
-  assert.ok(r.matchedConditions.some(c => /defaulted/.test(c)));
+  assert.equal(r.classification, 'entity');
 });
 
-// THE load-bearing invariant (R4/R5 cached === atom === fresh): identical role
-// assignments classify identically regardless of the confidence scale the supplying
-// layer used (LLM ~0.95, atom recognition, sheet-flywheel 0.30). Protects against the
-// cached-vs-fresh divergence the whole HF-341 R4/R5/R6 arc fixed.
-test('identical role assignments classify identically at any confidence', () => {
+// C2 FAIL-LOUD: the model recognized nothing usable (every data_nature is the producer's
+// `unknown` sentinel) → RAISE, never default to reference.
+test('HF-367: no recognition raises MissingRecognitionError (no silent default)', () => {
+  assert.throws(
+    () => deriveClassificationFromExpression(profileFrom([
+      { col: 'c0', nature: 'unknown', conf: 0.10, identifies: 'nothing' },
+      { col: 'c1', nature: '', conf: 0.10, identifies: 'nothing' },
+    ], 'MysterySheet')),
+    (err: unknown) => {
+      assert.ok(err instanceof MissingRecognitionError);
+      assert.match((err as Error).message, /MysterySheet/);
+      assert.match((err as Error).message, /data_nature/);
+      return true;
+    },
+  );
+});
+
+// C2 FAIL-LOUD: no header comprehension at all → RAISE.
+test('HF-367: absent header comprehension raises', () => {
+  const p = profileFrom([{ col: 'x', nature: 'identifier', conf: 0.9, identifies: 'entity' }]);
+  (p as { headerComprehension?: unknown }).headerComprehension = undefined;
+  assert.throws(() => deriveClassificationFromExpression(p), MissingRecognitionError);
+});
+
+// The `characterization` prose is NEVER read: a column whose characterization is a misleading
+// "this is a reference / foreign key" sentence still classifies from its data_nature/identifies.
+test('HF-367: characterization prose is ignored (only identifies/data_nature drive the class)', () => {
+  const r = deriveClassificationFromExpression(profileFrom([
+    { col: 'ID', nature: 'identifier', conf: 0.98, identifies: 'entity (the employee)', char: 'A reference / foreign key / lookup / dimensional pointer used to reference other records' },
+    { col: 'Nombre', nature: 'name', conf: 0.9, identifies: 'entity (the person)' },
+  ]));
+  assert.equal(r.classification, 'entity'); // reference-words in the characterization no longer flip it
+});
+
+// Cached === atom === fresh: identical role assignments classify identically regardless of the
+// confidence scale the supplying layer used. (Confidence now reflects the model's confidence,
+// so it differs by scale — but the CLASSIFICATION, which drives the calc, is invariant.)
+test('HF-367: identical recognition classifies identically at any confidence', () => {
   const base = (conf: number) => [
-    { col: 'Folio', role: 'identifier', conf, identifies: 'the sales transaction' },
-    { col: 'No_Empleado', role: 'identifier', conf, identifies: 'the employee' },
+    { col: 'Folio', nature: 'identifier', conf, identifies: 'transaction (the sale)' },
+    { col: 'No_Empleado', nature: 'identifier', conf, identifies: 'entity (the employee)' },
     ...measures(conf),
-    { col: 'Mes', role: 'temporal', conf },
+    { col: 'Mes', nature: 'temporal', conf },
   ];
   const fresh = deriveClassificationFromExpression(profileFrom(base(0.98)));
   const atom = deriveClassificationFromExpression(profileFrom(base(0.75)));
   const flywheel = deriveClassificationFromExpression(profileFrom(base(0.30)));
   assert.equal(fresh.classification, atom.classification);
   assert.equal(atom.classification, flywheel.classification);
+  assert.equal(fresh.classification, 'transaction');
 });
 
-// ── HF-351 F2: a salaried roster (Personal) with a branch column is NOT a transaction ──
-
-test('HF-351 F2: salaried roster — entity-scope id + NAME + measure + reference-key, NO event id -> entity', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'vendedor_id', role: 'identifier', conf: 0.99, identifies: 'the seller' },
-    { col: 'Nombre', role: 'name', conf: 0.95 },
-    { col: 'sucursal', role: 'reference key to the branch / dimensional lookup', conf: 0.93 },
-    { col: 'Salario', role: 'measure amount', conf: 0.90 },
-  ]));
-  // pre-HF-351 this hit Branch 3 (identifier + reference-key → transaction); now entity.
-  assert.equal(r.classification, 'entity');
-  assert.ok(r.matchedConditions.some(c => /roster\/master/.test(c)));
-});
-
-test('HF-351 F2 neutrality: a target/quota sheet (NO name) stays target even with the new branch', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'No_Empleado', role: 'identifier', conf: 0.95, identifies: 'the employee' },
-    { col: 'Sucursal', role: 'reference key to the branch', conf: 0.93 },
-    ...measures(0.80),
-  ]));
-  assert.equal(r.classification, 'transaction'); // reference-key + measure + no name + no entity-only signal → unchanged Branch 3
-});
-
-test('HF-351 F2 neutrality: a transaction with a folio event id + a denormalized name stays transaction', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'Folio', role: 'identifier', conf: 0.95, identifies: 'the sales transaction' },
-    { col: 'vendedor_id', role: 'identifier', conf: 0.97, identifies: 'the seller' },
-    { col: 'Nombre_Vendedor', role: 'name', conf: 0.90 },  // denormalized name present
-    ...measures(0.80),
-  ]));
-  // hasTxnScopeIdentifier (Folio) → roster branch skipped → transaction (MIR Ventas shape)
-  assert.equal(r.classification, 'transaction');
-});
-
-// ============================================================
-// HF-364 — structural-dominance classifier (replaces the branch ladder)
-// ============================================================
-
-// THE DIAG-080 defect, now fixed. BCL `datos`: entity-scope id + name + TEMPORAL + measures.
-// Under the old Branch 2.5 (entity-scope id + name + no event id → entity@0.88) this was
-// misclassified `entity` because the branch ignored the temporal signal. Temporal dominance:
-// a per-period measured sheet is performance data, NEVER a roster definition. (HALT-3.)
-test('HF-364 / DIAG-080: BCL datos (entity-scope id + name + temporal + measures) is NEVER entity', () => {
-  // WITH a categorical/reference dimension (sucursal) → events reference entities → transaction.
-  const withRef = deriveClassificationFromExpression(profileFrom([
-    { col: 'ID_Empleado', role: 'identifier', conf: 0.97, identifies: 'the employee' },
-    { col: 'Nombre_Completo', role: 'name', conf: 0.95 },
-    { col: 'Periodo', role: 'temporal period', conf: 0.90 },
-    { col: 'Sucursal', role: 'reference key to the branch', conf: 0.90 },
-    ...measures(0.85),
-  ]));
-  assert.notEqual(withRef.classification, 'entity');
-  assert.equal(withRef.classification, 'transaction');
-
-  // WITHOUT a reference dimension → per-period records attributed to the entity → target.
-  const noRef = deriveClassificationFromExpression(profileFrom([
-    { col: 'ID_Empleado', role: 'identifier', conf: 0.97, identifies: 'the employee' },
-    { col: 'Nombre_Completo', role: 'name', conf: 0.95 },
-    { col: 'Periodo', role: 'temporal period', conf: 0.90 },
-    ...measures(0.85),
-  ]));
-  assert.notEqual(noRef.classification, 'entity');
-  assert.ok(noRef.classification === 'transaction' || noRef.classification === 'target');
-  // the temporal-dominance facet drove it — provenance must say so
-  assert.ok(noRef.matchedConditions.some(c => /temporal dominance/.test(c)));
-});
-
-// The HF-351 roster invariant is preserved by the ABSENCE of temporal, not by ordering:
-// entity-scope id + name, NO temporal, NO event id → entity (even with a measure / ref-key).
-test('HF-364: HF-351 roster preserved via absence of temporal (not branch order)', () => {
-  const r = deriveClassificationFromExpression(profileFrom([
-    { col: 'vendedor_id', role: 'identifier', conf: 0.99, identifies: 'the seller' },
-    { col: 'Nombre', role: 'name', conf: 0.95 },
-    { col: 'sucursal', role: 'reference key to the branch', conf: 0.93 },
-    { col: 'Salario', role: 'measure amount', conf: 0.90 },
-  ]));
-  assert.equal(r.classification, 'entity');
-});
-
-// ORDER-INDEPENDENCE PROOF (EPG-3.1). The dominance derivation reduces a FLAT facet list by
-// summation; the winner is an argmax. Evaluating the facets in different orders must produce
-// byte-identical output. We build the BCL datos signal tuple, then run classifyByDominance on
-// the facet list, its reverse, and several rotations — all must agree, and none may be entity.
-test('HF-364: classifyByDominance is order-independent (rearranged logic → identical output)', () => {
-  const bclDatos: StructuralSignals = {
-    hasEntityScopeIdentifier: true,
-    hasName: true,
-    hasTxnScopeIdentifier: false,
-    hasTemporal: true,
-    hasMeasure: true,
-    hasReferenceKey: true,
-    identifierCount: 1,
-    measureCount: 12,
-  };
-  const facets = buildDominanceFacets(bclDatos);
-
-  const canonical = classifyByDominance(facets);
-  const reversed = classifyByDominance([...facets].reverse());
-
-  // every rotation of the facet list
-  const rotations = facets.map((_, i) => classifyByDominance([...facets.slice(i), ...facets.slice(0, i)]));
-
-  assert.notEqual(canonical.classification, 'entity'); // temporal dominance holds
-  for (const r of [reversed, ...rotations]) {
-    assert.equal(r.classification, canonical.classification);
-    assert.equal(r.confidence, canonical.confidence);
-    assert.deepEqual([...r.matchedConditions].sort(), [...canonical.matchedConditions].sort());
-  }
-});
-
-// Order-independence must also hold for the OTHER natures, not just the BCL case — verify it
-// across the full truth table so no signal tuple is order-sensitive.
-test('HF-364: order-independence holds across the truth table', () => {
-  const cases: StructuralSignals[] = [
-    // roster (entity remainder)
-    { hasEntityScopeIdentifier: true, hasName: true, hasTxnScopeIdentifier: false, hasTemporal: false, hasMeasure: false, hasReferenceKey: false, identifierCount: 1, measureCount: 0 },
-    // reference isolation
-    { hasEntityScopeIdentifier: false, hasName: false, hasTxnScopeIdentifier: false, hasTemporal: false, hasMeasure: true, hasReferenceKey: true, identifierCount: 0, measureCount: 1 },
-    // event log (event-id dominance)
-    { hasEntityScopeIdentifier: false, hasName: false, hasTxnScopeIdentifier: true, hasTemporal: true, hasMeasure: false, hasReferenceKey: false, identifierCount: 1, measureCount: 0 },
-    // entity-level target
-    { hasEntityScopeIdentifier: true, hasName: false, hasTxnScopeIdentifier: false, hasTemporal: false, hasMeasure: true, hasReferenceKey: false, identifierCount: 1, measureCount: 5 },
+// The winner's confidence clears the resolver's analyzeSplit gap (> 0.25 vs the synthesized
+// 0.05 losers) for real recognitions (the model's confidences are high). Verified against the
+// deciding-column confidence, which is what the direct read reports.
+test('HF-367: derived confidence clears the analyzeSplit single-winner gap for real recognition', () => {
+  const samples = [
+    profileFrom([{ col: 'ID', nature: 'identifier', conf: 0.99, identifies: 'entity (emp)' }, { col: 'n', nature: 'name', conf: 0.9, identifies: 'entity' }]),
+    profileFrom([{ col: 'Folio', nature: 'identifier', conf: 0.82, identifies: 'transaction (sale)' }, ...measures(0.8)]),
+    profileFrom([{ col: 'Hub', nature: 'categorical', conf: 0.90, identifies: 'reference (hub)' }]),
   ];
-  for (const s of cases) {
-    const f = buildDominanceFacets(s);
-    const a = classifyByDominance(f);
-    const b = classifyByDominance([...f].reverse());
-    assert.equal(a.classification, b.classification);
-    assert.equal(a.confidence, b.confidence);
-  }
-});
-
-// Truth-table coverage (EPG-3.1): each structural case lands on its expected nature.
-test('HF-364: truth table — reference table, event log, entity-level target', () => {
-  // reference table: reference_key, no id → reference (reference isolation)
-  assert.equal(classifyByDominance(buildDominanceFacets({
-    hasEntityScopeIdentifier: false, hasName: false, hasTxnScopeIdentifier: false, hasTemporal: false,
-    hasMeasure: true, hasReferenceKey: true, identifierCount: 0, measureCount: 1,
-  })).classification, 'reference');
-
-  // event log: id + event_id + temporal → transaction (event-id dominance beats no-measure→entity)
-  assert.equal(classifyByDominance(buildDominanceFacets({
-    hasEntityScopeIdentifier: false, hasName: false, hasTxnScopeIdentifier: true, hasTemporal: true,
-    hasMeasure: false, hasReferenceKey: false, identifierCount: 1, measureCount: 0,
-  })).classification, 'transaction');
-
-  // entity-level measured records, no event/ref/temporal → target
-  assert.equal(classifyByDominance(buildDominanceFacets({
-    hasEntityScopeIdentifier: true, hasName: false, hasTxnScopeIdentifier: false, hasTemporal: false,
-    hasMeasure: true, hasReferenceKey: false, identifierCount: 1, measureCount: 5,
-  })).classification, 'target');
-});
-
-// The winner's confidence must clear the resolver's analyzeSplit gap (> 0.25 against the
-// synthesized 0.05 losers), i.e. confidence ≥ 0.50 for every derived classification — the
-// HALT-2 compatibility guarantee (no consumer thresholds on the old 0.88/0.85 constants).
-test('HF-364: derived confidence floor keeps the analyzeSplit single-winner gap', () => {
-  const samples: StructuralSignals[] = [
-    { hasEntityScopeIdentifier: true, hasName: true, hasTxnScopeIdentifier: false, hasTemporal: true, hasMeasure: true, hasReferenceKey: true, identifierCount: 1, measureCount: 12 },
-    { hasEntityScopeIdentifier: true, hasName: true, hasTxnScopeIdentifier: false, hasTemporal: false, hasMeasure: true, hasReferenceKey: true, identifierCount: 1, measureCount: 1 },
-    { hasEntityScopeIdentifier: false, hasName: false, hasTxnScopeIdentifier: false, hasTemporal: false, hasMeasure: true, hasReferenceKey: true, identifierCount: 0, measureCount: 1 },
-  ];
-  for (const s of samples) {
-    const r = classifyByDominance(buildDominanceFacets(s));
-    assert.ok(r.confidence >= 0.50, `confidence ${r.confidence} must be ≥ 0.50`);
-    assert.ok(r.confidence - 0.05 > 0.25, 'winner-vs-loser gap must exceed analyzeSplit 0.25');
+  for (const p of samples) {
+    const r = deriveClassificationFromExpression(p);
+    assert.ok(r.confidence - 0.05 > 0.25, `winner-vs-loser gap must exceed analyzeSplit 0.25 (got ${r.confidence})`);
   }
 });
