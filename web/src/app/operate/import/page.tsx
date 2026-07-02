@@ -563,8 +563,18 @@ export default function OperateImportPage() {
       return;
     }
     // Synchronous path (hand-off off): the rows are already loaded — finalize + complete now.
+    // HF-373 Phase F (D7): finalize fires only when SOMETHING committed. An all-failed result has
+    // nothing for entity resolution, and its finalize's blind terminal stamp is what recorded the
+    // failed 86K import as "finalized/completed" (the server-side waitUntil already guards on
+    // overallSuccess — this mirrors it). Partial success still finalizes the committed part; the
+    // outcome-aware stamp preserves each failed job's failure.
     const totalRows = result.results.filter(r => r.success).reduce((s, r) => s + r.rowsProcessed, 0);
-    fireFinalizeAndFlywheel(result.proposalId);
+    const anySuccess = result.results.some(r => r.success);
+    if (anySuccess) {
+      fireFinalizeAndFlywheel(result.proposalId);
+    } else {
+      console.warn('[import] every unit failed — finalize skipped (nothing committed); the job record carries the failure');
+    }
     goComplete(result, totalRows);
   }, [fireFinalizeAndFlywheel, goComplete]);
 

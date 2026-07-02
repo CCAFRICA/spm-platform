@@ -16,6 +16,9 @@
 // windowing is a processing strategy, never a data filter — every row is read, none dropped.
 
 import type { WorkSheet } from 'xlsx';
+// HF-373 Phase H (D11): the SAME deterministic de-band recognition the standard path uses,
+// applied to a bounded leading sample — identity keying preserved for clean row-1 sheets (DD-7).
+import { resolveHeadersFromSampleGrid, HEADER_SAMPLE_ROWS } from './deband-sheet';
 
 // Lazy import keeps xlsx out of the edge bundle (matches process-job/execute-bulk idiom).
 type XLSXModule = typeof import('xlsx');
@@ -45,16 +48,33 @@ export interface SheetWindow {
 export function openSheetWindow(XLSX: XLSXModule, ws: WorkSheet, sheetName: string): SheetWindow {
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
   const headerRow = range.s.r;
-  const firstDataRow = headerRow + 1;
+
+  // HF-373 Phase H (D11): probe a BOUNDED leading sample through the shared de-band recognition.
+  // A clean row-1 sheet resolves to identity → the pre-HF-373 keying below runs verbatim
+  // (byte-identical, DD-7). A banded sheet recovers its real positional header + the row where
+  // data begins. The probe reads at most HEADER_SAMPLE_ROWS rows — the OOM defense is untouched.
+  const sampleEnd = Math.min(headerRow + HEADER_SAMPLE_ROWS - 1, range.e.r);
+  const sampleGrid = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1, defval: null, blankrows: true,
+    range: { s: { r: headerRow, c: range.s.c }, e: { r: sampleEnd, c: range.e.c } },
+  }) as unknown[][];
+  const deband = resolveHeadersFromSampleGrid(sampleGrid, sheetName);
+
+  const firstDataRow = headerRow + (deband.banded ? deband.dataStartRow : 1);
   const lastRow = range.e.r;
   const totalRows = Math.max(0, lastRow - firstDataRow + 1);
+  if (deband.banded) {
+    console.log(`[sheet-window] HF-373 H: banded header recovered for "${sheetName}" — ${deband.columns.length} columns, data starts at sheet row ${firstDataRow + 1} (raw row-1 keying replaced)`);
+  }
 
   // Capture canonical header keys via a default-inference probe of [headerRow .. firstDataRow].
   // sheet_to_json treats the first row of the range as the header and applies its own dedup/__EMPTY
   // synthesis; Object.keys of the (single) data object are exactly the keys every downstream reader
   // expects. When there are zero data rows we synthesize keys from header:1 so columns are still known.
   let columns: string[];
-  if (totalRows > 0) {
+  if (deband.banded) {
+    columns = deband.columns;
+  } else if (totalRows > 0) {
     const probe = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
       ...DEFAULT_PARSE,
       range: { s: { r: headerRow, c: range.s.c }, e: { r: firstDataRow, c: range.e.c } },

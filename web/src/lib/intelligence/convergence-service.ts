@@ -815,6 +815,27 @@ export async function convergeBindings(
         });
       }
     }
+
+    // HF-373 Phase A (D1): a component whose intent requires tokens but that ended the
+    // binding phase with NO binding entries would evaluate every band on empty operands
+    // (a silent population-wide $0). That absence is a loud, named gap (C2) — covers both
+    // "no match pass admitted the component" (binding never attempted) and "every
+    // proposal failed" outcomes, independent of whether Pass 4 derived its metrics.
+    const requiredForBinding = requiredTokensForComponent(comp);
+    const compBindingEntries = componentBindings[`component_${comp.index}`];
+    if (requiredForBinding.length > 0
+        && (!compBindingEntries || Object.keys(compBindingEntries).length === 0)
+        && !gaps.some(g => g.componentIndex === comp.index)) {
+      gaps.push({
+        component: comp.name,
+        componentIndex: comp.index,
+        requiredMetrics: requiredForBinding,
+        calculationOp: comp.calculationOp,
+        reason: 'Binding phase produced no binding entries for this component — binding was not attempted or every proposal failed',
+        resolution: `Ensure imported data carries recognizable columns for: ${requiredForBinding.join(', ')}`,
+      });
+      console.error(`[Convergence] HF-373 D1 loud gap: component "${comp.name}" (index ${comp.index}) requires [${requiredForBinding.join(', ')}] but has zero binding entries`);
+    }
   }
 
   // HF-341 R7 (A1/C1): reconcile DAG filter/compare equality literals against the
@@ -1222,6 +1243,18 @@ function extractComponents(componentsJson: unknown): PlanComponent[] {
         if (obj.onFalse && typeof obj.onFalse === 'object') walkNested(obj.onFalse as Record<string, unknown>);
       };
       if (intent.onTrue || intent.onFalse || intent.condition) walkNested(intent);
+
+      // HF-373 Phase A (D1): prime_dag components carry a PrimeNode tree (discriminator
+      // `prime`), not the legacy operation shapes mined above. Mine expectedMetrics from
+      // the DAG's reference fields — the same walk extractInputRequirements uses at bind
+      // time (HF-242) — so Pass 4 (the sole derivation authority and the only consumer
+      // of the comprehension:plan_interpretation signals) and the gap loop see prime_dag
+      // requirements. Pre-HF-373, expectedMetrics stayed [] for every prime_dag component
+      // → Pass 4 never fired → 0 derivations AND 0 gaps while every payout totaled $0.
+      // Identity for legacy intents: their trees carry no `prime:'reference'` nodes.
+      for (const f of extractReferencesFromDAG(intent)) {
+        if (!metrics.includes(f)) metrics.push(f);
+      }
     }
 
     if (calcMethod?.metric) {
@@ -1408,7 +1441,7 @@ export async function inventoryData(
       }
     }
     if (!fieldIdentitiesByPartition.has(pk)) {
-      const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number }> | undefined;
+      const fieldIds = meta?.field_identities as Record<string, { structuralType?: string; contextualIdentity?: string; confidence?: number; natureRole?: string; scopeRole?: string }> | undefined;
       if (fieldIds && Object.keys(fieldIds).length > 0) {
         const identities: Record<string, FieldIdentity> = {};
         for (const [colName, fi] of Object.entries(fieldIds)) {
@@ -1416,6 +1449,12 @@ export async function inventoryData(
             structuralType: (fi.structuralType || 'unknown') as FieldIdentity['structuralType'],
             contextualIdentity: fi.contextualIdentity || 'unknown',
             confidence: typeof fi.confidence === 'number' ? fi.confidence : 0.5,
+            // HF-373 Phase A (D1): carry the model's bare primitives through the reader
+            // (natureRole per HF-368, scopeRole per HF-372 Phase C). The match passes read
+            // THESE by equality; structuralType has been free-form prose since OB-231 and
+            // is display/audit-only. Dropping them here is what starved Pass 1 to zero.
+            natureRole: typeof fi.natureRole === 'string' ? fi.natureRole : undefined,
+            scopeRole: typeof fi.scopeRole === 'string' ? fi.scopeRole : undefined,
           };
         }
         fieldIdentitiesByPartition.set(pk, identities);
@@ -1531,6 +1570,27 @@ export async function inventoryData(
 // OB-162: 3-pass matching — field identities → contextual → token overlap
 // ──────────────────────────────────────────────
 
+// HF-373 Phase A (D1): field-identity nature reads. natureRole is the model's bare
+// primitive (HF-368) — read by EQUALITY, never regex over prose (Decision 158, HALT-2).
+// The structuralType equality disjunct is retained ONLY for pre-OB-231 batches whose
+// value was the retired ColumnRole ENUM; post-OB-231 prose never string-equals an enum
+// token, so the disjunct is inert on modern batches. Korean Test: bare tokens only.
+export function fiIsMeasure(fi: FieldIdentity): boolean {
+  return fi.natureRole === 'measure' || fi.structuralType === 'measure';
+}
+export function fiIsIdentifier(fi: FieldIdentity): boolean {
+  return fi.natureRole === 'identifier' || fi.structuralType === 'identifier';
+}
+export function fiIsTemporal(fi: FieldIdentity): boolean {
+  return fi.natureRole === 'temporal' || fi.structuralType === 'temporal';
+}
+// Entity-key candidates: the model's identifier nature (any scope), or the two legacy
+// enum spellings ('identifier' / 'reference_key') from pre-OB-231 batches.
+export function fiIsEntityKeyCandidate(fi: FieldIdentity): boolean {
+  return fi.natureRole === 'identifier'
+    || fi.structuralType === 'identifier' || fi.structuralType === 'reference_key';
+}
+
 function matchComponentsToData(
   components: PlanComponent[],
   capabilities: DataCapability[]
@@ -1546,10 +1606,13 @@ function matchComponentsToData(
     for (const comp of components) {
       if (matchedComponents.has(comp.index)) continue;
 
-      // Pass 1: Structural match — capability must have a 'measure' structuralType
+      // Pass 1: Structural match — capability must carry a measure and an identifier
+      // nature. HF-373 Phase A (D1): reads the bare natureRole primitive by equality
+      // (fiIsMeasure/fiIsIdentifier); the pre-HF-373 `structuralType === '<enum>'`
+      // equality matched nothing post-OB-231 (prose) → 0 candidates → 0 bindings → $0.
       const structuralCandidates = capsWithFI.filter(cap => {
-        const hasMeasure = Object.values(cap.fieldIdentities).some(fi => fi.structuralType === 'measure');
-        const hasIdentifier = Object.values(cap.fieldIdentities).some(fi => fi.structuralType === 'identifier');
+        const hasMeasure = Object.values(cap.fieldIdentities).some(fiIsMeasure);
+        const hasIdentifier = Object.values(cap.fieldIdentities).some(fiIsIdentifier);
         return hasMeasure && hasIdentifier;
       });
 
@@ -1565,9 +1628,9 @@ function matchComponentsToData(
         let score = 0;
         const reasons: string[] = [];
 
-        // Count measure columns in this capability
+        // Count measure columns in this capability (HF-373: bare natureRole read)
         const measureFIs = Object.entries(cap.fieldIdentities)
-          .filter(([, fi]) => fi.structuralType === 'measure');
+          .filter(([, fi]) => fiIsMeasure(fi));
         const measureCount = measureFIs.length;
 
         // Does the batch have the right number of measures for this component?
@@ -1576,9 +1639,9 @@ function matchComponentsToData(
           reasons.push(`${measureCount} measures (need ${requiredMeasures})`);
         }
 
-        // Does the batch have a temporal column?
+        // Does the batch have a temporal column? (HF-373: bare natureRole read)
         const hasTemporal = Object.values(cap.fieldIdentities)
-          .some(fi => fi.structuralType === 'temporal');
+          .some(fiIsTemporal);
         if (hasTemporal) {
           score += 0.25;
           reasons.push('has temporal');
@@ -3373,11 +3436,12 @@ async function generateAllComponentBindings(
     }
   }
   if (labeledCandidates.length === 0) return;
-  // HF-333: structuralType now carries the LLM's free-form data_nature (OB-231) — detect attribute/
-  // categorical columns by the LLM's WORDS, not the retired 'attribute' label (Korean Test: regex over
-  // the LLM characterization, never a field-name dictionary).
-  const isAttributeNature = (s: string) => /\b(attribute|categor|property|tag|flag|status|class|grouping|descript|label|atributo)\b/i.test(s || '');
-  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(c => isAttributeNature(c.structuralType)).map(c => c.column).join(', ') || 'none'}]`);
+  // HF-373 Phase A (D1): the HF-333 prose regex is retired — the model emits the bare
+  // natureRole primitive (HF-368); read it by equality ('categorical'/'name' are the
+  // attribute-like natures). Legacy enum 'attribute' (pre-OB-231) kept by equality.
+  const isAttributeNature = (c: LabeledCandidate) =>
+    c.fi.natureRole === 'categorical' || c.fi.natureRole === 'name' || c.structuralType === 'attribute';
+  console.log(`[Convergence] OB-216 §2-S3 labeled candidates: ${labeledCandidates.length} columns across ${new Set(labeledCandidates.map(c => c.partitionKey)).size} sheet(s); attributes admitted=[${labeledCandidates.filter(isAttributeNature).map(c => c.column).join(', ') || 'none'}]`);
 
   // OB-235 P7 (TMR-C93): RECALL prior Level-2 comprehension for the candidate columns from the canonical
   // surface BEFORE the independent LLM binding call. One batched read, reused across all variant groups
@@ -3616,8 +3680,10 @@ async function generateAllComponentBindings(
     // Pre-Phase-1 the merged single capability happened to expose the entity key as 'identifier';
     // per-sheet capabilities classify it 'reference_key', so the 'identifier'-only filter would pick
     // a high-cardinality non-entity column (e.g. a folio) with zero entity overlap.
+    // HF-373 Phase A (D1): bare natureRole read (equality) with the legacy enum
+    // disjuncts preserved — see fiIsEntityKeyCandidate.
     const idEntries = Object.entries(cap.fieldIdentities)
-      .filter(([, fi]) => fi.structuralType === 'identifier' || fi.structuralType === 'reference_key');
+      .filter(([, fi]) => fiIsEntityKeyCandidate(fi));
     if (idEntries.length > 0) {
       type CandidateScore = {
         colName: string;

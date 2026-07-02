@@ -590,6 +590,12 @@ async function interpretPlanGroup(
         source: 'sci',
         contentUnitId: primaryContentUnitId,
         batchedSheets: planUnits.map(u => u.contentUnitId),
+        // HF-373 Phase I (D4): the plan's SOURCE SHEET -- an ADDITIVE display identity so two
+        // plans whose workbook banners carry the same title ("COMISIONES DE MAQUINARIA" on two
+        // machinery sheets) stay distinguishable everywhere plans are listed. The true title
+        // stays in rule_sets.name (never silently renamed); supersession keying
+        // (metadata.contentUnitId, HF-372) is untouched.
+        sourceSheet: planUnits[0]?.tabName ?? null,
         aiConfidence: orchestration.interpretation.confidence,
       } as unknown as Json,
       created_by: userId,

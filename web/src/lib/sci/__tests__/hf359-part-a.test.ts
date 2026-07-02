@@ -110,11 +110,19 @@ function mockStorage(fileSizeLimit: number | null | 'error'): SupabaseClient {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     : { data: { id: 'ingestion-raw', file_size_limit: fileSizeLimit }, error: null } } } as any;
 }
-test('PG-A4: budget = headroom × the discovered bucket limit; null/error → labeled fallback (surfaced)', async () => {
+test('PG-A4 (amended by HF-373 D6): budget = headroom × min(bucket limit, global cap); null/error → labeled fallback (surfaced)', async () => {
+  // HF-373 Phase E: a bucket limit ABOVE the project-global cap no longer raises the budget —
+  // the 2026-07-02 failure was exactly this test's OLD contract (500MB bucket → 400MB parts →
+  // rejected by the ~50MiB global cap the storage API cannot report).
   const real = await discoverUploadByteBudget(mockStorage(524288000)); // 500MB bucket limit
-  assert.equal(real.limitSource, 'bucket');
-  assert.equal(real.effectiveLimit, 524288000);
-  assert.equal(real.byteBudget, Math.floor(HEADROOM_FRACTION * 524288000));
+  assert.equal(real.limitSource, 'global-default');
+  assert.equal(real.effectiveLimit, 50 * 1024 * 1024);
+  assert.equal(real.byteBudget, Math.floor(HEADROOM_FRACTION * 50 * 1024 * 1024));
+
+  // a bucket limit BELOW the global cap still governs (min composition, both directions)
+  const small = await discoverUploadByteBudget(mockStorage(30 * 1024 * 1024));
+  assert.equal(small.limitSource, 'bucket');
+  assert.equal(small.effectiveLimit, 30 * 1024 * 1024);
 
   for (const lim of [null, 0, 'error'] as const) {
     const fb = await discoverUploadByteBudget(mockStorage(lim));
@@ -124,7 +132,7 @@ test('PG-A4: budget = headroom × the discovered bucket limit; null/error → la
   }
   // the 20K row count is NOT the boundary — it is only the safety cap
   assert.equal(MAX_PULSE_ROWS, 20000);
-  console.log(`   [PG-A4] bucket→${real.byteBudget} bytes; fallback→${Math.floor(HEADROOM_FRACTION*FALLBACK_LIMIT_BYTES)} bytes (surfaced); 20K is MAX_PULSE_ROWS cap, not the boundary`);
+  console.log(`   [PG-A4] min(bucket, global)→${real.byteBudget} bytes; fallback→${Math.floor(HEADROOM_FRACTION*FALLBACK_LIMIT_BYTES)} bytes (surfaced); 20K is MAX_PULSE_ROWS cap, not the boundary`);
 });
 
 test('PG-A4b: estimatePulseTotal gives an honest "~Y" (est. total bytes / budget)', () => {

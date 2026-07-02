@@ -42,7 +42,12 @@ import { createHash } from 'crypto';
 // natureIsPlanRule word-regex. Per the HF-369 lesson, a column_roles schema change MUST bump this
 // version so pre-plan_role atoms (v4, written only by this branch's own live proofs) re-comprehend
 // instead of warm-serving incomplete recognition.
-export const ATOM_ALGORITHM_VERSION = 5;
+// HF-373 Phase G (D10): v6 — the atom role-stability key changed from free-form data_nature
+// prose to the bare nature_role primitive (column_roles semantics change ⇒ version bump per the
+// HF-369 lesson). Invalidates the prose-churned v5 rows (all 14 recurring VLTEST2 Datos/roster
+// atoms were stuck 'ambiguous' — sticky by design — so without the bump the warm path would stay
+// dead even after the code fix). v5 rows are simply never read at v6; fresh comprehension rebuilds.
+export const ATOM_ALGORITHM_VERSION = 6;
 
 export type AtomDataType = 'integer' | 'decimal' | 'date' | 'boolean' | 'text' | 'empty' | 'mixed';
 

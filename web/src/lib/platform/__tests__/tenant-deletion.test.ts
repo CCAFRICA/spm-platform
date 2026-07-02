@@ -21,7 +21,7 @@ test('Clean Slate categories match the directive (5 categories, dependents-first
   assert.deepEqual(byKey.entity, ['entity_relationships', 'entities']); // relationships before entities
   // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state so a Clean Slate leaves
   // no stale "in progress"/"N imports" residue. committed_data stays FIRST (EDGE-1 calc_traces sever).
-  assert.deepEqual(byKey.data, ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects', 'import_finalize_runs']);
+  assert.deepEqual(byKey.data, ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects', 'import_finalize_runs', 'import_commit_runs']);
   assert.deepEqual(byKey.intelligence, ['classification_signals', 'structural_fingerprints', 'surface_bindings', 'synaptic_density', 'comprehension_artifacts', 'intelligence_artifacts', 'ai_call_metrics', 'agent_invocations']);
 });
 

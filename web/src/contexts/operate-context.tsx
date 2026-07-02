@@ -16,6 +16,7 @@ import {
 } from 'react';
 import { useTenant } from '@/contexts/tenant-context';
 import { createClient } from '@/lib/supabase/client';
+import { planSourceSheet } from '@/lib/plan-surface/plan-identity'; // HF-373 Phase I (D4)
 
 // ──────────────────────────────────────────────
 // Types
@@ -26,6 +27,7 @@ interface PlanOption {
   name: string;
   status: string;
   cadence_config?: Record<string, unknown>;  // OB-186: period_type for cadence-aware calculate
+  sourceSheet?: string | null;               // HF-373 Phase I (D4): additive display identity
 }
 
 interface PeriodOption {
@@ -131,7 +133,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
       const [plansRes, periodsRes] = await Promise.all([
         supabase
           .from('rule_sets')
-          .select('id, name, status, cadence_config')
+          .select('id, name, status, cadence_config, metadata')
           .eq('tenant_id', tenantId)
           .order('created_at', { ascending: false }),
         supabase
@@ -148,6 +150,7 @@ export function OperateProvider({ children }: { children: ReactNode }) {
         name: p.name ?? 'Unnamed Plan',
         status: p.status ?? 'open',
         cadence_config: (p.cadence_config as Record<string, unknown>) ?? undefined,
+        sourceSheet: planSourceSheet((p as { metadata?: Record<string, unknown> }).metadata), // HF-373 Phase I (D4)
       }));
 
       const loadedPeriods: PeriodOption[] = (periodsRes.data ?? []).map(p => ({

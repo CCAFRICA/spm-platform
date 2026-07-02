@@ -50,7 +50,7 @@ export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
   // behind would let the pg_cron worker REPOPULATE committed_data after the wipe. Tenant-scoped leaf (no
   // inbound category FK); the worker re-reads the now-deleted job by id and stops gracefully. committed_data
   // stays FIRST (EDGE-1); pulse_load_jobs is appended.
-  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects', 'import_finalize_runs'] },
+  { key: 'data', label: 'Data layer', tables: ['committed_data', 'processing_jobs', 'import_session_telemetry', 'ingestion_events', 'pulse_load_jobs', 'ingestion_configs', 'file_objects', 'import_finalize_runs', 'import_commit_runs'] },
   { key: 'intelligence', label: 'Intelligence layer', tables: ['classification_signals', 'structural_fingerprints', 'surface_bindings', 'synaptic_density', 'comprehension_artifacts', 'intelligence_artifacts', 'ai_call_metrics', 'agent_invocations'] },
 ] as const;
 

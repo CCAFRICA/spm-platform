@@ -29,6 +29,16 @@ export interface PulseManifestEntry {
   unitId: string;
   /** the source sheet name (telemetry + UI). */
   sheetName: string;
+  // HF-373 Phase E (D6) -- per-part status (parallel-ready): the worker stamps each entry as it
+  // drains ('loaded' | 'failed', + loadedAt/rowsLoaded/error); staging writes 'staged'. Parts are
+  // independently claimable by construction even while today's drain stays sequential. ADDITIVE
+  // jsonb -- a pre-HF-373 manifest (no status) loads identically via the cursor.
+  status?: 'staged' | 'loaded' | 'failed';
+  loadedAt?: string;
+  rowsLoaded?: number;
+  error?: string;
+  /** compressed object size when the part was gzip-staged (bytes stays the uncompressed CSV size). */
+  bytesCompressed?: number;
 }
 
 /**

@@ -42,6 +42,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isInternalCronCaller, internalCronHeaders } from '@/lib/sci/cron-principal';
 // HF-358 (Part B-2): the reclaim retry cap — a repeatedly-crashing job converges to terminal 'failed'.
 import { reclaimPatch } from '@/lib/sci/reclaim-policy';
+import { isCommitStageFailure } from '@/lib/sci/job-status'; // HF-373 Phase F (D7)
 
 // Retry policy (P-B4).
 const MAX_RETRIES = 3;
@@ -115,13 +116,22 @@ async function dispatch(req: NextRequest): Promise<NextResponse> {
     let requeued = 0;
     const { data: failed, error: failedErr } = await supabase
       .from('processing_jobs')
-      .select('id, retry_count, started_at')
+      .select('id, retry_count, started_at, error_detail, metadata')
       .eq('status', 'failed')
       .lt('retry_count', MAX_RETRIES);
     if (failedErr) throw failedErr;
 
     const now = Date.now();
     for (const job of failed ?? []) {
+      // HF-373 Phase F (D7): a COMMIT-STAGE failure is TERMINAL — requeueing it to 'pending' both
+      // erased the terminal rank (letting a later blind finalize stamp 'finalized' over the failure:
+      // the 86K lie) and pointlessly re-dispatched a CLASSIFY worker at an already-classified file.
+      // Commit failures are marked by our own writers (metadata.phase='failed' via markSessionJobs;
+      // the mechanical 'Commit failed/Commit error/Hand-off enqueue failed' prefixes via
+      // recordCommitFailureOnJob) — structural markers, not prose scans. Only classify-stage
+      // failures remain requeue-eligible.
+      const jobPhase = ((job.metadata ?? {}) as { phase?: string }).phase ?? null;
+      if (isCommitStageFailure('failed', jobPhase, job.error_detail as string | null)) continue;
       const retryCount: number = job.retry_count ?? 0;
       const backoffMs = BACKOFF_BASE_MS * Math.pow(2, retryCount);
       const startedAtMs = job.started_at ? new Date(job.started_at as string).getTime() : null;

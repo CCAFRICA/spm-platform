@@ -29,6 +29,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { createGzip } from 'zlib';        // HF-373 Phase E (D6): gzip staged parts
+import { Transform } from 'stream';       // HF-373 Phase E (D6): compressed-byte counter
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
 import type {
   AgentType,
@@ -112,6 +114,16 @@ export interface CommitContentUnitParams {
   // deterministic, no LLM — Decision 158). Default false ⇒ the synchronous load path is byte-identical for
   // any caller that has not opted into the hand-off. With the worker scheduled, execute-bulk passes true.
   handOff?: boolean;
+  // HF-373 Phase E (D6) — gzip the STAGED pulse CSV (path *.csv.gz, the migrated FDW reads
+  // compress 'gzip'). The caller (windowed/streamed driver) probes staged_load_capabilities()
+  // and passes true ONLY when the database can load gzip parts — deploy-order safe, no env flag.
+  // Applies to the hand-off path only (the sync path loads + deletes its CSV in-request).
+  gzipStaging?: boolean;
+  // HF-373 Phase E (D6): the windowed/streamed DRIVERS seed + advance the unit-level telemetry
+  // counters themselves (expectedRows = the WHOLE unit's rows). Hook-2's per-call seed would
+  // clobber them with per-pulse values (the live 86K run showed expectedRows=1921 instead of
+  // 86,607). true ⇒ Hook-2 skips its unit-seed write; the driver owns the counters.
+  suppressUnitSeedTelemetry?: boolean;
 }
 
 export interface CommitContentUnitResult {
@@ -207,73 +219,100 @@ export function findHcEntityIdCandidates(
   return candidates;
 }
 
-/**
- * Backward-compatible single-result accessor (execute-bulk gate, HF-285-A). Returns
- * the FIRST entity-scope identifier — the entity-id for the single-candidate case
- * (BCL/Meridian — byte-identical). Multi-candidate disambiguation happens at commit
- * time via selectEntityIdFieldByOverlap (value-domain overlap), not here.
- */
-export function findHcEntityIdColumn(
-  classificationTrace: Record<string, unknown> | undefined,
-): string | null {
-  return findHcEntityIdCandidates(classificationTrace)[0] ?? null;
-}
 
-/** R7 D1 thresholds (entity-resolution.ts:58-135) reused for the commit-time tie-break. */
+/** R7 D1 thresholds (entity-resolution.ts:58-135) reused for the commit-time value-domain step. */
 const F5_OVERLAP_MIN = 0.5;
 
+/** HF-373 Phase C: a structural selection outcome. `chosen` is '' when nothing was
+ *  selected; `ambiguousCompetitors` present means ambiguity survived every structural
+ *  fact and the CALLER MUST FAIL LOUD (C2) -- never emission order, never a statistic. */
+export interface EntityIdSelection {
+  chosen: string;
+  reason: string;
+  ambiguousCompetitors?: string[];
+}
+
 /**
- * HF-351 F5 (THE CLASS FIX): select the entity_id_field among ≥2 entity-scope
- * identifier candidates by VALUE-DOMAIN OVERLAP against the tenant's entity domain,
- * never by emission order / confidence (the deleted first-match). Korean Test: ranks
- * by the columns' VALUES only — no column-name matching.
- *
- *  (a) entity domain non-empty → the candidate whose row values most overlap the
- *      existing entity external_ids wins (a branch/grouping column like `sucursal`
- *      has ~0% overlap and loses to the real seller id — proven on MIR: DNI 100%
- *      vs Almacen 0%, though Almacen out-REPEATS DNI, defeating cardinality alone).
- *  (b) cold start (empty domain — the entity sheet not yet committed) → among the
- *      REPEATING candidates (a transaction sheet's entity id repeats), prefer the
- *      finest-grained one (most distinct values) — a coarse grouping dimension has
- *      far fewer distinct values than the entity it groups.
- *  (c) still ambiguous → C2: warn, name the competitors, fall back to first-match
- *      (never silently worse than the prior behavior). Decision 158 / Validation
- *      Premise Law: this VALIDATES the recognized candidates against carried reality.
+ * HF-373 Phase C (D3): select the entity_id_field among >=2 model-recognized
+ * entity-scope identifier candidates by STRUCTURAL FACTS ONLY (Decision 158: the
+ * model recognizes the candidates; deterministic construction guarantees the
+ * choice). The HF-351 F5 "finest repeating identifier" statistic is DELETED: on an
+ * entity/roster sheet it structurally inverted (a roster's true id is bijective
+ * with rows = 1.0x repeat, so the repeatRatio>1.1 filter excluded it and preferred
+ * the self-referential manager FK -- 84/85 VLTEST2 roster rows mis-linked to the
+ * manager's entity on 2026-07-02). Facts, in order (each an arithmetic fact about
+ * the columns' VALUES -- no name matching, no word lists, no tunable preference
+ * ranking; Korean Test):
+ *  (1) strict value-subset elimination: a candidate whose distinct value set is a
+ *      strict subset of another candidate's REFERENCES the other's instances
+ *      (13 manager ids within 85 employee ids) -- it cannot be the subject key.
+ *  (2) entity-sheet construction invariant (classification === 'entity'): one row
+ *      IS one entity, so the subject identifier carries a value on every row, all
+ *      distinct (bijective with rows). Applied only when it selects EXACTLY one.
+ *  (3) value-domain overlap (HF-351 branch (a), unchanged): the candidate whose
+ *      values decisively overlap the tenant's existing entity external_ids.
+ *  (4) still ambiguous -> ambiguousCompetitors (the caller fails the unit loudly,
+ *      naming the competitors) -- never emission order.
  */
-export function selectEntityIdFieldByOverlap(
+export function selectEntityIdFieldStructural(
   candidates: string[],
   rows: Array<Record<string, unknown>>,
   entityDomain: Set<string>,
-): { chosen: string; reason: string } {
+  classification: string,
+): EntityIdSelection {
   if (candidates.length === 0) return { chosen: '', reason: 'no candidates' };
   if (candidates.length === 1) return { chosen: candidates[0], reason: 'single entity-scope identifier' };
 
   const stats = candidates.map(col => {
     const vals = new Set<string>();
-    for (const r of rows) { const v = r[col]; if (v == null) continue; const s = String(v).trim(); if (s) vals.add(s); }
+    let nonNull = 0;
+    for (const r of rows) {
+      const v = r[col];
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (s) { vals.add(s); nonNull++; }
+    }
     let overlap = 0; for (const v of Array.from(vals)) if (entityDomain.has(v)) overlap++;
-    const distinct = vals.size;
-    return { col, distinct, overlapFrac: distinct > 0 ? overlap / distinct : 0, repeatRatio: distinct > 0 ? rows.length / distinct : 0 };
+    return { col, vals, nonNull, distinct: vals.size, overlapFrac: vals.size > 0 ? overlap / vals.size : 0 };
   });
 
-  // (a) value-domain overlap (domain non-empty)
+  // (1) strict value-subset elimination (strict subset is a partial order, so
+  // maximal elements always exist; an all-empty candidate is a subset of any
+  // non-empty one and drops here too).
+  const isStrictSubset = (a: Set<string>, b: Set<string>): boolean => {
+    if (a.size >= b.size) return false;
+    for (const v of Array.from(a)) if (!b.has(v)) return false;
+    return true;
+  };
+  const survivors = stats.filter(s => !stats.some(o => o !== s && isStrictSubset(s.vals, o.vals)));
+  if (survivors.length === 1) {
+    const dropped = stats.filter(s => s !== survivors[0]).map(s => s.col);
+    return { chosen: survivors[0].col, reason: `structural: strict value-subset elimination (referencing candidate(s) dropped: ${dropped.join(', ')})` };
+  }
+
+  // (2) entity-sheet construction invariant
+  if (classification === 'entity') {
+    const bijective = survivors.filter(s => s.nonNull === rows.length && s.distinct === s.nonNull);
+    if (bijective.length === 1) {
+      return { chosen: bijective[0].col, reason: `structural: entity-sheet identifier bijective with rows (${bijective[0].distinct} distinct / ${rows.length} rows)` };
+    }
+  }
+
+  // (3) value-domain overlap (unchanged HF-351 branch (a))
   if (entityDomain.size > 0) {
-    const ranked = stats.slice().sort((a, b) => b.overlapFrac - a.overlapFrac || b.distinct - a.distinct);
+    const ranked = survivors.slice().sort((a, b) => b.overlapFrac - a.overlapFrac || b.distinct - a.distinct);
     if (ranked[0].overlapFrac >= F5_OVERLAP_MIN && ranked[0].overlapFrac > (ranked[1]?.overlapFrac ?? 0)) {
-      return { chosen: ranked[0].col, reason: `value-domain overlap ${(ranked[0].overlapFrac * 100).toFixed(0)}% (vs ${(ranked[1]?.overlapFrac * 100 || 0).toFixed(0)}%)` };
+      return { chosen: ranked[0].col, reason: `value-domain overlap ${(ranked[0].overlapFrac * 100).toFixed(0)}% (vs ${((ranked[1]?.overlapFrac ?? 0) * 100).toFixed(0)}%)` };
     }
   }
-  // (b) cold start / no overlap winner → finest-grained repeating identifier
-  const repeating = stats.filter(s => s.repeatRatio > 1.1);
-  if (repeating.length > 0) {
-    const ranked = repeating.slice().sort((a, b) => b.distinct - a.distinct);
-    if (ranked.length === 1 || ranked[0].distinct > ranked[1].distinct) {
-      return { chosen: ranked[0].col, reason: `cold-start finest repeating identifier (distinct=${ranked[0].distinct}, repeat=${ranked[0].repeatRatio.toFixed(1)}x)` };
-    }
-  }
-  // (c) ambiguous → C2 fail-loud, first-match fallback
-  console.warn(`[entity-id] HF-351 F5 C2: ${candidates.length} entity-scope identifiers competed and none was definitively selected — ${stats.map(s => `${s.col}(distinct=${s.distinct},overlap=${(s.overlapFrac * 100).toFixed(0)}%,repeat=${s.repeatRatio.toFixed(1)}x)`).join(', ')}. Falling back to first; flag for review.`);
-  return { chosen: candidates[0], reason: 'ambiguous — first-match fallback (C2 flagged)' };
+
+  // (4) ambiguous -> the caller fails LOUD (C2). Never first-match.
+  const detail = survivors.map(s => `${s.col}(distinct=${s.distinct}, nonNull=${s.nonNull}, overlap=${(s.overlapFrac * 100).toFixed(0)}%)`).join(', ');
+  return {
+    chosen: '',
+    reason: `ambiguous after structural discrimination: ${detail}`,
+    ambiguousCompetitors: survivors.map(s => s.col),
+  };
 }
 
 function resolveEntityIdField(
@@ -282,11 +321,11 @@ function resolveEntityIdField(
   classification: Exclude<AgentType, 'plan'>,
   rows: Array<Record<string, unknown>>,
   entityDomain: Set<string>,
-): string | null {
-  // Reference data has no entity association — Decision 111 dimensional
+): { field: string | null; ambiguousReason: string | null } {
+  // Reference data has no entity association -- Decision 111 dimensional
   // lookup semantics. Skip both HC and structural lookups.
   if (classification === 'reference') {
-    return null;
+    return { field: null, ambiguousReason: null };
   }
 
   // HF-328 (SUBTRACTION — comprehension-authoritative): the column comprehension
@@ -318,19 +357,21 @@ function resolveEntityIdField(
   // null — the engine resolves at calc time (Decision 92 / OB-183). reference_key is
   // never itself a candidate for entity_id_field (§6A: do not force an identifier
   // where comprehension didn't classify one).
-  // HF-351 F5: collect ALL entity-scope identifier candidates. One candidate →
-  // return it (BCL ID_Empleado, Meridian No_Empleado — byte-identical). Two or more
-  // → disambiguate by VALUE-DOMAIN OVERLAP against the entity domain (never emission
-  // order). Zero → fall back to the entity_identifier binding, then null.
+  // HF-373 Phase C: collect ALL entity-scope identifier candidates. One candidate ->
+  // return it (BCL ID_Empleado, Meridian No_Empleado -- byte-identical). Two or more ->
+  // STRUCTURAL discrimination (strict value-subset elimination / entity-sheet
+  // bijectivity / value-domain overlap); ambiguity FAILS LOUD at the caller (C2).
+  // Zero -> the entity_identifier binding, then null.
   const candidates = findHcEntityIdCandidates(classificationTrace);
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) return { field: candidates[0], ambiguousReason: null };
   if (candidates.length >= 2) {
-    const sel = selectEntityIdFieldByOverlap(candidates, rows, entityDomain);
-    console.log(`[entity-id] HF-351 F5: ${candidates.length} entity-scope candidates [${candidates.join(', ')}] → "${sel.chosen}" (${sel.reason})`);
-    return sel.chosen || null;
+    const sel = selectEntityIdFieldStructural(candidates, rows, entityDomain, classification);
+    console.log(`[entity-id] HF-373 C: ${candidates.length} entity-scope candidates [${candidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+    if (sel.ambiguousCompetitors) return { field: null, ambiguousReason: sel.reason };
+    return { field: sel.chosen || null, ambiguousReason: null };
   }
   const binding = bindings.find(b => b.semanticRole === 'entity_identifier');
-  return binding?.sourceField ?? null;
+  return { field: binding?.sourceField ?? null, ambiguousReason: null };
 }
 
 /** HF-351 F5: the tenant's entity domain (existing entities' external_ids) — the
@@ -518,19 +559,24 @@ export async function commitContentUnit(
   // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
   // cannot land before this one. Phase C: pulse counters compose on top of
   // the caller-phase base (entity creation/enrichment pulses already landed).
-  await accumulateUnitCommitFields({
-    tenantId,
-    importSessionId: proposalId,
-    unitId: unit.contentUnitId,
-    fields: {
-      sheetName: tabName,
-      expectedRows: rows.length,
-      pulsesTotal: pulseBase.total + 1,
-      rowsCommitted: 0,
-      pulsesLanded: pulseBase.landed,
-      batchCommitted: false,
-    },
-  }, supabase);
+  // HF-373 Phase E (D6): SKIPPED when a windowed/streamed driver owns the unit
+  // counters — this per-call seed was overwriting the driver's whole-unit
+  // expectedRows with per-pulse values (the truthful-surface corruption).
+  if (!params.suppressUnitSeedTelemetry) {
+    await accumulateUnitCommitFields({
+      tenantId,
+      importSessionId: proposalId,
+      unitId: unit.contentUnitId,
+      fields: {
+        sheetName: tabName,
+        expectedRows: rows.length,
+        pulsesTotal: pulseBase.total + 1,
+        rowsCommitted: 0,
+        pulsesLanded: pulseBase.landed,
+        batchCommitted: false,
+      },
+    }, supabase);
+  }
 
   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
   await supersedePriorBatchOnContentMatch(
@@ -565,8 +611,8 @@ export async function commitContentUnit(
   const entityDomain = params.entityIdFieldOverride !== undefined
     ? new Set<string>()
     : await readTenantEntityDomain(supabase, tenantId);
-  const entityIdField = params.entityIdFieldOverride !== undefined
-    ? params.entityIdFieldOverride
+  const entityIdSelection = params.entityIdFieldOverride !== undefined
+    ? { field: params.entityIdFieldOverride, ambiguousReason: null as string | null }
     : resolveEntityIdField(
         unit.confirmedBindings,
         unit.classificationTrace,
@@ -574,6 +620,24 @@ export async function commitContentUnit(
         rows as Array<Record<string, unknown>>,
         entityDomain,
       );
+  // HF-373 Phase C (D3): ambiguity that survives every structural fact is a LOUD
+  // unit failure (C2) -- the unit does not commit with a guessed identity key.
+  if (entityIdSelection.ambiguousReason) {
+    const reason = `entity-id selection failed for "${tabName}": ${entityIdSelection.ambiguousReason} (HF-373 C2 -- refusing to commit with a guessed identity key)`;
+    console.error(`[commitContentUnit] ${reason}`);
+    await supabase.from('import_batches').update({
+      status: 'failed',
+      error_summary: { error: reason, hf: 'HF-373-C' } as unknown as Json,
+    }).eq('id', batchId);
+    await accumulateUnitCommitFields({
+      tenantId,
+      importSessionId: proposalId,
+      unitId: unit.contentUnitId,
+      fields: { rowsCommitted: 0, pulsesLanded: 0, batchCommitted: false },
+    }, supabase);
+    return { batchId, totalInserted: 0, dataType, entityIdField: null, fieldIdentities, earliestDate: null, latestDate: null, dateCount: 0, success: false, error: reason };
+  }
+  const entityIdField = entityIdSelection.field;
 
   // HF-341 R3 (V8 eradication): the entity-id is the column the model scoped as the entity identity
   // (resolveEntityIdField → findHcEntityIdColumn reads the model's bare scope_role/nature_role; a
@@ -728,7 +792,10 @@ export async function commitContentUnit(
   // OBJECTS are unchanged — only the transport differs (PG-1 proves the CSV round-trip). For a windowed
   // large file this runs once per bounded window (each its own batch, as before — windowed-commit.ts:9),
   // so peak heap stays one window (OB-251 SR-2 preserved); a small file runs it once over the whole unit.
-  const csvPath = `${tenantId}/committed/${batchId}.csv`;
+  // HF-373 Phase E (D6): gzip staged parts when the caller proved the DB can load them
+  // (staged_load_capabilities probe). Hand-off only — the sync path loads + deletes in-request.
+  const useGzip = !!params.handOff && !!params.gzipStaging;
+  const csvPath = `${tenantId}/committed/${batchId}.csv${useGzip ? '.gz' : ''}`;
 
   // D16 unit-atomicity: a unit that cannot fully commit retains NOTHING. The bulk INSERT…SELECT is a
   // single transaction (so a failed load leaves no partial rows), but this also cleans up on a mismatch
@@ -768,10 +835,28 @@ export async function commitContentUnit(
       return line;
     },
   );
+  // HF-373 Phase E (D6): gzip the staged stream (still streaming — peak heap unchanged). The
+  // staged lines repeat the unit-constant metadata blob (~89% of every row — live-measured), so
+  // parts compress ~20×: far below any storage cap, ~20× less upload volume + storage residue.
+  // csvByteCount stays the UNCOMPRESSED size (the byte-budget's accounting unit); the compressed
+  // size is counted on the wire and recorded on the manifest.
+  let compressedByteCount = 0;
+  let uploadBody: NodeJS.ReadableStream = csvStream;
+  if (useGzip) {
+    const gz = createGzip();
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc: string, cb: (err?: Error | null, data?: Buffer) => void) {
+        compressedByteCount += chunk.length;
+        cb(null, chunk);
+      },
+    });
+    csvStream.pipe(gz).pipe(counter);
+    uploadBody = counter;
+  }
   const { error: uploadErr } = await supabase.storage
     .from('ingestion-raw')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .upload(csvPath, csvStream as any, { contentType: 'text/csv', upsert: true, duplex: 'half' } as any);
+    .upload(csvPath, uploadBody as any, { contentType: useGzip ? 'application/gzip' : 'text/csv', upsert: true, duplex: 'half' } as any);
   if (uploadErr) return await failCommit(`commit CSV upload failed for "${tabName}": ${uploadErr.message}`);
 
   // HF-360 (Part A) — HAND-OFF: the CSV is STAGED. Do NOT call the FDW load RPC, do NOT delete the CSV (the
@@ -808,6 +893,9 @@ export async function commitContentUnit(
         bytes: csvByteCount,
         unitId: unit.contentUnitId,
         sheetName: tabName,
+        // HF-373 Phase E (D6): per-part status from birth (the worker stamps 'loaded'/'failed').
+        status: 'staged',
+        ...(useGzip ? { bytesCompressed: compressedByteCount } : {}),
       },
     };
   }

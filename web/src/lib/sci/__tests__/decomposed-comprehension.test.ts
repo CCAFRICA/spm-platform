@@ -44,7 +44,7 @@ test('decomposed dispatch: recognized / comprehended / failed_interpretation per
   const comprehend: ResidueComprehender = async (req) => {
     calledFor.push(req.sheetName);
     if (req.sheetName === 'C') return { ok: false, failureClass: 'parse_failure' };
-    return { ok: true, interpretations: { nm: { characterization: 'a name', dataExpectation: 'text', data_nature: 'name', identifies: 'nothing', relationships: [], confidence: 0.8 } } };
+    return { ok: true, interpretations: { nm: { characterization: 'a name', dataExpectation: 'text', data_nature: 'a display name', nature_role: 'name', scope_role: 'entity', identifies: 'nothing', relationships: [], confidence: 0.8 } } };
   };
 
   const results = await decomposeComprehension([A, B, C], known, comprehend);
@@ -62,7 +62,8 @@ test('decomposed dispatch: recognized / comprehended / failed_interpretation per
   assert.equal(byName.B.status, 'comprehended');
   assert.equal(byName.B.comprehendedColumns?.length, 1);
   assert.equal(byName.B.comprehendedColumns?.[0].columnName, 'nm');
-  assert.equal(byName.B.comprehendedColumns?.[0].interpretation.data_nature, 'name');
+  assert.equal(byName.B.comprehendedColumns?.[0].interpretation.data_nature, 'a display name');
+  assert.equal(byName.B.comprehendedColumns?.[0].interpretation.nature_role, 'name'); // HF-373 Phase G: the bare primitive
   assert.equal(byName.B.atomsToWrite.length, 2); // id (known) + nm (comprehended)
 
   // C: failed_interpretation for THIS unit only; HOLD (a) -> writes NO atoms

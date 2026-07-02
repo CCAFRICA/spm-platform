@@ -49,6 +49,7 @@ import {
 } from '@/lib/calculation/per-row-attribution';
 // OB-220: wide-format temporal column binding (Cuotas Enero_2025..Junio_2025).
 import { resolveTemporalColumn, periodKeyFromStartDate, isTemporalBinding } from '@/lib/calculation/temporal-binding';
+import { buildVariantIdentitySets, resolveMaterializedAttributes, selectVariantByRecognizedAttributes, type VariantIdentitySource } from '@/lib/calculation/variant-selection'; // HF-373 Phase B (D2)
 import { toNumber, roundComponentOutput, inferOutputPrecision, ZERO } from '@/lib/calculation/decimal-precision';
 import type { Json } from '@/lib/supabase/database.types';
 import { convergeBindings, extractLeafSources, extractReferencesFromDAG, findComponentResolutionFailure, findIncompleteBindings, type IncompleteBinding, type ComponentBinding } from '@/lib/intelligence/convergence-service';
@@ -446,6 +447,31 @@ export async function POST(request: NextRequest) {
   // data-location resolution is column-name-keyed across all operative-period batches.
   // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
   const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
+
+  // HF-373 Phase A (D1): zero-binding phase gate. A plan whose components carry
+  // intent-required tokens (reference primes) must never calc against ZERO convergence
+  // bindings and ZERO derivations — every band would evaluate on empty operands and the
+  // whole population would silently total $0 (the 2026-07-02 VLTEST2 run). HF-281 only
+  // gates when bindingCount > 0; this closes the all-zero hole. findIncompleteBindings
+  // with an empty binding set lists exactly the components whose intents require tokens.
+  // Legacy paths bypass: metric_derivations (incl. cross-plan) and metric_mappings.
+  {
+    const noBindings = !convergenceBindings || Object.keys(convergenceBindings).length === 0;
+    if (noBindings && metricDerivations.length === 0 && !metricMappings) {
+      const unboundRequirements = findIncompleteBindings(ruleSet.components, undefined);
+      if (unboundRequirements.length > 0) {
+        const detail = unboundRequirements
+          .map(b => `${b.componentName}${b.variantId ? ` [variant ${b.variantId}]` : ''} (${b.componentKey}): ${b.missingTokens.join(', ')}`)
+          .join('; ');
+        const reason = `Binding phase produced no bindings (HF-373 D1) — ${unboundRequirements.length} component(s) require input tokens but no convergence bindings or derivations exist; calc aborted rather than evaluating empty operands to a silent $0. Unbound: ${detail}`;
+        addLog(`HF-373: ${reason}`);
+        return NextResponse.json(
+          { error: reason, incompleteBindings: unboundRequirements, log },
+          { status: 422 },
+        );
+      }
+    }
+  }
 
   // HF-353 P-C: cross-component reference plan. A `component_ref` binding means a component's
   // input is the COMPUTED OUTPUT of another component (e.g. Mínimo Garantizado ← the cascade
@@ -2008,34 +2034,23 @@ export async function POST(request: NextRequest) {
 
   let grandTotal = 0;
 
-  // HF-119: Token overlap variant matching — build token sets once before entity loop
-  const variantTokenize = (text: string): string[] =>
-    text
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
-      .replace(/[^a-z0-9\s_]/g, ' ')
-      .split(/[\s_]+/)
-      .filter(t => t.length > 2);
-
-  const variantTokenSets = variants.map(v => {
-    const text = [
-      String(v.variantName ?? ''),
-      String(v.description ?? ''),
-      String(v.variantId ?? ''),
-    ].join(' ');
-    return new Set(variantTokenize(text));
-  });
-
-  // Discriminant tokens: tokens unique to each variant (not in any other variant)
-  const variantDiscriminants = variantTokenSets.map((tokens, i) => {
-    const otherTokens = new Set<string>();
-    variantTokenSets.forEach((t, j) => { if (j !== i) t.forEach(tok => otherTokens.add(tok)); });
-    return new Set(Array.from(tokens).filter(t => !otherTokens.has(t)));
-  });
+  // HF-373 Phase B (D2): variant selection reads the entity's MATERIALIZED,
+  // model-recognized attributes (Decision 158). The HF-119 row-value token
+  // scavenger is REMOVED: it tokenized committed row string values (including
+  // _sheetName and external-ID fragments), and its discriminant logic
+  // structurally starved any variant whose name nests inside another's
+  // ("Ejecutivo" is a token-subset of "Ejecutivo Senior", so that variant's
+  // discriminant set was EMPTY -- 72/85 entities excluded on 2026-07-02).
+  // A variant is selected when a resolved attribute VALUE equals the variant's
+  // identity (variantName / variantId / description) under accent- and
+  // case-insensitive FULL-STRING equality. Equality, never token subsets,
+  // never prose scans (Korean Test: normalization is script-neutral; identity
+  // strings come from the recognized plan structure, not a developer list).
+  const variantIdentitySets = buildVariantIdentitySets(variants as VariantIdentitySource[]);
 
   if (variants.length > 1) {
-    addLog(`HF-119 Variant discriminants: ${variantDiscriminants.map((d, i) =>
-      `V${i}=[${Array.from(d).join(',')}]`).join(' ')}`);
+    addLog(`HF-373 Variant identities: ${variantIdentitySets.map((d, i) =>
+      `V${i}=[${Array.from(d).join(' | ')}]`).join(' ')}`);
   }
 
   // OB-177: Materialize period_entity_state and load for variant matching
@@ -2068,19 +2083,13 @@ export async function POST(request: NextRequest) {
 
       if (entitiesWithAttrs.length > 0) {
         for (const ent of entitiesWithAttrs) {
-          const attrs = (ent.temporal_attributes || []) as Array<{ key: string; value: Json; effective_from: string; effective_to: string | null }>;
-          const resolved: Record<string, unknown> = {};
-          // Resolve each temporal attribute as-of period date
-          const sorted = [...attrs].sort((a, b) => (b.effective_from || '').localeCompare(a.effective_from || ''));
-          for (const attr of sorted) {
-            if (attr.key in resolved) continue;
-            if (attr.effective_from && attr.effective_from > asOfDate) continue;
-            if (attr.effective_to && attr.effective_to < asOfDate) continue;
-            resolved[attr.key] = attr.value;
-          }
-          // Also include metadata.role if present (backward compat)
-          const meta = (ent.metadata || {}) as Record<string, unknown>;
-          if (meta.role && !resolved['role']) resolved['role'] = meta.role;
+          // HF-373 Phase B: single resolution path shared with the exported pure
+          // function (as-of temporal attributes + metadata.role backstop).
+          const resolved = resolveMaterializedAttributes(
+            (ent.temporal_attributes || []) as Array<{ key: string; value: unknown; effective_from: string; effective_to: string | null }>,
+            (ent.metadata || {}) as Record<string, unknown>,
+            asOfDate,
+          );
           if (Object.keys(resolved).length > 0) {
             materializedState.set(ent.id, resolved);
           }
@@ -2112,7 +2121,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // OB-190: VARIANT-DIAG — trace why variant matching fails for first 3 entities
+  // OB-190 / HF-373 Phase B: VARIANT-DIAG -- surface the recognized-attribute
+  // inputs the matcher reads, for the first 3 entities.
   if (variants.length > 1) {
     let diagCount = 0;
     for (const eid of calculationEntityIds) {
@@ -2120,34 +2130,19 @@ export async function POST(request: NextRequest) {
       diagCount++;
       const resolvedAttrs = materializedState.get(eid);
       const eInfo = entityMap.get(eid);
-      const eRowsFlat = flatDataByEntity.get(eid) || [];
       const eName = eInfo?.display_name ?? eid;
 
       addLog(`[VARIANT-DIAG] ${eName}: materializedState=${JSON.stringify(resolvedAttrs || {})}`);
       const eMeta = (eInfo as { metadata?: Record<string, unknown> })?.metadata;
       addLog(`[VARIANT-DIAG] ${eName}: metadata.role=${JSON.stringify(eMeta?.role || 'NONE')}`);
-      const sampleRd = eRowsFlat.length > 0 ? (eRowsFlat[0] as { row_data?: Record<string, unknown> })?.row_data : null;
-      addLog(`[VARIANT-DIAG] ${eName}: flatDataRows=${eRowsFlat.length}, sampleRowKeys=${sampleRd ? Object.keys(sampleRd).join(',') : 'NONE'}`);
-
-      // Show what tokens would be generated from materializedState
-      const testTokens = new Set<string>();
-      if (resolvedAttrs) {
-        for (const val of Object.values(resolvedAttrs)) {
-          if (typeof val === 'string' && val.length > 1) {
-            for (const token of variantTokenize(val)) {
-              testTokens.add(token);
-            }
-          }
-        }
-      }
-      addLog(`[VARIANT-DIAG] ${eName}: generated tokens=[${Array.from(testTokens).join(',')}]`);
-      addLog(`[VARIANT-DIAG] ${eName}: V0 disc=[${Array.from(variantDiscriminants[0] || []).join(',')}], V1 disc=[${Array.from(variantDiscriminants[1] || []).join(',')}]`);
+      const diagSelection = selectVariantByRecognizedAttributes(variantIdentitySets, resolvedAttrs ?? {});
+      addLog(`[VARIANT-DIAG] ${eName}: normalizedAttrValues=[${diagSelection.attrIdentities.join(' | ')}] selection=${diagSelection.kind}${diagSelection.kind === 'selected' ? ` V${diagSelection.index}` : ` matched=[${diagSelection.matchedIndices.join(',')}]`}`);
     }
     addLog(`[VARIANT-DIAG] materializedState.size=${materializedState.size}, calculationEntityIds.length=${calculationEntityIds.length}`);
   }
 
   // OB-194: Track excluded entities
-  const excludedEntities: Array<{ entityId: string; entityName: string; externalId: string; reason: string; tokens: string }> = [];
+  const excludedEntities: Array<{ entityId: string; entityName: string; externalId: string; reason: string; attributes: string }> = [];
 
   // ═══════════════════════════════════════════════════════════════
   // HF-212 TIER 1 HEADER: emits BEFORE entity loop
@@ -2350,94 +2345,55 @@ export async function POST(request: NextRequest) {
       if (entityStoreId !== undefined) break;
     }
 
-    // HF-119: Token overlap variant matching — cross-language, structural
+    // HF-373 Phase B (D2): variant selection from the entity's materialized,
+    // model-recognized attributes. Full-string identity equality against each
+    // variant's variantName / variantId / description (Decision 158: the model
+    // recognized the role at import; deterministic equality selects here).
+    // Exactly one match -> that variant. No match or an ambiguous match -> a
+    // loud, named exception surfaced in the run summary (C2) -- never a token
+    // guess, never a silent default_last.
     let selectedComponents = defaultComponents;
     let selectedVariantIndex = 0;
     if (variants.length > 1) {
-      // Build entity token set from ALL string field values
-      const entityTokens = new Set<string>();
-      for (const row of entityRowsFlat) {
-        const rd = (row.row_data && typeof row.row_data === 'object' && !Array.isArray(row.row_data))
-          ? row.row_data as Record<string, unknown> : {};
-        for (const val of Object.values(rd)) {
-          if (typeof val === 'string' && val.length > 1) {
-            for (const token of variantTokenize(val)) {
-              entityTokens.add(token);
-            }
-          }
+      const resolvedAttrs = materializedState.get(entityId) ?? {};
+      const selection = selectVariantByRecognizedAttributes(variantIdentitySets, resolvedAttrs);
+      const entityName = entityInfo?.display_name ?? entityId;
+      const attrList = selection.attrIdentities.join(' | ');
+      if (selection.kind === 'selected') {
+        selectedVariantIndex = selection.index;
+        if (entityResults.length < 3) {
+          console.log(`[VARIANT] ${entityName}: recognized attribute match -> variant_${selectedVariantIndex} (attrs=[${attrList}])`);
         }
-      }
-
-      // Score by discriminant token matches
-      const discScores = variantDiscriminants.map((disc, i) => {
-        const matched = Array.from(disc).filter(t => entityTokens.has(t));
-        return { index: i, matches: matched.length, tokens: matched };
-      });
-      discScores.sort((a, b) => b.matches - a.matches);
-
-      let method = 'default_last';
-      if (discScores[0].matches > (discScores[1]?.matches ?? 0)) {
-        // Clear discriminant winner
-        selectedVariantIndex = discScores[0].index;
-        method = 'discriminant_token';
       } else {
-        // Tie on discriminants — try total overlap
-        const overlapScores = variantTokenSets.map((tokens, i) => ({
-          index: i,
-          overlap: Array.from(tokens).filter(t => entityTokens.has(t)).length,
-        }));
-        overlapScores.sort((a, b) => b.overlap - a.overlap);
-
-        if (overlapScores[0].overlap > (overlapScores[1]?.overlap ?? 0)) {
-          selectedVariantIndex = overlapScores[0].index;
-          method = 'total_overlap';
-        } else {
-          // Still tied — default to last variant (less-specific / Standard)
-          selectedVariantIndex = variants.length - 1;
-          method = 'default_last';
-        }
+        // OB-194 exclusion gate, re-founded on recognition: exclusion fires ONLY
+        // when the resolved attributes match no variant identity (or ambiguously
+        // match several) -- an explicit, named exception, never a token artifact.
+        const reason = selection.kind === 'no_match'
+          ? 'attributes_resolve_no_variant'
+          : 'attributes_match_multiple_variants';
+        console.log(`[VARIANT] ${entityName}: ${reason} (attrs=[${attrList}], matchedVariants=[${selection.matchedIndices.join(',')}], variants=${variants.length}) -> excluded LOUDLY`);
+        excludedEntities.push({
+          entityId,
+          entityName,
+          externalId: entityInfo?.external_id ?? entityId,
+          reason,
+          attributes: attrList,
+        });
+        continue; // Skip calculation for this entity (explicit + surfaced, not silent)
       }
 
       selectedComponents = (variants[selectedVariantIndex]?.components as PlanComponent[]) ?? defaultComponents;
-
-      // Log first 3 entities for debugging
-      if (entityResults.length < 3) {
-        const entityName = entityInfo?.display_name ?? entityId;
-        console.log(`[VARIANT] ${entityName}: disc=[${discScores.map(s =>
-          `V${s.index}:${s.matches}`).join(',')}] → variant_${selectedVariantIndex} (${method})`);
-      }
-
-      // OB-194: Variant Eligibility Gate
-      // When a plan defines 2+ variants (explicit population segments) and an entity
-      // matches NONE with score > 0, the entity is excluded from calculation.
-      // Architecture: "An entity matching NO variant is an explicit error, not a silent zero."
-      if (method === 'default_last') {
-        const bestDiscScore = discScores[0]?.matches ?? 0;
-        const bestOverlap = variantTokenSets.reduce((best, tokens) => {
-          const overlap = Array.from(tokens).filter(t => entityTokens.has(t)).length;
-          return Math.max(best, overlap);
-        }, 0);
-
-        if (bestDiscScore === 0 && bestOverlap === 0) {
-          const entityName = entityInfo?.display_name ?? entityId;
-          const tokenList = Array.from(entityTokens).slice(0, 10).join(',');
-          console.log(`[VARIANT] ${entityName}: NO MATCH — excluded (disc=0, overlap=0, variants=${variants.length}, tokens=[${tokenList}])`);
-          excludedEntities.push({
-            entityId,
-            entityName,
-            externalId: entityInfo?.external_id ?? entityId,
-            reason: 'no_qualifying_variant',
-            tokens: tokenList,
-          });
-          continue; // Skip calculation for this entity
-        }
-      }
     }
 
-    // HF-212: Increment variant distribution counter for non-excluded entities.
-    // Variant key composition: variant_<index>(<role>) — index for engine routing,
-    // role for population-segment granularity. Surfaced in Tier 1 footer.
-    const variantKey = `variant_${selectedVariantIndex}(${(entityInfo as { metadata?: { role?: string } })?.metadata?.role ?? 'unknown'})`;
+    // HF-212 / HF-373 Phase B (D2): variant distribution counter for
+    // non-excluded entities. The parenthesized identity is the SELECTED
+    // VARIANT's own name (pre-HF-373 it printed the entity's metadata.role,
+    // so every variant rendered the same label). Feeds T2 result lines and
+    // the T1 variantDistribution footer.
+    const selectedVariantIdentity = variants.length > 1
+      ? String(variants[selectedVariantIndex]?.variantName ?? variants[selectedVariantIndex]?.variantId ?? selectedVariantIndex)
+      : 'default';
+    const variantKey = `variant_${selectedVariantIndex}(${selectedVariantIdentity})`;
     variantCounts.set(variantKey, (variantCounts.get(variantKey) ?? 0) + 1);
 
     const componentResults: ComponentResult[] = [];

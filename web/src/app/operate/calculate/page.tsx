@@ -743,7 +743,7 @@ function CalculatePageInner() {
               return (
                 <PlanCard
                   key={plan.id}
-                  plan={readiness}
+                  plan={{ ...readiness, sourceSheet: plan.sourceSheet ?? null }}
                   periodId={selectedPeriodId}
                   tenantId={tenantId}
                   formatCurrency={formatCurrency}

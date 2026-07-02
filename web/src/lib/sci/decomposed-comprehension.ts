@@ -109,7 +109,7 @@ export async function decomposeComprehension(
       const atomsToWrite: Array<{ columnName: string; hash: string; role: string; roleConfidence: number } & AtomExpression> = [];
       for (const a of plan.atoms) {
         // a.confidence carries the STABLE role confidence for known atoms (planner D5 change).
-        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, scope_role: a.scope_role, nature_role: a.nature_role, plan_role: a.plan_role });
+        if (a.known && a.role) atomsToWrite.push({ columnName: a.columnName, hash: a.hash, role: a.role, roleConfidence: a.confidence ?? 0.9, identifies: a.identifies, characterization: a.characterization, relationships: a.relationships, data_nature: a.data_nature, scope_role: a.scope_role, nature_role: a.nature_role, plan_role: a.plan_role });
       }
 
       if (plan.novelColumns.length === 0) {
@@ -146,11 +146,15 @@ export async function decomposeComprehension(
           characterization: 'unknown', dataExpectation: 'unknown', data_nature: 'unknown', identifies: 'nothing', relationships: [], confidence: 0.5,
         };
         comprehendedColumns.push({ columnName: col, interpretation: interp });
-        // OB-231: the accumulated atom "role" label carries the free-form data_nature; HF-341 R4 also
-        // carries the full EXPRESSION (identifies/characterization/relationships) into the atom.
-        if (interp.data_nature && interp.data_nature !== 'unknown') {
+        // HF-373 Phase G (D10): the atom role-STABILITY key is the model's BARE nature_role
+        // primitive (stable across runs); the free-form data_nature prose rides as carried
+        // expression (display), never the stability key — the prose differed on every LLM call,
+        // churning all recurring atoms to 'ambiguous' and killing the warm path. An atom whose
+        // recognition rendered NO nature primitive writes nothing (no warm memory from an
+        // incomplete recognition — HF-368 law).
+        if (interp.nature_role && interp.nature_role.trim() && interp.data_nature !== 'unknown') {
           const fp = computeAtomFingerprint(col, sheet.rows.map(rw => rw[col]));
-          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.data_nature, roleConfidence: interp.confidence, identifies: interp.identifies, characterization: interp.characterization, relationships: interp.relationships, scope_role: interp.scope_role, nature_role: interp.nature_role, plan_role: interp.plan_role });
+          atomsToWrite.push({ columnName: col, hash: fp.hash, role: interp.nature_role, roleConfidence: interp.confidence, identifies: interp.identifies, characterization: interp.characterization, relationships: interp.relationships, data_nature: interp.data_nature, scope_role: interp.scope_role, nature_role: interp.nature_role, plan_role: interp.plan_role });
         }
       }
 

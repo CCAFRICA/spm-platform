@@ -25,7 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   commitContentUnit,
   findHcEntityIdCandidates,
-  selectEntityIdFieldByOverlap,
+  selectEntityIdFieldStructural,
   readTenantEntityDomain,
   makeRowByteEstimator,
   type CommitContentUnitInput,
@@ -36,7 +36,7 @@ import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 // HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
-import { discoverUploadByteBudget, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
+import { discoverUploadByteBudget, discoverStagedLoadCapabilities, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
 import { planPulses } from './pulse-accumulator';
 // HF-359 (Part B): restored pulse progression — emit cumulative pulse index + rows through the EXISTING
 // per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
@@ -86,15 +86,17 @@ export interface WindowedCommitResult {
 async function resolveEntityIdFieldStreamed(
   supabase: SupabaseClient,
   params: WindowedCommitParams,
-): Promise<string | null> {
-  if (params.classification === 'reference') return null;
+): Promise<{ field: string | null; ambiguousReason: string | null }> {
+  if (params.classification === 'reference') return { field: null, ambiguousReason: null };
   const candidates = findHcEntityIdCandidates(params.unit.classificationTrace);
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) return { field: candidates[0], ambiguousReason: null };
   if (candidates.length === 0) {
     const binding = params.unit.confirmedBindings.find((b) => b.semanticRole === 'entity_identifier');
-    return binding?.sourceField ?? null;
+    return { field: binding?.sourceField ?? null, ambiguousReason: null };
   }
-  // ≥2 candidates → narrow full scan of just the candidate columns + tenant domain → overlap tie-break.
+  // HF-373 Phase C: >=2 candidates -> narrow full scan of just the candidate columns +
+  // tenant domain -> the SAME structural discrimination as the direct path (SR-34);
+  // ambiguity fails the unit loudly, never first-match.
   const windowRows = params.windowRows ?? CHUNK_ROW_SIZE;
   const narrowRows: Array<Record<string, unknown>> = [];
   for (let start = 0; start < params.reader.totalRows; start += windowRows) {
@@ -107,8 +109,10 @@ async function resolveEntityIdFieldStreamed(
     }
   }
   const entityDomain = await readTenantEntityDomain(supabase, params.tenantId);
-  const sel = selectEntityIdFieldByOverlap(candidates, narrowRows, entityDomain);
-  return sel.chosen || null;
+  const sel = selectEntityIdFieldStructural(candidates, narrowRows, entityDomain, params.classification);
+  console.log(`[entity-id] HF-373 C (windowed): ${candidates.length} candidates [${candidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+  if (sel.ambiguousCompetitors) return { field: null, ambiguousReason: sel.reason };
+  return { field: sel.chosen || null, ambiguousReason: null };
 }
 
 export async function commitUnitWindowed(
@@ -120,12 +124,18 @@ export async function commitUnitWindowed(
     return { totalInserted: 0, totalRows: 0, success: true, entityIdField: null, batchIds: [] };
   }
 
-  const entityIdField = await resolveEntityIdFieldStreamed(supabase, params);
+  const entityIdSelection = await resolveEntityIdFieldStreamed(supabase, params);
+  if (entityIdSelection.ambiguousReason) {
+    return { totalInserted: 0, totalRows, success: false, entityIdField: null, batchIds: [], error: `entity-id selection failed for "${params.tabName}": ${entityIdSelection.ambiguousReason} (HF-373 C2)` };
+  }
+  const entityIdField = entityIdSelection.field;
 
   // HF-359 (Part A): same byte boundary as the streamed path. Read in bounded MAX_PULSE_ROWS chunks
   // (memory), then partition EACH chunk into byte-budgeted pulses (planPulses) so no uploaded object
   // exceeds the storage limit, for any width. The row count is no longer the boundary.
   const budget = await discoverUploadByteBudget(supabase);
+  // HF-373 Phase E (D6): gzip staged parts only when the DATABASE proved it can load them.
+  const stagedCaps = await discoverStagedLoadCapabilities(supabase);
   const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
     tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
   });
@@ -172,6 +182,8 @@ export async function commitUnitWindowed(
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
           handOff: handOff,
+          gzipStaging: stagedCaps.gzip,          // HF-373 Phase E (D6)
+          suppressUnitSeedTelemetry: true,       // HF-373 Phase E: the driver owns the unit counters
         });
       } catch (err) {
         // HF-359 (Part A, PG-A6): prior pulses stay committed (resumable); the failure is recorded at the
@@ -283,7 +295,12 @@ export async function commitUnitStreamed(
         return slim;
       });
       const entityDomain = await readTenantEntityDomain(supabase, params.tenantId);
-      const sel = selectEntityIdFieldByOverlap(candidates, narrowRows, entityDomain);
+      // HF-373 Phase C: same structural discrimination as the direct path (SR-34).
+      const sel = selectEntityIdFieldStructural(candidates, narrowRows, entityDomain, params.classification);
+      console.log(`[entity-id] HF-373 C (streamed): ${candidates.length} candidates [${candidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+      if (sel.ambiguousCompetitors) {
+        return { totalInserted: 0, totalRows: 0, success: false, entityIdField: null, batchIds: [], error: `entity-id selection failed for "${params.tabName}": ${sel.reason} (HF-373 C2)` };
+      }
       entityIdField = sel.chosen || null;
     }
   }
@@ -293,6 +310,8 @@ export async function commitUnitStreamed(
   // Each pulse flushes BEFORE its CSV would exceed the budget — so no uploaded object exceeds the limit,
   // for any width. The 20K row count survives only as MAX_PULSE_ROWS (a memory safety cap).
   const budget = await discoverUploadByteBudget(supabase);
+  // HF-373 Phase E (D6): gzip staged parts only when the DATABASE proved it can load them.
+  const stagedCaps = await discoverStagedLoadCapabilities(supabase);
   const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
     tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
   });
@@ -343,6 +362,8 @@ export async function commitUnitStreamed(
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
           handOff: handOff,
+          gzipStaging: stagedCaps.gzip,          // HF-373 Phase E (D6)
+          suppressUnitSeedTelemetry: true,       // HF-373 Phase E: the driver owns the unit counters
         });
       } catch (err) { failure = `window @${offset}: ${String(err)}`; return; }
       if (r.batchId) batchIds.push(r.batchId);

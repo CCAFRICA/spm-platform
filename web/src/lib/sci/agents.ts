@@ -57,10 +57,13 @@ function generateSemanticBindings(profile: ContentProfile, agent: AgentType): Se
   const hc = profile.headerComprehension;
   const rowCount = profile.structure.rowCount ?? profile.fields.length;
   return profile.fields.map(field => {
+    // HF-373 Phase G (D10): pass the FULL HeaderInterpretation — the bare primitives
+    // (nature_role/scope_role, HF-368/HF-372) are the recognition this path was DROPPING
+    // (only the data_nature prose was passed, then regex-scanned; a decimal measure whose
+    // prose lacked an English keyword fell to 'unknown' and the HF-247 gate blocked the
+    // fingerprint on 5 of 6 live Datos imports, while prose luck poisoned the 6th).
     const hcInterp = hc?.interpretations.get(field.fieldName);
-    const hcNature = hcInterp?.data_nature;
-    const identifies = hcInterp?.identifies;
-    const binding = assignSemanticRole(field, agent, hcNature, rowCount, identifies);
+    const binding = assignSemanticRole(field, agent, hcInterp, rowCount);
     return {
       sourceField: field.fieldName,
       platformType: field.dataType,
@@ -73,85 +76,60 @@ function generateSemanticBindings(profile: ContentProfile, agent: AgentType): Se
   });
 }
 
-// OB-231: data_nature is free-form LLM text. These file-local regex helpers read
-// the nature directly (no shared classifier module, no quoted role literals). A
-// pattern like /identifier/i is EPG-safe — it is not the single-quoted literal.
-const NATURE_IS_IDENTIFIER = (n?: string) => !!n && /\b(identifier|\bid\b|primary[ _-]?key)\b/i.test(n);
-const NATURE_IS_REFERENCE_KEY = (n?: string) => !!n && /\b(reference[ _-]?key|ref[ _-]?key|foreign[ _-]?key|lookup[ _-]?key)\b/i.test(n);
-const NATURE_IS_MEASURE = (n?: string) => !!n && /\b(measure|amount|value|metric|quantity|sum|total|numeric)\b/i.test(n);
-const NATURE_IS_TEMPORAL = (n?: string) => !!n && /\b(date|time|temporal|month|year|period|day|week|quarter)\b/i.test(n);
-const NATURE_IS_ATTRIBUTE = (n?: string) => !!n && /\b(attribute|categor|property|dimension|tag|flag)\b/i.test(n);
-const NATURE_IS_NAME = (n?: string) => !!n && /\b(name|label|title|description|display)\b/i.test(n);
-const NATURE_IS_UNKNOWN = (n?: string) => !n || /\bunknown\b/i.test(n) || n.trim() === '';
+// ============================================================
+// HF-373 Phase G (D10) — BARE-PRIMITIVE READERS (registry subtraction; the FULL-claim twin
+// of negotiation.ts HF-372 Phase C). The OB-231 NATURE_IS_* word-boundary regexes over the
+// model's free-form data_nature prose are DELETED — they were per-run roulette (English
+// keywords in translated prose) and the direct root cause of D10: 'unknown' semanticRoles
+// blocking the fingerprint write AND the \bperiod\b-in-measure-prose transaction_date
+// poison. Each predicate reads the model's OWN bare primitive by EQUALITY. The HF-171
+// identifies-prose ENTITY_TYPES/RECORD_TYPES word lists are subtracted too: scope_role IS
+// the model's answer to "what does this identify" (entity | transaction | reference | none).
+// A recognition the model did not render reads as SILENT -> the structural dataType arms
+// (a legitimate structural fallback, not a default classification).
+// ============================================================
 
-function assignSemanticRole(
+type HcInterp = { data_nature?: string; identifies?: string; nature_role?: string; scope_role?: string } | undefined;
+
+const natureIsIdentifier = (i: HcInterp) => !!i && i.nature_role === 'identifier' && i.scope_role !== 'reference';
+const natureIsReferenceKey = (i: HcInterp) => !!i && i.nature_role === 'identifier' && i.scope_role === 'reference';
+const natureIsMeasure = (i: HcInterp) => !!i && i.nature_role === 'measure';
+const natureIsTemporal = (i: HcInterp) => !!i && i.nature_role === 'temporal';
+const natureIsName = (i: HcInterp) => !!i && i.nature_role === 'name';
+const natureIsAttribute = (i: HcInterp) => !!i && i.nature_role === 'categorical';
+const natureIsSilent = (i: HcInterp) => !i || !(i.nature_role && i.nature_role.trim());
+
+export function assignSemanticRole(  // exported for HF-373 Phase G deterministic tests
   field: ContentProfile['fields'][0],
   agent: AgentType,
-  hcNature?: string,
+  interp: HcInterp,
   rowCount: number = 0,
-  identifies?: string,
 ): { role: SemanticRole; context: string; confidence: number } {
-  // HF-171: LLM-Primary identifier classification.
-  // The LLM already knows whether this identifies a person, transaction,
-  // location, etc. Use its answer directly. Cardinality is fallback only.
-  // Korean Test: LLM translates any language → English `identifies`.
-  // Code reads LLM's English output. Customer vocabulary never in code path.
-  const ENTITY_TYPES = ['person', 'employee', 'organization', 'account', 'customer', 'client', 'member'];
-  const RECORD_TYPES = ['transaction', 'order', 'invoice', 'receipt', 'record', 'ticket'];
-
-  // HF-171: data_nature reads as an identifier — this row's own primary identifier
-  if (NATURE_IS_IDENTIFIER(hcNature)) {
-    // LLM-Primary: use `identifies` scope if available
-    if (identifies) {
-      const iw = identifies.toLowerCase();
-      if (ENTITY_TYPES.some(t => iw.includes(t))) {
-        return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (LLM: ${identifies})`, confidence: 0.95 };
-      }
-      if (RECORD_TYPES.some(t => iw.includes(t))) {
-        return { role: 'transaction_identifier', context: `${field.fieldName} — record identifier (LLM: ${identifies})`, confidence: 0.95 };
-      }
-      // LLM provided `identifies` but not entity or record — default to entity
-      return { role: 'entity_identifier', context: `${field.fieldName} — identifier (LLM: ${identifies})`, confidence: 0.85 };
+  // HF-171 -> HF-373: LLM-primary identifier classification, now via the bare primitives.
+  // scope_role names WHAT the column identifies -- no identifies-prose word list.
+  if (natureIsIdentifier(interp)) {
+    if (interp?.scope_role === 'entity') {
+      return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (model: scope_role=entity)`, confidence: 0.95 };
     }
-
-    // HF-285-B: classification-aware fallback (no LLM `identifies` scope). For an
-    // entity/target-classified sheet, an identifier column identifies the entity
-    // regardless of cardinality — the high-uniqueness→transaction_identifier path
-    // is correct ONLY for transaction/reference sheets. DIAG-066: the warm
-    // flywheel cached transaction_identifier for entity sheets (this branch,
-    // pre-fix), diverging from the cold proposal's entity_identifier; this
-    // converges both surfaces. Korean Test: structural agent check, no literals.
+    if (interp?.scope_role === 'transaction') {
+      return { role: 'transaction_identifier', context: `${field.fieldName} — record identifier (model: scope_role=transaction)`, confidence: 0.95 };
+    }
+    // scope_role 'none'/absent: classification-aware fallback (HF-285-B), then cardinality (HF-169).
     if (isEntityIdentifierAgent(agent)) {
       return { role: 'entity_identifier', context: `${field.fieldName} — entity identifier (entity-classified sheet, HF-285-B)`, confidence: 0.85 };
     }
-    // Deterministic Fallback: HF-169 cardinality check (transaction/reference)
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
-      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no LLM context)`, confidence: 0.80 };
+      return { role: 'transaction_identifier', context: `${field.fieldName} — per-row identifier (uniqueness ${(uniquenessRatio * 100).toFixed(0)}%, no scope primitive)`, confidence: 0.80 };
     }
     return { role: 'entity_identifier', context: `${field.fieldName} — identifier (cardinality fallback, uniqueness ${(uniquenessRatio * 100).toFixed(0)}%)`, confidence: 0.85 };
   }
 
-  // HF-186: data_nature reads as a reference key — agent-aware mapping.
-  // For ENTITY agent, a reference key means hierarchical link (e.g., reports_to → manager,
-  // store_id → branch). NOT this row's own identifier. Maps to entity_relationship.
-  // For other agents, the reference key IS the link to the entity that owns this row.
-  // HF-196 Phase 1B: regression fix — this branch was previously merged with the identifier
-  // branch in assignSemanticRole, causing entity-classified files to label all reference keys as
-  // entity_identifier. inferRoleForAgent in negotiation.ts had the agent-aware mapping;
-  // assignSemanticRole did not. Now ported here for FULL-claim path symmetry.
-  if (NATURE_IS_REFERENCE_KEY(hcNature)) {
+  // HF-186: a reference-scope identifier (dimensional lookup key). For the ENTITY agent it is a
+  // hierarchical/dimension link, never this row's own identifier.
+  if (natureIsReferenceKey(interp)) {
     if (agent === 'entity') {
       return { role: 'entity_relationship', context: `${field.fieldName} — hierarchical reference (HF-186: entity-agent reference key → entity_relationship)`, confidence: 0.75 };
-    }
-    if (identifies) {
-      const iw = identifies.toLowerCase();
-      if (ENTITY_TYPES.some(t => iw.includes(t))) {
-        return { role: 'entity_identifier', context: `${field.fieldName} — entity ref key (LLM: ${identifies})`, confidence: 0.95 };
-      }
-      if (RECORD_TYPES.some(t => iw.includes(t))) {
-        return { role: 'transaction_identifier', context: `${field.fieldName} — record ref key (LLM: ${identifies})`, confidence: 0.95 };
-      }
     }
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
@@ -159,11 +137,10 @@ function assignSemanticRole(
     }
     return { role: 'entity_identifier', context: `${field.fieldName} — reference key`, confidence: 0.90 };
   }
-  // HF-196 Phase 1G — Structural fallback ONLY when HC is silent (Decision 108: HC Override Authority Hierarchy LOCKED).
-  // Twin of negotiation.ts:299 fix. Preserves entity-id classification for cold-start /
-  // flywheel-roleMap-miss / LLM-error scenarios; prevents structural override of HC-confident
-  // measure/attribute interpretations (closes Adjacent-Arm Drift on assignSemanticRole).
-  if (NATURE_IS_UNKNOWN(hcNature) && field.dataType === 'integer' && field.distribution.isSequential) {
+
+  // HF-196 Phase 1G — structural fallback ONLY when the model rendered no nature primitive
+  // (Decision 108: HC Override Authority Hierarchy LOCKED; twin of negotiation.ts natureIsSilent).
+  if (natureIsSilent(interp) && field.dataType === 'integer' && field.distribution.isSequential) {
     const uniquenessRatio = rowCount > 0 ? field.distinctCount / rowCount : 0;
     if (uniquenessRatio > 0.8) {
       return { role: 'transaction_identifier', context: `${field.fieldName} — sequential per-row identifier (HC silent)`, confidence: 0.75 };
@@ -172,20 +149,20 @@ function assignSemanticRole(
   }
 
   switch (agent) {
-    case 'plan': return assignPlanRole(field, hcNature);
-    case 'entity': return assignEntityRole(field, hcNature);
-    case 'target': return assignTargetRole(field, hcNature);
-    case 'transaction': return assignTransactionRole(field, hcNature);
-    case 'reference': return assignReferenceRole(field, hcNature);
+    case 'plan': return assignPlanRole(field, interp);
+    case 'entity': return assignEntityRole(field, interp);
+    case 'target': return assignTargetRole(field, interp);
+    case 'transaction': return assignTransactionRole(field, interp);
+    case 'reference': return assignReferenceRole(field, interp);
   }
 }
 
-function assignPlanRole(field: ContentProfile['fields'][0], hcNature?: string): { role: SemanticRole; context: string; confidence: number } {
+function assignPlanRole(field: ContentProfile['fields'][0], interp?: HcInterp): { role: SemanticRole; context: string; confidence: number } {
   if (field.dataType === 'percentage')
     return { role: 'rate_value', context: `Rule definition — rate/threshold value`, confidence: 0.80 };
   if (field.dataType === 'currency')
     return { role: 'payout_amount', context: `Rule definition — reward amount`, confidence: 0.75 };
-  if (NATURE_IS_MEASURE(hcNature))
+  if (natureIsMeasure(interp))
     return { role: 'tier_boundary', context: `Rule definition — measure value`, confidence: 0.70 };
   if (field.dataType === 'text')
     return { role: 'descriptive_label', context: `Rule definition — descriptive text`, confidence: 0.70 };
@@ -194,23 +171,25 @@ function assignPlanRole(field: ContentProfile['fields'][0], hcNature?: string): 
   return { role: 'unknown', context: `Rule definition — unclassified field`, confidence: 0.30 };
 }
 
-function assignEntityRole(field: ContentProfile['fields'][0], hcNature?: string): { role: SemanticRole; context: string; confidence: number } {
-  if (NATURE_IS_NAME(hcNature) || field.nameSignals.looksLikePersonName)
+function assignEntityRole(field: ContentProfile['fields'][0], interp?: HcInterp): { role: SemanticRole; context: string; confidence: number } {
+  if (natureIsName(interp) || field.nameSignals.looksLikePersonName)
     return { role: 'entity_name', context: `${field.fieldName} — display name`, confidence: 0.85 };
   // HF-098: Structural fallback — first column integer in entity sheet → entity_identifier
-  // Without HC, sequential detection may miss non-contiguous IDs (e.g., 101, 205, 340).
-  // First-column integer is the most common entity ID pattern across all locales.
   if (field.fieldIndex === 0 && (field.dataType === 'integer' || field.dataType === 'text'))
     return { role: 'entity_identifier', context: `${field.fieldName} — first column identifier`, confidence: 0.75 };
-  if (NATURE_IS_ATTRIBUTE(hcNature))
+  if (natureIsAttribute(interp))
     return { role: 'entity_attribute', context: `${field.fieldName} — attribute`, confidence: 0.75 };
+  // HF-373 Phase G: a measure column on an entity sheet (a roster metric) is an attribute-carried
+  // measure, never 'unknown' — the bare primitive names it.
+  if (natureIsMeasure(interp))
+    return { role: 'entity_attribute', context: `${field.fieldName} — measured property (model: nature_role=measure)`, confidence: 0.75 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'entity_attribute', context: `${field.fieldName} — categorical property`, confidence: 0.70 };
   return { role: 'entity_attribute', context: `${field.fieldName} — entity property`, confidence: 0.50 };
 }
 
-function assignTargetRole(field: ContentProfile['fields'][0], hcNature?: string): { role: SemanticRole; context: string; confidence: number } {
-  if (NATURE_IS_MEASURE(hcNature))
+function assignTargetRole(field: ContentProfile['fields'][0], interp?: HcInterp): { role: SemanticRole; context: string; confidence: number } {
+  if (natureIsMeasure(interp))
     return { role: 'performance_target', context: `${field.fieldName} — measure/goal`, confidence: 0.80 };
   if (field.dataType === 'currency')
     return { role: 'baseline_value', context: `${field.fieldName} — baseline for comparison`, confidence: 0.70 };
@@ -221,15 +200,27 @@ function assignTargetRole(field: ContentProfile['fields'][0], hcNature?: string)
   return { role: 'unknown', context: `${field.fieldName} — unclassified target field`, confidence: 0.30 };
 }
 
-function assignTransactionRole(field: ContentProfile['fields'][0], hcNature?: string): { role: SemanticRole; context: string; confidence: number } {
-  if (NATURE_IS_TEMPORAL(hcNature) || field.dataType === 'date')
+function assignTransactionRole(field: ContentProfile['fields'][0], interp?: HcInterp): { role: SemanticRole; context: string; confidence: number } {
+  // HF-373 Phase G (D10): the bare primitives decide REGARDLESS of platformType. Pre-HF-373
+  // a decimal/boolean measure whose prose missed the English regex fell to 'unknown'@0.3
+  // (fingerprint blocked, 5/6 live runs), and \bperiod\b in a measure's prose hit the
+  // TEMPORAL regex first (5 measures cached as transaction_date — the poisoned fingerprint).
+  if (natureIsTemporal(interp) || (natureIsSilent(interp) && field.dataType === 'date'))
     return { role: 'transaction_date', context: `${field.fieldName} — event timestamp`, confidence: 0.90 };
+  if (natureIsMeasure(interp)) {
+    if (field.dataType === 'currency')
+      return { role: 'transaction_amount', context: `${field.fieldName} — monetary measure`, confidence: 0.85 };
+    return { role: 'transaction_count', context: `${field.fieldName} — measure (model: nature_role=measure)`, confidence: 0.80 };
+  }
+  if (natureIsName(interp) || natureIsAttribute(interp))
+    return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.70 };
+  // structural fallbacks (model silent)
   if (field.dataType === 'currency')
     return { role: 'transaction_amount', context: `${field.fieldName} — monetary value`, confidence: 0.85 };
-  if (NATURE_IS_MEASURE(hcNature))
-    return { role: 'transaction_count', context: `${field.fieldName} — measure`, confidence: 0.70 };
   if (field.dataType === 'integer')
     return { role: 'transaction_count', context: `${field.fieldName} — event count`, confidence: 0.60 };
+  if (field.dataType === 'decimal')
+    return { role: 'transaction_count', context: `${field.fieldName} — numeric measure (structural)`, confidence: 0.55 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — classification`, confidence: 0.70 };
   if (field.dataType === 'text')
@@ -237,9 +228,11 @@ function assignTransactionRole(field: ContentProfile['fields'][0], hcNature?: st
   return { role: 'unknown', context: `${field.fieldName} — unclassified event field`, confidence: 0.30 };
 }
 
-function assignReferenceRole(field: ContentProfile['fields'][0], hcNature?: string): { role: SemanticRole; context: string; confidence: number } {
-  if (NATURE_IS_NAME(hcNature))
+function assignReferenceRole(field: ContentProfile['fields'][0], interp?: HcInterp): { role: SemanticRole; context: string; confidence: number } {
+  if (natureIsName(interp))
     return { role: 'descriptive_label', context: `${field.fieldName} — display label`, confidence: 0.85 };
+  if (natureIsMeasure(interp))
+    return { role: 'baseline_value', context: `${field.fieldName} — reference measure`, confidence: 0.70 };
   if (field.dataType === 'text' && field.distinctCount > 0 && field.distinctCount < 20)
     return { role: 'category_code', context: `${field.fieldName} — category grouping`, confidence: 0.75 };
   if (field.dataType === 'text')

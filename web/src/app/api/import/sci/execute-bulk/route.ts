@@ -32,7 +32,8 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit, findHcEntityIdColumn, findHcEntityIdCandidates } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcEntityIdCandidates, selectEntityIdFieldStructural, readTenantEntityDomain } from '@/lib/sci/commit-content-unit';
+import { claimCommit, completeCommit, commitScopeHash } from '@/lib/sci/commit-coalesce'; // HF-373 Phase D (D9)
 import { looksLikeRowIndex } from '@/lib/sci/entity-resolution';
 // OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
@@ -142,6 +143,10 @@ export async function POST(req: NextRequest) {
   let jobSessionId: string | undefined;
   let jobTenantId: string | undefined;
   let jobServiceClient: SupabaseClient | undefined;
+  // HF-373 Phase D (D9): commit-claim identity, hoisted so the catch can mark the claim failed
+  // (a crashed pass must be retryable, never a permanent 'running' block).
+  let commitClaimProposalId: string | undefined;
+  let commitClaimScope: string | undefined;
 
   try {
     // Auth check
@@ -193,6 +198,24 @@ export async function POST(req: NextRequest) {
     }
     const tenantSettings = (tenant.settings as Record<string, unknown>) ?? {};
     const tenantDomainId = (tenantSettings.industry as string) || '';
+
+    // HF-373 Phase D (D9): commit-side claim — exactly one effective commit pass per
+    // (tenant, proposal, request scope), the same law HF-371 gave finalize. A CONCURRENT
+    // duplicate of the SAME work coalesces LOUDLY and returns immediately (the client's
+    // settle-recovery reads the surface the in-flight pass is writing); a re-POST after
+    // the prior pass finished is GRANTED (HF-296 lost-response recovery preserved) and
+    // the resume machinery / plan single-flight make it a no-op. Degrades gracefully if
+    // the claim table is absent (migration pending).
+    const commitScope = commitScopeHash(contentUnits.map(u => u.contentUnitId));
+    commitClaimProposalId = proposalId;
+    commitClaimScope = commitScope;
+    const commitClaim = await claimCommit(supabase, tenantId, proposalId, commitScope);
+    if (!commitClaim.granted) {
+      console.warn(`[SCI Bulk] HF-373 D9 COALESCED duplicate commit dispatch (tenant=${tenantId} proposal=${proposalId} scope=${commitScope.slice(0, 12)}…): ${commitClaim.reason}`);
+      commitClaimProposalId = undefined; // not ours to complete
+      return NextResponse.json({ proposalId, coalesced: true, inFlight: true, reason: commitClaim.reason, results: [], overallSuccess: false });
+    }
+    console.log(`[SCI Bulk] HF-373 D9 commit claim: ${commitClaim.reason} (scope=${commitScope.slice(0, 12)}…)`);
 
     // HF-372 Phase D: the SERVER writes 'committing' (the browser's fire-and-forget write is removed —
     // it silently no-oped for platform operators under RLS and lied on navigate-away). proposal_id is
@@ -844,6 +867,11 @@ export async function POST(req: NextRequest) {
     // reason + a terminal status on the import job so the failure is job-visible (DIAG-078 saw
     // error_detail=null). Awaited, non-throwing; no-op on the sync path (no session). Mechanical reasons
     // only (reconciliation-channel separation).
+    // HF-373 Phase D (D9): stamp the commit claim terminal — 'done' lets a later re-POST
+    // resume idempotently; 'failed' makes the scope retryable.
+    await completeCommit(supabase, tenantId, proposalId, commitScope, response.overallSuccess);
+    commitClaimProposalId = undefined;
+
     if (!response.overallSuccess) {
       const reason = results.filter(r => !r.success).map(r => `${r.contentUnitId}: ${r.error ?? 'commit failed'}`).join(' | ').slice(0, 2000);
       await recordCommitFailureOnJob(supabase, tenantId, sessionId, `Commit failed — ${reason}`);
@@ -869,7 +897,13 @@ export async function POST(req: NextRequest) {
     // path, independent of the client — mirroring the finalize-sweep on the hand-off path. waitUntil keeps
     // this invocation alive long enough to dispatch the POST; finalize-import then runs to completion on its
     // own. Idempotent (matches external_id; skips already-resolved rows) — safe alongside the client's fire.
-    if (response.overallSuccess && !pulseLoadJob) {
+    // HF-373 Phase D (D9): a PLAN-ONLY request must not fire finalize — its waitUntil pass was
+    // landing BEFORE the data commit, winning the HF-371 claim, running entity-resolution/summary
+    // against pre-commit data, and stamping 'done' so the real post-data finalize coalesced away
+    // (VLTEST2 94b838b8, Casa 5851bd78 — both live-proven). The data-arm waitUntil + the client
+    // fire (which exists on every path, incl. plan-only imports) cover finalize dispatch.
+    const planOnlyRequest = planUnits.length > 0 && planUnits.length === sortedUnits.length;
+    if (response.overallSuccess && !pulseLoadJob && !planOnlyRequest) {
       try {
         waitUntil(
           fetch(`${req.nextUrl.origin}/api/import/sci/finalize-import`, {
@@ -960,6 +994,11 @@ export async function POST(req: NextRequest) {
     // reason + terminal status. jobServiceClient/jobTenantId are set once the body is parsed.
     if (jobServiceClient && jobTenantId) {
       await recordCommitFailureOnJob(jobServiceClient, jobTenantId, jobSessionId, `Commit error — ${String(err).slice(0, 1900)}`);
+    }
+    // HF-373 Phase D (D9): a thrown pass marks its commit claim 'failed' (retryable) — never a
+    // permanent 'running' block on the scope.
+    if (jobServiceClient && jobTenantId && commitClaimProposalId && commitClaimScope) {
+      await completeCommit(jobServiceClient, jobTenantId, commitClaimProposalId, commitClaimScope, false);
     }
     return NextResponse.json(
       { error: 'Bulk execution failed', details: String(err) },
@@ -1104,12 +1143,24 @@ async function processEntityUnit(
   // The set of columns the MODEL recognized as entity-scope identifiers (scope_role==='entity' &&
   // nature_role==='identifier'). A `#` row ordinal or a rate-table band label is NEVER in this set.
   const modelCandidates = findHcEntityIdCandidates(unit.classificationTrace);
-  let idSourceField: string | null =
-    // The heuristic binding is honored ONLY when it agrees with the model (preserves the multi-
-    // candidate disambiguation, e.g. ID_Empleado chosen over ID_Gerente). Otherwise the model wins.
-    (idBinding && modelCandidates.includes(idBinding.sourceField))
-      ? idBinding.sourceField
-      : (findHcEntityIdColumn(unit.classificationTrace) ?? null);
+  // HF-373 Phase C (D3): ONE selection surface for every consumer (SR-34). The prior
+  // "binding honored iff it agrees with the model" arm and the first-match
+  // findHcEntityIdColumn fallback are replaced by the SAME structural selector the
+  // commit path uses — creation and committed metadata.entity_id_field can no longer
+  // disagree within one import (2026-07-02: creation keyed ID_Empleado while
+  // entity_id_field persisted ID_Gerente, mis-linking 84/85 roster rows).
+  let idSourceField: string | null = null;
+  if (modelCandidates.length === 1) {
+    idSourceField = modelCandidates[0];
+  } else if (modelCandidates.length >= 2) {
+    const entityDomain = await readTenantEntityDomain(supabase, tenantId);
+    const sel = selectEntityIdFieldStructural(modelCandidates, rows as Array<Record<string, unknown>>, entityDomain, 'entity');
+    console.log(`[SCI Bulk][entity-id] HF-373 C: ${modelCandidates.length} entity-scope candidates [${modelCandidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+    if (sel.ambiguousCompetitors) {
+      return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `Entity identifier ambiguous after structural discrimination [${sel.ambiguousCompetitors.join(', ')}] — refusing to spawn entities from a guessed key (HF-373 C2).` };
+    }
+    idSourceField = sel.chosen || null;
+  }
   if (!idSourceField && idBinding) {
     // The model recognized NO entity identifier and the only surface is the heuristic binding — allow
     // it ONLY if it is not a row index (a `#` / ordinal column can never spawn entities). Band labels

@@ -711,13 +711,14 @@ export async function POST(req: NextRequest) {
           });
         }
         const enrichedFieldBindings = Array.from(enrichedBySource.values());
-        // column_roles map mirrors the COMPLETE binding set (native data_nature), so the
-        // poisoned-cache quality gate and warm-replay nature reconstruction both see all natures.
-        // (The persisted JSONB key stays `column_roles` — an existing store column — but its
-        // string values now carry the data_nature.)
+        // HF-373 Phase G (D10): column_roles carries the SEMANTIC-ROLE vocabulary on every write
+        // site (this sync path previously preferred free-form data_nature PROSE — per-run-varying
+        // strings the HF-247 quality gates cannot reason about, and a third vocabulary in one
+        // column). With agents.ts now deriving semanticRole from the bare primitives, the role
+        // map is deterministic per recognition; the prose stays on the bindings themselves.
         const columnRoles: Record<string, string> = {};
         for (const fb of enrichedFieldBindings) {
-          columnRoles[fb.sourceField as string] = (fb.data_nature as string) ?? (fb.semanticRole as string);
+          columnRoles[fb.sourceField as string] = (fb.semanticRole as string) ?? (fb.data_nature as string);
         }
         // HF-197B: locate the unit's OWN sheet for the hash, not sheets[0].
         const sourceFile = files.find(f => f.fileName === unit.sourceFile);

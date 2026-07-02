@@ -2,14 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   findHcEntityIdCandidates,
-  findHcEntityIdColumn,
-  selectEntityIdFieldByOverlap,
+  selectEntityIdFieldStructural,
 } from '../commit-content-unit';
 
-// HF-351 F5 — entity_id_field selection by value-domain overlap (the class fix).
-// Korean Test: the selector reads VALUES only; tests use arbitrary tokens. A branch
-// column (`grp`) that REPEATS MORE than the seller (`sel`) must still LOSE — proving
-// value-domain overlap, not cardinality, is the discriminator (the MIR/Robles trap).
+// HF-351 F5 → HF-373 Phase C — entity_id_field selection by STRUCTURAL FACTS.
+// Korean Test: the selector reads VALUES only; tests use arbitrary tokens.
+// The HF-351 "finest repeating identifier" statistic is DELETED: on a roster it
+// structurally inverted (the true id is bijective with rows = 1.0x repeat, so the
+// repeat filter excluded it and preferred the self-referential manager FK).
 
 // transaction sheet: 12 rows, 4 sellers, 2 branches; a unique per-row event id.
 function ventasRows() {
@@ -22,45 +22,72 @@ function ventasRows() {
   return rows;
 }
 
-test('F5 (THE FIX): with an entity domain, the seller wins on value-overlap even though the branch out-repeats it', () => {
+// roster sheet: 10 employees, self-referential manager FK (managers ⊂ employees, one blank = CEO).
+function rosterRows() {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < 10; i++) {
+    rows.push({ ID_Empleado: `E${i}`, ID_Gerente: i === 0 ? '' : `E${i % 3}`, Nombre: `P${i}` });
+  }
+  return rows;
+}
+
+test('HF-373 (THE FIX): roster self-referential manager FK is eliminated by strict value-subset — the true id wins with NO domain and NO repeat statistic', () => {
+  const sel = selectEntityIdFieldStructural(['ID_Gerente', 'ID_Empleado'], rosterRows(), new Set(), 'entity');
+  assert.equal(sel.chosen, 'ID_Empleado');
+  assert.match(sel.reason, /strict value-subset elimination/);
+  assert.match(sel.reason, /ID_Gerente/);
+});
+
+test('HF-373: entity-sheet bijectivity discriminates when value sets do not nest', () => {
+  // two disjoint id-ish columns on an ENTITY sheet: one bijective with rows, one repeating.
+  const rows = Array.from({ length: 8 }, (_, i) => ({ subject: `S${i}`, dept: `D${i % 3}x${i % 2}` }));
+  // dept values: D0x0,D1x1,D2x0,D0x1,D1x0,D2x1 → 6 distinct over 8 rows (repeats, disjoint from subject)
+  const sel = selectEntityIdFieldStructural(['dept', 'subject'], rows, new Set(), 'entity');
+  assert.equal(sel.chosen, 'subject');
+  assert.match(sel.reason, /bijective with rows/);
+});
+
+test('F5 branch (a) preserved: with an entity domain, the seller wins on value-overlap even though the branch out-repeats it', () => {
   const rows = ventasRows();
-  // grp (branch) repeats 6x (12/2); sel (seller) repeats 3x (12/4) — cardinality alone picks grp.
   const entityDomain = new Set(['S1', 'S2', 'S3', 'S4']); // the roster's external_ids (sellers)
-  const sel = selectEntityIdFieldByOverlap(['grp', 'sel'], rows, entityDomain);
-  assert.equal(sel.chosen, 'sel');               // seller, not branch
+  const sel = selectEntityIdFieldStructural(['grp', 'sel'], rows, entityDomain, 'transaction');
+  assert.equal(sel.chosen, 'sel');
   assert.match(sel.reason, /value-domain overlap 100%/);
 });
 
-test('F5: a single entity-scope candidate is returned unchanged (BCL/Meridian byte-identical)', () => {
-  const sel = selectEntityIdFieldByOverlap(['ID_Empleado'], ventasRows(), new Set());
+test('single entity-scope candidate is returned unchanged (BCL/Meridian byte-identical)', () => {
+  const sel = selectEntityIdFieldStructural(['ID_Empleado'], ventasRows(), new Set(), 'transaction');
   assert.equal(sel.chosen, 'ID_Empleado');
   assert.equal(sel.reason, 'single entity-scope identifier');
 });
 
-test('F5 cold-start (empty domain): the finer-grained repeating identifier wins (seller over branch)', () => {
+test('HF-373 (C2): cold-start transaction sheet with disjoint candidates is a LOUD ambiguity — never a repeat-statistic guess, never first-match', () => {
   const rows = ventasRows();
-  // no entity domain yet (transaction imported before the roster) → fall to cardinality:
-  // grp distinct=2, sel distinct=4 — the finer-grained (more distinct) repeating id is the entity.
-  const sel = selectEntityIdFieldByOverlap(['grp', 'sel'], rows, new Set());
-  assert.equal(sel.chosen, 'sel');
-  assert.match(sel.reason, /finest repeating identifier/);
+  const sel = selectEntityIdFieldStructural(['grp', 'sel'], rows, new Set(), 'transaction');
+  assert.equal(sel.chosen, '');
+  assert.match(sel.reason, /ambiguous after structural discrimination/);
+  assert.deepEqual(sel.ambiguousCompetitors, ['grp', 'sel']);
 });
 
-test('F5 (C2): genuinely ambiguous (empty domain, equal distinct) → first-match fallback, flagged', () => {
-  // two identifiers with identical cardinality and no domain — nothing to separate them
+test('HF-373 (C2): genuinely indistinguishable candidates are a LOUD ambiguity (no first-match fallback)', () => {
   const rows = Array.from({ length: 10 }, (_, i) => ({ a: `A${i % 5}`, b: `B${i % 5}` }));
-  const sel = selectEntityIdFieldByOverlap(['a', 'b'], rows, new Set());
-  assert.equal(sel.chosen, 'a'); // first, preserving prior behavior — never silently worse
-  assert.match(sel.reason, /ambiguous/);
+  const sel = selectEntityIdFieldStructural(['a', 'b'], rows, new Set(), 'transaction');
+  assert.equal(sel.chosen, '');
+  assert.ok(sel.ambiguousCompetitors);
 });
 
-test('F5: overlap beats a higher-overlap-but-not-quite tie — domain present but a candidate matches more', () => {
+test('overlap discriminates when domain present: 100% vs 0%', () => {
   const rows = [
     { x: 'P1', y: 'Z1' }, { x: 'P1', y: 'Z2' }, { x: 'P2', y: 'Z3' }, { x: 'P2', y: 'Z4' },
   ];
-  // domain = {P1,P2}; x overlaps 100%, y overlaps 0%
-  const sel = selectEntityIdFieldByOverlap(['y', 'x'], rows, new Set(['P1', 'P2']));
+  const sel = selectEntityIdFieldStructural(['y', 'x'], rows, new Set(['P1', 'P2']), 'transaction');
   assert.equal(sel.chosen, 'x');
+});
+
+test('an all-empty candidate column drops by subset elimination', () => {
+  const rows = Array.from({ length: 6 }, (_, i) => ({ real: `R${i}`, ghost: '' }));
+  const sel = selectEntityIdFieldStructural(['ghost', 'real'], rows, new Set(), 'entity');
+  assert.equal(sel.chosen, 'real');
 });
 
 // ── candidate collection from the HC trace ──
@@ -80,10 +107,4 @@ test('findHcEntityIdCandidates: returns ALL entity-scope identifiers; excludes t
   });
   const cands = findHcEntityIdCandidates(t);
   assert.deepEqual(cands, ['DNI_Vendedor', 'Almacen']);
-});
-
-test('findHcEntityIdColumn (backward compat) returns the FIRST candidate (single-candidate path unchanged)', () => {
-  const t = trace({ ID_Empleado: { scope_role: 'entity', nature_role: 'identifier', confidence: 0.99 } });
-  assert.equal(findHcEntityIdColumn(t), 'ID_Empleado');
-  assert.equal(findHcEntityIdColumn(undefined), null);
 });

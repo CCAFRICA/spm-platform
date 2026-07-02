@@ -21,6 +21,10 @@
 
 import { StringDecoder } from 'node:string_decoder';
 import { shouldFlushBeforeAdd } from './pulse-accumulator'; // HF-359: the shared byte-budget pulse boundary
+// HF-373 Phase H (D11): the SAME deterministic de-band recognition the standard path uses (OB-254),
+// applied to a bounded sample of leading rows — the size gate selects the parse strategy, never the
+// recognition (AP-17). Clean-row-1 sheets resolve to IDENTITY (byte-identical keying, DD-7).
+import { resolveHeadersFromSampleGrid, HEADER_SAMPLE_ROWS, type SampleHeaderResolution } from './deband-sheet';
 
 /**
  * Build the canonical column keys from a header row's cells, EXACTLY as `sheet_to_json` does:
@@ -60,7 +64,11 @@ export function isLargeByBytes(byteLength: number): boolean {
 export interface StreamSheetResult {
   sheetName: string;
   headers: string[];
-  totalRows: number; // DATA rows streamed (excludes the header row)
+  totalRows: number; // DATA rows streamed (excludes the header/banner rows)
+  // HF-373 Phase H (D11): true when the sample de-band recovered a banded header (banner rows
+  // skipped, positional recovered keys used); absent/false = identity raw-row-1 keying.
+  debandBanded?: boolean;
+  debandObservations?: Array<{ kind: string; detail: Record<string, unknown> }>;
 }
 
 export interface StreamSheetMeta {
@@ -69,6 +77,61 @@ export interface StreamSheetMeta {
   sample: Record<string, unknown>[]; // first N data rows (for classify fingerprint/HC)
   totalRows: number; // from the sheet's <dimension> if present, else the sample length (-> "at least")
   totalKnown: boolean;
+  debandBanded?: boolean; // HF-373 Phase H (D11)
+  debandObservations?: Array<{ kind: string; detail: Record<string, unknown> }>;
+}
+
+// ── HF-373 Phase H (D11): buffered header resolution over the leading rows ─────────────────────────
+// Buffers the first HEADER_SAMPLE_ROWS raw cell-rows, then resolves ONCE via the shared de-band
+// sample recognition. Identity (clean row-1): headers = headerKeysFromCells(row 0) — the EXACT
+// pre-HF-373 keying, byte-identical; buffered rows 1.. release as data. Banded: headers = the
+// recovered positional keys; buffered rows before dataStartRow are the banner/header band (skipped
+// as sidecar, matching the full-grid de-band); the rest release as data. Peak memory: ≤ the sample
+// rows' cells — the OOM defense is untouched.
+class StreamHeaderResolver {
+  private buffered: Array<Map<number, unknown>> = [];
+  headers: string[] | null = null;
+  resolution: SampleHeaderResolution | null = null;
+  constructor(private sheetName: string, private sampleRows: number = HEADER_SAMPLE_ROWS) {}
+
+  /** Feed one raw cell-row; returns any cell-rows now releasable as DATA rows. */
+  push(cells: Map<number, unknown>): Array<Map<number, unknown>> {
+    if (this.headers !== null) return [cells];
+    this.buffered.push(cells);
+    if (this.buffered.length >= this.sampleRows) return this.resolve();
+    return [];
+  }
+
+  /** End of stream: resolve with whatever was buffered. */
+  flush(): Array<Map<number, unknown>> {
+    if (this.headers !== null) return [];
+    return this.resolve();
+  }
+
+  private resolve(): Array<Map<number, unknown>> {
+    const grid: unknown[][] = this.buffered.map((cells) => {
+      let maxCol = -1;
+      for (const c of Array.from(cells.keys())) if (c > maxCol) maxCol = c;
+      const row: unknown[] = new Array(Math.max(0, maxCol + 1)).fill(null);
+      for (const [c, v] of Array.from(cells.entries())) row[c] = v;
+      return row;
+    });
+    const resolution = resolveHeadersFromSampleGrid(grid, this.sheetName);
+    this.resolution = resolution;
+    let dataStart: number;
+    if (resolution.banded) {
+      this.headers = resolution.columns;
+      dataStart = resolution.dataStartRow;
+      console.log(`[sheet-stream] HF-373 H: banded header recovered for "${this.sheetName}" — ${resolution.columns.length} columns, data starts at sample row ${dataStart} (raw row-1 keying replaced)`);
+    } else {
+      // IDENTITY: the exact pre-HF-373 keying (first row → headerKeysFromCells).
+      this.headers = this.buffered.length > 0 ? headerKeysFromCells(this.buffered[0]) : [];
+      dataStart = 1;
+    }
+    const out = this.buffered.slice(dataStart);
+    this.buffered = [];
+    return out;
+  }
 }
 
 // ── XML helpers (minimal, xlsx-scoped) ──────────────────────────────────────
@@ -216,16 +279,14 @@ export async function streamSheetWindows(
   const maxRows = opts.maxRows ?? opts.windowRows ?? Number.POSITIVE_INFINITY;
   const byteBudget = opts.byteBudget ?? 0;
 
-  const handleRow = async (rowXml: string) => {
-    const cells = parseRowCells(rowXml, shared);
-    if (headers === null) {
-      // Header row → canonical keys matching sheet_to_json (present-empty '' vs absent __EMPTY).
-      headers = headerKeysFromCells(cells);
-      opts.onHeaders?.(chosen.name, headers);
-      return;
-    }
+  // HF-373 Phase H (D11): header keys resolve from a bounded leading sample (identity on clean
+  // row-1 sheets — the pre-HF-373 keying byte-for-byte), never blindly from the first physical row.
+  const resolver = new StreamHeaderResolver(chosen.name);
+
+  const handleDataCells = async (cells: Map<number, unknown>) => {
+    const hdrs = headers!;
     const obj: Record<string, unknown> = {};
-    for (let i = 0; i < headers.length; i++) obj[headers[i]] = cells.has(i) ? cells.get(i) : '';
+    for (let i = 0; i < hdrs.length; i++) obj[hdrs[i]] = cells.has(i) ? cells.get(i) : '';
     const b = opts.rowBytes ? opts.rowBytes(obj) : 1;
     if (shouldFlushBeforeAdd(windowBuf.length, accBytes, b, byteBudget, maxRows)) {
       await opts.onWindow(windowBuf, totalRows - windowBuf.length);
@@ -235,6 +296,16 @@ export async function streamSheetWindows(
     windowBuf.push(obj);
     accBytes += b;
     totalRows += 1;
+  };
+
+  const handleRow = async (rowXml: string) => {
+    const cells = parseRowCells(rowXml, shared);
+    const released = resolver.push(cells);
+    if (headers === null && resolver.headers !== null) {
+      headers = resolver.headers;
+      opts.onHeaders?.(chosen.name, headers);
+    }
+    for (const dc of released) await handleDataCells(dc);
   };
 
   await new Promise<void>((resolve, reject) => {
@@ -258,13 +329,25 @@ export async function streamSheetWindows(
       const { rows } = drainRows(pending + '</sheetData>'); // flush any final complete row
       chain = chain
         .then(async () => { for (const r of rows) await handleRow(r); })
+        .then(async () => {
+          // HF-373 Phase H: a sheet shorter than the header sample resolves at end-of-stream.
+          const released = resolver.flush();
+          if (headers === null && resolver.headers !== null) { headers = resolver.headers; opts.onHeaders?.(chosen.name, headers); }
+          for (const dc of released) await handleDataCells(dc);
+        })
         .then(async () => { if (windowBuf.length > 0) { await opts.onWindow(windowBuf, totalRows - windowBuf.length); windowBuf = []; } })
         .then(resolve, reject);
     });
     stream.on('error', reject);
   });
 
-  return { sheetName: chosen.name, headers: headers ?? [], totalRows };
+  return {
+    sheetName: chosen.name,
+    headers: headers ?? [],
+    totalRows,
+    debandBanded: resolver.resolution?.banded ?? false,
+    debandObservations: resolver.resolution?.observations,
+  };
 }
 
 /** Cheap list of worksheet names (reads only workbook.xml — never the worksheets). */
@@ -323,11 +406,34 @@ export async function streamSheetMeta(
   let dimRows = -1;
   let pending = '';
   const decoder = new StringDecoder('utf8');
+  // HF-373 Phase H (D11): same bounded de-band header resolution as streamSheetWindows —
+  // classify and commit key by the SAME recovered header (or the same identity keying).
+  const resolver = new StreamHeaderResolver(chosen.name);
+
+  const consumeData = (cells: Map<number, unknown>) => {
+    const hdrs = headers!;
+    if (sample.length < opts.sampleRows) {
+      const obj: Record<string, unknown> = {};
+      for (let i = 0; i < hdrs.length; i++) obj[hdrs[i]] = cells.has(i) ? cells.get(i) : '';
+      sample.push(obj);
+    }
+    dataRows += 1;
+  };
 
   await new Promise<void>((resolve, reject) => {
     const stream = zip.file(chosen.path)!.nodeStream('nodebuffer');
     let stopped = false;
-    const finish = () => { if (stopped) return; stopped = true; (stream as { destroy?: () => void }).destroy?.(); resolve(); };
+    const finish = () => {
+      if (stopped) return;
+      stopped = true;
+      // A short sheet may end (or the sample fill) before the resolver's buffer filled.
+      if (headers === null) {
+        const released = resolver.flush();
+        if (resolver.headers !== null) headers = resolver.headers;
+        for (const dc of released) consumeData(dc);
+      }
+      (stream as { destroy?: () => void }).destroy?.(); resolve();
+    };
     stream.on('data', (chunk: Buffer) => {
       if (stopped) return;
       pending += decoder.write(chunk);
@@ -336,13 +442,9 @@ export async function streamSheetMeta(
       pending = rest.length ? Buffer.from(rest, 'utf8').toString('utf8') : '';
       for (const r of rows) {
         const cells = parseRowCells(r, shared);
-        if (headers === null) { headers = headerKeysFromCells(cells); continue; }
-        if (sample.length < opts.sampleRows) {
-          const obj: Record<string, unknown> = {};
-          for (let i = 0; i < headers.length; i++) obj[headers[i]] = cells.has(i) ? cells.get(i) : '';
-          sample.push(obj);
-        }
-        dataRows += 1;
+        const released = resolver.push(cells);
+        if (headers === null && resolver.headers !== null) headers = resolver.headers;
+        for (const dc of released) consumeData(dc);
       }
       // Stop once we have the header + enough sample (and, ideally, the dimension).
       if (headers !== null && sample.length >= opts.sampleRows) finish();
@@ -352,11 +454,16 @@ export async function streamSheetMeta(
   });
 
   const totalKnown = dimRows >= 0;
+  // Banded: the dimension count includes the banner rows — subtract them so estimates stay honest
+  // (the dimension already excludes ONE header row via rowsFromDimensionRef).
+  const bannerExtra = resolver.resolution?.banded ? Math.max(0, resolver.resolution.dataStartRow - 1) : 0;
   return {
     sheetName: chosen.name,
     headers: headers ?? [],
     sample,
-    totalRows: totalKnown ? dimRows : dataRows,
+    totalRows: totalKnown ? Math.max(0, dimRows - bannerExtra) : dataRows,
     totalKnown,
+    debandBanded: resolver.resolution?.banded ?? false,
+    debandObservations: resolver.resolution?.observations,
   };
 }

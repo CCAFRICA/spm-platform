@@ -43,6 +43,49 @@ export function debandWorksheet(
   return { sheetName, columns: rec ? rec.header : [], rows: rec ? rec.rows : [], result };
 }
 
+// ── HF-373 Phase H (D11) — bounded SAMPLE-WINDOW header recovery for the OVERSIZED paths ──────────
+// The streamed/windowed readers keyed EVERYTHING on the raw first physical row (a banded large file
+// classified from banner garbage — the designed-in D2 gap). This is the SAME deterministic
+// recognition surface (constructStructure) applied to the first HEADER_SAMPLE_ROWS rows only — the
+// size gate now selects the parse STRATEGY, never the recognition (AP-17). The recovered keys are
+// the POSITIONAL transformMap.columnNames (raw column index → tidy name) — section lifting and
+// carry-down are full-grid constructions and do not participate on a stream. A clean-row-1 sheet
+// (the JDE class) resolves to IDENTITY — the caller keeps its existing raw-row-1 keying verbatim
+// (byte-identical, DD-7). Any shape the sample cannot decide ALSO resolves to identity (never a
+// guess); the observations (incl. structure:banded_beyond_ceiling) surface loudly either way.
+
+export const HEADER_SAMPLE_ROWS = 25;
+
+export interface SampleHeaderResolution {
+  banded: boolean;
+  /** POSITIONAL recovered header keys (raw column index → tidy name); [] on identity. */
+  columns: string[];
+  /** grid row index where DATA begins (identity: 1 — the row after the raw header). */
+  dataStartRow: number;
+  observations: StructuralObservation[];
+}
+
+export function resolveHeadersFromSampleGrid(grid: unknown[][], sheetName: string): SampleHeaderResolution {
+  const identity = (observations: StructuralObservation[] = []): SampleHeaderResolution =>
+    ({ banded: false, columns: [], dataStartRow: 1, observations });
+  if (grid.length === 0) return identity();
+  try {
+    const result = constructStructure(grid, { fullGrid: false, sheetName, defvalEmpty: true });
+    const rec = result.units.find((u) => u.kind === 'records');
+    const firstTidy = result.transformMap.rows.find((r) => r.tidy)?.sourceRowIndex ?? -1;
+    const positional = result.transformMap.columnNames ?? [];
+    const clean = !!rec && rec.headerRowIndices.length === 1 && rec.headerRowIndices[0] === 0 && firstTidy === 1;
+    if (clean || !rec || positional.length === 0 || firstTidy <= 0) {
+      return identity(result.observations);
+    }
+    return { banded: true, columns: positional, dataStartRow: firstTidy, observations: result.observations };
+  } catch (err) {
+    // Recovery must never break the proven oversized path — identity on any construction throw.
+    console.warn(`[deband-sample] HF-373 H: sample header resolution threw for "${sheetName}" — identity keying kept:`, err instanceof Error ? err.message : err);
+    return identity();
+  }
+}
+
 /** §3.3a — emit each structural observation as a Level-1 structural signal into `classification_signals`
  *  (the SINGLE signal surface, G7). Open-vocabulary signal_type (`structural:<kind>`), `decision_source`
  *  marks the deterministic origin. Best-effort telemetry: a write failure NEVER blocks ingestion (same

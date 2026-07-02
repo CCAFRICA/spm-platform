@@ -20,7 +20,7 @@ import { runDecomposedComprehension, extractFieldIdentitiesFromTrace } from '@/l
 // OB-249 — Remediation EXPRESS (propose) at proposal time, off the atomic commit path.
 import { runRemediationPropose, computeRemediationExclusions, dataColumns, dbRecall } from '@/lib/remediation/remediation-stage';
 import { buildFieldIdentitiesFromBindings } from '@/lib/sci/field-identities';
-import { findHcEntityIdColumn } from '@/lib/sci/commit-content-unit';
+import { findHcEntityIdCandidates } from '@/lib/sci/commit-content-unit';
 import { createIngestionState, buildProposalFromState } from '@/lib/sci/synaptic-ingestion-state';
 import { resolveClassification } from '@/lib/sci/resolver';
 // OB-199 Phase 4 supplement A: facade re-established at lib/sci/classification-signal-service.ts.
@@ -525,10 +525,15 @@ export async function POST(req: NextRequest) {
         for (const b of bindings) semanticRoles[b.sourceField] = { role: b.semanticRole };
         const fieldIdentities = extractFieldIdentitiesFromTrace(unit.classificationTrace as Record<string, unknown> | undefined)
           ?? buildFieldIdentitiesFromBindings(bindings);
-        const entityIdField = findHcEntityIdColumn(unit.classificationTrace as Record<string, unknown> | undefined)
+        // HF-373 Phase C (SR-34): exclusion covers EVERY model-recognized entity-scope
+        // identifier candidate (not just an emission-order first) — no identifier column
+        // is ever remediated, regardless of which one commit later selects.
+        const idCandidates = findHcEntityIdCandidates(unit.classificationTrace as Record<string, unknown> | undefined);
+        const entityIdField = idCandidates[0]
           ?? (bindings.find(b => b.semanticRole === 'entity_identifier')?.sourceField ?? null);
         const allCols = dataColumns(sheetForUnit.rows);
         const exclusions = computeRemediationExclusions(allCols, semanticRoles, fieldIdentities, entityIdField);
+        for (const c of idCandidates) exclusions.add(c);
         const allowedColumns = allCols.filter(c => !exclusions.has(c));
         if (allowedColumns.length === 0) continue;
         const reports = await runRemediationPropose(supabase, {
