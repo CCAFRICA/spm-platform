@@ -545,9 +545,11 @@ export async function runDecomposedComprehension(
     for (const k of r.knownColumns) {
       interpretations.set(k.columnName, {
         columnName: k.columnName,
-        characterization: k.characterization ?? k.role,
+        // HF-373 Phase G (D10): data_nature is the CARRIED prose (k.data_nature); k.role is now
+        // the bare nature_role stability key. Legacy pre-v6 atoms (prose in role) fall back.
+        characterization: k.characterization ?? k.data_nature ?? k.role,
         dataExpectation: '',
-        data_nature: k.role,
+        data_nature: k.data_nature ?? k.role,
         identifies: k.identifies ?? 'nothing',
         // HF-368: the model's bare primitives, recalled from the atom (legacy atoms → undefined →
         // the bridge fails loud → the sheet re-imports fresh with the primitives). HF-372: plan_role too.

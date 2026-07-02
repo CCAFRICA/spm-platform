@@ -226,4 +226,31 @@ OFFENDER 2 (stuck workbook, committed/finalizing forever):
 
 With Phase D's generation takeover + F's session threading, the workbook shape now receives its post-data finalize AND its terminal stamp. Unit tests: `hf373-job-truth.test.ts` (5/5 — phase terminality, no-regression, status model preserved, mechanical-marker predicate incl. prefix anchoring) + `hf373-summary-aggregation.test.ts` (2/2 — paged ≡ one-shot at every page boundary; C2 novel-method HALT preserved). SCI+summary+platform suites **319/319**. The forced-failure and large-tenant in-flow runs are architect-rendered (EPG-J3; the summary keyset needs the index migration first). **Architect actions:** run `20260704_hf373_committed_data_keyset_idx.sql` ALONE in the SQL editor (CONCURRENTLY); after it, re-run finalize (or `/api/admin/summary-backfill`) for Casa Diaz + Test #A1 whose summary artifacts are currently absent.
 
-*(Phases G–J appended below as completed.)*
+---
+
+## Phase G — Recognition carry restored; warm path returns (D10)
+
+**Objective.** The model's recognition reaches the fingerprint write intact; the HF-247 gate untouched; a repeat identical import uses the warm path.
+
+**Phase 0 finding answered (HALT-1).** EPG-0.8: TWO carry drops, both losing bare primitives that ARE persisted (`nature_role='measure'`@0.93–0.98 on every affected column). (1) `agents.ts` passed only the `data_nature` PROSE into role assignment and regex-scanned it (`NATURE_IS_*` — per-run English-keyword roulette): 5/6 live Datos imports had ≥1 `unknown` (gate blocks), and the 6th **stored a POISONED fingerprint** (five measures cached `transaction_date` via `\bperiod\b` matching the temporal regex first). (2) The atom flywheel — the surface that actually carries the ~50 s (post-HF-372 the sheet Tier-1 no longer skips LLM) — keyed role-stability on the free-form prose, so ALL 14 recurring atoms churned to sticky `ambiguous` and every re-import re-paid full comprehension.
+
+**Change.**
+1. **agents.ts converted to bare-primitive readers** (the FULL-claim twin of negotiation.ts HF-372 Phase C): the seven `NATURE_IS_*` prose regexes **deleted**; `assignSemanticRole` + the five `assign*Role` helpers read `nature_role`/`scope_role` by equality; the HF-171 `identifies`-prose ENTITY_TYPES/RECORD_TYPES word lists **subtracted** (scope_role IS the model's answer); a measure maps to the measure arm regardless of decimal/boolean platformType; HF-186 reference-key→`entity_relationship` and the HC-silent structural fallbacks preserved. The analyze route's third write site now records the semanticRole vocabulary (was raw prose).
+2. **Atom role-stability keyed on the bare primitive**: `role` = `nature_role` (stable across runs); the `data_nature` prose rides as carried expression (`AtomExpression.data_nature`, threaded through write/read/claim-reconstruction — warm claims still reconstruct the full recognition); an interpretation with no rendered primitive writes NO atom (no warm memory from incomplete recognition). Genuine structural collisions still go `ambiguous`.
+3. **`ATOM_ALGORITHM_VERSION` 5→6** (HF-369 lesson: column_roles semantics change ⇒ bump) — invalidates the 14 sticky-ambiguous v5 atoms so the warm path revives; v5 rows are simply never read.
+4. Poisoned sheet fingerprint (`fbead6eed137…`): its Tier-1 roles feed nothing on-path post-HF-372, and the first post-fix gate-passing import **overwrites** it via the flywheel update path (self-heal, verified at EPG-J4's warm re-import).
+
+**EPG-G1 evidence.** The REAL `assignSemanticRole` over the LIVE recognition trace of the worst blocked job (`BCL_Datos_Dic2025`, 4 unknowns — script `web/scripts/_hf373_phaseG_live_replay.ts`):
+
+```
+  Cumplimiento_Colocacion      nature_role=measure     stored=unknown   post-fix=transaction_count  <-- CHANGED
+  Indice_Calidad_Cartera       nature_role=measure     stored=unknown   post-fix=transaction_count  <-- CHANGED
+  Pct_Meta_Depositos           nature_role=measure     stored=unknown   post-fix=transaction_count  <-- CHANGED
+  Infracciones_Regulatorias    nature_role=measure     stored=unknown   post-fix=transaction_count  <-- CHANGED
+  (all 9 other columns byte-identical to their stored roles)
+unknown roles: PRE-FIX=4  POST-FIX=0  -> HF-247 write gate PASSES (fingerprint stores)
+```
+
+Tests: `hf373-recognition-carry.test.ts` 5/5 (decimal/boolean measure arms, the `\bperiod\b` poison killed, scope_role identifier discrimination, HF-186 preserved, silence→structural, atom stability on bare primitives); full SCI suite **299/299** (one HF-368-era test fixture updated to emit primitives — the new no-primitive-no-atom law is intentional). The repeat-import warm evidence (`Stored new` → `tier=1 … LLM skipped` + `[OB-203][atom-residue] known=12/13 novel=1 [ID_Empleado]` + elapsed delta) lands with **EPG-J4's warm re-import** (import runs are auth-gated — architect-rendered).
+
+*(Phases H–J appended below as completed.)*
