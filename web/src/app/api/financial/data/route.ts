@@ -16,6 +16,8 @@ import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 — s
 import type { SupabaseClient } from '@supabase/supabase-js'; // OB-229
 import { getSummaryArtifacts } from '@/lib/summary/summary-read'; // OB-229
 import { recognize } from '@/lib/comprehension/surface-binding-recognition'; // HF-337
+import { n, round2, makeBuckets, weekIndex, percentileRank } from '@/lib/serving/math'; // OB-257 O2a — pure move (AP-17)
+import { buildTimelineResponse, type TlDateAgg } from '@/lib/serving/timeline'; // OB-257 O2a — pure move (AP-17)
 
 // ═══════════════════════════════════════════════════════════════════
 // Types (shared with financial-data-service.ts)
@@ -79,48 +81,8 @@ interface BrandInfo {
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
 
-function n(v: unknown): number {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') { const p = parseFloat(v); return isNaN(p) ? 0 : p; }
-  return 0;
-}
-
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
-}
-
-function makeBuckets(daily: Map<string, number>, count: number): number[] {
-  const sorted = Array.from(daily.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  if (sorted.length === 0) return Array(count).fill(0);
-  const size = Math.ceil(sorted.length / count);
-  const buckets: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const start = i * size;
-    const end = Math.min(start + size, sorted.length);
-    let sum = 0;
-    for (let j = start; j < end; j++) sum += sorted[j][1];
-    buckets.push(Math.round(sum));
-  }
-  return buckets;
-}
-
-function weekIndex(dateStr: string, allDates: string[]): number {
-  if (allDates.length === 0) return 0;
-  const first = allDates[0];
-  const d = new Date(dateStr);
-  const s = new Date(first);
-  const diff = d.getTime() - s.getTime();
-  return Math.floor(diff / (7 * 24 * 60 * 60 * 1000));
-}
-
-function percentileRank(sorted: number[], value: number): number {
-  if (sorted.length <= 1) return 1;
-  let below = 0;
-  for (const v of sorted) {
-    if (v < value) below++;
-  }
-  return below / (sorted.length - 1);
-}
+// OB-257 O2a: the pure math helpers (n/round2/makeBuckets/weekIndex/percentileRank) moved VERBATIM
+// to lib/serving/math.ts (AP-17 share surface) and are imported above. No behavior change.
 
 const BRAND_PALETTE = ['#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'];
 
@@ -674,99 +636,8 @@ async function aggregateStaffFromFine(
   });
 }
 
-// OB-237 T1: shared timeline finalizer — groups (date -> revenue/checks/tips) maps into periods and
-// builds the {data, brandData, brandNames, brandColors} response. Identical logic to the raw
-// aggregateTimeline tail so the wired output is shape-identical.
-interface TlDateAgg { revenue: number; checks: number; tips: number; }
-function buildTimelineResponse(
-  dateAll: Map<string, TlDateAgg>,
-  dateBrand: Map<string, Map<string, TlDateAgg>>,
-  brandColorMap: Map<string, string>,
-  granularity: 'day' | 'week' | 'month',
-) {
-  const sortedDates = Array.from(dateAll.keys()).sort();
-  if (sortedDates.length === 0) return null;
-
-  interface PeriodAgg { label: string; revenue: number; checks: number; tips: number; brands: Map<string, TlDateAgg>; }
-
-  function groupIntoPeriods(): PeriodAgg[] {
-    const periods: PeriodAgg[] = [];
-    if (granularity === 'day') {
-      for (const dt of sortedDates) {
-        const d = new Date(dt);
-        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const label = `${dayNames[d.getDay()]} ${d.getDate()}`;
-        const all = dateAll.get(dt)!;
-        periods.push({ label, ...all, brands: dateBrand.get(dt) || new Map() });
-      }
-    } else if (granularity === 'week') {
-      let currentWeek: PeriodAgg | null = null;
-      let weekNum = 1;
-      const firstDate = new Date(sortedDates[0]);
-      for (const dt of sortedDates) {
-        const d = new Date(dt);
-        const diff = Math.floor((d.getTime() - firstDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
-        if (!currentWeek || diff >= weekNum) {
-          if (currentWeek) periods.push(currentWeek);
-          weekNum = diff + 1;
-          currentWeek = { label: `W${periods.length + 1}`, revenue: 0, checks: 0, tips: 0, brands: new Map() };
-        }
-        const all = dateAll.get(dt)!;
-        currentWeek.revenue += all.revenue;
-        currentWeek.checks += all.checks;
-        currentWeek.tips += all.tips;
-        const brandDay = dateBrand.get(dt) || new Map();
-        for (const [brand, ba] of Array.from(brandDay.entries())) {
-          const existing = currentWeek.brands.get(brand) || { revenue: 0, checks: 0, tips: 0 };
-          existing.revenue += ba.revenue; existing.checks += ba.checks; existing.tips += ba.tips;
-          currentWeek.brands.set(brand, existing);
-        }
-      }
-      if (currentWeek) periods.push(currentWeek);
-    } else {
-      const monthMap = new Map<string, PeriodAgg>();
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      for (const dt of sortedDates) {
-        const d = new Date(dt);
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-        if (!monthMap.has(key)) monthMap.set(key, { label, revenue: 0, checks: 0, tips: 0, brands: new Map() });
-        const p = monthMap.get(key)!;
-        const all = dateAll.get(dt)!;
-        p.revenue += all.revenue; p.checks += all.checks; p.tips += all.tips;
-        const brandDay = dateBrand.get(dt) || new Map();
-        for (const [brand, ba] of Array.from(brandDay.entries())) {
-          const existing = p.brands.get(brand) || { revenue: 0, checks: 0, tips: 0 };
-          existing.revenue += ba.revenue; existing.checks += ba.checks; existing.tips += ba.tips;
-          p.brands.set(brand, existing);
-        }
-      }
-      for (const p of Array.from(monthMap.values())) periods.push(p);
-    }
-    return periods;
-  }
-
-  const periods = groupIntoPeriods();
-  const data = periods.map(p => ({
-    label: p.label,
-    revenue: round2(p.revenue),
-    checks: p.checks,
-    avgCheck: p.checks > 0 ? round2(p.revenue / p.checks) : 0,
-    tips: round2(p.tips),
-  }));
-  const allBrands = Array.from(new Set(Array.from(brandColorMap.keys())));
-  const brandData = periods.map(p => {
-    const row: Record<string, number | string> = { label: p.label };
-    for (const brand of allBrands) {
-      const ba = p.brands.get(brand);
-      row[brand] = ba ? round2(ba.revenue) : 0;
-    }
-    return row;
-  });
-  const brandColors: Record<string, string> = {};
-  for (const [name, color] of Array.from(brandColorMap.entries())) brandColors[name] = color;
-  return { data, brandData, brandNames: allBrands, brandColors };
-}
+// OB-257 O2a: the shared timeline finalizer (TlDateAgg + buildTimelineResponse) moved VERBATIM to
+// lib/serving/timeline.ts (AP-17 share surface) and is imported above. No behavior change.
 
 // OB-237 T1: timeline from summary_artifacts (entity, day) — reads pre-computed daily metrics instead
 // of 263K base cheques. revenue/tips resolved via HF-337 recognition to the field_name (raw metric key);

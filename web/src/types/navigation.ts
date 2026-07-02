@@ -24,7 +24,9 @@ import type { Capability } from '@/lib/auth/permissions';
 // featureFlag:'prism_enabled' (the Finance/licensable precedent). Adding the union member
 // compile-forces the WORKSPACES record; the non-compile-forced maps (getWorkspaceForRoute,
 // WORKSPACE_FEATURE_ACCESS) are hand-edited + unit-tested alongside.
-export type WorkspaceId = 'decide' | 'calculate' | 'finance' | 'platform-core' | 'data-operations';
+// OB-257: 'revenue' — the licensable Revenue agent, gated per tenant via
+// featureFlag:'revenue_enabled' (the Finance precedent exactly).
+export type WorkspaceId = 'decide' | 'calculate' | 'finance' | 'platform-core' | 'data-operations' | 'revenue';
 
 export interface Workspace {
   id: WorkspaceId;

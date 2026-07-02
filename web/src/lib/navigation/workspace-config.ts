@@ -20,6 +20,7 @@ import type { Workspace, WorkspaceId, WorkspaceSection } from '@/types/navigatio
 import type { UserRole } from '@/types/auth';
 import { hasCapability, getCapabilities, CANONICAL_ROLES, type Capability, type Role, type TenantPermissionOverrides } from '@/lib/auth/permissions';
 import { PRISM_FEATURE_KEY } from '@/lib/prism/capability';
+import { REVENUE_FEATURE_KEY } from '@/lib/revenue/types';
 import { isFeatureEnabled, isEntitledByDefault } from '@/lib/tenant/feature-flags';
 
 // OB-250: the Data-Operations workspace label — a single configurable string (NOT "PRISM", which
@@ -221,6 +222,51 @@ export const WORKSPACES: Record<WorkspaceId, Workspace> = {
           { path: '/financial/patterns', label: 'Operational Patterns', labelEs: 'Patrones Operativos', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
           { path: '/financial/products', label: 'Product Mix', labelEs: 'Mezcla de Productos', icon: 'Package', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
           { path: '/financial/summary', label: 'Operating Summary', labelEs: 'Resumen Operativo', icon: 'ClipboardList', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+        ],
+      },
+    ],
+  },
+
+  // ── REVENUE (revenue) — LICENSABLE agent; gated per tenant via featureFlag:'revenue_enabled' ──
+  // OB-257: the Revenue agent — CRO revenue intelligence served from write-time materializations
+  // (summary_rollups). Structurally the Finance precedent exactly: WORKSPACE-level featureFlag drops
+  // the whole agent for an un-entitled tenant (menu gate); the server deep-link gate is the matching
+  // WORKSPACE_FEATURES entry (permissions.ts) + app/revenue/layout.tsx FeatureGate. Declaring the
+  // featureFlag here ALSO derives the Observatory entitlement toggle row and the entitlement-API key
+  // validation via getToggleableAgents() — no further registration anywhere.
+  revenue: {
+    id: 'revenue',
+    label: 'Revenue',
+    labelEs: 'Ingresos',
+    icon: 'LineChart',
+    description: 'Revenue intelligence — licensed module',
+    descriptionEs: 'Inteligencia de ingresos — módulo licenciado',
+    defaultRoute: '/revenue',
+    accentColor: 'hsl(160, 84%, 39%)', // Emerald
+    featureFlag: REVENUE_FEATURE_KEY,
+    roles: ['platform', 'admin', 'manager', 'sales_rep'],
+    sections: [
+      {
+        id: 'revenue-lens',
+        label: 'Revenue',
+        labelEs: 'Ingresos',
+        routes: [
+          { path: '/revenue', label: 'Revenue Pulse', labelEs: 'Pulso de Ingresos', icon: 'Activity', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/bridge', label: 'Growth Bridge', labelEs: 'Puente de Crecimiento', icon: 'GitCompare', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/mix', label: 'Revenue Mix', labelEs: 'Composición de Ingresos', icon: 'PieChart', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/sellers', label: 'Seller Distribution', labelEs: 'Distribución de Vendedores', icon: 'Users', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/concentration', label: 'Concentration & Risk', labelEs: 'Concentración y Riesgo', icon: 'ShieldAlert', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+        ],
+      },
+      // Revenue Analytics — gated with the whole Revenue agent (the financial-analytics precedent).
+      {
+        id: 'revenue-analytics',
+        label: 'Revenue Analytics',
+        labelEs: 'Analítica de Ingresos',
+        routes: [
+          { path: '/revenue/yield', label: 'Incentive Yield', labelEs: 'Rendimiento de Incentivos', icon: 'DollarSign', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/patterns', label: 'Temporal Patterns', labelEs: 'Patrones Temporales', icon: 'LineChart', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
+          { path: '/revenue/geography', label: 'Geography', labelEs: 'Geografía', icon: 'MapPin', roles: ['platform', 'admin', 'manager', 'sales_rep'], requiredCapability: 'view.team_results' },
         ],
       },
     ],

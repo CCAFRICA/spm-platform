@@ -76,6 +76,8 @@ const labels = {
       whatsappIntegration: 'WhatsApp Integration',
       mobileApp: 'Mobile App',
       apiAccess: 'API Access',
+      // OB-257: Revenue agent entitlement key — licensable, unchecked (default-OFF) at setup
+      revenue_enabled: 'Revenue Agent (Revenue Intelligence)',
     },
     accessDenied: 'Access Denied',
     accessDeniedDesc: 'Only VL Admins can provision new tenants.',
@@ -124,6 +126,8 @@ const labels = {
       whatsappIntegration: 'Integración WhatsApp',
       mobileApp: 'Aplicación Móvil',
       apiAccess: 'Acceso API',
+      // OB-257: Revenue agent entitlement key — licensable, unchecked (default-OFF) at setup
+      revenue_enabled: 'Agente de Ingresos (Inteligencia de Ingresos)',
     },
     accessDenied: 'Acceso Denegado',
     accessDeniedDesc: 'Solo los Admins de CC pueden provisionar nuevos inquilinos.',

@@ -39,6 +39,7 @@ import type { PersonaKey } from '@/lib/design/tokens';
 
 const WS_ICON: Record<WorkspaceId, string> = {
   decide: 'TrendingUp', calculate: 'Zap', 'platform-core': 'Settings', finance: 'Activity', 'data-operations': 'DatabaseZap', // OB-250
+  revenue: 'LineChart', // OB-257
 };
 
 function Icon({ name, className }: { name?: string; className?: string }) {

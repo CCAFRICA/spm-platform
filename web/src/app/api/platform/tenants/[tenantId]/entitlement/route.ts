@@ -19,6 +19,8 @@ import { authorizePlatformObservability } from '@/lib/auth/authorize-platform-ob
 import { toggleableFeatureKeys } from '@/lib/navigation/workspace-config';
 import { isFeatureEnabled } from '@/lib/tenant/feature-flags';
 import { writeAuditLog } from '@/lib/audit/audit-logger';
+import { REVENUE_FEATURE_KEY, type MaterializeResult } from '@/lib/revenue/types';
+import { materializeRevenueRollups } from '@/lib/revenue/materializer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
@@ -90,7 +92,23 @@ export async function PATCH(
       });
     }
 
-    return NextResponse.json({ featureKey, enabled, changed, features });
+    // OB-257 (directive section 3.5 PG-2): the entitlement toggle IS the activation trigger.
+    // Flipping revenue_enabled false->true runs the ONE revenue materializer inline (same function
+    // the import-finalize cascade and /api/revenue/activate call -- single cascade, no parallel
+    // writer). Activation failure must NOT fail the toggle -- the features write + audit above are
+    // already durable; the failure is reported in the response's activation field (re-runnable via
+    // /api/revenue/activate).
+    let activation: MaterializeResult | { ok: false; error: string } | undefined;
+    if (featureKey === REVENUE_FEATURE_KEY && enabled === true && previous === false) {
+      try {
+        activation = await materializeRevenueRollups(supabase, tenantId);
+      } catch (err) {
+        activation = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        console.error('[PATCH entitlement] revenue activation failed (toggle preserved):', activation.error);
+      }
+    }
+
+    return NextResponse.json({ featureKey, enabled, changed, features, ...(activation !== undefined ? { activation } : {}) });
   } catch (err) {
     console.error('[PATCH /api/platform/tenants/[tenantId]/entitlement] Error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

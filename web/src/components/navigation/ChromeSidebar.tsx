@@ -107,6 +107,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   'platform-core': Settings,
   finance: Layers,
   'data-operations': Database, // OB-250
+  revenue: LineChart, // OB-257
 };
 
 // Static icon map for route icons

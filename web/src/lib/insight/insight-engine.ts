@@ -193,7 +193,9 @@ export async function generateInsights(
   } catch { /* novelty is best-effort; never blocks generation */ }
 
   // idempotent (Constraint 8): replace this tenant's artifacts
-  if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId);
+  // OB-257: wipe scoped to THIS writer's source — the Revenue insight writer (source='revenue-insight')
+  // shares the table; behavior-neutral today (all pre-existing live rows carry source='insight-engine').
+  if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId).eq('source', 'insight-engine');
 
   const byType: Record<string, number> = {};
   const failures: string[] = [];

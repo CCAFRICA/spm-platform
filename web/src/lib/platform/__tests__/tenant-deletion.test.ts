@@ -14,8 +14,9 @@ test('Clean Slate categories match the directive (5 categories, dependents-first
   assert.deepEqual(CLEAN_SLATE_CATEGORIES.map((c) => c.key), ['calc', 'plan', 'entity', 'data', 'intelligence']);
   const byKey = Object.fromEntries(CLEAN_SLATE_CATEGORIES.map((c) => [c.key, c.tables]));
   // HF-370 O5 expanded each category to the full tenant-scoped leaf footprint (dependents-first,
-  // DELETE_TENANT_TABLES order); HF-371 appended import_finalize_runs (the finalize coalescing ledger).
-  assert.deepEqual(byKey.calc, ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'calculation_batches']);
+  // DELETE_TENANT_TABLES order); HF-371 appended import_finalize_runs (the finalize coalescing ledger);
+  // OB-257 appended summary_rollups (the MSP rollup store — derived data, re-materialized on finalize).
+  assert.deepEqual(byKey.calc, ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'summary_rollups', 'calculation_batches']);
   assert.deepEqual(byKey.plan, ['rule_set_assignments', 'rule_set_lifecycle_events', 'plan_interpretation_runs', 'rule_sets']); // dependents before rule_sets
   assert.deepEqual(byKey.entity, ['entity_relationships', 'entities']); // relationships before entities
   // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state so a Clean Slate leaves

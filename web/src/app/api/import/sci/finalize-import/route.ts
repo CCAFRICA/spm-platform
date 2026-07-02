@@ -27,6 +27,8 @@ import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
 import { runSummaryEngine } from '@/lib/summary/summary-engine'; // OB-229
 import { generateInsights } from '@/lib/insight/insight-engine'; // OB-232
+import { isRevenueEnabledForTenant } from '@/lib/revenue/tenant-feature'; // OB-257
+import { materializeRevenueRollups } from '@/lib/revenue/materializer'; // OB-257
 
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
@@ -146,6 +148,19 @@ export async function POST(req: NextRequest) {
     // HF-372 Phase D: the import is COMPLETE — the job record says so, server-side, before insights.
     await markJobsByProposal(supabase, tenantId, proposalId, { status: 'finalized', phase: 'completed', completedAt: true });
     trace('import-complete (insights follow off the critical path)');
+
+    // 4.5 OB-257: revenue rollup materialization -- entitlement-gated, OFF the import critical path
+    //     (the import is already complete above, same pattern as the insights step below). A revenue
+    //     failure is loud in the log but never blocks or fails the finalize; the activation endpoint
+    //     (/api/revenue/activate) re-runs the same idempotent materializer.
+    if (await isRevenueEnabledForTenant(tenantId)) {
+      try {
+        const rm = await materializeRevenueRollups(supabase, tenantId, trace);
+        trace(`revenue-materializer-done ok=${rm.ok} noop=${rm.noop} period=${rm.rollupsWritten.period} entity=${rm.rollupsWritten.entityPeriod} dim=${rm.rollupsWritten.dimensionPeriod}`);
+      } catch (err) {
+        console.error('[SCI Finalize] REVENUE MATERIALIZER FAILED (import already complete; revenue rollups stale until next finalize):', err instanceof Error ? err.message : err);
+      }
+    }
 
     // 5. OB-232: generate insights from the freshly-computed summaries (Insight Engine, DS-028 P2).
     //    LLM recognizes patterns; deterministic validator + shape enforce the Decision-158 boundary.
