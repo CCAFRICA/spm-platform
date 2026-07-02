@@ -36,7 +36,7 @@ import type { SheetWindow } from './sheet-window';
 import { streamSheetWindows } from './sheet-stream';
 import { CHUNK_ROW_SIZE } from './sheet-window';
 // HF-359 (Part A): the pulse boundary is BYTES, not rows — a safe fraction of the runtime storage limit.
-import { discoverUploadByteBudget, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
+import { discoverUploadByteBudget, discoverStagedLoadCapabilities, estimatePulseTotal, shouldHandOff, MAX_PULSE_ROWS } from './pulse-budget';
 import { planPulses } from './pulse-accumulator';
 // HF-359 (Part B): restored pulse progression — emit cumulative pulse index + rows through the EXISTING
 // per-unit telemetry counters (no parallel surface). streamSheetMeta gives the streamed total for ~Y.
@@ -134,6 +134,8 @@ export async function commitUnitWindowed(
   // (memory), then partition EACH chunk into byte-budgeted pulses (planPulses) so no uploaded object
   // exceeds the storage limit, for any width. The row count is no longer the boundary.
   const budget = await discoverUploadByteBudget(supabase);
+  // HF-373 Phase E (D6): gzip staged parts only when the DATABASE proved it can load them.
+  const stagedCaps = await discoverStagedLoadCapabilities(supabase);
   const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
     tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
   });
@@ -180,6 +182,8 @@ export async function commitUnitWindowed(
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
           handOff: handOff,
+          gzipStaging: stagedCaps.gzip,          // HF-373 Phase E (D6)
+          suppressUnitSeedTelemetry: true,       // HF-373 Phase E: the driver owns the unit counters
         });
       } catch (err) {
         // HF-359 (Part A, PG-A6): prior pulses stay committed (resumable); the failure is recorded at the
@@ -306,6 +310,8 @@ export async function commitUnitStreamed(
   // Each pulse flushes BEFORE its CSV would exceed the budget — so no uploaded object exceeds the limit,
   // for any width. The 20K row count survives only as MAX_PULSE_ROWS (a memory safety cap).
   const budget = await discoverUploadByteBudget(supabase);
+  // HF-373 Phase E (D6): gzip staged parts only when the DATABASE proved it can load them.
+  const stagedCaps = await discoverStagedLoadCapabilities(supabase);
   const rowBytes = makeRowByteEstimator(params.unit, params.classification, entityIdField, {
     tenantId: params.tenantId, proposalId: params.proposalId, tabName: params.tabName, source: 'sci-bulk',
   });
@@ -356,6 +362,8 @@ export async function commitUnitStreamed(
           rowIndexOffset: offset,
           entityIdFieldOverride: entityIdField,
           handOff: handOff,
+          gzipStaging: stagedCaps.gzip,          // HF-373 Phase E (D6)
+          suppressUnitSeedTelemetry: true,       // HF-373 Phase E: the driver owns the unit counters
         });
       } catch (err) { failure = `window @${offset}: ${String(err)}`; return; }
       if (r.batchId) batchIds.push(r.batchId);

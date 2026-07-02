@@ -29,6 +29,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Json } from '@/lib/supabase/database.types';
+import { createGzip } from 'zlib';        // HF-373 Phase E (D6): gzip staged parts
+import { Transform } from 'stream';       // HF-373 Phase E (D6): compressed-byte counter
 import { ob203Trace } from '@/lib/sci/ob203-verbose';
 import type {
   AgentType,
@@ -112,6 +114,16 @@ export interface CommitContentUnitParams {
   // deterministic, no LLM — Decision 158). Default false ⇒ the synchronous load path is byte-identical for
   // any caller that has not opted into the hand-off. With the worker scheduled, execute-bulk passes true.
   handOff?: boolean;
+  // HF-373 Phase E (D6) — gzip the STAGED pulse CSV (path *.csv.gz, the migrated FDW reads
+  // compress 'gzip'). The caller (windowed/streamed driver) probes staged_load_capabilities()
+  // and passes true ONLY when the database can load gzip parts — deploy-order safe, no env flag.
+  // Applies to the hand-off path only (the sync path loads + deletes its CSV in-request).
+  gzipStaging?: boolean;
+  // HF-373 Phase E (D6): the windowed/streamed DRIVERS seed + advance the unit-level telemetry
+  // counters themselves (expectedRows = the WHOLE unit's rows). Hook-2's per-call seed would
+  // clobber them with per-pulse values (the live 86K run showed expectedRows=1921 instead of
+  // 86,607). true ⇒ Hook-2 skips its unit-seed write; the driver owns the counters.
+  suppressUnitSeedTelemetry?: boolean;
 }
 
 export interface CommitContentUnitResult {
@@ -547,19 +559,24 @@ export async function commitContentUnit(
   // insert (Amendment 2 D.2). Awaited (never throws) so later pulse patches
   // cannot land before this one. Phase C: pulse counters compose on top of
   // the caller-phase base (entity creation/enrichment pulses already landed).
-  await accumulateUnitCommitFields({
-    tenantId,
-    importSessionId: proposalId,
-    unitId: unit.contentUnitId,
-    fields: {
-      sheetName: tabName,
-      expectedRows: rows.length,
-      pulsesTotal: pulseBase.total + 1,
-      rowsCommitted: 0,
-      pulsesLanded: pulseBase.landed,
-      batchCommitted: false,
-    },
-  }, supabase);
+  // HF-373 Phase E (D6): SKIPPED when a windowed/streamed driver owns the unit
+  // counters — this per-call seed was overwriting the driver's whole-unit
+  // expectedRows with per-pulse values (the truthful-surface corruption).
+  if (!params.suppressUnitSeedTelemetry) {
+    await accumulateUnitCommitFields({
+      tenantId,
+      importSessionId: proposalId,
+      unitId: unit.contentUnitId,
+      fields: {
+        sheetName: tabName,
+        expectedRows: rows.length,
+        pulsesTotal: pulseBase.total + 1,
+        rowsCommitted: 0,
+        pulsesLanded: pulseBase.landed,
+        batchCommitted: false,
+      },
+    }, supabase);
+  }
 
   // HF-213 Rule 30 — supersession on content_unit_hash_sha256 match.
   await supersedePriorBatchOnContentMatch(
@@ -775,7 +792,10 @@ export async function commitContentUnit(
   // OBJECTS are unchanged — only the transport differs (PG-1 proves the CSV round-trip). For a windowed
   // large file this runs once per bounded window (each its own batch, as before — windowed-commit.ts:9),
   // so peak heap stays one window (OB-251 SR-2 preserved); a small file runs it once over the whole unit.
-  const csvPath = `${tenantId}/committed/${batchId}.csv`;
+  // HF-373 Phase E (D6): gzip staged parts when the caller proved the DB can load them
+  // (staged_load_capabilities probe). Hand-off only — the sync path loads + deletes in-request.
+  const useGzip = !!params.handOff && !!params.gzipStaging;
+  const csvPath = `${tenantId}/committed/${batchId}.csv${useGzip ? '.gz' : ''}`;
 
   // D16 unit-atomicity: a unit that cannot fully commit retains NOTHING. The bulk INSERT…SELECT is a
   // single transaction (so a failed load leaves no partial rows), but this also cleans up on a mismatch
@@ -815,10 +835,28 @@ export async function commitContentUnit(
       return line;
     },
   );
+  // HF-373 Phase E (D6): gzip the staged stream (still streaming — peak heap unchanged). The
+  // staged lines repeat the unit-constant metadata blob (~89% of every row — live-measured), so
+  // parts compress ~20×: far below any storage cap, ~20× less upload volume + storage residue.
+  // csvByteCount stays the UNCOMPRESSED size (the byte-budget's accounting unit); the compressed
+  // size is counted on the wire and recorded on the manifest.
+  let compressedByteCount = 0;
+  let uploadBody: NodeJS.ReadableStream = csvStream;
+  if (useGzip) {
+    const gz = createGzip();
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc: string, cb: (err?: Error | null, data?: Buffer) => void) {
+        compressedByteCount += chunk.length;
+        cb(null, chunk);
+      },
+    });
+    csvStream.pipe(gz).pipe(counter);
+    uploadBody = counter;
+  }
   const { error: uploadErr } = await supabase.storage
     .from('ingestion-raw')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .upload(csvPath, csvStream as any, { contentType: 'text/csv', upsert: true, duplex: 'half' } as any);
+    .upload(csvPath, uploadBody as any, { contentType: useGzip ? 'application/gzip' : 'text/csv', upsert: true, duplex: 'half' } as any);
   if (uploadErr) return await failCommit(`commit CSV upload failed for "${tabName}": ${uploadErr.message}`);
 
   // HF-360 (Part A) — HAND-OFF: the CSV is STAGED. Do NOT call the FDW load RPC, do NOT delete the CSV (the
@@ -855,6 +893,9 @@ export async function commitContentUnit(
         bytes: csvByteCount,
         unitId: unit.contentUnitId,
         sheetName: tabName,
+        // HF-373 Phase E (D6): per-part status from birth (the worker stamps 'loaded'/'failed').
+        status: 'staged',
+        ...(useGzip ? { bytesCompressed: compressedByteCount } : {}),
       },
     };
   }

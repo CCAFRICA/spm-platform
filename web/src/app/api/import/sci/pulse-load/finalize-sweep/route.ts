@@ -86,6 +86,30 @@ async function handleSweep(req: NextRequest): Promise<NextResponse> {
     await service.from(PULSE_LOAD_JOBS_TABLE).update({ finalized: true }).eq('tenant_id', c.tenant_id).eq('session_id', c.session_id);
     sessionsFinalized++;
     jobsMarked += all.length;
+
+    // HF-373 Phase E (D6): remove the session's LOADED staged part objects — the SQL worker only
+    // reads Storage, so hand-off parts accumulated forever (live: 9.98GB / 328 objects in one
+    // tenant's committed/ prefix). The rows are durably in committed_data (the sweep only reaches
+    // here after every job completed + finalize succeeded); a Part-B re-load of a cleaned part is
+    // not possible after finalize, and rollback flows mark jobs before this point. Best-effort.
+    try {
+      const { data: manifests } = await service
+        .from(PULSE_LOAD_JOBS_TABLE)
+        .select('manifest')
+        .eq('tenant_id', c.tenant_id)
+        .eq('session_id', c.session_id);
+      const paths: string[] = [];
+      for (const m of (manifests ?? []) as Array<{ manifest: Array<{ csvPath?: string }> | null }>) {
+        for (const part of m.manifest ?? []) if (part?.csvPath) paths.push(part.csvPath);
+      }
+      for (let i = 0; i < paths.length; i += 100) {
+        const { error: rmErr } = await service.storage.from('ingestion-raw').remove(paths.slice(i, i + 100));
+        if (rmErr) { console.warn(`[finalize-sweep] staged-part cleanup failed (non-blocking): ${rmErr.message}`); break; }
+      }
+      if (paths.length > 0) console.log(`[finalize-sweep] HF-373: removed ${paths.length} loaded staged part object(s) for session ${c.session_id}`);
+    } catch (cleanupErr) {
+      console.warn('[finalize-sweep] staged-part cleanup threw (non-blocking):', cleanupErr instanceof Error ? cleanupErr.message : cleanupErr);
+    }
   }
 
   return NextResponse.json({ ok: true, sessionsFinalized, jobsMarked });
