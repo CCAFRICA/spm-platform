@@ -20,6 +20,8 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-361: finalize-sweep fires this cookielessly
 import { claimFinalize, completeFinalize } from '@/lib/sci/finalize-coalesce'; // HF-371: one finalize per import
+import { markJobsByProposal } from '@/lib/sci/job-status'; // HF-372 Phase D: server-side job truth
+import { runFlywheelAggregation } from '@/lib/sci/flywheel-aggregation';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
@@ -63,6 +65,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, tenantId, coalesced: true, reason: claim.reason, durationMs: Date.now() - t0 });
     }
     trace(`claim: ${claim.reason}`);
+
+    // HF-372 Phase D: the job record shows the REAL step (by the proposal_id execute-bulk stamped).
+    await markJobsByProposal(supabase, tenantId, proposalId, { phase: 'finalizing' });
 
     // 1. Entity resolution + entity_id back-link — the work that left 99% of committed_data NULL when
     //    it ran in the dead waitUntil background (DIAG-071). Whole-tenant, idempotent (matches external_id).
@@ -130,20 +135,40 @@ export async function POST(req: NextRequest) {
       console.error('[SCI Finalize] summary engine failed:', err instanceof Error ? err.message : err);
     }
 
+    // HF-371: mark the claim done so a later duplicate for THIS import coalesces (and a re-import with a
+    // new proposalId claims fresh). A hard failure leaves the claim 'running' → stale after 15 min → retryable.
+    // HF-372 Phase D (D5 re-scoped): this runs BEFORE the insight step — the import's completion is
+    // gated on committed data + entity resolution + assignments, never on insight generation (which
+    // previously held the claim window for up to ~76s of retry backoff and, on failure, was silently
+    // swallowed with the claim already stamped done).
+    await completeFinalize(supabase, tenantId, proposalId, true);
+
+    // HF-372 Phase D: the import is COMPLETE — the job record says so, server-side, before insights.
+    await markJobsByProposal(supabase, tenantId, proposalId, { status: 'finalized', phase: 'completed', completedAt: true });
+    trace('import-complete (insights follow off the critical path)');
+
     // 5. OB-232: generate insights from the freshly-computed summaries (Insight Engine, DS-028 P2).
     //    LLM recognizes patterns; deterministic validator + shape enforce the Decision-158 boundary.
-    let insights: { stored: number; failed: number } | null = null;
+    //    HF-372 Phase D: AFTER completeFinalize — an insight failure can no longer hold the import
+    //    open or silently ride a done-stamped claim; it is loud in the log AND visible in the
+    //    response's insights.error field.
+    let insights: { stored: number; failed: number; error?: string } | null = null;
     try {
       const r = await generateInsights(supabase, tenantId);
       insights = { stored: r.stored, failed: r.failed };
       trace(`insight-engine-done stored=${r.stored} failed=${r.failed} model=${r.model}`);
     } catch (err) {
-      console.error('[SCI Finalize] insight engine failed:', err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      insights = { stored: 0, failed: 0, error: msg };
+      console.error(`[SCI Finalize] INSIGHT ENGINE FAILED (import already complete; insights missing until next finalize): ${msg}`);
     }
 
-    // HF-371: mark the claim done so a later duplicate for THIS import coalesces (and a re-import with a
-    // new proposalId claims fresh). A hard failure leaves the claim 'running' → stale after 15 min → retryable.
-    await completeFinalize(supabase, tenantId, proposalId, true);
+    // HF-372 Phase F (EPG-0.8 §4): flywheel aggregation was CLIENT-ONLY (page.tsx fire) — a
+    // navigate-away import got finalize (waitUntil/sweep) but never aggregation. Server-side
+    // backstop here, fire-and-forget + idempotent, off the critical path like insights.
+    void runFlywheelAggregation(supabase, tenantId, process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+      .then(r => trace(`flywheel-aggregation-done ${JSON.stringify(r).slice(0, 120)}`))
+      .catch(err => console.warn('[SCI Finalize] flywheel aggregation failed (non-blocking):', err instanceof Error ? err.message : err));
 
     trace('done');
     return NextResponse.json({ ok: true, tenantId, postCommitOk, assignments, comprehension, summary, insights, durationMs: Date.now() - t0 });

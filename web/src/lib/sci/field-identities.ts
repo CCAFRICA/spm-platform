@@ -30,24 +30,26 @@ const NATURE = {
 export function buildFieldIdentitiesFromBindings(
   bindings: SemanticBinding[],
 ): Record<string, FieldIdentity> {
-  const ROLE_MAP: Record<string, { structuralType: string; contextualIdentity: string }> = {
-    entity_identifier: { structuralType: NATURE.identifier, contextualIdentity: 'person_identifier' },
-    entity_name: { structuralType: NATURE.name, contextualIdentity: 'person_name' },
-    entity_attribute: { structuralType: NATURE.attribute, contextualIdentity: 'entity_attribute' },
-    entity_relationship: { structuralType: NATURE.attribute, contextualIdentity: 'entity_relationship' },
-    entity_license: { structuralType: NATURE.attribute, contextualIdentity: 'entity_license' },
-    performance_target: { structuralType: NATURE.measure, contextualIdentity: 'performance_target' },
-    baseline_value: { structuralType: NATURE.measure, contextualIdentity: 'baseline_value' },
-    transaction_amount: { structuralType: NATURE.measure, contextualIdentity: 'currency_amount' },
-    transaction_count: { structuralType: NATURE.measure, contextualIdentity: 'count' },
-    transaction_date: { structuralType: NATURE.temporal, contextualIdentity: 'date' },
-    transaction_identifier: { structuralType: NATURE.identifier, contextualIdentity: 'transaction_identifier' },
-    period_marker: { structuralType: NATURE.temporal, contextualIdentity: 'period' },
-    category_code: { structuralType: NATURE.attribute, contextualIdentity: 'category' },
-    rate_value: { structuralType: NATURE.measure, contextualIdentity: 'percentage' },
-    tier_boundary: { structuralType: NATURE.measure, contextualIdentity: 'threshold' },
-    payout_amount: { structuralType: NATURE.measure, contextualIdentity: 'currency_amount' },
-    descriptive_label: { structuralType: NATURE.attribute, contextualIdentity: 'label' },
+  // HF-372 Phase C: each SemanticRole also maps to the BARE primitives (natureRole/scopeRole) so
+  // the bindings-built identities are readable by the same equality readers as trace-built ones.
+  const ROLE_MAP: Record<string, { structuralType: string; contextualIdentity: string; natureRole?: string; scopeRole?: string }> = {
+    entity_identifier: { structuralType: NATURE.identifier, contextualIdentity: 'person_identifier', natureRole: NATURE.identifier, scopeRole: 'entity' },
+    entity_name: { structuralType: NATURE.name, contextualIdentity: 'person_name', natureRole: NATURE.name },
+    entity_attribute: { structuralType: NATURE.attribute, contextualIdentity: 'entity_attribute' , natureRole: 'categorical' },
+    entity_relationship: { structuralType: NATURE.attribute, contextualIdentity: 'entity_relationship' , natureRole: 'categorical' },
+    entity_license: { structuralType: NATURE.attribute, contextualIdentity: 'entity_license' , natureRole: 'categorical' },
+    performance_target: { structuralType: NATURE.measure, contextualIdentity: 'performance_target' , natureRole: NATURE.measure },
+    baseline_value: { structuralType: NATURE.measure, contextualIdentity: 'baseline_value' , natureRole: NATURE.measure },
+    transaction_amount: { structuralType: NATURE.measure, contextualIdentity: 'currency_amount' , natureRole: NATURE.measure },
+    transaction_count: { structuralType: NATURE.measure, contextualIdentity: 'count' , natureRole: NATURE.measure },
+    transaction_date: { structuralType: NATURE.temporal, contextualIdentity: 'date' , natureRole: NATURE.temporal },
+    transaction_identifier: { structuralType: NATURE.identifier, contextualIdentity: 'transaction_identifier' , natureRole: NATURE.identifier, scopeRole: 'transaction' },
+    period_marker: { structuralType: NATURE.temporal, contextualIdentity: 'period' , natureRole: NATURE.temporal },
+    category_code: { structuralType: NATURE.attribute, contextualIdentity: 'category' , natureRole: 'categorical' },
+    rate_value: { structuralType: NATURE.measure, contextualIdentity: 'percentage' , natureRole: NATURE.measure },
+    tier_boundary: { structuralType: NATURE.measure, contextualIdentity: 'threshold' , natureRole: NATURE.measure },
+    payout_amount: { structuralType: NATURE.measure, contextualIdentity: 'currency_amount' , natureRole: NATURE.measure },
+    descriptive_label: { structuralType: NATURE.attribute, contextualIdentity: 'label' , natureRole: 'categorical' },
   };
 
   const identities: Record<string, FieldIdentity> = {};

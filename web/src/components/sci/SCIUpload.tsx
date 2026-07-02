@@ -3,7 +3,7 @@
 // SCI Upload — Drop zone + file handling + analysis trigger
 // OB-129 Phase 2 — Zero domain vocabulary. Korean Test applies.
 
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { Upload, FileSpreadsheet, FileText, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsVialuce } from '@/hooks/use-is-vialuce';
@@ -38,7 +38,12 @@ interface SCIUploadProps {
 }
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.tsv', '.pdf', '.pptx', '.docx'];
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+// HF-372 Phase E: the STATIC 50MB gate rejected files the platform can actually process (the
+// streaming path is tuned for the ~52MB JDE class) while saying nothing about the REAL limit.
+// The admission limit is now DISCOVERED from the bucket configuration via /api/import/sci/
+// upload-budget (C2: the rejection names the actual limit); this constant is only the fallback
+// when the discovery call itself fails.
+const FALLBACK_MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — fallback only
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -195,6 +200,20 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
   const [selectedFiles, setSelectedFiles] = useState<FileInfo[]>([]);
   const [parsing, setParsing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // HF-372 Phase E: the REAL admission limit, discovered from the bucket configuration.
+  const maxFileSizeRef = useRef<{ limit: number; source: 'bucket' | 'fallback' }>({ limit: FALLBACK_MAX_FILE_SIZE, source: 'fallback' });
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/import/sci/upload-budget')
+      .then(r => (r.ok ? r.json() : null))
+      .then((b: { effectiveLimit?: number; limitSource?: 'bucket' | 'fallback' } | null) => {
+        if (!cancelled && b && typeof b.effectiveLimit === 'number' && b.effectiveLimit > 0) {
+          maxFileSizeRef.current = { limit: b.effectiveLimit, source: b.limitSource ?? 'fallback' };
+        }
+      })
+      .catch(() => { /* fallback limit stands */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -205,8 +224,11 @@ export function SCIUpload({ onAnalysisStart, onError, analyzing, collapsed, file
         onError(`"${file.name}" is not a supported format. Try XLSX, CSV, TSV, PDF, PPTX, or DOCX.`);
         return;
       }
-      if (file.size > MAX_FILE_SIZE) {
-        onError(`"${file.name}" is too large (${formatFileSize(file.size)}). Maximum size is ${formatFileSize(MAX_FILE_SIZE)}.`);
+      if (file.size > maxFileSizeRef.current.limit) {
+        const src = maxFileSizeRef.current.source === 'bucket'
+          ? 'the ingestion storage limit'
+          : 'the conservative fallback limit (the storage bucket has no explicit limit — ask your administrator to set one)';
+        onError(`"${file.name}" is too large (${formatFileSize(file.size)}). The maximum is ${formatFileSize(maxFileSizeRef.current.limit)} — ${src}.`);
         return;
       }
       if (file.size === 0) {

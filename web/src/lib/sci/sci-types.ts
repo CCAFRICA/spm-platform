@@ -97,6 +97,7 @@ export interface FieldIdentity {
   contextualIdentity: string;         // what kind of identifier/measure/etc (e.g., person_identifier, currency_amount)
   confidence: number;                 // 0.0-1.0
   natureRole?: string;                // HF-368: the model's bare nature primitive (∈ 5 natures) — read by remediation via fixed-set membership, never regex
+  scopeRole?: string;                 // HF-372 Phase C: the model's bare scope primitive (∈ 4 scopes) — read by entity resolution via equality, never regex
 }
 
 // LLM interpretation of a single column header — OB-231: free-form characterization channels.
@@ -113,6 +114,9 @@ export interface HeaderInterpretation {
   // regex over the prose. Absent (empty/undefined) or novel (outside the fixed set) → fail-loud.
   scope_role?: string;             // ∈ {entity, transaction, reference, none}
   nature_role?: string;            // ∈ {identifier, measure, temporal, name, categorical}
+  // HF-372 Phase C: the model's bare PLAN primitive — whether this column is a parameter OF the
+  // compensation plan (rate / payout base / formula / policy / tier boundary / cadence) or data.
+  plan_role?: string;              // ∈ {rule_parameter, none}
 }
 
 // Result of LLM header comprehension for one sheet

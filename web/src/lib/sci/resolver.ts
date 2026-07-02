@@ -98,6 +98,7 @@ function initializeTrace(unitId: string, profile: ContentProfile): Classificatio
           // (findHcEntityIdCandidates) reads scope_role/nature_role from HERE, not the live interp.
           scope_role: interp.scope_role,
           nature_role: interp.nature_role,
+          plan_role: interp.plan_role, // HF-372 Phase C
         },
       ])
     ),

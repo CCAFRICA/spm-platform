@@ -538,6 +538,33 @@ REFERENCE FIELD NAMES — bind to the INPUT, do not invent (CRITICAL):
   • This holds EVEN WHEN the base or rate DIFFERS by category or by row: the \`reference\` \`field\` is STILL the column header that HOLDS those values (e.g. "BASE COMISION", "% AUTORIZADO"), never a per-category invented name (NOT "VENTA DE REFACCIONES", NOT "ventas_maquinaria"). A category (a product line, a sale type) is a VALUE inside a column, not a field of its own — when the computation distinguishes categories, express it with \`filter\`/\`compare\` whose \`field\` is the CATEGORY COLUMN's header name and whose \`value\` is the category string. Every \`field\` you emit, in references and in predicates alike, is a verbatim column header from the input.
   • VARYING VALUES → \`reference\`, not \`constant\`: when a column's values DIFFER across the shown data rows (each entity/row carries its own rate — e.g. a "% AUTORIZADO" column with 0.01, 0.0025, 0.005 …), the component MUST \`reference\` that column. The engine reads each entity's OWN value from its committed-data row at calculation time; the plan carries the formula, the data carries the per-entity values. Use a \`constant\` ONLY when the value is identical on every row, or the plan states a single plan-wide number in prose. Never hardcode one row's value as a constant for a column that varies.
 
+FIXED RATE TABLE → RECOGNITION MODE (HF-372, Decision 158 both halves — do NOT emit the cells):
+When THIS component is backed by a FIXED lookup grid of constant cells (the request supplies rateTableCellCount: a tier/band table or a 2D matrix that is the SAME for every entity), you do NOT emit the expanded calculationIntent. You emit a RECOGNITION of the table's structure, and the platform's deterministic constructor reads every cell value from the parsed grid and builds the exact cascade (half-open edges, terminal completeness, scale metadata) itself. Your recognition names EXACT grid strings — sheet name, column headers, row-label cell text, the section label — verbatim as they appear in the tabular input, in any language. Emit, INSTEAD of "calculationIntent":
+  "rateMatrixRecognition": {
+    "sheet": "<exact sheet name from the '=== Sheet: … ===' banner>",
+    "sectionLabel": "<a value that ACTUALLY APPEARS in the grid's __section COLUMN for this component's rows, or null. NEVER banner text (the '>>> [removed … row]' lines) and NEVER a value the __section column does not carry — when the block's rows have an EMPTY __section, use null + per-band occurrence instead>",
+    "rowAxis": {
+      "gridColumn": "<exact header of the column holding the row-band labels>",
+      "inputField": "<the metric this axis tests — a data field name convergence resolves at calc time>",
+      "unit": "<the edge values' nature in your own words, e.g. ratio / percent / currency>",
+      "scale": <number or null — multiplier to the input's native space, null when none>,
+      "bands": [ { "rowLabel": "<exact cell text>", "gte": <number or null>, "lt": <number or null>, "occurrence": <1-based index, ONLY when identical label blocks stack — see below> }, ... ]
+    },
+    "columnAxis": {  // 2D matrix ONLY — null for a 1D band table
+      "inputField": "<the metric the column axis tests>",
+      "unit": "...", "scale": <number or null>,
+      "bands": [ { "gridColumn": "<exact column header>", "gte": <number or null>, "lt": <number or null> }, ... ]
+    },
+    "valueGridColumn": "<1D band table ONLY — the exact column header holding each band's value; null for 2D>",
+    "applyToField": "<when the looked-up cell is a RATE multiplied by a base metric, the exact base field; null when the cell IS the payout>"
+  }
+  • Band edges are the NUMERIC meaning of each label, half-open [gte, lt) per Decision 127: "<0.70" → {gte: null, lt: 0.70}; "0.70-0.80" → {gte: 0.70, lt: 0.80}; ">=0.95" or "≥0.95" → {gte: 0.95, lt: null}; "110%+" of a ratio input → {gte: 1.10, lt: null}. Exactly one band may be unbounded below and one unbounded above.
+  • Every rowLabel / gridColumn / sectionLabel is the EXACT text from the grid — verbatim, matched by equality. Do not normalize, translate, or paraphrase them.
+  • STACKED BLOCKS: when the sheet stacks two or more grids with IDENTICAL row labels (one block per variant), the tabular input interleaves the removed banner rows at their positions (lines starting ">>> [removed … row]:"). Use those banners to bind each block to its variant, and give EVERY row band an "occurrence": 1 selects the first grid row matching the label (the first block), 2 the second, and so on, in top-to-bottom grid order.
+  • SECOND TABLE WITH ITS OWN HEADER: a table stacked below the main grid under a DIFFERENT header row (that header appears as a ">>> [removed REPEATED_HEADER row]:" annotation) has its data rows present in the grid with each cell sitting POSITIONALLY under the main grid's column at the same position (1st cell under the main 1st column, 2nd under the 2nd, …). Address its label column and value column by those MAIN column headers — e.g. when the removed header is "Nivel/Desde/Hasta/Pago" and the main columns are "Cumplimiento \\ Calidad", "<0.70", "0.70-0.80", "0.80-0.90", the row labels live in "Cumplimiento \\ Calidad" and the Pago values in "0.80-0.90". When those rows sit under a section label, they carry it in __section — use sectionLabel to select them.
+  • If the table's structure genuinely cannot be expressed in this contract (e.g. a third axis, non-interval bands), emit "inexpressible": {"reason": "<the exact structural feature that does not fit>"} INSTEAD — never force it and never fall back to emitting the cells.
+Components that are NOT a fixed grid (per-row column rates, formulas, gates, factor stacks) keep the normal calculationIntent DAG emission below — nothing changes for them.
+
 <<COMPONENT_TYPE_LIST>>
 
 <<PRIME_GRAMMAR>>
@@ -548,10 +575,11 @@ Response shape — return JSON with ONLY these fields:
   "id": "<component-id echoed from the request>",
   "name": "<component name echoed from the request>",
   "type": "prime_dag",
-  "calculationIntent": { /* the PrimeNode DAG, discriminated on "prime" — the full computation tree */ },
+  "calculationIntent": { /* the PrimeNode DAG, discriminated on "prime" — the full computation tree. OMIT when emitting rateMatrixRecognition (fixed rate table). */ },
+  "rateMatrixRecognition": { /* ONLY for a FIXED rate table — see RECOGNITION MODE above. OMIT otherwise. */ },
   "applies_to": ["<category-id>", ...],  // HF-252: which variant(s) this emission applies to. ["all"] when uniform.
   "calculationMethod": { "type": "prime_dag" },
-  "rateTableCellCount": <number when applicable>,
+  "rateTableCellCount": <number — ONLY when the component is a fixed rate table; when not applicable OMIT THE FIELD ENTIRELY (never write undefined or null — that is invalid JSON)>,
   "confidence": 0-100,
   "reasoning": "How you expressed the plan's computation in the algebra"
 }
@@ -846,9 +874,9 @@ For each column, provide these characterization channels:
 - identifies: a free-form sentence, in your own words, describing WHAT this column identifies and why (used for display/audit only). Explain the scope you see; do not pick from a list.
 - data_nature: a free-form sentence, in your own words, describing the column's data nature (used for display/audit only). Describe it as you see it; do not pick from a list.
 - scope_role: which of the platform's THREE fixed structural ROLES this column plays. Reply with EXACTLY ONE bare token, no other words:
-    - "entity"      — the column identifies a recurring subject the rows are ABOUT and group by (it repeats across many rows).
-    - "transaction" — the column identifies a distinct per-row event/record (one value per row; the rows ARE the events).
-    - "reference"   — the column identifies a dimensional lookup / grouping category the rows point to.
+    - "entity"      — the column identifies a recurring subject the rows are ABOUT and group by (it repeats across many rows, or the sheet is the roster/master listing those subjects).
+    - "transaction" — the column identifies an OCCURRENCE: the rows are events/observations that HAPPENED (typically dated and/or measured), and this column names each occurrence. A unique code in a sheet that DEFINES or CATALOGS things (a spec, a rule list, a lookup) is NOT a transaction identifier — that sheet's rows are definitions, not events; use "reference".
+    - "reference"   — the column identifies an item of a dimensional lookup / catalog / definition list that other data points to — including the primary code column OF that catalog sheet itself.
     - "none"        — the column identifies no scope (e.g. a measured amount, a date, a descriptive attribute).
   Decide from your OWN understanding of the column in ANY language — do not match words. Put all explanation in the characterization field, not here.
 - nature_role: which of the platform's FIVE fixed value-NATURES this column is. Reply with EXACTLY ONE bare token, no other words:
@@ -858,6 +886,10 @@ For each column, provide these characterization channels:
     - "name"        — a human-readable label/name for a subject.
     - "categorical" — a discrete category/attribute that is neither an id, a measure, a time, nor a name.
   Decide from your OWN understanding in ANY language — do not match words. Put all explanation in the characterization field.
+- plan_role: whether this column is a parameter OF a compensation plan. Reply with EXACTLY ONE bare token:
+    - "rule_parameter" — the column DEFINES how compensation is computed: a commission/bonus rate, a payout base or its formula, a payment policy or condition, a tier/band boundary or target that selects a payout, a pay cadence, a plan component's name/code/description. Plan-defining sheets (rule catalogs, rate tables, target/tier tables) are made of these.
+    - "none"           — the column is measured/observed business data (transactions, performance actuals, roster attributes), not a definition of the plan's rules.
+  Decide from your OWN understanding in ANY language — do not match words.
 - relationships: an array of free-form observations about how this column relates to OTHER columns in the sheet (e.g., "pairs with Nombre_Vendedor, which is this entity's display name"; "this amount is the sum the rate column is applied to"). Empty array if none.
 - confidence: 0.0 to 1.0.
 
@@ -875,6 +907,7 @@ Respond ONLY with valid JSON, no preamble, no markdown:
           "data_nature": "...",
           "scope_role": "entity | transaction | reference | none",
           "nature_role": "identifier | measure | temporal | name | categorical",
+          "plan_role": "rule_parameter | none",
           "relationships": ["...", "..."],
           "confidence": 0.00
         }
@@ -1371,7 +1404,7 @@ COMPONENT TO EMIT:
   id: ${compId}
   name: ${compName}${compNameEs ? `\n  nameEs: ${compNameEs}` : ''}
   appliesToEmployeeTypes: ${JSON.stringify(appliesTo)}
-  briefSemantic: ${briefSemantic}${rateCells !== null ? `\n  rateTableCellCount: ${rateCells}  (the validator REJECTS trees with fewer than ${rateCells} constant leaves)` : ''}
+  briefSemantic: ${briefSemantic}${rateCells !== null ? `\n  rateTableCellCount: ${rateCells}  — the skeleton declared this component a FIXED rate table: when its cells ARE a fixed lookup grid in the tabular input, emit rateMatrixRecognition (RECOGNITION MODE, see system prompt), NOT the expanded calculationIntent — the platform constructs the cascade from the parsed grid deterministically. When the declaration is wrong — the values come from prose, a removed-annotation line, or per-row data rather than an addressable fixed grid — emit the normal calculationIntent instead (the declaration is an estimate, not a command).` : ''}
 
 Return JSON per the response shape in the system instructions. Emit ONLY this component — do not include other components in the response.`;
       }

@@ -21,8 +21,16 @@ export type ScopePrimitive = typeof SCOPE_PRIMITIVES[number];
 export const NATURE_PRIMITIVES = ['identifier', 'measure', 'temporal', 'name', 'categorical'] as const;
 export type NaturePrimitive = typeof NATURE_PRIMITIVES[number];
 
+// HF-372 Phase C: the PLAN dimension — whether a column is a parameter OF the compensation plan
+// (a rate, a payout base/formula, a payment policy, a tier boundary, a cadence) or business data.
+// This is the plan-vs-data architectural distinction (Decision 158); the MODEL names it per column
+// (any language); code reads it by equality. It replaces the OB-255 natureIsPlanRule word-regex.
+export const PLAN_PRIMITIVES = ['rule_parameter', 'none'] as const;
+export type PlanPrimitive = typeof PLAN_PRIMITIVES[number];
+
 const SCOPE_SET: ReadonlySet<string> = new Set(SCOPE_PRIMITIVES);
 const NATURE_SET: ReadonlySet<string> = new Set(NATURE_PRIMITIVES);
+const PLAN_SET: ReadonlySet<string> = new Set(PLAN_PRIMITIVES);
 
 // C2 fail-loud: raised when a needed bare primitive is absent (the model rendered nothing) or
 // NOVEL (the model rendered a value OUTSIDE the fixed set — a "recognized something beyond our
@@ -57,6 +65,15 @@ export function validateNature(sheet: string, column: string, nature: string | u
   const v = (nature ?? '').trim();
   if (v && !NATURE_SET.has(v)) {
     throw new PrimitiveRecognitionError(sheet, `nature_role (column "${column}")`, `the model rendered a NOVEL nature "${v}" outside {${NATURE_PRIMITIVES.join(', ')}}`);
+  }
+  return v || undefined;
+}
+
+// HF-372 Phase C: validate a column's bare plan primitive, raising on novel.
+export function validatePlanRole(sheet: string, column: string, planRole: string | undefined): string | undefined {
+  const v = (planRole ?? '').trim();
+  if (v && !PLAN_SET.has(v)) {
+    throw new PrimitiveRecognitionError(sheet, `plan_role (column "${column}")`, `the model rendered a NOVEL plan role "${v}" outside {${PLAN_PRIMITIVES.join(', ')}}`);
   }
   return v || undefined;
 }

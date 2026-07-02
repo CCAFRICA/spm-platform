@@ -52,7 +52,7 @@
 // PrimitiveRecognitionError (novel). Never a default, never a word-match fallback.
 
 import type { ContentProfile, AgentType, HeaderInterpretation } from './sci-types';
-import { validateScope, validateNature } from './structural-primitives';
+import { validateScope, validateNature, validatePlanRole } from './structural-primitives';
 
 export interface ExpressionClassification {
   classification: AgentType;
@@ -108,6 +108,7 @@ export function deriveClassificationFromExpression(profile: ContentProfile): Exp
   for (const i of all) {
     validateScope(sheet, i.columnName, i.scope_role);
     validateNature(sheet, i.columnName, i.nature_role);
+    validatePlanRole(sheet, i.columnName, i.plan_role); // HF-372 Phase C: novel plan primitive raises
   }
 
   const recognized = all.filter(isRecognized);

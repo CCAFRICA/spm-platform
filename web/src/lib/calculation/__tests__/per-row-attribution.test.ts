@@ -113,9 +113,9 @@ test('SR-38: a wrong rate does NOT match the raw outcome (mismatch detectable)',
 
 test('transaction_ref: identifier that is not the entity id', () => {
   const meta = { entity_id_field: 'ID_Empleado', field_identities: {
-    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'employee_identifier' },
-    Folio: { structuralType: 'identifier', contextualIdentity: 'transaction_identifier' },
-    Monto: { structuralType: 'measure', contextualIdentity: 'amount' },
+    ID_Empleado: { structuralType: 'identifier', natureRole: 'identifier', contextualIdentity: 'employee_identifier' },
+    Folio: { structuralType: 'identifier', natureRole: 'identifier', contextualIdentity: 'transaction_identifier' },
+    Monto: { structuralType: 'measure', natureRole: 'measure', contextualIdentity: 'amount' },
   } };
   const rd = { ID_Empleado: 'E1', Folio: 'F-7788', Monto: 100 };
   assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), 'F-7788');
@@ -123,8 +123,8 @@ test('transaction_ref: identifier that is not the entity id', () => {
 
 test('transaction_ref: null when only the entity identifier exists', () => {
   const meta = { entity_id_field: 'ID_Empleado', field_identities: {
-    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'employee_identifier' },
-    Cantidad: { structuralType: 'measure', contextualIdentity: 'count' },
+    ID_Empleado: { structuralType: 'identifier', natureRole: 'identifier', contextualIdentity: 'employee_identifier' },
+    Cantidad: { structuralType: 'measure', natureRole: 'measure', contextualIdentity: 'count' },
   } };
   const rd = { ID_Empleado: 'E1', Cantidad: 3 };
   assert.equal(extractTransactionRef(rd, meta, 'ID_Empleado'), null);
@@ -134,7 +134,7 @@ test('transaction_ref (OB-218): excludes BOTH binding entity col AND metadata.en
   // BCL-class case: binding key = ID_Empleado, metadata.entity_id_field = Sucursal, only identifier
   // is the employee id → must be null (not the employee id).
   const meta = { entity_id_field: 'Sucursal', field_identities: {
-    ID_Empleado: { structuralType: 'identifier', contextualIdentity: 'identifier' },
+    ID_Empleado: { structuralType: 'identifier', natureRole: 'identifier', contextualIdentity: 'identifier' },
     Sucursal: { structuralType: 'reference_key', contextualIdentity: 'reference_key' },
   } };
   const rd = { ID_Empleado: 'BCL-5083', Sucursal: 'BCL-MAC-001', Cantidad_Productos_Cruzados: 4 };

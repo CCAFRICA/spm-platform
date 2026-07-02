@@ -201,6 +201,8 @@ export default function OperateImportPage() {
   const tenantId = currentTenant?.id || '';
   // HF-140: Track storage upload for ALL files (runs in parallel with analysis)
   const storagePathsRef = useRef<Record<string, string>>({});
+  // HF-372 Phase E: verbatim storage rejections, surfaced to the user when the upload gate fails.
+  const uploadFailuresRef = useRef<string[]>([]);
   const storageUploadPromiseRef = useRef<Promise<void> | null>(null);
   // OB-251: the async (OB-174) classify session id, retained so the COMMIT confirmation can close the
   // processing_jobs lifecycle (classified → committing → committed). Null for the synchronous path
@@ -254,6 +256,7 @@ export default function OperateImportPage() {
           try {
             const supabase = createClient();
             const paths: Record<string, string> = {};
+            uploadFailuresRef.current = []; // fresh per attempt
             const baseTimestamp = Date.now();
             await Promise.all(uploadableFiles.map(async (file, index) => {
               // HF-141: Unique path per file — timestamp + index + random suffix
@@ -264,7 +267,11 @@ export default function OperateImportPage() {
                 .from('ingestion-raw')
                 .upload(path, file.rawFile!, { cacheControl: '3600', upsert: false });
               if (uploadErr) {
+                // HF-372 Phase E (C2): the storage rejection reaches the USER verbatim — a bucket/
+                // project size-limit rejection previously died in the console while the screen said
+                // only "Please retry" with no limit named.
                 console.error(`[HF-141] Storage upload FAILED for ${file.name}:`, uploadErr.message);
+                uploadFailuresRef.current.push(`"${file.name}" (${(file.rawFile!.size / 1048576).toFixed(1)}MB): ${uploadErr.message}`);
               } else {
                 paths[file.name] = path;
                 console.log(`[HF-141] File uploaded: ${file.name} → ${path} (${(file.size / 1024).toFixed(0)}KB)`);
@@ -299,7 +306,10 @@ export default function OperateImportPage() {
 
         if (!spreadsheetFiles.every(f => storagePaths[f.name])) {
           // Upload did not complete — STOP (no sync fallback; the worker would have nothing to read).
-          setState({ phase: 'error', error: 'The file upload did not complete. Please retry the import.', canRetry: true });
+          // HF-372 Phase E (C2): name the actual rejection(s) — a size-limit refusal is actionable
+          // only when the user can see WHAT was refused and WHY.
+          const detail = uploadFailuresRef.current.length > 0 ? ` ${uploadFailuresRef.current.join(' | ')}` : '';
+          setState({ phase: 'error', error: `The file upload did not complete.${detail} Please retry the import.`, canRetry: true });
           return;
         }
 
@@ -487,19 +497,9 @@ export default function OperateImportPage() {
     // Backwards compat: first path as single storagePath
     const storagePath = Object.values(storagePaths)[0] || undefined;
 
-    // OB-251: confirm advances the async jobs classified → committing (the durable lifecycle the
-    // cockpit/dispatcher observe). No-op for the synchronous path (no jobs). RLS now allows tenant
-    // members (profiles.auth_user_id) after the reconcile migration.
-    if (asyncSessionIdRef.current && tenantId) {
-      // processing_jobs is not in the generated database.types.ts (matches the existing async insert).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = createClient() as any;
-      void sb.from('processing_jobs')
-        .update({ status: 'committing' })
-        .eq('tenant_id', tenantId)
-        .eq('session_id', asyncSessionIdRef.current)
-        .in('status', ['classified', 'confirming']);
-    }
+    // HF-372 Phase D: the browser NO LONGER writes job status. The server is the single writer —
+    // execute-bulk stamps 'committing' at entry (service-role, immune to the platform-operator RLS
+    // hole that silently no-oped this write and left every such import lying at 'classified').
 
     setState({
       phase: 'executing',
@@ -529,16 +529,9 @@ export default function OperateImportPage() {
       .then(r => console.log(`[HF-300] finalize-import dispatched: HTTP ${r.status}`))
       .catch(err => console.warn('[HF-300] finalize-import dispatch failed:', err));
 
-    if (asyncSessionIdRef.current) {
-      // processing_jobs is not in the generated database.types.ts (untyped table, see note above).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = createClient() as any;
-      void sb.from('processing_jobs')
-        .update({ status: 'committed', completed_at: new Date().toISOString() })
-        .eq('tenant_id', tenantId)
-        .eq('session_id', asyncSessionIdRef.current)
-        .in('status', ['committing', 'classified', 'confirming']);
-    }
+    // HF-372 Phase D: the browser's 'committed' write is REMOVED — execute-bulk writes 'committed'
+    // server-side when the rows are durable, and finalize-import writes 'finalized' when entity
+    // resolution + assignments complete. The durable record can no longer depend on this tab.
     void fetch('/api/import/sci/aggregate-flywheel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

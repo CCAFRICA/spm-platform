@@ -52,6 +52,8 @@ const ANALYSIS_SAMPLE_SIZE = 50;
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
 
+  // HF-372 Phase D: hoisted so the outer catch can mark THIS job failed (EPG-0.5 gap 1d).
+  let caughtJobId: string | null = null;
   try {
     // Auth check — accept EITHER a logged-in user (client-fire) OR the internal/cron principal
     // (dispatch-jobs fires this worker server-side with no session; that 401'd every cron job — RC2).
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
     if (!jobId) {
       return NextResponse.json({ error: 'jobId required' }, { status: 400 });
     }
+    caughtJobId = jobId;
 
     // Fetch the job
     const { data: job, error: jobErr } = await supabase
@@ -218,10 +221,6 @@ export async function POST(req: NextRequest) {
 
     // Per-sheet helpers (DIAG-021 H3 fix).
     const sheetTier = (sheetName: string): 1 | 2 | 3 => (sheetFlywheelResults.get(sheetName)?.tier ?? 3);
-    const sheetMatchTier1 = (sheetName: string) => {
-      const r = sheetFlywheelResults.get(sheetName);
-      return r?.tier === 1 && r.match;
-    };
 
     // Job-level tier retained for processing_jobs.recognition_tier column backward compat
     // (trace surface and downstream consumers expect a single tier per job). Use primarySheet's
@@ -263,8 +262,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Header comprehension — HF-197B: skip per-sheet (was: file-level skip on primary tier).
-    const sheetsNeedingHC = sheets.filter(s => !sheetMatchTier1(s.sheetName));
+    // Header comprehension — HF-372 (F-NEW-1): EVERY sheet goes through decomposed comprehension.
+    // The former Tier-1 skip left `profile.headerComprehension` absent for a warm sheet, and the
+    // HF-367/368 classifier reads the model's per-column bare primitives from exactly that surface —
+    // so a re-import of an already-seen file threw MissingRecognitionError (worker 500, job stranded
+    // in 'classifying'). Decomposed comprehension IS the warm path: known atoms claim from the
+    // flywheel without an LLM dispatch (read-before-derive); only the novel/identifier residue
+    // comprehends. One recognition surface, warm or cold (AP-17).
+    const sheetsNeedingHC = sheets;
     // OB-203 Phase 2 (5b): decomposed comprehension — atom read-before-derive, per-unit failures.
     const perSheetFailure = new Map<string, import('@/lib/sci/sci-types').ComprehensionFailureClass>();
     let provenanceMap = new Map<string, { recognizedFraction: number; novelCount: number; llmCalled: boolean }>();
@@ -291,7 +296,7 @@ export async function POST(req: NextRequest) {
         );
       }
     }
-    const skipHC = sheetsNeedingHC.length === 0;
+    const skipHC = sheetsNeedingHC.length === 0; // HF-372: only true for a sheetless file now
 
     // HF-196 Phase 1G Path α — Phase B: HC-aware pattern derivations (Decision 108).
     for (const [sheetName, profile] of Array.from(profileMap.entries())) {
@@ -556,6 +561,17 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     console.error('[SCI-WORKER] Error:', err);
+    // HF-372 Phase D (EPG-0.5 gap 1d): a classification exception previously wrote NOTHING to the
+    // job — it sat stranded in 'classifying' with no recorded reason until the reclaimer retried it
+    // into the same throw. Record the truthful terminal state (guarded: only the claiming worker's
+    // own 'classifying' row; retries via dispatch-jobs requeue still apply up to MAX_RETRIES).
+    try {
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      await sb.from('processing_jobs').update({
+        status: 'failed',
+        error_detail: `Classification failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 2000),
+      }).eq('id', caughtJobId ?? '').eq('status', 'classifying');
+    } catch { /* best-effort — never mask the original error */ }
     return NextResponse.json(
       { error: 'Worker processing failed', details: String(err) },
       { status: 500 },

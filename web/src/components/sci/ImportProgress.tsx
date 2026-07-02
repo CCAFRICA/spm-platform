@@ -126,6 +126,8 @@ export function ImportProgress({ sessionId, tenantId, onAllClassified, onError }
 
   const classifiedCount = jobs.filter(j => j.status === 'classified' || j.status === 'committed').length;
   const totalCount = jobs.length;
+  // HF-372 Phase D: inline stop state (the cancelled jobs surface as failed via the normal poll).
+  const [cancelRequested, setCancelRequested] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -138,9 +140,28 @@ export function ImportProgress({ sessionId, tenantId, onAllClassified, onError }
           </p>
         </div>
         {polling && (
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Processing...
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Processing...
+            </div>
+            {/* HF-372 Phase D: inline stop — cancels this session's non-terminal jobs server-side */}
+            <button
+              onClick={() => {
+                if (cancelRequested) return;
+                setCancelRequested(true);
+                void fetch('/api/import/sci/cancel', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tenantId, sessionId }),
+                }).catch(() => setCancelRequested(false));
+              }}
+              disabled={cancelRequested}
+              className="text-xs px-2.5 py-0.5 rounded-full border border-zinc-700 text-red-400 hover:border-red-400 disabled:text-zinc-500"
+              title="Stop this import — cancels its jobs on the server"
+            >
+              {cancelRequested ? 'Stopping…' : 'Stop'}
+            </button>
           </div>
         )}
       </div>

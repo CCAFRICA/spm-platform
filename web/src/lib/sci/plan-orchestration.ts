@@ -29,6 +29,7 @@
 import { getAIService } from '@/lib/ai';
 import { validateComponentIntent } from '@/lib/calculation/prime-validator';
 import type { DistributionIntent } from '@/lib/calculation/intent-types';
+import { parseRateMatrixRecognition, constructRateMatrixIntent, RateMatrixConstructionError } from './rate-matrix-construction';
 // HF-341 R3: the CompositionalIntent shape layer (intent-constructor / compositional-intent) is
 // eradicated — the LLM emits the calculationIntent PrimeNode DAG directly and validateComponentIntent
 // (the structural verifier) is the construction layer. constructTree / ConstructionError /
@@ -86,6 +87,11 @@ export interface OrchestrationInput {
    * from plan prose and convergence resolves them against real columns at calc time.
    */
   fieldComprehension?: Array<{ field: string; meaning: string; role: string }>;
+  /**
+   * HF-372 Phase B: the de-banded grids per sheet (exact headers + every data row). The model
+   * recognizes a fixed rate table's structure; deterministic code constructs its cells from HERE.
+   */
+  debandedSheets?: Map<string, { columns: string[]; rows: Record<string, unknown>[] }>;
 }
 
 export interface OrchestratedComponent {
@@ -276,6 +282,7 @@ export async function orchestratePerComponentInterpretation(
       signalContext: input.signalContext,
       componentSpec: { id: compId, name: compName, nameEs: compNameEs, appliesToEmployeeTypes: appliesTo, briefSemantic, rateTableCellCount },
       fieldAnchor, // HF-272: informational HC-of-data-sheets field hint (not a gate)
+      debandedSheets: input.debandedSheets, // HF-372 Phase B: grids for deterministic construction
     });
 
     if (!componentResult.component) {
@@ -301,7 +308,14 @@ export async function orchestratePerComponentInterpretation(
         appliesToEmployeeTypes: resolvedAppliesTo,
         calculationIntent: componentResult.component.calculationIntent,
         calculationMethod: componentResult.component.calculationMethod ?? { type: 'prime_dag' },
-        rateTableCellCount,
+        // HF-372: a constructed matrix carries the EXACT grid-derived count; a DAG emission carries
+        // the oracle RESOLUTION (echoed count, or NO count when the skeleton's declaration proved
+        // inapplicable — per-row reference shape) so downstream re-validation never re-applies a
+        // stale estimate.
+        rateTableCellCount: componentResult.component.constructedCellCount
+          ?? (componentResult.component.resolvedCellCount === null
+            ? undefined
+            : componentResult.component.resolvedCellCount ?? rateTableCellCount),
         confidence: componentResult.component.confidence ?? 0.8,
         reasoning: componentResult.component.reasoning ?? '',
         metadataExtension: componentResult.component.metadataExtension,
@@ -401,6 +415,9 @@ interface PerComponentCallArgs {
   // HF-272: informational field hint (HC of data sheets only; empty on plan-only import).
   // Forwarded into the adapter prompt as context — NOT a gate (the HF-270 enforcement was removed).
   fieldAnchor: Array<{ field: string; meaning: string; role: string }>;
+  // HF-372 Phase B: the de-banded grids (per sheet) for deterministic rate-matrix construction.
+  // The model RECOGNIZES the matrix structure; code reads the cell values from here.
+  debandedSheets?: Map<string, { columns: string[]; rows: Record<string, unknown>[] }>;
 }
 
 interface PerComponentCallResult {
@@ -411,6 +428,14 @@ interface PerComponentCallResult {
     reasoning?: string;
     /** HF-251: carries construction_method + compositional_intent for the component's persisted metadata. */
     metadataExtension?: Record<string, unknown>;
+    /** HF-372 Phase B: the EXACT cell count read from the grid by the deterministic constructor —
+     *  overrides the skeleton's LLM-declared rateTableCellCount on the persisted component. */
+    constructedCellCount?: number;
+    /** HF-372: the cell-count oracle RESOLUTION for a DAG emission — a number (the model's echoed
+     *  count), or null when the declaration does not apply (per-row reference shape). undefined =
+     *  keep the skeleton's declaration. The persisted component carries this so downstream
+     *  re-validation (convertComponent) applies the SAME oracle, never the stale skeleton count. */
+    resolvedCellCount?: number | null;
   } | null;
   outcome: ComponentOutcome;
 }
@@ -486,6 +511,76 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
             `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} message=${message}`,
         );
+      } else if (result.inexpressible && typeof (result.inexpressible as Record<string, unknown>).reason === 'string') {
+        // HF-372 HALT-6: the model declared the table's structure OUTSIDE the recognition contract.
+        // The declaration itself can be premature (EPG-B1 live: one variant declared inexpressible on
+        // a premise its sibling variant disproved one attempt later), so it retries WITH the verbatim
+        // reason fed back — the model re-examines; it can never fall back to emitting the cells. A
+        // declaration that survives the retry budget is the true HALT-6: reported verbatim, terminal.
+        const reason = String((result.inexpressible as Record<string, unknown>).reason);
+        lastErrClass = 'cognition_violation';
+        lastErrMessage = `HALT-6 rate-matrix structure inexpressible in the recognition contract — model's verbatim reason: ${reason}`;
+        console.error(`[plan-component] HALT-6 INEXPRESSIBLE component=${spec.id} name="${spec.name}" attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} — model's verbatim reason: ${reason}`);
+      } else if (result.rateMatrixRecognition != null) {
+        // HF-372 Phase B (Decision 158, both halves): the model RECOGNIZED a fixed rate table's
+        // structure — sheet, section (variant), axes, band edges, input metrics. Deterministic code
+        // CONSTRUCTS the PrimeNode cascade by reading every cell value from the de-banded grid; the
+        // model never emits the cells (the truncation class is structurally eliminated here). The
+        // constructed tree passes the SAME validateComponentIntent gate, with the exact cell count
+        // derived from the recognition (rows × cols) — the completeness oracle is no longer an LLM
+        // emission. A construction failure (recognition/grid disagreement) retries WITH the verbatim
+        // error fed back (the model can correct its recognition); it never silently falls back.
+        try {
+          const rec = parseRateMatrixRecognition(result.rateMatrixRecognition);
+          const grid = args.debandedSheets?.get(rec.sheet);
+          if (!grid) {
+            throw new RateMatrixConstructionError(
+              `recognized sheet "${rec.sheet}" has no de-banded grid available (grids: ${Array.from(args.debandedSheets?.keys() ?? []).join(', ') || 'none'})`);
+          }
+          const constructStart = Date.now();
+          const built = constructRateMatrixIntent(rec, grid);
+          const constructMs = Date.now() - constructStart;
+          const validation = validateComponentIntent(built.intent, {
+            componentLabel: spec.name,
+            expectedCellCount: built.cellCount,
+          });
+          if (!validation.valid) {
+            // A constructed tree failing the grammar is a construction-layer defect, not a model error.
+            const detail = validation.violations.map(v => `${v.check}@${v.nodePath}: ${v.message}`).join('; ');
+            throw new RateMatrixConstructionError(`constructed tree rejected by the grammar validator: ${detail}`);
+          }
+          console.log(
+            `[plan-component] CONSTRUCTED component=${spec.id} name="${spec.name}" attempt=${attempt} ` +
+              `sheet="${rec.sheet}"${rec.sectionLabel ? ` section="${rec.sectionLabel}"` : ''} cells=${built.cellCount} ` +
+              `constructMs=${constructMs} llmLatencyMs=${latency} (model=recognition, code=construction)`,
+          );
+          const metadataExtension: Record<string, unknown> = {
+            construction_method: 'rate_matrix_constructed',
+            rate_matrix: { sheet: rec.sheet, sectionLabel: rec.sectionLabel, cellCount: built.cellCount, constructMs },
+          };
+          if (Array.isArray(result.applies_to)) metadataExtension.applies_to = result.applies_to;
+          return {
+            component: {
+              calculationIntent: built.intent,
+              calculationMethod: (result.calculationMethod ?? { type: 'prime_dag' }) as Record<string, unknown>,
+              confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
+              reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
+              metadataExtension,
+              constructedCellCount: built.cellCount,
+            },
+            outcome: {
+              id: spec.id, name: spec.name, status: 'success', attempts: attempt,
+              lastAttemptAt: new Date().toISOString(),
+            },
+          };
+        } catch (constructionErr) {
+          lastErrClass = 'cognition_violation';
+          lastErrMessage = constructionErr instanceof Error ? constructionErr.message : String(constructionErr);
+          console.log(
+            `[plan-component] FAILED component=${spec.id} name="${spec.name}" errClass=${lastErrClass} ` +
+              `attempt=${attempt}/${retryPolicy(lastErrClass).maxAttempts} latencyMs=${latency} construction="${lastErrMessage}"`,
+          );
+        }
       } else {
         // HF-341 R3: the LLM emits the calculationIntent PrimeNode DAG DIRECTLY (the engine's
         // computation algebra). There is no CompositionalIntent shape intermediate and no constructTree —
@@ -497,7 +592,29 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
         // data columns at calc time (Decision 158).
         const intent = result.calculationIntent as Record<string, unknown> | undefined;
         const constructionMethod = 'prime_dag' as const;
+        // HF-372 Phase B visibility: a component the skeleton declared as a FIXED table emitting a
+        // DAG instead of a recognition is the model's judgment call (the skeleton's declaration is
+        // itself an LLM emission and can over-declare) — the pre-existing exhaustive_emission guard
+        // still applies below. Logged loudly so the choice is never invisible.
+        if (intent && typeof spec.rateTableCellCount === 'number') {
+          console.warn(`[plan-component] DECLARED-TABLE component=${spec.id} name="${spec.name}" (rateTableCellCount=${spec.rateTableCellCount}) emitted a DAG instead of rateMatrixRecognition — accepting via the guarded emission path`);
+        }
 
+        // HF-372: the exhaustive-emission oracle. The SKELETON's rateTableCellCount is an estimate;
+        // when the model emitted a DAG whose rates are per-row `reference` reads (ZERO plain
+        // constants, ≥1 reference — the shape the prompt prescribes for per-row column rates) and
+        // did NOT echo a cell count, the declaration was wrong — the check does not apply. A
+        // truncated CELL ENUMERATION (some constants, fewer than declared) still trips the guard.
+        const countNodes = (node: unknown, pred: (n: Record<string, unknown>) => boolean): number => {
+          if (!node || typeof node !== 'object') return 0;
+          const n = node as Record<string, unknown>;
+          let c = pred(n) ? 1 : 0;
+          for (const v of Object.values(n)) {
+            if (Array.isArray(v)) for (const x of v) c += countNodes(x, pred);
+            else if (v && typeof v === 'object') c += countNodes(v, pred);
+          }
+          return c;
+        };
         if (!intent || typeof intent.prime !== 'string') {
           // Structured failure: the response carried no PrimeNode calculationIntent.
           lastErrClass = 'cognition_violation';
@@ -508,9 +625,19 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           );
         } else {
           // Structural verification IS the construction layer (Validation Premise Law).
+          const echoedCellCount = typeof result.rateTableCellCount === 'number' && result.rateTableCellCount > 0
+            ? Math.floor(result.rateTableCellCount) : undefined;
+          const plainConstants = countNodes(intent, n => n.prime === 'constant' && typeof n.value === 'number' && !n.meta);
+          const references = countNodes(intent, n => n.prime === 'reference');
+          const perRowShape = plainConstants === 0 && references >= 1;
+          const effectiveCellCount = echoedCellCount ?? (perRowShape ? undefined : spec.rateTableCellCount);
+          const resolvedCellCount: number | null | undefined = echoedCellCount ?? (perRowShape ? null : undefined);
+          if (spec.rateTableCellCount && effectiveCellCount === undefined) {
+            console.warn(`[plan-component] DECLARED-TABLE component=${spec.id} emitted a per-row reference DAG (0 plain constants, ${references} references) — the skeleton's rateTableCellCount=${spec.rateTableCellCount} declaration does not apply`);
+          }
           const validation = validateComponentIntent(intent, {
             componentLabel: spec.name,
-            expectedCellCount: spec.rateTableCellCount,
+            expectedCellCount: effectiveCellCount,
           });
           if (validation.valid) {
             console.log(
@@ -531,6 +658,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
                 confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
                 reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
                 metadataExtension,
+                resolvedCellCount,
               },
               outcome: {
                 id: spec.id,

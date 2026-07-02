@@ -1,11 +1,12 @@
 // OB-203 Phase 2 — Atom (column) fingerprint construction (DS-027 R1 / DI-3 / DI-9 / DI-10).
 //
-// The recognition + learning unit is the column-ATOM: a STRUCTURAL fingerprint over value
-// distribution, type, cardinality, repeat ratio, and pattern flags — bucketed for fuzzy
-// matching. Korean Test (EPG-2.1): the fingerprint identity contains ZERO language- or
-// domain-specific literals and ZERO raw values. The column NAME is display metadata only —
-// never part of identity (DI-3). DI-10: `features` is buckets/booleans/structural-type names
-// only, safe to persist at foundational/vertical scope by construction.
+// The recognition + learning unit is the column-ATOM: its IDENTITY (v4, HF-372) is the column's
+// header together with its structural shape — value distribution, type, cardinality, repeat ratio,
+// and pattern flags, bucketed for fuzzy matching. Korean Test (EPG-2.1): the fingerprint identity
+// contains ZERO language- or domain-specific literals and ZERO raw values; the header enters as
+// hashed DATA (generic Unicode canonicalization), never as matched vocabulary. DI-10: `features`
+// is buckets/booleans/structural-type names only, safe to persist by construction — the header is
+// one-way-digested into the hash, never persisted raw in the identity row.
 //
 // Composition (DS-027 R1): sheet identity = the multiset of its atom hashes. Recognition is
 // partial by construction — a sheet of 28 known atoms + 2 novel atoms yields comprehension
@@ -27,7 +28,21 @@ import { createHash } from 'crypto';
 // nature_role are missing), so the classifier cannot see the entity identifier and falls to
 // `reference` (BCL Datos → reference instead of transaction). Bumping to v3 invalidates the stale
 // rows → they re-comprehend via the fresh LLM path, which emits the bare primitives.
-export const ATOM_ALGORITHM_VERSION = 3;
+// v4 (HF-372 Phase A): IDENTITY-KEYED atoms. The value-shape-only hash collided distinct columns
+// (live: plan `Componente` ≡ roster `Nombre_Completo` at one hash — the plan sheet warm-claimed
+// "a person name"@0.99 and classified as a roster; three `Metas Mensuales` columns shared one atom
+// and churned role-AMBIGUOUS forever; the Casa Diaz workbook alone had 21 cross-column collisions).
+// The column's HEADER now participates in the identity as DATA — hashed (one-way, never stored raw,
+// never matched against any vocabulary; Korean Test: generic Unicode canonicalization only) —
+// together with the structural shape. Distinct columns can no longer share a recognition entry;
+// a true re-encounter (same header, same shape) still warm-recalls. The version bump invalidates
+// every collided v3 entry by the established mechanism (version is in the hash).
+// v5 (HF-372 Phase C): the stored RECOGNITION schema gained the model's bare `plan_role`
+// (rule_parameter | none) — the plan-parameter recognition that replaces the OB-255
+// natureIsPlanRule word-regex. Per the HF-369 lesson, a column_roles schema change MUST bump this
+// version so pre-plan_role atoms (v4, written only by this branch's own live proofs) re-comprehend
+// instead of warm-serving incomplete recognition.
+export const ATOM_ALGORITHM_VERSION = 5;
 
 export type AtomDataType = 'integer' | 'decimal' | 'date' | 'boolean' | 'text' | 'empty' | 'mixed';
 
@@ -48,10 +63,10 @@ export interface AtomFeatures {
 }
 
 export interface AtomFingerprint {
-  /** Display metadata — NEVER part of identity (DI-3). */
+  /** Part of identity since v4 (HF-372): the header is hashed into `hash` as data. */
   columnName: string;
   features: AtomFeatures;
-  /** sha256 of `features` ONLY (excludes columnName). */
+  /** sha256 over `features` + the header's one-way digest (v4, HF-372). */
   hash: string;
 }
 
@@ -165,9 +180,24 @@ export function hashAtomFeatures(f: AtomFeatures): string {
   return createHash('sha256').update(canonical(f)).digest('hex');
 }
 
+// v4 (HF-372): the header's identity key — generic Unicode canonicalization ONLY (NFC, trim,
+// whitespace collapse, case fold). The header is DATA in the identity, never matched vocabulary:
+// no word list, no language-specific literal (Korean Test — Hangul/accents pass through NFC).
+export function headerIdentityKey(columnName: string): string {
+  return columnName.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+// v4 (HF-372): atom identity = structural features + header identity. The header enters as a
+// one-way digest — the hash DEPENDS on the name but never stores or reveals it (DI-10 preserved:
+// the persisted row still carries buckets/flags only).
+export function hashAtomIdentity(columnName: string, f: AtomFeatures): string {
+  const headerDigest = createHash('sha256').update(headerIdentityKey(columnName), 'utf8').digest('hex');
+  return createHash('sha256').update(`${canonical(f)}|${headerDigest}`).digest('hex');
+}
+
 export function computeAtomFingerprint(columnName: string, values: unknown[]): AtomFingerprint {
   const features = computeAtomFeatures(values);
-  return { columnName, features, hash: hashAtomFeatures(features) };
+  return { columnName, features, hash: hashAtomIdentity(columnName, features) };
 }
 
 /**

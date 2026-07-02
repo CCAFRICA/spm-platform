@@ -26,6 +26,10 @@ import {
 // HF-356 (I8): poll discipline — a 401 or a 5xx streak makes the bounded recovery pollers give up early
 // instead of polling a failing endpoint for the full stall window.
 import { pollDecision, newPollState, type PollOutcome } from '@/lib/sci/poll-discipline';
+// HF-372 Phase D: the durable job record (processing_jobs) is the terminal truth for the whole
+// import — the execute UI polls it so a dead HTTP response can never leave the screen spinning
+// after the server finished, and renders the server's live phase.
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 
 const PROCESSING_ORDER: Record<AgentType, number> = {
   plan: 0,
@@ -186,6 +190,83 @@ export function SCIExecution({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   // OB-151: useRef as secondary guard (works for strict mode double-invocation)
   const executingRef = useRef(false);
+
+  // ── HF-372 Phase D: the SINGLE truthful record — poll processing_jobs for phase + terminal state ──
+  const [livePhase, setLivePhase] = useState<string | null>(null);
+  const [serverTerminal, setServerTerminal] = useState<null | { failed: boolean; reason?: string }>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  useEffect(() => {
+    if (!asyncSessionId || !tenantId || executionDone) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createBrowserSupabase() as any;
+    let stopped = false;
+    const tick = async () => {
+      let { data, error } = await sb
+        .from('processing_jobs')
+        .select('status, error_detail, metadata')
+        .eq('tenant_id', tenantId)
+        .eq('session_id', asyncSessionId);
+      if (error?.code === '42703') {
+        // metadata column absent (migration 20260703_hf372 pending) — the TERMINAL settle (the
+        // critical truth) still works from status alone; only the phase display is unavailable.
+        ({ data, error } = await sb
+          .from('processing_jobs')
+          .select('status, error_detail')
+          .eq('tenant_id', tenantId)
+          .eq('session_id', asyncSessionId));
+      }
+      if (stopped || error || !data?.length) return;
+      // live phase = the most recently stamped metadata.phase across the session's jobs
+      let phase: string | null = null; let phaseAt = '';
+      for (const j of data) {
+        const m = (j.metadata ?? {}) as { phase?: string; phase_at?: string };
+        if (m.phase && (m.phase_at ?? '') >= phaseAt) { phase = m.phase; phaseAt = m.phase_at ?? ''; }
+      }
+      setLivePhase(phase);
+      const terminal = data.every((j: { status: string }) => j.status === 'committed' || j.status === 'finalized' || j.status === 'failed');
+      if (terminal) {
+        const failedJobs = data.filter((j: { status: string }) => j.status === 'failed');
+        setServerTerminal({
+          failed: failedJobs.length > 0,
+          reason: failedJobs.map((j: { error_detail?: string }) => j.error_detail).filter(Boolean).join(' | ') || undefined,
+        });
+      }
+    };
+    void tick();
+    const iv = setInterval(() => { void tick(); }, 2500);
+    return () => { stopped = true; clearInterval(iv); };
+  }, [asyncSessionId, tenantId, executionDone]);
+
+  // When the durable record says the import is terminal but the local flow is still spinning
+  // (dead response socket, dropped poller — the "0 of 4 at 183s while the server finished at 66s"
+  // class), settle the UI from the record: never a spinner after the server finished.
+  useEffect(() => {
+    if (!serverTerminal || executionDone) return;
+    setUnits(prev => prev.map(u => (u.status === 'complete' || u.status === 'error') ? u : (
+      serverTerminal.failed
+        ? { ...u, status: 'error' as const, error: serverTerminal.reason ?? 'Import failed (see the job record)' }
+        : { ...u, status: 'complete' as const }
+    )));
+    setExecutionDone(true);
+  }, [serverTerminal, executionDone]);
+
+  // HF-372 Phase D: the inline stop/kill — cancels the session's non-terminal jobs server-side.
+  const handleCancelImport = useCallback(async () => {
+    if (!asyncSessionId || !tenantId || cancelRequested) return;
+    setCancelRequested(true);
+    try {
+      const r = await fetch('/api/import/sci/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, sessionId: asyncSessionId }),
+      });
+      const body = await r.json().catch(() => ({}));
+      console.log(`[SCI Cancel] HTTP ${r.status} cancelled=${body.cancelled ?? '?'}`);
+    } catch (e) {
+      console.warn('[SCI Cancel] request failed:', e);
+      setCancelRequested(false);
+    }
+  }, [asyncSessionId, tenantId, cancelRequested]);
 
   // HF-087: Elapsed timer — ticks every second while processing
   useEffect(() => {
@@ -820,6 +901,9 @@ export function SCIExecution({
       onContinue={onUploadMore}
       elapsedSeconds={elapsedSeconds}
       isRetrying={isRetrying}
+      livePhase={livePhase}
+      onCancel={asyncSessionId ? handleCancelImport : undefined}
+      cancelRequested={cancelRequested}
     />
   );
 }

@@ -144,7 +144,9 @@ export async function POST(request: NextRequest) {
       .from('processing_jobs')
       .update({ status: 'failed', error_detail: 'Cancelled by platform operator', retry_count: CANCEL_RETRY_SENTINEL })
       .eq('id', body.jobId)
-      .in('status', ['pending', 'classifying', 'committing'])
+      // HF-372 Phase D: 'classified' included — a job stranded at the human gate (user never
+      // confirmed / abandoned) was previously green AND unkillable.
+      .in('status', ['pending', 'classifying', 'classified', 'confirming', 'committing'])
       .select('id');
     if (error) {
       console.error('[Platform Observatory API] cancel-job failed:', error.message);
@@ -878,83 +880,73 @@ async function fetchOnboardingData(supabase: ServiceClient): Promise<OnboardingT
 // ═══════════════════════════════════════════════
 
 async function fetchIngestionMetrics(supabase: ServiceClient): Promise<IngestionMetricsData> {
-  // Bulk fetch ingestion events and classification signals in parallel
+  // HF-372 Phase D: metrics derive from processing_jobs + import_batches — the records the SCI
+  // pipeline ACTUALLY writes. The prior aggregation over `ingestion_events` (never written by SCI)
+  // rendered dead 0.0% KPIs and a "No ingestion events yet" panel above a populated queue.
+  const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [eventsRes, signalsRes, tenantsRes, jobsRes] = await Promise.all([
-    supabase.from('ingestion_events')
-      .select('id, tenant_id, file_name, file_size_bytes, status, created_at')
-      .order('created_at', { ascending: false })
-      .limit(10000),
+  const [signalsRes, tenantsRes, jobsRes, jobs24Res, batchesRes] = await Promise.all([
     supabase.from('classification_signals')
       .select('id, was_corrected')
       .limit(10000),
     supabase.from('tenants')
       .select('id, name'),
-    // HF-356 (RC4/I9): the async-worker queue — the most recent jobs cross-tenant, so the operator sees
-    // (and can cancel) a runaway import. Oldest-active-first matters less than recency here; cap at 100.
-    // processing_jobs is not in the generated DB types → cast the builder (as the worker routes do).
+    // The queue panel: most recent jobs cross-tenant (visible + cancellable).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from('processing_jobs')
-      .select('id, tenant_id, file_name, status, retry_count, error_detail, created_at, started_at')
+      .select('id, tenant_id, file_name, status, retry_count, error_detail, created_at, started_at, completed_at, metadata')
       .order('created_at', { ascending: false })
       .limit(100),
+    // The 24h stat window.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('processing_jobs')
+      .select('id, tenant_id, status, created_at, started_at')
+      .gte('created_at', since24h)
+      .limit(10000),
+    supabase.from('import_batches')
+      .select('tenant_id, row_count, status, created_at')
+      .gte('created_at', since24h)
+      .eq('status', 'completed')
+      .limit(10000),
   ]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const events: any[] = eventsRes.data ?? [];
+  const tenantNameMap = new Map((tenantsRes.data ?? []).map(t => [t.id, t.name]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const signals: any[] = signalsRes.data ?? [];
-  const tenantNameMap = new Map((tenantsRes.data ?? []).map(t => [t.id, t.name]));
-
-  // Aggregate totals
-  let committedCount = 0;
-  let quarantinedCount = 0;
-  let rejectedCount = 0;
-  let totalBytes = 0;
-
-  // Per-tenant aggregation
-  const byTenant: Record<string, {
-    totalEvents: number; committed: number; quarantined: number;
-    rejected: number; bytes: number;
-  }> = {};
-
-  for (const e of events) {
-    const tid = e.tenant_id;
-    if (!byTenant[tid]) {
-      byTenant[tid] = { totalEvents: 0, committed: 0, quarantined: 0, rejected: 0, bytes: 0 };
-    }
-    byTenant[tid].totalEvents++;
-    const size = e.file_size_bytes ?? 0;
-    totalBytes += size;
-    byTenant[tid].bytes += size;
-
-    if (e.status === 'committed') { committedCount++; byTenant[tid].committed++; }
-    else if (e.status === 'quarantined') { quarantinedCount++; byTenant[tid].quarantined++; }
-    else if (e.status === 'rejected') { rejectedCount++; byTenant[tid].rejected++; }
-  }
-
-  // Classification accuracy: % of signals where AI was NOT corrected
   const totalSignals = signals.length;
   const correctSignals = signals.filter(s => !s.was_corrected).length;
   const classificationAccuracy = totalSignals > 0 ? correctSignals / totalSignals : 0;
 
-  // Validation pass rate: committed / (committed + quarantined)
-  const validationTotal = committedCount + quarantinedCount;
-  const avgValidationPassRate = validationTotal > 0 ? committedCount / validationTotal : 0;
+  // 24h job stats + per-tenant rollup
+  const STALE_MS = 10 * 60_000;
+  const IN_FLIGHT = new Set(['pending', 'classifying', 'committing']);
+  const DONE = new Set(['committed', 'finalized']);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jobs24: any[] = jobs24Res.data ?? [];
+  const byTenant: Record<string, { jobs24h: number; completed24h: number; failed24h: number; rowsCommitted24h: number }> = {};
+  const bump = (tid: string) => (byTenant[tid] ??= { jobs24h: 0, completed24h: 0, failed24h: 0, rowsCommitted24h: 0 });
+  let inFlight = 0, awaitingConfirmation = 0, completed24h = 0, failed24h = 0, stuck = 0;
+  const now = Date.now();
+  for (const j of jobs24) {
+    const t = bump(j.tenant_id);
+    t.jobs24h++;
+    if (DONE.has(j.status)) { completed24h++; t.completed24h++; }
+    else if (j.status === 'failed') { failed24h++; t.failed24h++; }
+    else if (j.status === 'classified' || j.status === 'confirming') awaitingConfirmation++;
+    else if (IN_FLIGHT.has(j.status)) {
+      inFlight++;
+      const startedMs = new Date(j.started_at ?? j.created_at).getTime();
+      if (now - startedMs > STALE_MS) stuck++; // non-terminal with no progress past the stale window
+    }
+  }
+  let rowsCommitted24h = 0;
+  for (const b of batchesRes.data ?? []) {
+    rowsCommitted24h += b.row_count ?? 0;
+    if (b.tenant_id) bump(b.tenant_id).rowsCommitted24h += b.row_count ?? 0;
+  }
 
-  // Recent events (last 20)
-  const recentEvents = events.slice(0, 20).map(e => ({
-    id: e.id,
-    tenantId: e.tenant_id,
-    tenantName: tenantNameMap.get(e.tenant_id) ?? e.tenant_id,
-    fileName: e.file_name ?? null,
-    fileSize: e.file_size_bytes ?? null,
-    status: e.status,
-    createdAt: e.created_at,
-  }));
-
-  // HF-356 (RC4/I9): the async-worker queue, newest first, with active jobs flagged for the kill switch.
-  const ACTIVE_JOB_STATUSES = ['pending', 'classifying', 'committing'];
+  // The queue panel rows: truthful status + the REAL step (metadata.phase) + cancellability.
+  const CANCELLABLE = new Set(['pending', 'classifying', 'classified', 'confirming', 'committing']);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jobs: any[] = jobsRes.data ?? [];
   const processingJobs = jobs.map(j => ({
@@ -963,31 +955,24 @@ async function fetchIngestionMetrics(supabase: ServiceClient): Promise<Ingestion
     tenantName: tenantNameMap.get(j.tenant_id) ?? j.tenant_id,
     fileName: j.file_name ?? null,
     status: j.status,
+    phase: ((j.metadata ?? {}) as { phase?: string }).phase ?? null,
     retryCount: j.retry_count ?? 0,
     errorDetail: j.error_detail ?? null,
     createdAt: j.created_at,
     startedAt: j.started_at ?? null,
-    isActive: ACTIVE_JOB_STATUSES.includes(j.status),
+    completedAt: j.completed_at ?? null,
+    cancellable: CANCELLABLE.has(j.status),
   }));
 
   return {
-    totalEvents: events.length,
-    committedCount,
-    quarantinedCount,
-    rejectedCount,
-    totalBytesIngested: totalBytes,
-    avgValidationPassRate,
+    jobStats: { total24h: jobs24.length, inFlight, awaitingConfirmation, completed24h, failed24h, stuck },
+    rowsCommitted24h,
     classificationAccuracy,
     perTenant: Object.entries(byTenant).map(([tenantId, d]) => ({
       tenantId,
       tenantName: tenantNameMap.get(tenantId) ?? tenantId,
-      totalEvents: d.totalEvents,
-      committed: d.committed,
-      quarantined: d.quarantined,
-      rejected: d.rejected,
-      bytesIngested: d.bytes,
+      ...d,
     })),
-    recentEvents,
     processingJobs,
   };
 }
