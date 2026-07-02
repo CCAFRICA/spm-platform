@@ -114,4 +114,30 @@ Was 13 evaluated / 72 excluded with both variants labeled "(Ejecutivo Senior)"; 
 
 **Authenticated in-route run (SR-44).** The `[CalcRecon-T2]` lines rendered by an authenticated POST `/api/calculation/run` require a live user session; CC's attempts to mint one were correctly denied by policy (no user creation, no role changes, no MFA manipulation — attempted and refused twice, by design). The browser-driven calc run is therefore an **architect-rendered check**, and its full T1/T2 output lands with EPG-J1's clean-slate run. Data note: CC re-ran the idempotent post-commit construction on VLTEST2 (the D9 pre-data finalize had left 425/510 transactions unlinked → now 510/510) so the architect's run evaluates real operands.
 
-*(Phases C–J appended below as completed.)*
+---
+
+## Phase C — Entity-id from recognition + structural guarantee, not statistics (D3)
+
+**Objective.** Entity-id field derives from the model's recognition guarded by structural construction facts; the "finest repeating identifier" statistic removed; loud named gap on genuine ambiguity.
+
+**Phase 0 finding answered (incl. HALT-1).** EPG-0.3: BOTH roster columns legitimately carry `scope_role='entity' ∧ nature_role='identifier'` (live HC trace + v5 atoms), so recognition alone yields two candidates; branch (a) overlap tied 100%/100% (manager FK ⊆ employee domain); branch (b) `repeatRatio>1.1` excluded the true id *by construction* (roster id = 1.0× repeat) and chose the manager column; the choice was persisted and **84/85 roster rows mis-linked to the manager's entity**; creation and commit disagreed within one import (creation keyed `ID_Empleado` only because a surviving OB-231 English prose-regex diverted `ID_Gerente`).
+
+**Change.**
+- `selectEntityIdFieldByOverlap` **deleted**; replaced by `selectEntityIdFieldStructural` (`commit-content-unit.ts`) — structural facts only, in order: (1) **strict value-subset elimination** (a candidate whose distinct values are a strict subset of another's references the other's instances — directed arithmetic fact; kills self-referential FKs with no domain needed), (2) **entity-sheet construction invariant** (one row = one entity ⇒ the subject id is bijective with rows; applied only when it selects exactly one), (3) value-domain overlap (HF-351 branch (a), unchanged), (4) still ambiguous → `ambiguousCompetitors` → the caller **fails the unit loudly** (C2). The "finest repeating" branch and the first-match fallback are gone; the misleading "cold-start" reason label is gone with them.
+- **One selector for every surface (SR-34):** `commitContentUnit` (`resolveEntityIdField` → loud batch-failed on ambiguity), `commitUnitWindowed`/`commitUnitStreamed` (windowed-commit.ts — both sites), and **entity creation** (`processEntityUnit`, execute-bulk — the "binding honored iff agrees with model" arm and the first-match `findHcEntityIdColumn` fallback replaced by the same selector; ambiguity refuses to spawn entities). `findHcEntityIdColumn` (emission-order-first) **deleted** — zero production callers remain. process-job remediation exclusions now cover ALL model candidates.
+- **Retained verbatim:** the HF-371 EPG-C1 row-ordinal guard on the FINAL chosen id (execute-bulk :1129-1138) and the zero-candidate binding fallback with its row-index guard.
+
+**EPG-C1 evidence.** Removal diff in commit `HF-373 Phase C` (branch `hf-373`): `-export function selectEntityIdFieldByOverlap` / `-  // (b) cold start / no overlap winner → finest-grained repeating identifier` / `-      return { chosen: ranked[0].col, reason: \`cold-start finest repeating identifier...\` }` / `-export function findHcEntityIdColumn`. Real selector over the LIVE roster recognition trace + rows (script `web/scripts/_hf373_phaseC_live_proof.ts`):
+
+```
+job 66551591-9376-4b77-8850-db1be4af85f5 file=..._BCL_Plantilla_Personal.xlsx unit=Personal
+model-recognized entity-scope identifier candidates: [ID_Gerente, ID_Empleado]
+live roster rows: 85
+COLD (creation, empty domain):  chosen="ID_Empleado" reason=structural: strict value-subset elimination (referencing candidate(s) dropped: ID_Gerente)
+WARM (commit, domain=85):       chosen="ID_Empleado" reason=structural: strict value-subset elimination (referencing candidate(s) dropped: ID_Gerente)
+persisted (PRE-FIX import) metadata.entity_id_field = "ID_Gerente"
+```
+
+Both surfaces share one function → they cannot disagree within an import. The fresh browser re-import (entity_id_field="ID_Empleado" persisted + 85 correct external_ids) lands with EPG-J1's clean-slate run (architect-rendered; the current live batch is corrupted data from the pre-fix import, and entity-resolution only fills NULL entity_id, so it self-heals only via clean-slate re-import). Tests: `hf351-entity-id-selection.test.ts` rewritten (9/9 — roster subset elimination, bijectivity, preserved branch (a), loud ambiguity ×2, empty-column drop); full SCI suite **276/276**.
+
+*(Phases D–J appended below as completed.)*

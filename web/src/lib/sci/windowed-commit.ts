@@ -25,7 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   commitContentUnit,
   findHcEntityIdCandidates,
-  selectEntityIdFieldByOverlap,
+  selectEntityIdFieldStructural,
   readTenantEntityDomain,
   makeRowByteEstimator,
   type CommitContentUnitInput,
@@ -86,15 +86,17 @@ export interface WindowedCommitResult {
 async function resolveEntityIdFieldStreamed(
   supabase: SupabaseClient,
   params: WindowedCommitParams,
-): Promise<string | null> {
-  if (params.classification === 'reference') return null;
+): Promise<{ field: string | null; ambiguousReason: string | null }> {
+  if (params.classification === 'reference') return { field: null, ambiguousReason: null };
   const candidates = findHcEntityIdCandidates(params.unit.classificationTrace);
-  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 1) return { field: candidates[0], ambiguousReason: null };
   if (candidates.length === 0) {
     const binding = params.unit.confirmedBindings.find((b) => b.semanticRole === 'entity_identifier');
-    return binding?.sourceField ?? null;
+    return { field: binding?.sourceField ?? null, ambiguousReason: null };
   }
-  // ≥2 candidates → narrow full scan of just the candidate columns + tenant domain → overlap tie-break.
+  // HF-373 Phase C: >=2 candidates -> narrow full scan of just the candidate columns +
+  // tenant domain -> the SAME structural discrimination as the direct path (SR-34);
+  // ambiguity fails the unit loudly, never first-match.
   const windowRows = params.windowRows ?? CHUNK_ROW_SIZE;
   const narrowRows: Array<Record<string, unknown>> = [];
   for (let start = 0; start < params.reader.totalRows; start += windowRows) {
@@ -107,8 +109,10 @@ async function resolveEntityIdFieldStreamed(
     }
   }
   const entityDomain = await readTenantEntityDomain(supabase, params.tenantId);
-  const sel = selectEntityIdFieldByOverlap(candidates, narrowRows, entityDomain);
-  return sel.chosen || null;
+  const sel = selectEntityIdFieldStructural(candidates, narrowRows, entityDomain, params.classification);
+  console.log(`[entity-id] HF-373 C (windowed): ${candidates.length} candidates [${candidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+  if (sel.ambiguousCompetitors) return { field: null, ambiguousReason: sel.reason };
+  return { field: sel.chosen || null, ambiguousReason: null };
 }
 
 export async function commitUnitWindowed(
@@ -120,7 +124,11 @@ export async function commitUnitWindowed(
     return { totalInserted: 0, totalRows: 0, success: true, entityIdField: null, batchIds: [] };
   }
 
-  const entityIdField = await resolveEntityIdFieldStreamed(supabase, params);
+  const entityIdSelection = await resolveEntityIdFieldStreamed(supabase, params);
+  if (entityIdSelection.ambiguousReason) {
+    return { totalInserted: 0, totalRows, success: false, entityIdField: null, batchIds: [], error: `entity-id selection failed for "${params.tabName}": ${entityIdSelection.ambiguousReason} (HF-373 C2)` };
+  }
+  const entityIdField = entityIdSelection.field;
 
   // HF-359 (Part A): same byte boundary as the streamed path. Read in bounded MAX_PULSE_ROWS chunks
   // (memory), then partition EACH chunk into byte-budgeted pulses (planPulses) so no uploaded object
@@ -283,7 +291,12 @@ export async function commitUnitStreamed(
         return slim;
       });
       const entityDomain = await readTenantEntityDomain(supabase, params.tenantId);
-      const sel = selectEntityIdFieldByOverlap(candidates, narrowRows, entityDomain);
+      // HF-373 Phase C: same structural discrimination as the direct path (SR-34).
+      const sel = selectEntityIdFieldStructural(candidates, narrowRows, entityDomain, params.classification);
+      console.log(`[entity-id] HF-373 C (streamed): ${candidates.length} candidates [${candidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+      if (sel.ambiguousCompetitors) {
+        return { totalInserted: 0, totalRows: 0, success: false, entityIdField: null, batchIds: [], error: `entity-id selection failed for "${params.tabName}": ${sel.reason} (HF-373 C2)` };
+      }
       entityIdField = sel.chosen || null;
     }
   }

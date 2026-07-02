@@ -32,7 +32,7 @@ import { readParsedCompanion, writeParsedCompanion } from '@/lib/sci/parsed-comp
 // HF-231: unified committed_data writer — sole write surface across all four
 // classifications. Replaces 4 inline write sites in this route (plus 4 in
 // execute/route.ts). Closes AP-17 (parallel metadata construction).
-import { commitContentUnit, findHcEntityIdColumn, findHcEntityIdCandidates } from '@/lib/sci/commit-content-unit';
+import { commitContentUnit, findHcEntityIdCandidates, selectEntityIdFieldStructural, readTenantEntityDomain } from '@/lib/sci/commit-content-unit';
 import { looksLikeRowIndex } from '@/lib/sci/entity-resolution';
 // OB-251 (DS-016 P-C1) — bounded-window parse + commit so a large sheet never materializes its full
 // row array (the 86,608×87 OOM). Gated by CELL_CHUNK_THRESHOLD above every HALT-CALC anchor's sheet.
@@ -1104,12 +1104,24 @@ async function processEntityUnit(
   // The set of columns the MODEL recognized as entity-scope identifiers (scope_role==='entity' &&
   // nature_role==='identifier'). A `#` row ordinal or a rate-table band label is NEVER in this set.
   const modelCandidates = findHcEntityIdCandidates(unit.classificationTrace);
-  let idSourceField: string | null =
-    // The heuristic binding is honored ONLY when it agrees with the model (preserves the multi-
-    // candidate disambiguation, e.g. ID_Empleado chosen over ID_Gerente). Otherwise the model wins.
-    (idBinding && modelCandidates.includes(idBinding.sourceField))
-      ? idBinding.sourceField
-      : (findHcEntityIdColumn(unit.classificationTrace) ?? null);
+  // HF-373 Phase C (D3): ONE selection surface for every consumer (SR-34). The prior
+  // "binding honored iff it agrees with the model" arm and the first-match
+  // findHcEntityIdColumn fallback are replaced by the SAME structural selector the
+  // commit path uses — creation and committed metadata.entity_id_field can no longer
+  // disagree within one import (2026-07-02: creation keyed ID_Empleado while
+  // entity_id_field persisted ID_Gerente, mis-linking 84/85 roster rows).
+  let idSourceField: string | null = null;
+  if (modelCandidates.length === 1) {
+    idSourceField = modelCandidates[0];
+  } else if (modelCandidates.length >= 2) {
+    const entityDomain = await readTenantEntityDomain(supabase, tenantId);
+    const sel = selectEntityIdFieldStructural(modelCandidates, rows as Array<Record<string, unknown>>, entityDomain, 'entity');
+    console.log(`[SCI Bulk][entity-id] HF-373 C: ${modelCandidates.length} entity-scope candidates [${modelCandidates.join(', ')}] -> "${sel.chosen || '(none)'}" (${sel.reason})`);
+    if (sel.ambiguousCompetitors) {
+      return { contentUnitId: unit.contentUnitId, classification: 'entity', success: false, rowsProcessed: 0, pipeline: 'entity', error: `Entity identifier ambiguous after structural discrimination [${sel.ambiguousCompetitors.join(', ')}] — refusing to spawn entities from a guessed key (HF-373 C2).` };
+    }
+    idSourceField = sel.chosen || null;
+  }
   if (!idSourceField && idBinding) {
     // The model recognized NO entity identifier and the only surface is the heuristic binding — allow
     // it ONLY if it is not a row index (a `#` / ordinal column can never spawn entities). Band labels
