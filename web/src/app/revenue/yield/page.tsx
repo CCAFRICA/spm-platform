@@ -41,7 +41,7 @@ import {
 } from '@/components/insights/ds003';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadYield } from '@/lib/revenue/revenue-data-service';
 import type { YieldResponse } from '@/lib/revenue/types';
 
@@ -76,6 +76,9 @@ export default function YieldPage() {
   const t = (en: string, es: string) => (isSpanish ? es : en);
   const { format } = useCurrency();
   const noPayoutTip = t('no payout recorded', 'sin pago registrado');
+  // HF-374: switcher-effective tenant — the loaders REQUIRE it (financial idiom).
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
 
   const [data, setData] = useState<YieldResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,8 +89,9 @@ export default function YieldPage() {
   const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
 
   useEffect(() => {
+    if (!tenantId) return; // tenant context resolves momentarily; the effect re-fires (HF-374)
     let cancelled = false;
-    loadYield({ scopeEntityIds })
+    loadYield(tenantId, { scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -100,7 +104,7 @@ export default function YieldPage() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEntityIds]);
+  }, [tenantId, scopeEntityIds]);
 
   const view = useMemo(() => {
     if (!data || data.periodYield.length === 0) return null;

@@ -54,7 +54,7 @@ import {
   TOOLTIP_STYLE,
   compact,
 } from '@/components/insights/ds003';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
 import { loadPulse } from '@/lib/revenue/revenue-data-service';
@@ -139,6 +139,9 @@ export default function RevenuePulsePage() {
   const { locale } = useLocale();
   const isSpanish = isSpanishLocale(locale);
   const { format } = useCurrency();
+  // HF-374: switcher-effective tenant — the loaders REQUIRE it (financial idiom).
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
 
   const [data, setData] = useState<PulseResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,8 +152,9 @@ export default function RevenuePulsePage() {
   const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
 
   useEffect(() => {
+    if (!tenantId) return; // tenant context resolves momentarily; the effect re-fires (HF-374)
     let cancelled = false;
-    loadPulse({ scopeEntityIds })
+    loadPulse(tenantId, { scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res); // previous render held until this lands (no skeleton flash)
@@ -163,7 +167,7 @@ export default function RevenuePulsePage() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEntityIds]);
+  }, [tenantId, scopeEntityIds]);
 
   const t = (en: string, es: string) => (isSpanish ? es : en);
 

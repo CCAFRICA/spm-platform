@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useFeature } from '@/contexts/tenant-context';
+import { useFeature, useTenant } from '@/contexts/tenant-context';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import type { RevenueInsightKind } from '@/lib/revenue/types';
 
@@ -47,6 +47,9 @@ interface InsightSlotProps {
 
 export function InsightSlot({ className }: InsightSlotProps) {
   const intelligenceEnabled = useFeature('intelligence_enabled');
+  // HF-374: switcher-effective tenant — the insights route REQUIRES ?tenantId= (resolveCallerTenant validates).
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
   const { locale } = useLocale();
   const isSpanish = isSpanishLocale(locale);
 
@@ -55,8 +58,9 @@ export function InsightSlot({ className }: InsightSlotProps) {
 
   useEffect(() => {
     if (!intelligenceEnabled) return; // upsell placeholder — no fetch, no computation
+    if (!tenantId) return; // quiet loading state holds; effect re-fires when the tenant context resolves (HF-374)
     let cancelled = false;
-    fetch('/api/revenue/insights')
+    fetch(`/api/revenue/insights?tenantId=${encodeURIComponent(tenantId)}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((body) => {
         if (!cancelled) setInsights(Array.isArray(body?.insights) ? body.insights : []);
@@ -67,7 +71,7 @@ export function InsightSlot({ className }: InsightSlotProps) {
     return () => {
       cancelled = true;
     };
-  }, [intelligenceEnabled]);
+  }, [intelligenceEnabled, tenantId]);
 
   const title = isSpanish ? 'Insights de Ingresos' : 'Revenue Insights';
 

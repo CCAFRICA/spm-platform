@@ -36,7 +36,7 @@ import {
 } from '@/components/insights/ds003';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import { loadConcentration } from '@/lib/revenue/revenue-data-service';
 import type { ConcentrationResponse } from '@/lib/revenue/types';
 
@@ -52,6 +52,9 @@ export default function ConcentrationPage() {
   const isSpanish = isSpanishLocale(locale);
   const t = (en: string, es: string) => (isSpanish ? es : en);
   const { format } = useCurrency();
+  // HF-374: switcher-effective tenant — the loaders REQUIRE it (financial idiom).
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
 
   const [data, setData] = useState<ConcentrationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,8 +65,9 @@ export default function ConcentrationPage() {
   const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
 
   useEffect(() => {
+    if (!tenantId) return; // tenant context resolves momentarily; the effect re-fires (HF-374)
     let cancelled = false;
-    loadConcentration({ scopeEntityIds })
+    loadConcentration(tenantId, { scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -76,7 +80,7 @@ export default function ConcentrationPage() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEntityIds]);
+  }, [tenantId, scopeEntityIds]);
 
   const hasPrior = useMemo(
     () => (data ? data.topShares.some((s) => s.priorShare != null) : false),

@@ -33,7 +33,7 @@ import { loadBridge } from '@/lib/revenue/revenue-data-service';
 import type { BridgeResponse } from '@/lib/revenue/types';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
 import { usePersona } from '@/contexts/persona-context';
-import { useCurrency } from '@/contexts/tenant-context';
+import { useTenant, useCurrency } from '@/contexts/tenant-context';
 import {
   AXIS_TICK,
   GRID_STROKE,
@@ -75,6 +75,9 @@ export default function RevenueBridgePage() {
   const isSpanish = isSpanishLocale(locale);
   const { format } = useCurrency();
   const t = (en: string, es: string) => (isSpanish ? es : en);
+  // HF-374: switcher-effective tenant — the loaders REQUIRE it (financial idiom).
+  const { currentTenant } = useTenant();
+  const tenantId = currentTenant?.id;
 
   const [data, setData] = useState<BridgeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,9 +89,10 @@ export default function RevenueBridgePage() {
   const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
 
   useEffect(() => {
+    if (!tenantId) { setLoading(false); return; } // tenant context resolves momentarily; the effect re-fires (HF-374)
     let cancelled = false;
     setLoading(true);
-    loadBridge({ scopeEntityIds })
+    loadBridge(tenantId, { scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -104,7 +108,7 @@ export default function RevenueBridgePage() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEntityIds]);
+  }, [tenantId, scopeEntityIds]);
 
   const periodLabel = (pid: string | null | undefined): string =>
     (pid && data?.periods.find((p) => p.periodId === pid)?.label) || (pid ?? '');
