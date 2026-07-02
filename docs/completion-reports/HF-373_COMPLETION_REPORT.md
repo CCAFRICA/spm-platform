@@ -1,12 +1,8 @@
 # HF-373 Completion Report — Close the arc: VLTEST2 calculates, Casa Diaz plans are precise, the large file loads at pace
 
-**Status: IN PROGRESS — Phase 0 complete.** This report is updated per phase (Rules 25–28).
+**Status: CC-side COMPLETE (Phases 0 + A–I implemented and proven at fixture/live-data level; Phase J CC half done).** Branch `hf-373`; one commit per phase. Full test tree **625/625**, `npm run build` green. Architect actions (migrations ×3, optional env, browser-driven EPG-J1/J2/J3/J4 runs, reconciliation, schema-reference regeneration, PR merge) are consolidated in the **"Architect actions (consolidated)"** section at the end of this report — each prepared exactly (SR-44).
 
-## Architect actions (accumulating list — each prepared exactly; SR-44)
-
-*(populated as phases complete)*
-
-1. *(placeholder — migrations, storage config, browser verifications, reconciliation, `SCHEMA_REFERENCE_LIVE.md` regeneration post-HF-372/373)*
+**HALT-1 corrections applied (5):** D3 (both roster columns carry entity+identifier recognition; linkage did NOT survive), D9 (the claim grants the WRONG pass — plan-arm pre-data finalize), D6 (staging already pulses; the defect is limit discovery vs the unreadable project-global cap), D8 (uuid-PK order scan kills even 186-row tenants), D10 (one poisoned fingerprint DID store; the atom flywheel was the real warm-path killer). Each reported in its phase section before design; no fix was forced onto a mismatched cause. **No HALT-2/3/5/6 conditions were triggered; no residuals parked (§6A).**
 
 ---
 
@@ -281,4 +277,64 @@ RSS delta during streaming: 130MB (buffer itself is 40MB)
 
 Identity transform on the JDE class, exact row parity, memory bounded (sample buffer ≤ 25 rows; the OOM defense untouched). Pre-existing byte-identical equivalence suites (sheet-stream vs SheetJS fixtures, sheet-window identity, OB-254 DD-7) all green; full SCI suite **303/303**.
 
-*(Phases I–J appended below as completed.)*
+---
+
+## Phase I — Plan precision (D4 + D5)
+
+**Objective.** Plans carry an additive source-sheet identity everywhere plans are listed (no silent renaming); constant/guarantee intent is expressible and faithfully constructed — no plan-type registry.
+
+**Phase 0 finding answered (HALT-1 on D5).** EPG-0.10: D4 exact as framed — the workbook carries the identical banner "COMISIONES DE MAQUINARIA" on three machinery sheets; the model named two plans identically; the disambiguating identity (`metadata.contentUnitId`) was persisted but never rendered. D5 CORRECTED: the stored intent is NOT multiplicative — it is `{"prime":"reference","field":"BASE COMISION"}`; the `constant` prime is already grammatical AND constructible (`prime-grammar.ts:69`, `convertComponent`); the gaps were (1) zero constant/guarantee exemplars in the plan_component contract (the varying-values rule steered blind), and (2) the guarantee amounts are genuinely PER-ENTITY (6,000 / 26,000 per row in the plan sheet) — so `reference("BASE COMISION")` **is** the faithful model expression under the platform's own varying-values law; the resolution of that reference at calc time is exactly what Phase A's convergence machinery binds (reference-sheet candidates, per-entity key_column). **No HALT-6: the contract expresses the intent.**
+
+**Change.**
+1. **D4 persistence** — `metadata.sourceSheet` written at the rule_sets upsert (plan-interpretation.ts; additive jsonb, no migration; supersession keying untouched). New pure helper `planSourceSheet()` (`lib/plan-surface/plan-identity.ts`): explicit `sourceSheet` first, legacy backfill-parse of `contentUnitId` (`file::SHEET::idx::split`).
+2. **D4 rendering** — the two multi-plan LIST surfaces render the provenance: **PlanRail** (Plans & Canvas, Zone A — `· <sheet>` in the meta line) and the **operate/calculate PlanCard grid** (`(<sheet>)` after the name; threaded via `operate-context` select + `PlanReadiness.sourceSheet`). The plan-surface API already ships `metadata` to the client. Scoping note (explicit, not silent): the approvals page renders approval-REQUEST snapshots (its own `ruleSetName` payload, one plan's context per request) and results/statements/drill-through render inside a single selected plan's context — the identity is persisted on every plan and reachable via `rule_sets.metadata` should the architect want it rendered there too.
+3. **D5 contract** — a GUARANTEED/CONSTANT PAYMENT exemplar added to the plan_component EXPRESS list (anthropic-adapter.ts): express the guarantee AS THE PAYMENT (plan-wide amount → `constant(<amount>)`; per-entity amounts in a column → `reference(<exact header>)`; conditional guarantees wrap like the eligibility gate; **never rate × base**). Illustrative algebra — no plan-type registry (HALT-2 clean).
+
+**EPG-I1 evidence** (REAL `planSourceSheet` over the LIVE Casa Diaz rule_sets — legacy backfill path; script `web/scripts/_hf373_phaseI_live_proof.ts`):
+
+```
+  COMISIONES SUCURSALES LOCALES                 — from sheet "LOCALES REFAC"
+  MAQUINARIA - Comisiones por Ventas            — from sheet "MAQUINARIA"
+  COMISIÓN GARANTIZADA                          — from sheet "COMISIÓN GARANTIZADA"
+  COMISIONES DE MAQUINARIA                      — from sheet "MAQUINARIA (2)"     <-- distinguishable
+  COMISIONES DE MAQUINARIA                      — from sheet "DIST Y SUC"         <-- distinguishable
+  COMISIONES DE MAQUINARIA - PULL (EXTERNOS)    — from sheet "PULL (EXTERNOS)"
+COMISIÓN GARANTIZADA constructed component (verbatim):
+  name=COMISIÓN GARANTIZADA componentType=prime_dag
+  calculationIntent={"field":"BASE COMISION","prime":"reference"}     <-- the guarantee AS the payment; per-entity amounts; no rate×base
+intactness: entities=73 assignments=584 activePlans=8
+```
+
+Tests `hf373-plan-identity.test.ts` 3/3; `npm run build` clean (BUILD_ID present). Plans & Canvas RENDERED check = architect (SR-44, EPG-J2).
+
+---
+
+## Phase J — End-to-end proofs (the three objectives)
+
+**CC-runnable proofs (complete).**
+
+- **EPG-J4 (no regression, CC half):** full test tree `npx tsx --test 'src/**/__tests__/*.test.ts'` → **625/625 pass, 0 fail**; `rm -rf .next && npm run build` → exit 0, `BUILD_ID` present (verified per the HF-359 gotcha — BUILD_ID presence, not exit code alone). All ten phases' focused suites green (bare-primitive reads 3/3, variant selection 5/5, entity-id 9/9, coalesce 8/8, pulse budget 6/6, job truth 5/5, summary aggregation 2/2, recognition carry 5/5, oversized de-band 4/4, plan identity 3/3).
+- **Objective-level CC evidence recap:** bindings 0 → **8** on live VLTEST2 (Phase A); variant assignment 13-in/72-excluded → **85/85, 0 exclusions, correct labels** via the real functions over live data (Phase B); entity-id `ID_Gerente` → **`ID_Empleado`** by structural guarantee on the live recognition (Phase C); both live premature-finalize claims **generation-taken-over** by the real decision function (Phase D); budget-sized part **uploads**, pre-fix size **rejected**, gzip 5.6× on a real part (Phase E); both lying job records resolve truthfully under the fixed machine (Phase F); the worst blocked Datos job goes 4 unknowns → **0** and the gate passes (Phase G); the real 86,607×87 extract streams **identity, 86,607/86,607, 3.3 s, memory bounded** (Phase H); the two same-named plans are **distinguishable by source sheet** and the guarantee intent is verbatim `reference("BASE COMISION")` (Phase I).
+
+**Architect-rendered proofs (SR-44 — every browser/import/calc run is auth-gated; CC's session-minting attempts were correctly denied by policy and not worked around).** Run after applying the migrations below, on the deployed branch:
+
+1. **EPG-J1 (VLTEST2 calculates).** Clean Slate VLTEST2 → import `BCL_Plan_Comisiones` → `BCL_Plantilla_Personal` → the six `BCL_Datos_*` files → run the calculation for all six periods. Expect: convergence logs `component bindings > 0` with real column names; `[VARIANT-DIAG] … selection=selected`; T1 `variantDistribution={variant_0(Ejecutivo Senior):13 | variant_1(Ejecutivo):72}`; zero `excluded`; `[entity-id] HF-373 C: … -> "ID_Empleado" (structural: strict value-subset elimination…)`; ONE `[SCI Bulk] HF-373 D9 commit claim` per dispatch scope; ONE granted finalize (later fires log `coalesced` or `generation takeover`); NO `AUDIT DIVERGENCE`; report per-period + grand totals **verbatim** (reconciliation is architect-channel). Verification queries: `select count(*) from committed_data where tenant_id='5b078b52-…' and data_type='transaction' and entity_id is not null;` (=510); `select metadata->>'entity_id_field' from committed_data where tenant_id='5b078b52-…' and data_type='entity' limit 1;` (=`ID_Empleado`); `select count(distinct entity_id) from calculation_results where …` (=85 per period).
+2. **EPG-J2 (Casa Diaz precise).** Open Plans & Canvas: 8 active plans, the two "COMISIONES DE MAQUINARIA" showing `· MAQUINARIA (2)` / `· DIST Y SUC` provenance; COMISIÓN GARANTIZADA intent as pasted in Phase I; 73 entities / 584 assignments (live-verified intact above).
+3. **EPG-J3 (86K at pace).** Import `Abril_00001_1_demo_REF.xlsx` via the browser. Expect: `[pulse-budget] effective cap = project-global default 50MB…` (or the env-verified value), ~90 budget-sized parts staged (gzip `.csv.gz` iff the FDW gzip verification passed), `pulse_load_jobs` manifest entries flipping `status:'staged'→'loaded'` with the cursor advancing, `committed_data` transaction count = **86,607**, job terminal `finalized/completed` + `completed_at`, total wall time reported; on any commit failure the job terminates **failed** with the reason. Row-parity: `select sum((m->>'expectedRows')::int) from pulse_load_jobs, jsonb_array_elements(manifest) m where …` = 86,607.
+4. **EPG-J4 (architect half).** Casa Diaz workbook re-import → idempotent (8 plans, none archived); BCL Datos warm re-import → first import logs `[SCI-FINGERPRINT] Stored new/Updated` (gate passes), second logs `tier=1 … LLM skipped` + `[OB-203][atom-claim] … CLAIMED` + `[OB-203][atom-residue] … novel=1 [ID_Empleado]` with a large elapsed delta.
+
+**Interlock note for J1 (from Phase A, reported per HALT-1 discipline, not parked):** the `bono_cumplimiento_regulatorio` input is genuinely absent from the current corrupted VLTEST2 data (loud gap). On the fresh import the plan sheet's own rows commit as reference data and Phase A's binder proposes from ALL sheet capabilities (reference sheets included, `key_column` per-entity supported), with the Phase I guarantee exemplar guiding the interpretation; if the fresh run still cannot resolve it, the calc aborts LOUDLY at the HF-281/HF-373 gates naming the token — never a silent $0 — and the finding routes to the architect verbatim.
+
+---
+
+## Architect actions (consolidated — each prepared exactly; SR-44)
+
+1. **Migration** `web/supabase/migrations/20260704_hf373_import_commit_runs.sql` — commit-side claim table (Phase D). Apply before/with deploy; code degrades gracefully (PGRST205) until applied.
+2. **Migration** `web/supabase/migrations/20260704_hf373_staged_load_gzip_parts.sql` — gzip-aware `bulk_commit_from_storage`, per-part-status worker, `staged_load_capabilities()` marker (Phase E). Then LIVE-VERIFY the wrappers S3 FDW gzip option per the migration's run-book; if unsupported, `DROP FUNCTION public.staged_load_capabilities()` and staging self-reverts to plain CSV. Confirm the pg_cron schedule unchanged.
+3. **Migration** `web/supabase/migrations/20260704_hf373_committed_data_keyset_idx.sql` — `(tenant_id, id)` composite index (Phase F/D8). `CREATE INDEX CONCURRENTLY` — run this statement ALONE in the SQL editor. Afterwards re-run finalize (or `/api/admin/summary-backfill`) for Casa Diaz + Test #A1 (their summary artifacts are currently absent).
+4. **Optional env** `SUPABASE_GLOBAL_UPLOAD_LIMIT_BYTES` — set only if the project's global upload cap differs from the 50 MiB default (Phase E). Raising storage limits is NOT required by anything in this directive.
+5. **Browser runs** — EPG-J1/J2/J3/J4 above, with the expected log lines + verification queries. Report produced totals verbatim for reconciliation (architect channel).
+6. **`SCHEMA_REFERENCE_LIVE.md` regeneration** post-HF-372/373 — `pulse_load_jobs`, `import_finalize_runs`, `import_commit_runs`, `processing_jobs.metadata`, the `(tenant_id,id)` index, and the updated `bulk_commit_from_storage`/`process_pulse_load_jobs` exist only in migration files until regenerated.
+7. **PR merge** — CC opens the PR (below) and does not merge (SR-44).
+
+**Operational notes:** dev builds green from a clean `.next`; port 3000 was held by a parallel session during this work (CC's dev server used 3001). VLTEST2 data repair performed by CC during proofs (idempotent finalize-equivalent entity resolution: 510/510 transactions linked) — superseded by the J1 clean-slate re-import.
