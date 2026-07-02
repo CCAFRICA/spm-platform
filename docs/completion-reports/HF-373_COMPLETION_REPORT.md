@@ -253,4 +253,32 @@ unknown roles: PRE-FIX=4  POST-FIX=0  -> HF-247 write gate PASSES (fingerprint s
 
 Tests: `hf373-recognition-carry.test.ts` 5/5 (decimal/boolean measure arms, the `\bperiod\b` poison killed, scope_role identifier discrimination, HF-186 preserved, silence→structural, atom stability on bare primitives); full SCI suite **299/299** (one HF-368-era test fixture updated to emit primitives — the new no-primitive-no-atom law is intentional). The repeat-import warm evidence (`Stored new` → `tier=1 … LLM skipped` + `[OB-203][atom-residue] known=12/13 novel=1 [ID_Empleado]` + elapsed delta) lands with **EPG-J4's warm re-import** (import runs are auth-gated — architect-rendered).
 
-*(Phases H–J appended below as completed.)*
+---
+
+## Phase H — De-band header recovery on the oversized path (D11)
+
+**Objective.** The streamed/windowed sample window applies the same deterministic de-band recovery as the standard path (one recognition surface — the size gate selects parse strategy only, AP-17); identity on clean row-1 files; OOM defense intact.
+
+**Phase 0 finding answered.** EPG-0.9 CONFIRMED: `debandWorksheet` had zero call sites in the three oversized-path files; both oversized routes keyed everything on the raw first physical row; `constructStructure(fullGrid:false)` (the OB-254 D2 sample mode) existed with zero production callers — a designed-in gap, and `debandWorksheet` itself cannot run on a stream (it requires the materialized full grid).
+
+**Change.**
+1. **`resolveHeadersFromSampleGrid`** (deband-sheet.ts, pure, exported) — the SAME `constructStructure` recognition over the first `HEADER_SAMPLE_ROWS` (25) rows in `fullGrid:false` mode. Recovered keys are the **positional** `transformMap.columnNames` (section lifting/carry-down are full-grid constructions and don't participate on a stream). Clean row-1 → **identity** (the caller keeps its exact raw-row-1 keying); any undecidable shape → identity too (never a guess, never breaks the proven path); construction throws degrade to identity loudly.
+2. **Streamed path** (sheet-stream.ts) — `StreamHeaderResolver` buffers the leading sample, resolves once, releases banner rows as sidecar and data rows onward; wired into BOTH `streamSheetMeta` (classify) and `streamSheetWindows` (commit) so classify and commit key identically. Results carry `debandBanded` + the structural observations (incl. `structure:banded_beyond_ceiling`). Banded dimension estimates subtract the banner rows; all HALT-DATA-LOSS checks compare against actual streamed data rows (unchanged semantics).
+3. **Windowed path** (sheet-window.ts) — `openSheetWindow` probes a bounded 25-row grid through the same resolver; banded → recovered positional columns + `firstDataRow` shifted past the banner; clean → the pre-HF-373 probe verbatim. execute-bulk's windowed commit inherits automatically (same function).
+
+**EPG-H1 evidence.**
+
+Banded fixture through BOTH oversized paths (`hf373-oversized-deband.test.ts`, 4/4): banner+blank+header+3 rows → `headers=['ID_Empleado','Nombre','Monto']`, `debandBanded=true`, data rows keyed by the recovered header, banner rows never data — on `streamSheetMeta`, `streamSheetWindows`, and `openSheetWindow`; clean fixture identity on all three.
+
+The REAL 42MB 86,607×87 JDE extract through the MODIFIED streamed path (live storage object, script `web/scripts/_hf373_phaseH_live_jde.ts`):
+
+```
+streamSheetMeta: sheet=Exportar Hoja de Trabajo headers=87 cols debandBanded=false totalRows=86607 (known=true) in 0.1s
+streamSheetWindows: totalRows=86607 streamed=86607 debandBanded=false in 3.3s
+headers identical to meta: true
+RSS delta during streaming: 130MB (buffer itself is 40MB)
+```
+
+Identity transform on the JDE class, exact row parity, memory bounded (sample buffer ≤ 25 rows; the OOM defense untouched). Pre-existing byte-identical equivalence suites (sheet-stream vs SheetJS fixtures, sheet-window identity, OB-254 DD-7) all green; full SCI suite **303/303**.
+
+*(Phases I–J appended below as completed.)*
