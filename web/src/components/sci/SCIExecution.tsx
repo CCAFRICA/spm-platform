@@ -412,15 +412,11 @@ export function SCIExecution({
     const MAX_EXECUTE_ATTEMPTS = 3; // re-POSTs on a LOST response only — never on a 200-with-failures
     const ebLabel = (bulkStoragePath ? bulkStoragePath.split('/').pop() : undefined) ?? groupUnitIds[0] ?? 'group'; // DIAG-070 trace label
 
-    const finalize = (outcome: FileDispatchOutcome): FileDispatchOutcome => {
-      // OB-203 Phase D: once-per-session settle audit (idempotent; ImportReadyState backstops on mount).
-      void fetch('/api/import/sci/settle-audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, importSessionId: proposal.proposalId }),
-      }).catch(() => { /* completion-screen invocation is the backstop */ });
-      return outcome;
-    };
+    // HF-373 Phase D (D9): the per-file-group settle-audit dispatcher is REMOVED — in a
+    // multi-file import it fired the ONCE-per-session FIRST-WINS audit while later groups
+    // were still uncommitted (premature by construction; the 2026-07-02 frozen false alarm).
+    // ImportReadyState's mount fire is the single dispatcher, behind the server's settled gate.
+    const finalize = (outcome: FileDispatchOutcome): FileDispatchOutcome => outcome;
 
     // Seed per-unit disposition from the authoritative results. A failed unit carries the HF-295
     // user-understandable payload (translated by error class), never a raw dump.
@@ -565,6 +561,11 @@ export function SCIExecution({
     }
 
     const result: SCIExecutionResult = await res.json();
+    // HF-373 Phase D (D9): duplicate dispatch of this unit coalesced server-side — surface a
+    // retryable message (a later retry resumes idempotently once the in-flight pass finishes).
+    if ((result as { coalesced?: boolean }).coalesced) {
+      throw new Error('Commit coalesced — an identical commit pass for this unit is in flight; retry shortly');
+    }
     return result.results[0];
   }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath]);
 
@@ -633,6 +634,13 @@ export function SCIExecution({
         }
 
         const planResult: SCIExecutionResult = await res.json();
+
+        // HF-373 Phase D (D9): a coalesced response means an IDENTICAL plan commit pass is
+        // already in flight (duplicate dispatch no-oped server-side). Throw into the HF-353
+        // P-D recovery below, which settles from the durable plan_interpretation_runs status.
+        if ((planResult as { coalesced?: boolean }).coalesced) {
+          throw new Error('Commit coalesced — an identical plan commit pass is in flight; settling from durable status');
+        }
 
         // Map results back to individual plan units
         for (const result of planResult.results) {

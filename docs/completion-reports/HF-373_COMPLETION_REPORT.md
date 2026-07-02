@@ -140,4 +140,33 @@ persisted (PRE-FIX import) metadata.entity_id_field = "ID_Gerente"
 
 Both surfaces share one function → they cannot disagree within an import. The fresh browser re-import (entity_id_field="ID_Empleado" persisted + 85 correct external_ids) lands with EPG-J1's clean-slate run (architect-rendered; the current live batch is corrupted data from the pre-fix import, and entity-resolution only fills NULL entity_id, so it self-heals only via clean-slate re-import). Tests: `hf351-entity-id-selection.test.ts` rewritten (9/9 — roster subset elimination, bijectivity, preserved branch (a), loud ambiguity ×2, empty-column drop); full SCI suite **276/276**.
 
-*(Phases D–J appended below as completed.)*
+---
+
+## Phase D — Single-fire dispatch and honest bookkeeping (D9)
+
+**Objective.** Exactly one effective commit pass per dispatch scope; finalize claims can no longer suppress the import's real finalize; the first-wins audit can no longer freeze a mid-commit scan; the pulse-formula echo retired.
+
+**Phase 0 finding answered (incl. HALT-1).** EPG-0.4 corrected the framing in three load-bearing ways: (1) the HF-371 claim contains duplicates but **grants the wrong pass** — the plan-arm `waitUntil` finalize lands pre-data, stamps `done`, and the real post-data finalize is coalesce-rejected (proven live on both tenants); (2) the quoted `fields=rows,perUnit,pulses(formula)` alarm was Casa's TRUE divergence masked by a lying job record, while VLTEST2's alarm was a frozen FALSE verdict from a mid-commit scan (premature-finalize → UI collapse → settle-audit at 00:59:42.575 while batches landed 00:59:42-43, first-wins); (3) `pulses(formula)` compares `ceil(rows/500)` against itself — it can never fire independently, and the PULSE_SIZE=500 formula is stale post-HF-359 (live: 2 and 9 actual pulses vs formula 1, unflagged). The dispatch graph (all enumerated in `docs/CC-artifacts/hf373-phase0/EPG-0.4.md` with file:line): client finalize (page.tsx:522-540), per-arm server `waitUntil` (execute-bulk:872-884), finalize-sweep cron, dispatch-jobs cron (classify-only), 3 client execute-bulk dispatchers (data-arm :442 / legacy :552 / plan-arm :619), HF-296 re-POST, per-file-group + mount settle-audit fires.
+
+**Change.**
+1. **Commit-side claim** — new `web/src/lib/sci/commit-coalesce.ts` + migration `web/supabase/migrations/20260704_hf373_import_commit_runs.sql` (PK `(tenant_id, proposal_id, scope_hash)`; scope = sha256 of sorted contentUnitIds so different file groups never contend). Claimed at execute-bulk entry (covers the previously-unguarded PLAN case); duplicates **coalesce loudly** (`[SCI Bulk] HF-373 D9 COALESCED…`) and return `{coalesced:true, inFlight:true}`; `done` → a re-POST is GRANTED and resumes idempotently (**HF-296 lost-response recovery preserved**); `failed`/stale → retryable/takeover; missing table (42P01/PGRST205) → degrades to today's behavior (deploy-order safe). Terminal stamp on success/failure incl. the thrown-path catch. Clean Slate covers the new table (tenant-deletion.ts + drift-guard test).
+2. **Finalize generation takeover** — `decideFinalizeClaim` now takes the proposal's newest `import_batches.created_at`: a `done` claim whose completion precedes the newest batch belongs to a premature pass → the caller takes over and re-finalizes for the actual rows. Plus dispatch hygiene: a **plan-only execute-bulk request no longer fires the `waitUntil` finalize** (the client fire + data-arm cover every import shape).
+3. **Settle-audit settled gate** — the once-per-session first-wins audit DEFERS (no write) while any session batch is live-processing or any session job is non-terminal; the per-file-group dispatcher in SCIExecution is **removed** (ImportReadyState's mount fire is the single dispatcher, with one deferred retry). Client dispatchers handle `coalesced` responses: data-arm settles from the surface (existing recovery), plan-arm falls into the HF-353 durable-status poll, legacy surfaces a retryable error.
+4. **Pulse bookkeeping honesty** — the `pulses(formula)` compare and `PULSE_SIZE=500` are **retired**; the scanned side no longer fabricates a formula-derived pulse count (honest 0/0, excluded from compare); displays read the projector's ACTUAL byte-budgeted counts unchanged.
+
+**EPG-D1 evidence.** Real decision functions replayed against the LIVE 2026-07-02 claim rows (script `web/scripts/_hf373_phaseD_live_replay.ts`):
+
+```
+VLTEST2 plan import 94b838b8:
+  claim: status=done claimed_at=2026-07-02T00:59:41.738+00:00 | newest batch=2026-07-02T00:59:42.922822+00:00
+  PRE-FIX  (HF-371): granted=false (coalesced — this import was already finalized)
+  POST-FIX (HF-373): granted=true (generation takeover — import batches landed after the prior finalize completed ...)
+Casa Diaz workbook 5851bd78:
+  claim: status=done claimed_at=2026-07-02T01:16:50.061+00:00 | newest batch=2026-07-02T01:21:05.478004+00:00
+  PRE-FIX  (HF-371): granted=false (coalesced)   POST-FIX (HF-373): granted=true (generation takeover ...)
+commit claim with migration pending: granted=true (claim insert error PGRST205 — proceeding as before)
+```
+
+Unit tests: `hf373-commit-coalesce.test.ts` (8/8 — concurrent coalesce, re-POST grant, stale takeover, scope identity, generation takeover, HF-371 behaviors preserved); tenant-deletion drift-guard + telemetry accumulator suites green (33/33 across the four suites). The full browser import demonstrating one commit pass + one finalize pass + zero AUDIT DIVERGENCE end-to-end is **architect-rendered** (EPG-J1/J2 run; auth-gated — see Phase B note). **Architect action:** apply `20260704_hf373_import_commit_runs.sql` before/with deploy (code degrades gracefully until then).
+
+*(Phases E–J appended below as completed.)*

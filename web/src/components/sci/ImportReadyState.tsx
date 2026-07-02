@@ -88,11 +88,19 @@ export function ImportReadyState({
     let cancelled = false;
     (async () => {
       try {
-        await fetch('/api/import/sci/settle-audit', {
+        // HF-373 Phase D (D9): this mount fire is the SINGLE settle-audit dispatcher (the
+        // per-file-group fire is removed). The server defers mid-commit scans (settled gate);
+        // on a deferred verdict retry ONCE after a short settle window.
+        const fireAudit = () => fetch('/api/import/sci/settle-audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tenantId, importSessionId }),
-        }).catch(() => null);
+        }).then(r => r.json().catch(() => null)).catch(() => null);
+        const auditRes = (await fireAudit()) as { deferred?: boolean } | null;
+        if (auditRes?.deferred && !cancelled) {
+          await new Promise(r => setTimeout(r, 10_000));
+          if (!cancelled) await fireAudit();
+        }
         const res = await fetch(`/api/import/sci/session-state?tenantId=${encodeURIComponent(tenantId)}&importSessionId=${encodeURIComponent(importSessionId)}&telemetry=1`);
         if (res.ok && !cancelled) {
           const view = (await res.json()) as SessionStateView & { telemetry?: ImportTelemetry; audit?: { divergent?: boolean; fields?: string[] } | null };

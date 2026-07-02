@@ -34,6 +34,14 @@ export function decideFinalizeClaim(
   insertErrorCode: string | undefined,
   prior: { status?: string | null; claimed_at?: string | null } | null,
   nowMs: number,
+  // HF-373 Phase D (D9): the created_at of the proposal's NEWEST import_batch, when known.
+  // A 'done' claim whose completion PRECEDES the newest batch belongs to a PREMATURE pass
+  // (the plan-arm finalize that ran before the data commit) — the current caller takes over
+  // so the import's actual rows get their finalize (generation takeover). Pre-HF-373 the
+  // first (pre-data) pass won and the real pass was suppressed forever (VLTEST2 94b838b8:
+  // claim done 00:59:41.738 vs data batches 00:59:42+; Casa 5851bd78: done 01:16:50 vs
+  // batches 01:20:58+, job stuck 'committed/finalizing').
+  latestBatchMs: number | null = null,
 ): FinalizeClaimDecision {
   if (insertErrorCode === undefined) return { granted: true, reason: 'claimed (first caller)' };
   if (insertErrorCode === '42P01') return { granted: true, reason: 'claim table absent (migration pending) — proceeding on idempotency' };
@@ -42,7 +50,12 @@ export function decideFinalizeClaim(
     const claimedMs = prior.claimed_at ? new Date(prior.claimed_at).getTime() : 0;
     const ageMs = Number.isFinite(claimedMs) && claimedMs > 0 ? nowMs - claimedMs : Infinity;
     if (prior.status === 'failed') return { granted: true, reason: 'prior claim failed — retrying' };
-    if (prior.status === 'done') return { granted: false, reason: 'coalesced — this import was already finalized' };
+    if (prior.status === 'done') {
+      if (latestBatchMs != null && Number.isFinite(claimedMs) && claimedMs > 0 && latestBatchMs > claimedMs) {
+        return { granted: true, reason: `generation takeover — import batches landed after the prior finalize completed (newest batch ${new Date(latestBatchMs).toISOString()} > claim ${prior.claimed_at}); re-finalizing for the actual rows` };
+      }
+      return { granted: false, reason: 'coalesced — this import was already finalized' };
+    }
     if (ageMs > STALE_CLAIM_MS) return { granted: true, reason: `prior claim stale (${Math.round(ageMs / 1000)}s) — taking over` };
     return { granted: false, reason: 'coalesced — another finalize pass is in flight for this import' };
   }
@@ -61,6 +74,40 @@ interface ClaimTable {
 type ClaimClient = { from(table: string): unknown };
 const claimTable = (sb: ClaimClient): ClaimTable => sb.from(FINALIZE_CLAIM_TABLE) as ClaimTable;
 
+// The newest import_batch created_at for this proposal (HF-373 Phase D generation input).
+// Batches carry the proposal in metadata.proposalId (the same key execute-bulk's reconcile
+// queries). Best-effort: null on any error → the done-coalesce behaves as pre-HF-373.
+interface BatchQueryClient {
+  from(table: string): {
+    select(cols: string): {
+      eq(c: string, v: string): {
+        eq(c: string, v: string): {
+          order(c: string, o: { ascending: boolean }): {
+            limit(n: number): PL<{ data: Array<{ created_at: string | null }> | null }>;
+          };
+        };
+      };
+    };
+  };
+}
+async function latestBatchCreatedMs(sb: ClaimClient, tenantId: string, proposalId: string): Promise<number | null> {
+  try {
+    const { data } = await (sb as unknown as BatchQueryClient)
+      .from('import_batches')
+      .select('created_at')
+      .eq('tenant_id', tenantId)
+      .eq('metadata->>proposalId', proposalId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const iso = data?.[0]?.created_at;
+    if (!iso) return null;
+    const ms = new Date(iso).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
 // Acquire the finalize claim. Returns whether THIS caller should run the finalize.
 export async function claimFinalize(sb: ClaimClient, tenantId: string, proposalId: string | null | undefined, nowMs = Date.now()): Promise<FinalizeClaimDecision> {
   const key = finalizeClaimKey(proposalId);
@@ -68,12 +115,17 @@ export async function claimFinalize(sb: ClaimClient, tenantId: string, proposalI
     const { error } = await claimTable(sb).insert({ tenant_id: tenantId, proposal_id: key, status: 'running', claimed_at: new Date(nowMs).toISOString() });
     if (!error) return decideFinalizeClaim(undefined, null, nowMs);
     let prior: { status?: string | null; claimed_at?: string | null } | null = null;
+    let latestBatchMs: number | null = null;
     if (error.code === '23505') {
       const { data } = await claimTable(sb).select('status, claimed_at').eq('tenant_id', tenantId).eq('proposal_id', key).maybeSingle();
       prior = data;
+      // HF-373 Phase D (D9): a 'done' claim only coalesces when no batch landed after it.
+      if (prior?.status === 'done' && key !== '__tenant__') {
+        latestBatchMs = await latestBatchCreatedMs(sb, tenantId, key);
+      }
     }
-    const decision = decideFinalizeClaim(error.code, prior, nowMs);
-    // On a stale/failed take-over, re-stamp the claim as running (best-effort).
+    const decision = decideFinalizeClaim(error.code, prior, nowMs, latestBatchMs);
+    // On a stale/failed/generation take-over, re-stamp the claim as running (best-effort).
     if (decision.granted && error.code === '23505') {
       try { await claimTable(sb).update({ status: 'running', claimed_at: new Date(nowMs).toISOString() }).eq('tenant_id', tenantId).eq('proposal_id', key); } catch { /* best-effort */ }
     }

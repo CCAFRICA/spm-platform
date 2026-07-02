@@ -13,11 +13,11 @@
 // the two invokers (settleFromSurface completion; ImportReadyState mount) can
 // race harmlessly.
 //
-// Pulses are compared at the FORMULA level (ceil(rows/PULSE_SIZE) on both
-// sides): the accumulated record carries ACTUAL pulse counts from the commit
-// path's own chunking, which the scanned surface cannot reconstruct (no
-// per-pulse trace exists in the data tables) — so pulse equality reduces to
-// row equality, which IS compared exactly.
+// HF-373 Phase D (D9): pulses are NOT compared (the retired formula-level compare
+// checked ceil(rows/500) against itself); the accumulated record's ACTUAL
+// byte-budgeted pulse counts ride in the audit payload as observability. A
+// SETTLED GATE defers any audit fired while the session is still committing —
+// the first-wins verdict may never freeze a mid-commit scan.
 
 export const runtime = 'nodejs';
 
@@ -25,7 +25,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
   deriveImportTelemetry,
-  PULSE_SIZE,
   type ImportTelemetry,
 } from '@/lib/sci/comprehension-state-service';
 import {
@@ -72,12 +71,64 @@ function compareTelemetry(scanned: ImportTelemetry, accumulated: ImportTelemetry
   eq('units', scanned.units, accumulated.units);
   eq('rows', scanned.rows, accumulated.rows);
   eq('perUnit', sortedPerUnit(scanned), sortedPerUnit(accumulated));
-  // Formula-level pulse comparison (see header note).
-  eq('pulses(formula)', scanned.pulses, {
-    committed: Math.ceil(accumulated.rows.committed / PULSE_SIZE),
-    total: Math.ceil(accumulated.rows.total / PULSE_SIZE),
-  });
+  // HF-373 Phase D (D9): the 'pulses(formula)' compare is RETIRED. It compared
+  // ceil(rows/500) on BOTH sides — a formula against itself — so it could only ever
+  // echo a rows divergence while the accumulated record's ACTUAL byte-budgeted pulse
+  // counts (HF-359: live 2 and 9 actual pulses on equal-row clean runs vs formula 1)
+  // went unaudited AND unflagged. Rows are compared exactly above; the accumulated
+  // actual pulse bookkeeping stays in the audit payload as observability.
   return fields;
+}
+
+// HF-373 Phase D (D9): SETTLED GATE — the once-per-session FIRST-WINS audit must never
+// scan mid-commit. On 2026-07-02 a premature finalize collapsed the UI mid-commit, the
+// completion screen fired this audit while batches were still landing, and a genuinely
+// clean import (final state: all batches completed, 20/20 rows) got a FROZEN false
+// AUDIT DIVERGENCE. The session is settled when no batch is live-processing and its
+// jobs are terminal; otherwise the audit DEFERS (no write) — the caller may retry.
+const BATCH_LIVENESS_MS = 5 * 60_000;
+interface SettleGateClient {
+  from(table: string): {
+    select(cols: string): {
+      eq(c: string, v: string): { eq(c: string, v: string): PromiseLike<{ data: unknown[] | null }> };
+    };
+  };
+}
+async function auditSettledGate(
+  supabase: SettleGateClient,
+  tenantId: string,
+  importSessionId: string,
+): Promise<{ settled: boolean; reason: string }> {
+  try {
+    const { data: batches } = await supabase
+      .from('import_batches')
+      .select('status, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('metadata->>proposalId', importSessionId);
+    const now = Date.now();
+    for (const b of (batches ?? []) as Array<{ status: string; created_at: string }>) {
+      if (b.status !== 'processing') continue;
+      const age = now - Date.parse(b.created_at);
+      if (Number.isFinite(age) && age < BATCH_LIVENESS_MS) {
+        return { settled: false, reason: 'a batch is live-processing for this session' };
+      }
+    }
+    const { data: jobs } = await supabase
+      .from('processing_jobs')
+      .select('status')
+      .eq('tenant_id', tenantId)
+      .eq('metadata->>proposal_id', importSessionId);
+    const nonTerminal = ((jobs ?? []) as Array<{ status: string }>).filter(
+      j => !['committed', 'finalized', 'failed'].includes(j.status),
+    );
+    if (nonTerminal.length > 0) {
+      return { settled: false, reason: `${nonTerminal.length} session job(s) not terminal (${nonTerminal.map(j => j.status).join(',')})` };
+    }
+    return { settled: true, reason: 'no live batches; jobs terminal' };
+  } catch (err) {
+    // Gate failure must not permanently block the audit — proceed as before.
+    return { settled: true, reason: `gate check failed (${err instanceof Error ? err.message : 'unknown'}) — proceeding` };
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -107,6 +158,13 @@ export async function POST(req: NextRequest) {
       // Already settled — idempotent no-op (first audit wins).
       const divergent = (record.audit as { divergent?: boolean }).divergent === true;
       return NextResponse.json({ audited: true, alreadySettled: true, divergent, audit: record.audit });
+    }
+
+    // HF-373 Phase D (D9): refuse to freeze a mid-commit scan — defer, no write.
+    const gate = await auditSettledGate(supabase as unknown as SettleGateClient, tenantId, importSessionId);
+    if (!gate.settled) {
+      console.log(`[OB-203][telemetry] settle-audit DEFERRED session=${importSessionId}: ${gate.reason}`);
+      return NextResponse.json({ audited: false, deferred: true, reason: gate.reason });
     }
 
     // THE once-per-session heavy derive (its only caller — Amendment 2 D.3).

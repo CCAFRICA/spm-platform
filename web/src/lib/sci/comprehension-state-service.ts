@@ -340,18 +340,24 @@ export interface ImportTelemetry {
   units: { committed: number; total: number };
   rows: { committed: number; total: number };
   perUnit: Array<{ sheetName: string | null; expectedRows: number; committed: boolean }>;
-  pulses: { committed: number; total: number };       // derived from rows ÷ PULSE_SIZE
+  // HF-373 Phase D (D9): ACTUAL commit-path pulse bookkeeping (HF-359 byte-budgeted) on the
+  // accumulated record (the projector — what every display reads). The scanned surface CANNOT
+  // reconstruct pulses (no per-pulse trace exists in the data tables): the retired
+  // PULSE_SIZE=500 formula fabricated a stale row-count derivation on the scanned side and the
+  // audit compared that formula against itself (an echo of rows that could never fire alone).
+  // The scanned builder emits {0,0} and the audit no longer compares this field.
+  pulses: { committed: number; total: number };
   // OB-256 (W-5): plan interpretation creates rule_sets (not committed_data rows), so it was invisible to
   // the row/atom counters — a plan-only import showed "Recognized 0 / Learned 0 / Committed 0" while N
   // active plans with M components were actually created. These counters surface that creation honestly.
   plans: { created: number; components: number };
 }
 
-// Pulse size mirrors commit-content-unit's sci-bulk write profile (D16: 500-row pulses). Kept in sync so
-// "pulse X of Y" matches the actual write shape. Exported for the settle audit's
-// formula-level pulse comparison (the accumulated record carries ACTUAL pulse
-// counts; this constant only feeds the auditor's re-derivation).
-export const PULSE_SIZE = 500;
+// HF-373 Phase D (D9): PULSE_SIZE=500 is RETIRED. It froze the pre-HF-359 row-count write
+// profile as a formula while the commit path moved to byte-budgeted pulses (live: 2 and 9
+// actual pulses on runs the formula called 1) — stale bookkeeping kept unflagged only because
+// the audit compared the formula to itself. Actual pulse counts flow from the commit path's
+// own accumulators (pulsesLanded/pulsesTotal) through the projector.
 
 // OB-203 Phase D (Amendment 2 §2 D.3): DEMOTED TO AUDITOR. This full-scan
 // derivation is no longer on any polling path — its sole caller is the
@@ -450,7 +456,10 @@ export async function deriveImportTelemetry(
     units: { committed: unitsCommitted, total },
     rows: { committed, total: rowsTotal },
     perUnit,
-    pulses: { committed: Math.ceil(committed / PULSE_SIZE), total: Math.ceil(rowsTotal / PULSE_SIZE) },
+    // HF-373 Phase D (D9): the scan cannot reconstruct byte-budgeted pulses — honest zero,
+    // never a fabricated formula; the audit does not compare this field (display reads the
+    // projector's actuals).
+    pulses: { committed: 0, total: 0 },
     // OB-256 (W-5): this batch/signal-scan auditor does not reconstruct plan creation (plans write
     // rule_sets, not import_batches/committed_data). The settle-audit's compareTelemetry checks a fixed
     // field set that does NOT include `plans`, so this zero never produces a false divergence; the display
