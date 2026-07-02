@@ -35,6 +35,9 @@ export interface PlanReadiness {
   // active/superseded lifecycle visible. The audited predecessor/actor/reason detail is recorded
   // in rule_set_lifecycle_events (a dedicated audit viewer is a separate feature, out of scope).
   status?: string; // 'active' | 'draft' | 'superseded' | 'archived'
+  // HF-373 Phase I (D4): additive source-sheet identity (display only) so two same-titled
+  // plans (e.g. the two "COMISIONES DE MAQUINARIA" machinery sheets) stay distinguishable.
+  sourceSheet?: string | null;
 }
 
 interface ComponentSummary {
@@ -156,6 +159,9 @@ export function PlanCard({
             )}
             <h3 className="text-sm font-medium text-zinc-200 truncate">
               {plan.planName}
+              {plan.sourceSheet && (
+                <span className="ml-1.5 text-[10px] font-normal text-zinc-500" title="Source sheet">({plan.sourceSheet})</span>
+              )}
             </h3>
             {/* HF-259 Q6: rule_set lifecycle state, visible where plans display. */}
             {plan.status && plan.status !== 'active' && (

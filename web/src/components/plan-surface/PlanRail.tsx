@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
 import type { PlanStructure } from '@/lib/plan-surface';
+import { planSourceSheet } from '@/lib/plan-surface/plan-identity'; // HF-373 Phase I (D4)
 import { ConfidenceGlyph } from './ConfidenceGlyph';
 
 function StatusChip({ status }: { status: string }) {
@@ -47,6 +48,8 @@ export function PlanRail({ plans, selectedId }: PlanRailProps) {
                   <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                     <span>v{p.version}</span><span>·</span>
                     <span>{p.componentCount} comp{p.componentCount === 1 ? '' : 's'}</span>
+                    {/* HF-373 Phase I (D4): source-sheet provenance — two same-titled plans stay distinguishable */}
+                    {planSourceSheet(p.metadata) && (<><span>·</span><span className="truncate" title="Source sheet">{planSourceSheet(p.metadata)}</span></>)}
                   </div>
                 </div>
               </div>
