@@ -176,3 +176,55 @@ SUBSTRATE: [exercised: HF-337 recognition (self-priming binding proven on a NON-
             measure-provenance ambiguity discipline (multi-class fail-loud); writer-owned namespace
             replace as the idempotency idiom; entitlement-toggle-as-activation-trigger]
 ```
+
+---
+
+# O5 EXECUTION ADDENDUM (2026-07-01, post-merge of PR #655; migration applied by architect)
+
+**Migration verified live (FP-49):**
+```
+$ npx tsx --env-file=.env.local scripts/ob257-verify-migration.ts
+summary_rollups EXISTS. total rows: 0
+all summary_rollups columns present (grain + metrics + computed_at)
+```
+
+**PG-2 — ACTIVATION: PASS.** `revenue_enabled` flipped false→true for BCL (CLI equivalent of the toggle; the Observatory click-path remains available and no-ops idempotently). The single materializer ran — no import, no file touch, no classification pass:
+```
+features BEFORE: {"financial":true,"compensation":false,"prism_enabled":false}
+features AFTER : {"financial":true,"compensation":false,"prism_enabled":false,"revenue_enabled":true}
+[trace] revenue-roles measure=resolved location=resolved category=unresolved
+[trace] revenue-pass1 dimensionEntities=location:85
+[trace] revenue-pass2 scanned=595 withMeasure=510 attributed=510 unattributed=0
+[trace] revenue-rollups-written period=6 entityPeriod=510 dimensionPeriod=66 (+1 meta)
+[trace] revenue-insights-done written=13
+RESULT 1: ok=true, durationMs=11185, rollupsWritten={period:6, entityPeriod:510, dimensionPeriod:66}
+```
+Roles (persisted in the `revenue_meta` row): measure=`Monto_Colocacion`@0.82 (**byte-matches the P0 probe** — deterministic recognition), location=`Sucursal_ID`@0.95 (entity-attribute dimension: 85 entities mapped, 11 branch members × 6 periods = 66 dimension rollups), category=unresolved "no satisfying field" (correct — BCL has no product column; C2 absence). `measure_provenance: {data_type:"transaction", rows:510}` — single-class, unambiguous.
+Idempotency re-run:
+```
+[trace] revenue-rollups-noop rows=582 (data identical to existing -- meta refreshed only)
+RUN: {"ok":true,"noop":true,"durationMs":2345}
+```
+**Defect found + fixed during PG-2:** the first re-run returned `noop:false` — the meta row's role-absence reason carries the recognizer's cache marker (`'cached: ...'`), which flips between the priming run and re-encounters. FIX (this branch): the noop compare is scoped to the three DATA namespaces; the meta row is state and refreshes every run. Regression-proven live: category binding cache invalidated (forces fresh recognition + drifted reason) → re-run still `noop:true` with data untouched.
+
+**PG-4 — TRUTH MATCH: PASS (values verbatim, served vs derived, per period — no interpretation):**
+```
+DERIVATION FIELD (from persisted recognition): Monto_Colocacion
+committed_data rows scanned: 595; measure rows unattributed to a period: 0
+period          | derived (committed_data) | served (revenue_period rollup) | rows d/s
+October 2025    | 8834638.59               | 8834638.59                     | 85/85
+November 2025   | 8841645.1                | 8841645.1                      | 85/85
+December 2025   | 10204372.25              | 10204372.25                    | 85/85
+January 2026    | 8958073.63               | 8958073.63                     | 85/85
+February 2026   | 9433305.44               | 9433305.44                     | 85/85
+March 2026      | 10121470.56              | 10121470.56                    | 85/85
+TOTAL           | 56393505.57              | 56393505.57                    |
+```
+
+**PG-5 — PROGRESSIVE PERFORMANCE (serving half): PASS.** Repeat pulse-mode serving reads (exactly what `/api/revenue/data` performs): 7 rollup rows + 6 period rows per encounter, 214ms → 94ms → 111ms — materialization speed, zero recomputation (activation cost paid once: 11.2s). Browser repeat-load = architect checklist step 5.
+
+**O4 activation promise: KEPT.** Activation (not import) lit up insights: 13 `source='revenue-insight'` artifacts — momentum_shift:4, mix_shift:3, concentration_alert:2, incentive_yield_outlier:4.
+
+**Verification on this branch:** fresh `rm -rf .next && npm run build` exit 0 (BUILD_ID `Wdqtqho3og6Km-Lw1kFja`); 583/583 tests; only the 2 known pre-existing TS2802s in raw tsc.
+
+**Remaining architect gates (checklist §7):** PG-1 browser denial screenshots (un-entitled tenant — note BCL is now entitled; use another tenant or toggle off/on), PG-3 8-surface browser render, PG-5 browser repeat-load, PG-6 Sabor Finance spot-check, PG-7 theme pass, plus the three ratifications (§7.8).
