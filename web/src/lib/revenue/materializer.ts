@@ -105,8 +105,10 @@ function stableStringify(v: unknown): string {
 
 /** Canonical form of a rollup row set for the idempotency compare: identity columns + metrics +
  *  row_count only (id/computed_at/created_at stripped -- they differ every run by construction).
- *  The meta row's metrics carry NO timestamps by design (roles + counts + version), so no
- *  further exclusion is needed for it. */
+ *  The META row is excluded by the caller: its role-absence reasons carry the recognizer's
+ *  cache marker ('cached: ...'), which flips between the priming run and every re-encounter --
+ *  the meta row is state, refreshed on every run; noop refers to the DATA namespaces only
+ *  (live-proven: BCL run 2 false-negatived on exactly this before the exclusion). */
 function canonicalizeRollups(
   rows: Array<Pick<RollupInsertRow, 'data_type' | 'period_id' | 'entity_id' | 'dimension_role' | 'dimension_member' | 'metrics' | 'row_count'>>,
 ): string {
@@ -444,11 +446,25 @@ export async function materializeRevenueRollups(
   } catch (err) {
     throw new Error(`summary_rollups read: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const noop = canonicalizeRollups(existing) === canonicalizeRollups(candidates);
+  const dataOnly = (rows: typeof candidates) => rows.filter((r) => r.data_type !== REVENUE_ROLLUP_TYPES.meta);
+  const noop = canonicalizeRollups(dataOnly(existing)) === canonicalizeRollups(dataOnly(candidates));
 
   // (g) Write: idempotent replace of ONLY the revenue namespaces (never anyone else's rows).
   if (noop) {
-    t(`revenue-rollups-noop rows=${candidates.length} (identical to existing -- no delete/insert)`);
+    // Data rollups unchanged -- refresh ONLY the meta state row (roles/attribution/provenance
+    // must reflect this run) and leave the served numbers untouched.
+    const metaCandidate = candidates.find((r) => r.data_type === REVENUE_ROLLUP_TYPES.meta);
+    const { error: metaDelErr } = await sb
+      .from('summary_rollups')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('data_type', REVENUE_ROLLUP_TYPES.meta);
+    if (metaDelErr) throw new Error(`summary_rollups meta delete: ${metaDelErr.message}`);
+    if (metaCandidate) {
+      const { error: metaInsErr } = await sb.from('summary_rollups').insert(metaCandidate);
+      if (metaInsErr) throw new Error(`summary_rollups meta insert: ${metaInsErr.message}`);
+    }
+    t(`revenue-rollups-noop rows=${dataOnly(candidates).length} (data identical to existing -- meta refreshed only)`);
   } else {
     const { error: delErr } = await sb
       .from('summary_rollups')
