@@ -220,11 +220,12 @@ async function interpretPlanGroup(
       const worksheet = workbook.Sheets[sheetName];
       if (!worksheet) return [];
       const db = debandWorksheet(XLSX, worksheet, sheetName);
-      if (db.rows.length === 0) return [];
       // HF-372 Phase B: keep the CONSTRUCTION grid for the deterministic rate-matrix constructor —
       // the tidy rows PLUS the data-shaped sidecar rows (Carry Everything: a second table's band
-      // rows misclassified SUBTOTAL must stay addressable), in source order.
+      // rows misclassified SUBTOTAL must stay addressable), in source order. The empty gate reads
+      // the ASSEMBLED grid (a sheet whose every record was sidecar'd still has content to show).
       const assembled = assembleConstructionGrid(db);
+      if (assembled.rows.length === 0) return [];
       debandedSheets.set(sheetName, assembled);
       // representative sample: spread across __section groups if present, else the head
       const sectionCol = db.columns.includes('__section') ? '__section' : null;
@@ -512,13 +513,35 @@ async function interpretPlanGroup(
   // archives only this plan's prior version, leaves the OTHER plans active, and converges a reimport of
   // the same N plans to exactly N active — the "idempotent on plan name" intent the comment below
   // already claimed but the code never enforced. Scale-by-Design: holds for any N, no per-count assumption.
-  const { error: supersedeError, data: supersededRows } = await supabase
+  // HF-372 (Casa Diaz live finding): under PER-SHEET interpretation the LLM can give two DIFFERENT
+  // sheets the same plan name ("COMISIONES DE MAQUINARIA" from both MAQUINARIA (2) and DIST Y SUC) —
+  // name-only supersession then silently ARCHIVED the other sheet's plan. Supersession is now scoped
+  // to the same plan SOURCE identity (metadata.contentUnitId — file::sheet), so a re-import of the
+  // SAME sheet supersedes its prior version while a name-coincident plan from another sheet stays
+  // active. Prior rows without a stored contentUnitId (legacy) still supersede by name alone.
+  const { data: sameNameRows, error: supersedeReadError } = await supabase
     .from('rule_sets')
-    .update({ status: 'archived', updated_at: new Date().toISOString() })
+    .select('id, name, status, metadata')
     .eq('tenant_id', tenantId)
     .eq('name', planName)
-    .neq('status', 'archived')
-    .select('id, name, status');
+    .neq('status', 'archived');
+  let supersedeError = supersedeReadError;
+  let supersededRows: Array<{ id: string }> | null = null;
+  if (!supersedeError) {
+    const victims = (sameNameRows ?? []).filter((r: { metadata?: { contentUnitId?: string } | null }) => {
+      const priorCu = r.metadata?.contentUnitId;
+      return !priorCu || priorCu === primaryContentUnitId;
+    });
+    supersededRows = [];
+    for (const v of victims) {
+      const { error } = await supabase
+        .from('rule_sets')
+        .update({ status: 'archived', updated_at: new Date().toISOString() })
+        .eq('id', (v as { id: string }).id);
+      if (error) { supersedeError = error; break; }
+      supersededRows.push({ id: (v as { id: string }).id });
+    }
+  }
   if (supersedeError) {
     console.error('[SCI plan-interp] Supersession query failed — aborting upsert to prevent multi-active state:', supersedeError);
     await failRun(supabase, tenantId, contentHash); // HF-259: release the claim

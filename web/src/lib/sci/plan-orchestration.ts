@@ -308,9 +308,14 @@ export async function orchestratePerComponentInterpretation(
         appliesToEmployeeTypes: resolvedAppliesTo,
         calculationIntent: componentResult.component.calculationIntent,
         calculationMethod: componentResult.component.calculationMethod ?? { type: 'prime_dag' },
-        // HF-372 Phase B: a constructed matrix carries the EXACT grid-derived cell count, not the
-        // skeleton's LLM-declared estimate.
-        rateTableCellCount: componentResult.component.constructedCellCount ?? rateTableCellCount,
+        // HF-372: a constructed matrix carries the EXACT grid-derived count; a DAG emission carries
+        // the oracle RESOLUTION (echoed count, or NO count when the skeleton's declaration proved
+        // inapplicable — per-row reference shape) so downstream re-validation never re-applies a
+        // stale estimate.
+        rateTableCellCount: componentResult.component.constructedCellCount
+          ?? (componentResult.component.resolvedCellCount === null
+            ? undefined
+            : componentResult.component.resolvedCellCount ?? rateTableCellCount),
         confidence: componentResult.component.confidence ?? 0.8,
         reasoning: componentResult.component.reasoning ?? '',
         metadataExtension: componentResult.component.metadataExtension,
@@ -426,6 +431,11 @@ interface PerComponentCallResult {
     /** HF-372 Phase B: the EXACT cell count read from the grid by the deterministic constructor —
      *  overrides the skeleton's LLM-declared rateTableCellCount on the persisted component. */
     constructedCellCount?: number;
+    /** HF-372: the cell-count oracle RESOLUTION for a DAG emission — a number (the model's echoed
+     *  count), or null when the declaration does not apply (per-row reference shape). undefined =
+     *  keep the skeleton's declaration. The persisted component carries this so downstream
+     *  re-validation (convertComponent) applies the SAME oracle, never the stale skeleton count. */
+    resolvedCellCount?: number | null;
   } | null;
   outcome: ComponentOutcome;
 }
@@ -590,6 +600,21 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           console.warn(`[plan-component] DECLARED-TABLE component=${spec.id} name="${spec.name}" (rateTableCellCount=${spec.rateTableCellCount}) emitted a DAG instead of rateMatrixRecognition — accepting via the guarded emission path`);
         }
 
+        // HF-372: the exhaustive-emission oracle. The SKELETON's rateTableCellCount is an estimate;
+        // when the model emitted a DAG whose rates are per-row `reference` reads (ZERO plain
+        // constants, ≥1 reference — the shape the prompt prescribes for per-row column rates) and
+        // did NOT echo a cell count, the declaration was wrong — the check does not apply. A
+        // truncated CELL ENUMERATION (some constants, fewer than declared) still trips the guard.
+        const countNodes = (node: unknown, pred: (n: Record<string, unknown>) => boolean): number => {
+          if (!node || typeof node !== 'object') return 0;
+          const n = node as Record<string, unknown>;
+          let c = pred(n) ? 1 : 0;
+          for (const v of Object.values(n)) {
+            if (Array.isArray(v)) for (const x of v) c += countNodes(x, pred);
+            else if (v && typeof v === 'object') c += countNodes(v, pred);
+          }
+          return c;
+        };
         if (!intent || typeof intent.prime !== 'string') {
           // Structured failure: the response carried no PrimeNode calculationIntent.
           lastErrClass = 'cognition_violation';
@@ -600,9 +625,19 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
           );
         } else {
           // Structural verification IS the construction layer (Validation Premise Law).
+          const echoedCellCount = typeof result.rateTableCellCount === 'number' && result.rateTableCellCount > 0
+            ? Math.floor(result.rateTableCellCount) : undefined;
+          const plainConstants = countNodes(intent, n => n.prime === 'constant' && typeof n.value === 'number' && !n.meta);
+          const references = countNodes(intent, n => n.prime === 'reference');
+          const perRowShape = plainConstants === 0 && references >= 1;
+          const effectiveCellCount = echoedCellCount ?? (perRowShape ? undefined : spec.rateTableCellCount);
+          const resolvedCellCount: number | null | undefined = echoedCellCount ?? (perRowShape ? null : undefined);
+          if (spec.rateTableCellCount && effectiveCellCount === undefined) {
+            console.warn(`[plan-component] DECLARED-TABLE component=${spec.id} emitted a per-row reference DAG (0 plain constants, ${references} references) — the skeleton's rateTableCellCount=${spec.rateTableCellCount} declaration does not apply`);
+          }
           const validation = validateComponentIntent(intent, {
             componentLabel: spec.name,
-            expectedCellCount: spec.rateTableCellCount,
+            expectedCellCount: effectiveCellCount,
           });
           if (validation.valid) {
             console.log(
@@ -623,6 +658,7 @@ async function callPlanComponentWithRetry(args: PerComponentCallArgs): Promise<P
                 confidence: typeof result.confidence === 'number' ? result.confidence : 0.8,
                 reasoning: typeof result.reasoning === 'string' ? result.reasoning : '',
                 metadataExtension,
+                resolvedCellCount,
               },
               outcome: {
                 id: spec.id,

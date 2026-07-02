@@ -272,6 +272,12 @@ export function constructStructure(grid: unknown[][], opts: ConstructOptions): C
       const headerSig = rowSig(lead);
       for (let i = lead + 1; i < rows.length; i++) {
         if (classes[i] === 'HEADER' && rowSig(i) !== headerSig) classes[i] = 'DATA';
+        // HF-372 (Metas Mensuales class): on a ZERO-DATA sheet, a 'SUBTOTAL' row cannot be a
+        // subtotal — there is nothing to total; it IS the data (currency-string cells under the
+        // header tripped the subtotal heuristic and the whole sheet's records were sidecar'd).
+        // Same guard scope as HF-366: sheets with ANY real DATA row keep their SUBTOTAL
+        // classification untouched (this branch never runs for them).
+        if (classes[i] === 'SUBTOTAL') classes[i] = 'DATA';
       }
     }
   }

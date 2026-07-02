@@ -579,7 +579,7 @@ Response shape — return JSON with ONLY these fields:
   "rateMatrixRecognition": { /* ONLY for a FIXED rate table — see RECOGNITION MODE above. OMIT otherwise. */ },
   "applies_to": ["<category-id>", ...],  // HF-252: which variant(s) this emission applies to. ["all"] when uniform.
   "calculationMethod": { "type": "prime_dag" },
-  "rateTableCellCount": <number when applicable>,
+  "rateTableCellCount": <number — ONLY when the component is a fixed rate table; when not applicable OMIT THE FIELD ENTIRELY (never write undefined or null — that is invalid JSON)>,
   "confidence": 0-100,
   "reasoning": "How you expressed the plan's computation in the algebra"
 }

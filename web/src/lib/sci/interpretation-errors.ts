@@ -136,7 +136,11 @@ export function retryPolicy(errClass: InterpretationErrorClass): RetryPolicySpec
       // reproduce the same output. The effective-retry hint is deferred to the §6A emission DIAG.
       return { maxAttempts: 3, backoffMs: 0 };
     case 'cognition_truncation':
-      return { maxAttempts: 1, backoffMs: 0 };
+      // HF-372: was 1 attempt on the premise that a temperature-0 re-emission deterministically
+      // re-truncates. The plan family routes to a model whose adapter DROPS the temperature param
+      // (EPG-0.3 §5a — provider-default sampling), so emissions vary run-to-run and one retry
+      // frequently clears a malformed/overflowed emission. Bounded at 2 (never a retry storm).
+      return { maxAttempts: 2, backoffMs: 1000 };
     case 'adapter_rate_limit':
       return { maxAttempts: 3, backoffMs: 2000 };  // 2s, 4s
     case 'adapter_overloaded':

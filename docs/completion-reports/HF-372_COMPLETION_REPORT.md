@@ -809,3 +809,146 @@ the SAME `runDecomposedComprehension` → transaction@0.85). One recognition sur
 selects the parse strategy, never a second classifier.
 
 **Suite/build:** 583/583; build → BUILD_ID present.
+
+---
+
+## Phase G — End-to-end proof: Casa Diaz and non-regression
+
+All runs below are LIBRARY-DRIVEN end-to-end (the same libs the routes call, in the same order —
+`_hf372_epgg_import.ts`: upload → size-gated parse → flywheel → decomposed comprehension →
+classification → proposal → plan interpretation + commitContentUnit (real CSV+FDW commits) →
+finalize claim → post-commit construction → assignments), with real LLM and real persistence. The
+BROWSER-route arc, Plans & Canvas rendering, the bucket setting, migration 20260703_hf372, and all
+reconciliation are the ARCHITECT's actions (SR-44) — marked awaiting throughout.
+
+### Found-and-fixed during Phase G (each live-verified)
+
+1. **Metas Mensuales de-bander destruction** (the last "plan built from a fraction of its sheets"
+   root): the sheet's two data rows (`Ejecutivo Senior | $150,000 | $45,000` …) were classified
+   SUBTOTAL → sidecar'd → the sheet yielded ZERO records (absent from the proposal, its reference
+   rows never committed, its text never reaching plan interpretation). Fix: the HF-366 no-DATA guard
+   now also demotes SUBTOTAL rows on a ZERO-DATA sheet (a "subtotal" with nothing to total IS the
+   data — Carry Everything). Sheets with any real DATA row are untouched (guard scope unchanged);
+   583/583 suite (incl. all OB-254 de-band cases) green.
+2. **Exhaustive-emission oracle vs per-row rates**: a component the skeleton wrongly declared a
+   fixed table ("Pad System", rateTableCellCount=2) correctly emitted a per-row `reference` DAG
+   (0 constants) and was REJECTED as "truncated". The oracle now: model-echoed count wins; a
+   reference-bearing zero-constant tree (the per-row shape) with no echoed count = declaration
+   does not apply (logged); a truncated CELL ENUMERATION (some constants < declared) still trips.
+   The resolution is carried on the persisted component so convertComponent's re-validation applies
+   the same law (never the stale skeleton estimate).
+3. **cognition_truncation retry 1 → 2**: the no-retry policy was premised on temperature-0
+   deterministic re-emission; the plan family's adapter DROPS temperature (EPG-0.3 §5a), so one
+   retry frequently clears a malformed emission (live: a literal `undefined` in JSON killed a
+   19-component plan atomically). Prompt also hardened: "omit the field entirely — never write
+   undefined/null".
+4. **Same-name supersession across sheets**: per-sheet interpretation let the LLM name two DIFFERENT
+   sheets' plans identically ("COMISIONES DE MAQUINARIA" from MAQUINARIA (2) and DIST Y SUC) — the
+   second silently ARCHIVED the first. Supersession is now scoped to the same plan SOURCE
+   (metadata.contentUnitId): a re-import of the same sheet supersedes its prior version; a
+   name-coincident plan from another sheet stays active.
+
+### EPG-G1 — Casa Diaz plan workbook (clean slate → import → 8 plans)
+
+Clean Slate via the REAL platform lib: `runCleanSlate` all 5 categories → **verified=true,
+residual=[]** (committed_data at 259,821 rows needed per-import-batch batched deletion first — the
+single-statement delete hits the DB statement timeout; noted for the architect's Clean Slate UI on
+big tenants).
+
+Import (`COMISIONES % AUTORIZADOS - copia.xlsx`, 8 sheets, wall 411s + the two post-fix plan
+re-runs):
+
+```
+verdicts: LOCALES REFAC → reference@0.95 + plan::split     MAQUINARIA (2) → reference@0.95 + plan::split
+          FORANEAS REFAC → entity@0.72 + plan::split       MAQUINARIA → entity@0.85 + plan::split
+          COMISIÓN GARANTIZADA → reference@0.9 + plan::split   DISTRIBUIDORES → reference@0.9 + plan::split
+          DIST Y SUC → reference@0.95 + plan::split        PULL (EXTERNOS) → reference@0.97 + plan::split
+commits:  all 8 base units ok (24+67+31+45+2+4+8+5 = 186 rows → reference=74 / entity=112)
+
+ACTIVE rule_sets: 8 — ONE PER SHEET (every component binding VERBATIM column headers):
+  FORANEAS REFAC   "FORANEAS REFAC - Comisiones Vendedores/Gerentes Sucursal"  comps=2   refs=["BASE COMISION", "% AUTORIZADO CONFECC % AUTORIZ CONFECC", "% AUTORIZADO SERIG"]
+  MAQUINARIA       "MAQUINARIA"                                comps=4   refs=["BASE COMISION", "% AUTORIZADO"]
+  COMISIÓN GARANT. "COMISIÓN GARANTIZADA"                      comps=1   refs=["BASE COMISION"]
+  DISTRIBUIDORES   "PAGO COMISIÓN ESPECIAL MERIDA / …"         comps=5   refs=["BASE COMISION", "% AUTORIZADO"]
+  DIST Y SUC       "COMISIONES DE MAQUINARIA"                  comps=4   refs=["BASE COMISION", "% AUTORIZADO"]
+  PULL (EXTERNOS)  "COMISIONES DE MAQUINARIA - PULL (EXTERNOS)" comps=1  refs=["BASE COMISION", "% AUTORIZADO"]
+  LOCALES REFAC    "COMISIONES SUCURSALES LOCALES"             comps=45 (per-role variants) refs=["BASE COMISION", "% AUTORIZADO"]
+  MAQUINARIA (2)   "COMISIONES DE MAQUINARIA"                  comps=12  refs=["BASE COMISION", "% AUTORIZADO", "CONFECCION", "BORDADO", …]
+```
+
+Every Casa Diaz component is a per-row-rate DAG (`reference` × base — this workbook has no fixed
+grids; the constructed-matrix path was proven on BCL, below). `constructed=0` here is CORRECT
+recognition, not a miss. Casa finalize claim: 1/1 done. **Plans & Canvas rendering + reconciliation
+= architect (SR-44).**
+
+### EPG-G3 — BCL non-regression + structure restoration (clean slate → plan → roster → 6 Datos)
+
+Clean Slate VLTEST2: verified=true. Full sequence (`_hf372_epgg3_bcl.ts`):
+
+```
+BCL_Plan_Comisiones_2025.xlsx (94.9s):
+  [Plan General]    → reference@0.97 + plan::split   commit 4 rows
+  [Tablas de Tasas] → reference@0.95 + plan::split   commit 14 rows
+  [Metas Mensuales] → reference@0.95 + plan::split   commit 2 rows      ← the sheet the de-bander destroyed
+  plan: ALL THREE ::split units success=true (batched, cross-sheet context)
+BCL_Plantilla_Personal.xlsx (40.3s):  [Personal] → entity@0.99, commit 85 rows
+BCL_Datos_{Oct,Nov,Dic,Ene,Feb,Mar} (36-61s each): [Datos] → transaction@0.97-0.98, commit 85 rows each
+
+VERIFY after full sequence:
+  committed_data[transaction]: total=510 linked=510       ← ALL rows linked
+  committed_data[entity]:      total=85  linked=84        ← the 1 unlinked = BCL-5001 (the hierarchy
+                                                            ROOT, ID_Gerente empty; its ENTITY exists —
+                                                            entity count is complete)
+  entities: 85                                            ← the real population
+  rule_set "BANCO CUMBRE DEL LITORAL": 8 components — count and names VERBATIM:
+     [Ejecutivo Senior] Colocación de Crédito / Captación de Depósitos / Productos Cruzados / Cumplimiento Regulatorio
+     [Ejecutivo]        Colocación de Crédito / Captación de Depósitos / Productos Cruzados / Cumplimiento Regulatorio
+  finalize claims: 8 (8 done)                             ← exactly ONE claim per import
+  rule_set_assignments: 85
+```
+
+(The C1 matrices inside that rule set are `rate_matrix_constructed` — 30 cells each, byte-exact vs
+the de-banded grid, per EPG-B1; C2's five bands were built from the de-bander-recovered rows.)
+
+### EPG-G4 — Progressive Performance preserved under identity keying
+
+Repeat import of the identical `BCL_Datos_Ene2026.xlsx` post-warm:
+
+```
+[OB-203][atom-residue] sheet=Datos known=11/13 novel=2 [ID_Empleado, Nombre_Completo]
+  → 11 of 13 atoms warm-claimed (ZERO LLM); only the identifier-class atoms re-comprehend
+    (HF-370 O1's per-sheet contextual scope — preserved by design, re-verified)
+verdict: [Datos] → transaction@0.98 (identical); commit 85 rows ok; warm wall 37.0s (cold: 45-61s)
+VERIFY after repeat: rule set unchanged (8 components), entities unchanged (85), claims 9 (9 done)
+```
+
+Honest note: the sheet-level fingerprint tier stayed 3 in the harness repeat (the flywheel write's
+HF-247 outcome-quality gate applies; the atom layer carried the warm path). Acceleration is real —
+one bounded LLM call for the identifier residue instead of full comprehension.
+
+### EPG-G2 — Casa Diaz large file (ARCHITECT ACTION, prepared)
+
+Fixture-level evidence is Phase E's (streamed classify of the REAL 42.4MB extract: 86,607×87 →
+transaction@0.85; 5-pulse hand-off routing). The browser-driven run needs, in order:
+1. Migration `web/supabase/migrations/20260703_hf372_processing_jobs_metadata.sql` (SQL Editor).
+2. Bucket: `update storage.buckets set file_size_limit = 104857600 where id = 'ingestion-raw';`
+3. pg_cron pulse loader scheduled (HF-360 migration's commented `cron.schedule`) + CRON_SECRET set.
+4. Browser-import `Abril_00001_1 demo REF.xlsx` (Casa Diaz), then verify:
+   `select data_type, count(*) from committed_data where tenant_id='2d9979ba-…' group by 1;`
+   (expect ~86,607 transaction rows) and
+   `select status, metadata->>'phase', error_detail from processing_jobs where tenant_id='2d9979ba-…' order by created_at desc limit 3;`
+   (expect finalized / completed — the truthful record through the real routes).
+
+### EPG-G5 — Suite + build
+
+```
+ℹ tests 583   ℹ pass 583   ℹ fail 0
+.next/BUILD_ID present (npm run build)
+```
+
+### Awaiting architect (SR-44 — not closed by CC)
+
+Migration 20260703_hf372 → deploy → bucket limit → pg_cron schedule → browser imports (Casa Diaz
+workbook + 86K file, BCL sequence) with the rendered checks: import-screen live phase + terminal
+transition + inline Stop; fleet tab; Plans & Canvas (8 Casa plans + BCL plan with components);
+calculation run + reconciliation (produced totals are the architect's channel).
