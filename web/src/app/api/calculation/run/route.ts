@@ -447,6 +447,31 @@ export async function POST(request: NextRequest) {
   // Priority: convergence_bindings (Decision 111) > metric_derivations (legacy)
   const convergenceBindings = inputBindings?.convergence_bindings as Record<string, Record<string, unknown>> | undefined;
 
+  // HF-373 Phase A (D1): zero-binding phase gate. A plan whose components carry
+  // intent-required tokens (reference primes) must never calc against ZERO convergence
+  // bindings and ZERO derivations — every band would evaluate on empty operands and the
+  // whole population would silently total $0 (the 2026-07-02 VLTEST2 run). HF-281 only
+  // gates when bindingCount > 0; this closes the all-zero hole. findIncompleteBindings
+  // with an empty binding set lists exactly the components whose intents require tokens.
+  // Legacy paths bypass: metric_derivations (incl. cross-plan) and metric_mappings.
+  {
+    const noBindings = !convergenceBindings || Object.keys(convergenceBindings).length === 0;
+    if (noBindings && metricDerivations.length === 0 && !metricMappings) {
+      const unboundRequirements = findIncompleteBindings(ruleSet.components, undefined);
+      if (unboundRequirements.length > 0) {
+        const detail = unboundRequirements
+          .map(b => `${b.componentName}${b.variantId ? ` [variant ${b.variantId}]` : ''} (${b.componentKey}): ${b.missingTokens.join(', ')}`)
+          .join('; ');
+        const reason = `Binding phase produced no bindings (HF-373 D1) — ${unboundRequirements.length} component(s) require input tokens but no convergence bindings or derivations exist; calc aborted rather than evaluating empty operands to a silent $0. Unbound: ${detail}`;
+        addLog(`HF-373: ${reason}`);
+        return NextResponse.json(
+          { error: reason, incompleteBindings: unboundRequirements, log },
+          { status: 422 },
+        );
+      }
+    }
+  }
+
   // HF-353 P-C: cross-component reference plan. A `component_ref` binding means a component's
   // input is the COMPUTED OUTPUT of another component (e.g. Mínimo Garantizado ← the cascade
   // commission). Map consumer componentIndex → [{ field, producer }]; empty for every plan

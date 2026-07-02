@@ -49,4 +49,41 @@ Method: 10 parallel read-only investigators (one per EPG), each combining code t
 - **EPG-0.9:** Grep: `debandWorksheet` call sites = process-job (small-sheet branch), execute-bulk (non-oversized branch), retry-unit, plan-interpretation, definition — zero in the three oversized-path files. Streamed headers = first `<row>` of sheetData XML (sheet-stream.ts:221-224, 339); windowed headers = `sheet_to_json` probe of `range.s.r` (sheet-window.ts:46-62); those keys feed fingerprint/flywheel/ContentProfile/decomposed-HC/entity-id (process-job:199,210,242-245,277-283,353). `constructStructure(fullGrid:false)` partial-grid mode exists (structural-construction.ts:431-432), zero callers; deband-sheet.ts:39 requires a materialized worksheet (full-grid `sheet_to_json`) so it cannot be called as-is on streams. deband-sheet.ts header comment documents the oversized exclusion as a designed D2 gap.
 - **EPG-0.10:** Name flow: skeleton prompt "verbatim from document title/header" (anthropic-adapter.ts:479) → `ruleSetName` → … → `rule_sets.name` upsert (plan-interpretation.ts:579); banner "COMISIONES DE MAQUINARIA" identical on sheets `MAQUINARIA (2)`, `MAQUINARIA`, `DIST Y SUC` (live workbook read). Live duplicates: `63664074` (from `MAQUINARIA (2)`), `903d05b2` (from `DIST Y SUC`), both ACTIVE. Source identity persisted: `metadata.contentUnitId` = `file.xlsx::SHEET::idx::split` + `metadata.batchedSheets` (plan-interpretation.ts:588-594) — the HF-372 supersession key; never rendered; several list surfaces don't SELECT metadata (operate-context.tsx:132-137 etc.). COMISIÓN GARANTIZADA stored `calculationIntent` = `{"prime":"reference","field":"BASE COMISION"}`; `constant` is a registered FoundationalPrimitive in `convertComponent`; prompt rule "VARYING VALUES → reference, not constant" + zero guarantee exemplars.
 
-*(Phases A–J appended below as completed.)*
+---
+
+## Phase A — Convergence binding (D1)
+
+**Objective.** Plan component inputs bind to data columns by reading the model's recognition; deterministic construction; loud named gaps; never an empty-string operand or silent zero.
+
+**Phase 0 finding answered.** EPG-0.1: Pass 1 string-equaled `structuralType` against the retired ColumnRole enum (prose since OB-231 fdf78cf0); `inventoryData` dropped the bare `natureRole`/`scopeRole` primitives; `extractComponents` had no prime_dag branch → `expectedMetrics=[]` → Pass 4 (sole derivation authority, sole consumer of the 7 `comprehension:plan_interpretation` signals) never fired → 0 derivations AND 0 gaps; bindings derive only from `matches` → 0 bindings; calc ran to $0 on `''` operands.
+
+**Change** (`web/src/lib/intelligence/convergence-service.ts`, `web/src/app/api/calculation/run/route.ts`):
+1. `inventoryData` carries `natureRole` + `scopeRole` through to `FieldIdentity` (reader at convergence-service.ts:1411-1425).
+2. New exported equality reads `fiIsMeasure`/`fiIsIdentifier`/`fiIsTemporal`/`fiIsEntityKeyCandidate` — bare `natureRole` primitive by equality, legacy pre-OB-231 enum disjunct retained (inert on prose). Pass 1 predicate, Pass 2 measure counting, Pass 2 temporal check, and the entity-identifier candidate filter (:3619) all read these. No regex over model prose on-path (HALT-2).
+3. `extractComponents` mines prime_dag `expectedMetrics` via `extractReferencesFromDAG` (the same walk `extractInputRequirements` uses at bind time) — re-arms Pass 4 and the gap loop; identity for legacy intents.
+4. The HF-333 `isAttributeNature` prose regex replaced with `natureRole === 'categorical' | 'name'` equality (+ legacy enum `'attribute'`).
+5. Loud gap (C2): a component whose intent requires tokens but ends the binding phase with zero binding entries emits a named `ConvergenceGap` + `console.error` — a failed bind can never again present as "0 gaps".
+6. Zero-binding phase gate in the calc route (run/route.ts, after `convergence_bindings` parse): a plan whose components carry reference primes must never calc against ZERO bindings and ZERO derivations — 422 with named unbound tokens instead of a silent population-wide $0. Legacy `metric_derivations`/`metric_mappings` paths bypass.
+
+**EPG-A1 evidence** (live `convergeBindings` on VLTEST2 rule_set `91f822b1`, script `web/scripts/_hf373_phaseA_convergence_proof.ts`, 43.8 s):
+
+```
+[Convergence] HF-112 component_0: placement_attainment=Cumplimiento_Colocacion, portfolio_quality=Indice_Calidad_Cartera
+[Convergence] HF-112 component_1: deposit_attainment=Pct_Meta_Depositos
+[Convergence] HF-112 component_2: productos_cruzados_vendidos=Cantidad_Productos_Cruzados
+[Convergence] HF-112 component_3: infracciones_regulatorias=Infracciones_Regulatorias, bono_cumplimiento_regulatorio=
+[Convergence] HF-112 component_4: cumplimiento_colocacion=Cumplimiento_Colocacion, calidad_cartera=Indice_Calidad_Cartera
+[Convergence] BANCO CUMBRE DEL LITORAL: 8 derivations, 5 gaps, 8 component bindings
+component_0.placement_attainment -> column='Cumplimiento_Colocacion' pass=1 conf=0.95 reduction=last
+component_0.portfolio_quality -> column='Indice_Calidad_Cartera' pass=1 conf=0.95 reduction=last
+component_0.entity_identifier -> column='ID_Empleado' pass=1
+component_7.bono_cumplimiento_regulatorio -> column='' pass=1 conf=0.9 component_ref=4   (HF-353 cross-component)
+component_3.bono_cumplimiento_regulatorio -> column='' pass=failed conf=0               (loud, named — see gap)
+GAP: [3] Cumplimiento Regulatorio: The regulatory compliance bonus amount is not present in the available data...
+```
+
+Was `0 derivations, 0 gaps, 0 component bindings`; now **8 bindings, 8 derivations, 5 loud named gaps** on the same live data. The `[CalcRecon-T2]` real-operand sample is gathered in the Phase J clean-slate run (the current live tenant state is corrupted by the D9 pre-data finalize — see EPG-0.4 — so a calc against it would not be probative; the binding mechanism itself is proven above). Note for Phase J: the `bono_cumplimiento_regulatorio` input is genuinely absent from the current committed data — expected to resolve via the fresh import (and the Phase I constant-intent contract if the plan document states the amount).
+
+Tests: new `hf373-bare-primitive-reads.test.ts` (3/3); intelligence + convergence suites 66/66.
+
+*(Phases B–J appended below as completed.)*
