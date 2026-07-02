@@ -123,6 +123,10 @@ export type RevenueMode =
 
 export interface RevenueRequest {
   mode: RevenueMode;
+  /** The switcher-effective tenant, sourced client-side from useTenant().currentTenant (HF-374).
+   *  Platform admins REQUIRE it (resolveCallerTenant has no cookie fallback); regular users'
+   *  value is validated as same-tenant server-side. */
+  tenantId?: string;
   /** optional explicit period pair for bridge/mix drill; defaults to latest vs prior */
   periodId?: string;
   dimensionRole?: Exclude<RevenueRoleKey, 'measure'>;
