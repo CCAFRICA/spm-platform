@@ -78,14 +78,22 @@ function finalizeMetric(method: string | undefined, acc: MetricAcc, field: strin
  * Test). T1-E902: every numeric field is aggregated (C4). `labelMap` relabels the metric key to its
  * semantic display label; `methodMap` selects each field's aggregation operation (fail-loud, C2).
  */
-export function aggregateCommittedRows(
-  rows: CommittedRow[],
-  labelMap?: Record<string, string>,
-  methodMap?: Record<string, string>,
-): AggregatedArtifact[] {
-  const groups = new Map<string, { meta: { entity_id: string; summary_date: string; data_type: string | null }; rowCount: number; fields: Map<string, MetricAcc> }>();
+// HF-373 Phase F (D8): the aggregation is split into an incremental accumulator + a finalizer so
+// the paged read can feed rows page-by-page and RELEASE them (pre-HF-373 backfillSummariesJs
+// retained the tenant's ENTIRE row set in memory — the DIAG-078 OOM class). Group state is bounded
+// by (entities × days × data_types), not row count. aggregateCommittedRows remains the one-shot
+// composition of the two (same behavior, existing tests unchanged).
+export type AggregationState = Map<string, { meta: { entity_id: string; summary_date: string; data_type: string | null }; rowCount: number; fields: Map<string, MetricAcc> }>;
+
+export function createAggregationState(): AggregationState {
+  return new Map();
+}
+
+/** Feed one page of rows into the state. Returns how many rows were skipped (no entity/day placement). */
+export function accumulateCommittedRows(groups: AggregationState, rows: CommittedRow[]): number {
+  let skipped = 0;
   for (const r of rows) {
-    if (!r.entity_id || !r.source_date) continue; // HALT-2 / Residual-4: cannot place per-entity/day
+    if (!r.entity_id || !r.source_date) { skipped += 1; continue; } // HALT-2 / Residual-4: cannot place per-entity/day
     const k = keyOf(r.entity_id, r.source_date, r.data_type ?? null);
     let g = groups.get(k);
     if (!g) { g = { meta: { entity_id: r.entity_id, summary_date: r.source_date, data_type: r.data_type ?? null }, rowCount: 0, fields: new Map() }; groups.set(k, g); }
@@ -101,6 +109,15 @@ export function aggregateCommittedRows(
       }
     }
   }
+  return skipped;
+}
+
+/** Finalize the state into artifacts (throws NovelAggregationMethodError — C2 — on a novel method). */
+export function finalizeAggregatedArtifacts(
+  groups: AggregationState,
+  labelMap?: Record<string, string>,
+  methodMap?: Record<string, string>,
+): AggregatedArtifact[] {
   const out: AggregatedArtifact[] = [];
   for (const g of Array.from(groups.values())) {
     const metrics: Record<string, number> = {};
@@ -112,6 +129,16 @@ export function aggregateCommittedRows(
     out.push({ entity_id: g.meta.entity_id, summary_date: g.meta.summary_date, data_type: g.meta.data_type, metrics, row_count: g.rowCount });
   }
   return out;
+}
+
+export function aggregateCommittedRows(
+  rows: CommittedRow[],
+  labelMap?: Record<string, string>,
+  methodMap?: Record<string, string>,
+): AggregatedArtifact[] {
+  const groups = createAggregationState();
+  accumulateCommittedRows(groups, rows);
+  return finalizeAggregatedArtifacts(groups, labelMap, methodMap);
 }
 
 /**
@@ -202,29 +229,41 @@ export async function backfillSummariesJs(
   methodMap: Record<string, string>,
   log: (m: string) => void = () => {},
 ): Promise<{ written: number; skipped: number; scanned: number }> {
+  // HF-373 Phase F (D8): KEYSET pagination + incremental aggregation. The pre-HF-373 shape —
+  // `.order('id')` (uuid PK, no (tenant_id, id) composite index) + OFFSET `.range()` + full row
+  // retention — timed out structurally: even a 186-row tenant's PAGE 0 exceeded the ~8s statement
+  // timeout on the 672K-row shared table (the planner walks the whole table in id order), and a
+  // 263K-row tenant died of OFFSET depth (timeout from offset ~50K), while every page's rows were
+  // retained in memory (DIAG-078 OOM class). Keyset (`.gt('id', last)`) makes every page an index
+  // range scan under the 20260704_hf373 composite index, no page re-sorts prior pages, and each
+  // page is released after accumulation. A failure here still throws — finalize-import surfaces it
+  // on the job record (never a silent pass).
   const PAGE = 1000;
-  const rows: CommittedRow[] = [];
   let scanned = 0;
-  let offset = 0;
+  let skipped = 0;
+  let lastId: string | null = null;
+  const groups = createAggregationState();
   for (;;) {
-    const { data, error } = await sb
+    let q = sb
       .from('committed_data')
-      .select('entity_id, source_date, data_type, row_data')
+      .select('id, entity_id, source_date, data_type, row_data')
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1);
+      .limit(PAGE);
+    if (lastId) q = q.gt('id', lastId);
+    const { data, error } = await q;
     if (error) throw new Error(`committed_data read: ${error.message}`);
     if (!data || data.length === 0) break;
     scanned += data.length;
-    rows.push(...(data as CommittedRow[]));
+    skipped += accumulateCommittedRows(groups, data as CommittedRow[]);
+    lastId = (data[data.length - 1] as { id: string }).id;
     log(`scanned ${scanned}`);
     if (data.length < PAGE) break;
-    offset += PAGE;
   }
 
   let artifacts: AggregatedArtifact[];
   try {
-    artifacts = aggregateCommittedRows(rows, labelMap, methodMap);
+    artifacts = finalizeAggregatedArtifacts(groups, labelMap, methodMap);
   } catch (err) {
     if (err instanceof NovelAggregationMethodError) {
       // C2 fail-loud: record a novel-method signal on the open-vocabulary surface, then HALT.
@@ -239,7 +278,6 @@ export async function backfillSummariesJs(
     }
     throw err;
   }
-  const skipped = rows.filter((r) => !r.entity_id || !r.source_date).length;
 
   // idempotent replace (Constraint 6)
   const { error: delErr } = await sb.from('summary_artifacts').delete().eq('tenant_id', tenantId);

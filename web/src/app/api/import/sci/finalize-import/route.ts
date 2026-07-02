@@ -20,7 +20,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isInternalCronCaller } from '@/lib/sci/cron-principal'; // HF-361: finalize-sweep fires this cookielessly
 import { claimFinalize, completeFinalize } from '@/lib/sci/finalize-coalesce'; // HF-371: one finalize per import
-import { markJobsByProposal } from '@/lib/sci/job-status'; // HF-372 Phase D: server-side job truth
+import { markJobsByProposal, finalizeJobsByProposalOutcomeAware } from '@/lib/sci/job-status'; // HF-372 Phase D / HF-373 Phase F: server-side job truth
 import { runFlywheelAggregation } from '@/lib/sci/flywheel-aggregation';
 import { executePostCommitConstruction } from '@/lib/sci/post-commit-construction';
 import { createMissingAssignments } from '@/lib/sci/assignment-creation';
@@ -134,7 +134,12 @@ export async function POST(req: NextRequest) {
       summary = await runSummaryEngine(supabase, tenantId, trace);
       trace(`summary-engine-done via=${summary.via} written=${summary.written} skipped=${summary.skipped}`);
     } catch (err) {
-      console.error('[SCI Finalize] summary engine failed:', err instanceof Error ? err.message : err);
+      // HF-373 Phase F (D8): a summary failure SURFACES — loud in the log AND on the job record
+      // (metadata.summary_error) — never a silent pass. The import itself still completes (summaries
+      // are derived data; /api/admin/summary-backfill re-runs deterministically).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[SCI Finalize] summary engine failed:', msg);
+      await markJobsByProposal(supabase, tenantId, proposalId, { summaryError: msg });
     }
 
     // HF-371: mark the claim done so a later duplicate for THIS import coalesces (and a re-import with a
@@ -145,9 +150,15 @@ export async function POST(req: NextRequest) {
     // swallowed with the claim already stamped done).
     await completeFinalize(supabase, tenantId, proposalId, true);
 
-    // HF-372 Phase D: the import is COMPLETE — the job record says so, server-side, before insights.
-    await markJobsByProposal(supabase, tenantId, proposalId, { status: 'finalized', phase: 'completed', completedAt: true });
-    trace('import-complete (insights follow off the critical path)');
+    // HF-372 Phase D → HF-373 Phase F (D7): the terminal stamp is OUTCOME-AWARE. A job that
+    // failed its commit keeps its failure (never 'finalized/completed' with the error attached —
+    // the 86K lie); successful jobs get the truthful terminal transition. Zero matched jobs is a
+    // LOUD anomaly (pre-HF-373 the discarded stamp left the workbook job stuck forever).
+    const stamp = await finalizeJobsByProposalOutcomeAware(supabase, tenantId, proposalId);
+    if (stamp.matched === 0 && proposalId) {
+      console.error(`[SCI Finalize] HF-373 F LOUD ANOMALY: terminal stamp matched ZERO jobs for proposal=${proposalId} — no session job carries this proposal_id (the import's record has no terminal writer)`);
+    }
+    trace(`import-complete (${stamp.finalized} job(s) finalized, ${stamp.failedPreserved} failure(s) preserved; insights follow off the critical path)`);
 
     // 5. OB-232: generate insights from the freshly-computed summaries (Insight Engine, DS-028 P2).
     //    LLM recognizes patterns; deterministic validator + shape enforce the Decision-158 boundary.

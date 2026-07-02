@@ -196,4 +196,34 @@ real staged part: 32.2MiB -> gzip 5.74MiB (5.6x)                            (mea
 
 Cap-independence demonstrated against the live caps: the corrected budget's parts upload; the pre-fix size reproduces the exact production rejection. Row parity: `planPulses` Σ(part rows) === source rows exactly incl. the 86,607×43,668B shape (~90 parts) — `hf373-pulse-budget.test.ts` 6/6; full SCI suite **290/290** (HF-359 PG-A4 amended to the corrected min-cap contract — its old assertion WAS the D6 defect). The full 86K end-to-end staged run (manifest progressing per part, `committed_data` = 86,607, wall time) is **EPG-J3, architect-rendered** (browser + migration). **Architect actions:** apply `20260704_hf373_staged_load_gzip_parts.sql`; live-verify the wrappers S3 FDW gzip option per the migration's run-book (if unsupported, drop `staged_load_capabilities()` — staging self-reverts to plain CSV); optionally set `SUPABASE_GLOBAL_UPLOAD_LIMIT_BYTES` if the project's global cap differs from 50 MiB.
 
-*(Phases F–J appended below as completed.)*
+---
+
+## Phase F — Terminal truth + bounded summaries (D7 + D8)
+
+**Objective.** A failed commit terminates `failed` with its reason; success gets its terminal status + `completed_at`; the summary read completes within budget or fails loudly.
+
+**Phase 0 finding answered.** EPG-0.6: finalize-import stamped `{finalized, completed, completed_at}` **unconditionally** (blind to outcome); the failed 86K job reached that state via TWO cooperating defects (blind stamp + the dispatch-jobs failed-requeue un-terminalizing the failure); the successful workbook job stayed `committed/finalizing` forever because a plan-only invocation's premature finalize consumed the claim and its job stamp matched ZERO rows silently (no sessionId on the plan-arm request); `patchJobs` wrote phase/`completed_at` unguarded (a blocked status flip still overwrote `phase='failed'` with `'completed'`). EPG-0.7: the summary read (`.order('id')` uuid-PK + OFFSET, full row retention) times out structurally — even 186-row Casa Diaz on page 0 — and the failure was swallowed.
+
+**Change.**
+1. **Outcome-aware terminal stamp** — `finalizeJobsByProposalOutcomeAware` (job-status.ts) replaces the blind stamp in finalize-import: per matched job, a failed job (status/phase/mechanical `Commit failed|Commit error|Hand-off enqueue failed` marker) keeps its failure (phase→`failed`, never `completed`, never a success `completed_at`); successful jobs get `finalized/completed/completed_at`. Zero matched jobs → **loud anomaly** log.
+2. **Phase + completed_at rank guards** — `JOB_PHASE_RANK` + `phaseMayAdvance` (terminal `failed`/`cancelled` never overwritten; phases only advance — kills both the `phase='completed'`-over-failure lie and the late-`finalizing`-over-`completed` regression); `completed_at` lands only when the status write wasn't rejected and the job isn't failed.
+3. **Requeue gate** — dispatch-jobs never resurrects a commit-stage failure (`isCommitStageFailure`, shared pure predicate); classify-stage retries unchanged.
+4. **Session threading + client gating** — the plan-arm and legacy execute-bulk bodies now carry `sessionId` (every invocation stamps/sees the job record — closes the zero-match window); the client fires finalize only when ≥1 unit succeeded (all-failed imports keep their failure terminal; partial success still finalizes the committed part).
+5. **Summary engine (D8)** — `backfillSummariesJs` rewritten to **keyset pagination** (`.gt('id', last)` walking the new `committed_data (tenant_id, id)` composite index — migration `20260704_hf373_committed_data_keyset_idx.sql`, `CONCURRENTLY`, run alone) with **incremental aggregation** (`accumulateCommittedRows`/`finalizeAggregatedArtifacts`; pages released — the DIAG-078 whole-tenant retention is gone; `aggregateCommittedRows` is now the one-shot composition, C2 fail-loud unchanged). A summary failure now **surfaces on the job record** (`metadata.summary_error` via the new `summaryError` patch) in addition to the loud log — never a silent pass.
+
+**EPG-F1 evidence.** The REAL predicates replayed over the LIVE offender rows (dry-run, `web/scripts/_hf373_phaseF_live_replay.ts`):
+
+```
+OFFENDER 1 (failed 86K, recorded finalized/completed):
+  live record: status=finalized phase=completed completed_at=2026-07-02T01:37:04.186+00:00 error=Commit failed — Abril_...
+  POST-FIX requeue gate: commit-stage failure=true -> NEVER requeued (terminal rank preserved; blind finalized stamp impossible)
+  POST-FIX outcome-aware stamp: patches phase='failed' ONLY (status/completed_at untouched)
+  POST-FIX phase guard: phaseMayAdvance('failed','completed')=false; statusMayAdvance('failed','finalized')=false
+OFFENDER 2 (stuck workbook, committed/finalizing forever):
+  live record: status=committed phase=finalizing completed_at=null error=null
+  POST-FIX outcome-aware stamp: stamps finalized/completed/completed_at (truthful success terminal)
+```
+
+With Phase D's generation takeover + F's session threading, the workbook shape now receives its post-data finalize AND its terminal stamp. Unit tests: `hf373-job-truth.test.ts` (5/5 — phase terminality, no-regression, status model preserved, mechanical-marker predicate incl. prefix anchoring) + `hf373-summary-aggregation.test.ts` (2/2 — paged ≡ one-shot at every page boundary; C2 novel-method HALT preserved). SCI+summary+platform suites **319/319**. The forced-failure and large-tenant in-flow runs are architect-rendered (EPG-J3; the summary keyset needs the index migration first). **Architect actions:** run `20260704_hf373_committed_data_keyset_idx.sql` ALONE in the SQL editor (CONCURRENTLY); after it, re-run finalize (or `/api/admin/summary-backfill`) for Casa Diaz + Test #A1 whose summary artifacts are currently absent.
+
+*(Phases G–J appended below as completed.)*

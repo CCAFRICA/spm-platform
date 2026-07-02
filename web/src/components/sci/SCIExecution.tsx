@@ -551,6 +551,7 @@ export function SCIExecution({
       body: JSON.stringify({
         proposalId: proposal.proposalId,
         tenantId,
+        sessionId: asyncSessionId ?? undefined, // HF-373 Phase F (D7): every invocation stamps the job record
         storagePath,
         contentUnits: [execUnit],
       }),
@@ -567,7 +568,7 @@ export function SCIExecution({
       throw new Error('Commit coalesced — an identical commit pass for this unit is in flight; retry shortly');
     }
     return result.results[0];
-  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath]);
+  }, [confirmedUnits, rawData, proposal.proposalId, tenantId, storagePath, asyncSessionId]);
 
   const executeUnits = useCallback(async (unitsToExecute: ExecutionUnit[]) => {
     // OB-156: Split units into plan (legacy) and data (bulk) groups
@@ -623,6 +624,10 @@ export function SCIExecution({
           body: JSON.stringify({
             proposalId: proposal.proposalId,
             tenantId,
+            // HF-373 Phase F (D7): plan invocations stamp/see the job record like data invocations —
+            // pre-HF-373 the sessionless plan call left metadata.proposal_id unstamped, so the
+            // premature finalize's job stamp matched ZERO rows silently (the stuck workbook job).
+            sessionId: asyncSessionId ?? undefined,
             storagePath,
             storagePaths,
             contentUnits: planExecUnits,
