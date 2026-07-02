@@ -90,6 +90,11 @@ export interface RevenueMetaMetrics {
     rows_attributed_to_period: number;
     rows_unattributed: number;
   };
+  /** Which committed_data row class(es) carried numeric values under the measure field: a single
+   *  {data_type, rows} record when unambiguous; the full per-class count list when the measure
+   *  spans multiple classes (fail-loud — no rollups are written from ambiguous provenance).
+   *  data_type is open vocabulary — grouped by equality only, never matched against a list. */
+  measure_provenance?: { data_type: string; rows: number } | Array<{ data_type: string; rows: number }>;
   materializer_version: number;
   [key: string]: unknown; // jsonb round-trip tolerance
 }
@@ -121,6 +126,9 @@ export interface RevenueRequest {
   /** optional explicit period pair for bridge/mix drill; defaults to latest vs prior */
   periodId?: string;
   dimensionRole?: Exclude<RevenueRoleKey, 'measure'>;
+  /** SR-39 fail-closed entity visibility: undefined = caller sees all; an EXPLICIT array (even
+   *  empty) restricts every entity-derivable result to these entities — never tenant aggregates. */
+  scopeEntityIds?: string[];
 }
 
 export interface RevenuePeriodPoint {

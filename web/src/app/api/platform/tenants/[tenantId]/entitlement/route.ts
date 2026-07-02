@@ -25,6 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // the inline revenue activation pages the whole committed_data set (same budget as /api/revenue/activate)
 
 export async function PATCH(
   request: NextRequest,

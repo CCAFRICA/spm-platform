@@ -35,6 +35,7 @@ import {
   directionColor,
 } from '@/components/insights/ds003';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { useCurrency } from '@/contexts/tenant-context';
 import { loadConcentration } from '@/lib/revenue/revenue-data-service';
 import type { ConcentrationResponse } from '@/lib/revenue/types';
@@ -55,9 +56,14 @@ export default function ConcentrationPage() {
   const [data, setData] = useState<ConcentrationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { scope } = usePersona();
+  // SR-39 fail-closed: non-admin sends an EXPLICIT scope (even empty) so the server serves only
+  // scoped entity-grain data instead of falling open to the whole tenant.
+  const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
+
   useEffect(() => {
     let cancelled = false;
-    loadConcentration()
+    loadConcentration({ scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -70,7 +76,7 @@ export default function ConcentrationPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeEntityIds]);
 
   const hasPrior = useMemo(
     () => (data ? data.topShares.some((s) => s.priorShare != null) : false),

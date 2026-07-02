@@ -18,7 +18,7 @@
  * ds003-token vars only.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeftRight,
@@ -56,6 +56,7 @@ import {
 } from '@/components/insights/ds003';
 import { useCurrency } from '@/contexts/tenant-context';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { loadPulse } from '@/lib/revenue/revenue-data-service';
 import type { PulseResponse, RevenuePeriodPoint } from '@/lib/revenue/types';
 
@@ -142,9 +143,14 @@ export default function RevenuePulsePage() {
   const [data, setData] = useState<PulseResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { scope } = usePersona();
+  // SR-39 fail-closed: non-admin sends an EXPLICIT scope (even empty) so the server serves only
+  // scoped entity-grain data instead of falling open to the whole tenant.
+  const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
+
   useEffect(() => {
     let cancelled = false;
-    loadPulse()
+    loadPulse({ scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res); // previous render held until this lands (no skeleton flash)
@@ -157,7 +163,7 @@ export default function RevenuePulsePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeEntityIds]);
 
   const t = (en: string, es: string) => (isSpanish ? es : en);
 

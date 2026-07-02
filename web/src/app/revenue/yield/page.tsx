@@ -40,6 +40,7 @@ import {
   directionColor,
 } from '@/components/insights/ds003';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { useCurrency } from '@/contexts/tenant-context';
 import { loadYield } from '@/lib/revenue/revenue-data-service';
 import type { YieldResponse } from '@/lib/revenue/types';
@@ -79,9 +80,14 @@ export default function YieldPage() {
   const [data, setData] = useState<YieldResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { scope } = usePersona();
+  // SR-39 fail-closed: non-admin sends an EXPLICIT scope (even empty) so the server serves only
+  // scoped entity-grain data instead of falling open to the whole tenant.
+  const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
+
   useEffect(() => {
     let cancelled = false;
-    loadYield()
+    loadYield({ scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -94,7 +100,7 @@ export default function YieldPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeEntityIds]);
 
   const view = useMemo(() => {
     if (!data || data.periodYield.length === 0) return null;

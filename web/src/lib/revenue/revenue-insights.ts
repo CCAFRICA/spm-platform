@@ -21,6 +21,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { round2 } from '@/lib/serving/math';
+import { pagedRows } from '@/lib/serving/paged';
 import {
   REVENUE_ROLLUP_TYPES,
   REVENUE_INSIGHT_SOURCE,
@@ -98,18 +99,26 @@ export async function generateRevenueInsights(
 
   // ── Reads ────────────────────────────────────────────────────────────────────
   // summary_rollups may be absent pre-migration (HALT-3 window) — a read error returns a structured
-  // result (C2), never a throw, and never touches the artifact namespace.
-  const { data: rollupData, error: rollupErr } = await sb
-    .from('summary_rollups')
-    .select('period_id, data_type, entity_id, dimension_role, dimension_member, metrics')
-    .eq('tenant_id', tenantId)
-    .in('data_type', [
-      REVENUE_ROLLUP_TYPES.period,
-      REVENUE_ROLLUP_TYPES.entityPeriod,
-      REVENUE_ROLLUP_TYPES.dimensionPeriod,
-    ]);
-  if (rollupErr) return { written: 0, byKind, error: `summary_rollups read failed: ${rollupErr.message}` };
-  const rollups = (rollupData ?? []) as RollupRow[];
+  // result (C2), never a throw, and never touches the artifact namespace. Paged (a single select
+  // silently truncates at 1000 rows).
+  let rollups: RollupRow[];
+  try {
+    rollups = await pagedRows<RollupRow>((from, to) =>
+      sb
+        .from('summary_rollups')
+        .select('period_id, data_type, entity_id, dimension_role, dimension_member, metrics')
+        .eq('tenant_id', tenantId)
+        .in('data_type', [
+          REVENUE_ROLLUP_TYPES.period,
+          REVENUE_ROLLUP_TYPES.entityPeriod,
+          REVENUE_ROLLUP_TYPES.dimensionPeriod,
+        ])
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+  } catch (err) {
+    return { written: 0, byKind, error: `summary_rollups read failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 
   const periodIds = Array.from(new Set(rollups.map((r) => r.period_id).filter((x): x is string => !!x)));
   let periods: PeriodMeta[] = [];
@@ -125,13 +134,21 @@ export async function generateRevenueInsights(
       .sort((a, b) => a.start_date.localeCompare(b.start_date) || a.id.localeCompare(b.id));
   }
 
-  const { data: entData, error: entErr } = await sb
-    .from('entities')
-    .select('id, display_name')
-    .eq('tenant_id', tenantId);
-  if (entErr) return { written: 0, byKind, error: `entities read failed: ${entErr.message}` };
+  let entData: Array<{ id: string; display_name: string | null }>;
+  try {
+    entData = await pagedRows<{ id: string; display_name: string | null }>((from, to) =>
+      sb
+        .from('entities')
+        .select('id, display_name')
+        .eq('tenant_id', tenantId)
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+  } catch (err) {
+    return { written: 0, byKind, error: `entities read failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const entityName = new Map<string, string>();
-  for (const e of (entData ?? []) as Array<{ id: string; display_name: string | null }>) {
+  for (const e of entData) {
     if (e.display_name) entityName.set(e.id, e.display_name);
   }
   const nameOf = (id: string) => entityName.get(id) ?? id.slice(0, 8);

@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { resolveCallerTenant } from '@/lib/auth/api-tenant'; // OB-246 AP3 -- session-derived tenant
+import { pagedRows } from '@/lib/serving/paged';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isRevenueEnabledForTenant } from '@/lib/revenue/tenant-feature';
 import {
@@ -65,6 +66,10 @@ function round4(v: number): number {
 
 const MODES: RevenueMode[] = ['pulse', 'bridge', 'mix', 'sellers', 'concentration', 'yield', 'patterns', 'geography'];
 
+/** SR-39: served to scoped callers in place of tenant-aggregate sections with no entity decomposition. */
+const DIMENSION_SCOPE_REASON =
+  'dimension rollups aggregate the whole tenant and cannot be entity-scoped; scoped callers receive entity-grain data only';
+
 type Grain = Exclude<RevenueRoleKey, 'measure'> | 'entity';
 
 interface RollupRow {
@@ -95,27 +100,20 @@ interface EntityInfo {
 // Reads (paged; rollup row counts are grain-bounded, not volume-bounded)
 // ===================================================================
 
-const PAGE = 1000;
-
 async function readRollups(sb: SupabaseClient, tenantId: string): Promise<RollupRow[]> {
-  const out: RollupRow[] = [];
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await sb
-      .from('summary_rollups')
-      .select('data_type, period_id, entity_id, dimension_role, dimension_member, metrics, row_count')
-      .eq('tenant_id', tenantId)
-      .in('data_type', Object.values(REVENUE_ROLLUP_TYPES))
-      .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`summary_rollups read: ${error.message}`);
-    const rows = (data ?? []) as unknown as RollupRow[];
-    if (rows.length === 0) break;
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
+  try {
+    return await pagedRows<RollupRow>((from, to) =>
+      sb
+        .from('summary_rollups')
+        .select('data_type, period_id, entity_id, dimension_role, dimension_member, metrics, row_count')
+        .eq('tenant_id', tenantId)
+        .in('data_type', Object.values(REVENUE_ROLLUP_TYPES))
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+  } catch (err) {
+    throw new Error(`summary_rollups read: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return out;
 }
 
 /** entities lookup for ids appearing in entityPeriod rollups ONLY (chunked .in reads). */
@@ -138,23 +136,18 @@ async function readEntityPeriodOutcomes(
   sb: SupabaseClient,
   tenantId: string,
 ): Promise<Array<{ entity_id: string; period_id: string; total_payout: number }>> {
-  const out: Array<{ entity_id: string; period_id: string; total_payout: number }> = [];
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await sb
-      .from('entity_period_outcomes')
-      .select('entity_id, period_id, total_payout')
-      .eq('tenant_id', tenantId)
-      .order('id', { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`entity_period_outcomes read: ${error.message}`);
-    const rows = (data ?? []) as Array<{ entity_id: string; period_id: string; total_payout: number }>;
-    if (rows.length === 0) break;
-    out.push(...rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
+  try {
+    return await pagedRows<{ entity_id: string; period_id: string; total_payout: number }>((from, to) =>
+      sb
+        .from('entity_period_outcomes')
+        .select('entity_id, period_id, total_payout')
+        .eq('tenant_id', tenantId)
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+  } catch (err) {
+    throw new Error(`entity_period_outcomes read: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return out;
 }
 
 // ===================================================================
@@ -253,6 +246,13 @@ export async function POST(request: NextRequest) {
     const roles = readRolesFromMeta(metaRow);
     const absences = rolesToAbsences(roles);
 
+    const epRows = rollups.filter((r) => r.data_type === REVENUE_ROLLUP_TYPES.entityPeriod && r.entity_id && r.period_id);
+    // SR-39 (fail-closed): an EXPLICIT scope governs EVERYTHING derivable per entity -- an empty
+    // array means "no entities visible" (empty results, never tenant data). Tenant-aggregate data
+    // that cannot be decomposed by entity is withheld from scoped callers with a named absence.
+    const scope = body.scopeEntityIds;
+    const scopedEpRows = scope !== undefined ? epRows.filter((r) => scope.includes(r.entity_id!)) : epRows;
+
     // Period series: the tenant's periods joined to their revenue_period rollups, ascending by
     // start_date. Only materialized periods appear (a period with no revenue rows has no rollup).
     const { data: periodData, error: perErr } = await sb
@@ -265,8 +265,41 @@ export async function POST(request: NextRequest) {
     for (const r of rollups) {
       if (r.data_type === REVENUE_ROLLUP_TYPES.period && r.period_id) periodRollupByPid.set(r.period_id, r);
     }
+    // SR-39: a scoped caller's period series is recomputed from the SCOPED entityPeriod rollups --
+    // the tenant-level revenue_period rows aggregate entities outside the caller's visibility, so
+    // serving them would leak tenant totals. scope=[] therefore yields an empty series (fail-closed).
+    const scopedPeriodAgg = new Map<string, { primary: number; rowCount: number; entities: Set<string> }>();
+    if (scope !== undefined) {
+      for (const r of scopedEpRows) {
+        const m = (r.metrics ?? {}) as Record<string, unknown>;
+        let agg = scopedPeriodAgg.get(r.period_id!);
+        if (!agg) {
+          agg = { primary: 0, rowCount: 0, entities: new Set() };
+          scopedPeriodAgg.set(r.period_id!, agg);
+        }
+        agg.primary += n(m.primary);
+        agg.rowCount += n(m.row_count);
+        agg.entities.add(r.entity_id!);
+      }
+    }
     const periodPoints: RevenuePeriodPoint[] = [];
     for (const p of (periodData ?? []) as PeriodRow[]) {
+      if (scope !== undefined) {
+        const agg = scopedPeriodAgg.get(p.id);
+        if (!agg) continue;
+        periodPoints.push({
+          periodId: p.id,
+          label: p.label,
+          canonicalKey: p.canonical_key ?? null,
+          startDate: p.start_date,
+          endDate: p.end_date,
+          status: p.status,
+          primary: round2(agg.primary),
+          rowCount: agg.rowCount,
+          entityCount: agg.entities.size,
+        });
+        continue;
+      }
       const r = periodRollupByPid.get(p.id);
       if (!r) continue;
       const m = (r.metrics ?? {}) as Record<string, unknown>;
@@ -302,12 +335,6 @@ export async function POST(request: NextRequest) {
       priorPeriodId: priId,
     };
 
-    const epRows = rollups.filter((r) => r.data_type === REVENUE_ROLLUP_TYPES.entityPeriod && r.entity_id && r.period_id);
-    // SR-39: an EXPLICIT empty scope array means "no entities visible" -- empty entity results,
-    // never all. Applied to the sellers/concentration/yield entity lists.
-    const scope = body.scopeEntityIds;
-    const scopedEpRows = scope !== undefined ? epRows.filter((r) => scope.includes(r.entity_id!)) : epRows;
-
     const dimRowsFor = (role: string): RollupRow[] =>
       rollups.filter(
         (r) => r.data_type === REVENUE_ROLLUP_TYPES.dimensionPeriod && r.dimension_role === role && r.period_id && r.dimension_member != null,
@@ -317,6 +344,9 @@ export async function POST(request: NextRequest) {
     // entity grain served from entityPeriod rollups with display names.
     const resolveGrain = (): Grain => {
       if (body.dimensionRole === 'location' || body.dimensionRole === 'category') return body.dimensionRole;
+      // SR-39: dimension rollups aggregate the whole tenant -- a scoped caller defaults to the
+      // entity grain, the only grain that can honor the scope.
+      if (scope !== undefined) return 'entity';
       return roles.location.status === 'resolved' ? 'location' : 'entity';
     };
 
@@ -324,9 +354,10 @@ export async function POST(request: NextRequest) {
     const grainSeries = async (grain: Grain): Promise<Map<string, { label: string; byPeriod: Record<string, number> }>> => {
       const out = new Map<string, { label: string; byPeriod: Record<string, number> }>();
       if (grain === 'entity') {
-        const ids = Array.from(new Set(epRows.map((r) => r.entity_id!)));
+        // entity grain serves the SCOPED rows (SR-39); unscoped callers see every entity unchanged
+        const ids = Array.from(new Set(scopedEpRows.map((r) => r.entity_id!)));
         const ents = await loadEntities(sb, ids);
-        for (const r of epRows) {
+        for (const r of scopedEpRows) {
           const key = r.entity_id!;
           let g = out.get(key);
           if (!g) {
@@ -406,6 +437,20 @@ export async function POST(request: NextRequest) {
     // dimension member (honest partial decomposition). -----------------------------------------
     if (mode === 'bridge') {
       const grain = resolveGrain();
+      // SR-39: a scoped caller explicitly requesting a dimension grain gets an empty decomposition
+      // with a named absence (pages render absences) -- never the tenant-wide dimension rollups.
+      if (scope !== undefined && grain !== 'entity') {
+        absences.push({ role: grain, reason: DIMENSION_SCOPE_REASON });
+        const res: BridgeResponse = {
+          mode,
+          ...envelope,
+          dimensionRole: grain,
+          current: current ? { periodId: current.periodId, total: round2(current.primary) } : null,
+          prior: prior ? { periodId: prior.periodId, total: round2(prior.primary) } : null,
+          deltas: [],
+        };
+        return NextResponse.json(res);
+      }
       const series = await grainSeries(grain);
       const deltas: BridgeResponse['deltas'] = [];
       for (const [key, g] of Array.from(series.entries())) {
@@ -430,6 +475,12 @@ export async function POST(request: NextRequest) {
     // percentage points between prior and current ---------------------------------------------
     if (mode === 'mix') {
       const grain = resolveGrain();
+      // SR-39: same dimension-grain withholding as bridge -- empty composition, named absence.
+      if (scope !== undefined && grain !== 'entity') {
+        absences.push({ role: grain, reason: DIMENSION_SCOPE_REASON });
+        const res: MixResponse = { mode, ...envelope, dimensionRole: grain, composition: [], shifts: [] };
+        return NextResponse.json(res);
+      }
       const series = await grainSeries(grain);
       const composition: MixResponse['composition'] = periodPoints.map((pp) => {
         let total = 0;
@@ -513,9 +564,11 @@ export async function POST(request: NextRequest) {
     // component-level revenue attribution does not exist in the data (ADR minor decisions). ----
     if (mode === 'yield') {
       const outcomes = await readEntityPeriodOutcomes(sb, tenantId);
+      // SR-39: payout follows the same entity scope as revenue -- period AND entity sums.
+      const scopedOutcomes = scope !== undefined ? outcomes.filter((o) => scope.includes(o.entity_id)) : outcomes;
       const payoutByPeriod = new Map<string, number>();
       const payoutByEntityPeriod = new Map<string, number>();
-      for (const o of outcomes) {
+      for (const o of scopedOutcomes) {
         const payout = n(o.total_payout);
         payoutByPeriod.set(o.period_id, (payoutByPeriod.get(o.period_id) ?? 0) + payout);
         const k = `${o.entity_id} ${o.period_id}`;
@@ -544,7 +597,11 @@ export async function POST(request: NextRequest) {
         entityYield.sort((a, b) => b.revenue - a.revenue);
       }
       let componentPayouts: YieldResponse['componentPayouts'] = [];
-      if (curId) {
+      if (scope !== undefined) {
+        // SR-39: the component decomposition comes from the tenant-level period_outcomes sentinel --
+        // it has no entity decomposition, so scoped callers get a named absence instead.
+        absences.push({ role: 'measure', reason: DIMENSION_SCOPE_REASON });
+      } else if (curId) {
         const { data, error } = await sb
           .from('summary_artifacts')
           .select('metrics')
@@ -576,7 +633,10 @@ export async function POST(request: NextRequest) {
     // -- geography: dimensionPeriod rows for the 'location' role; unresolved -> the envelope's
     // absences carry the meta reason and members stays empty (C2, never a fabricated grain) ----
     const members: RevenueDimensionPoint[] = [];
-    if (roles.location.status === 'resolved') {
+    if (scope !== undefined) {
+      // SR-39: geography is dimension-grain by definition -- withheld from scoped callers.
+      absences.push({ role: 'location', reason: DIMENSION_SCOPE_REASON });
+    } else if (roles.location.status === 'resolved') {
       const series = await grainSeries('location');
       for (const [member, g] of Array.from(series.entries())) {
         members.push({

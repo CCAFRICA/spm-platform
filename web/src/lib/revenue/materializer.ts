@@ -26,8 +26,8 @@ import {
 } from './types';
 import { resolveRevenueRoles } from './role-resolution';
 import { generateRevenueInsights } from './revenue-insights';
+import { pagedRows, pagedScan } from '@/lib/serving/paged';
 
-const PAGE = 1000;        // committed_data / summary_rollups scan page size
 const INSERT_CHUNK = 500; // summary_rollups bulk-insert chunk size
 
 /** 2dp rounding for stored sums -- stable across re-runs so the noop compare holds (the
@@ -75,20 +75,19 @@ async function scanCommittedData(
   columns: string,
   onPage: (rows: Record<string, unknown>[]) => void,
 ): Promise<void> {
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await sb
-      .from('committed_data')
-      .select(columns)
-      .eq('tenant_id', tenantId)
-      .order('id', { ascending: true }) // unique key -- no page-boundary duplicates
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`committed_data read: ${error.message}`);
-    const rows = (data ?? []) as unknown as Record<string, unknown>[];
-    if (rows.length === 0) break;
-    onPage(rows);
-    if (rows.length < PAGE) break;
-    offset += PAGE;
+  try {
+    await pagedScan<Record<string, unknown>>(
+      (from, to) =>
+        sb
+          .from('committed_data')
+          .select(columns)
+          .eq('tenant_id', tenantId)
+          .order('id', { ascending: true }) // unique key -- no page-boundary duplicates
+          .range(from, to),
+      onPage,
+    );
+  } catch (err) {
+    throw new Error(`committed_data read: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -128,10 +127,52 @@ function canonicalizeRollups(
 }
 
 /**
+ * Fail-loud terminal state shared by the unresolved-measure and ambiguous-provenance branches:
+ * ALL FOUR revenue namespaces are cleared (stale rollups must never keep serving past the fault),
+ * the fresh meta row records the named absence, and the insight writer runs -- with no rollups it
+ * wipes its own stale artifacts and writes none, so no stale insight outlives the rollups either.
+ */
+async function writeMetaOnlyState(
+  sb: SupabaseClient,
+  tenantId: string,
+  metaMetrics: RevenueMetaMetrics,
+  rowsScanned: number,
+  t: (msg: string) => void,
+): Promise<void> {
+  const allTypes = Object.values(REVENUE_ROLLUP_TYPES);
+  const { error: delErr } = await sb
+    .from('summary_rollups')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .in('data_type', allTypes);
+  if (delErr) throw new Error(`summary_rollups delete: ${delErr.message}`);
+  const { error: insErr } = await sb.from('summary_rollups').insert({
+    tenant_id: tenantId,
+    period_id: null,
+    data_type: REVENUE_ROLLUP_TYPES.meta,
+    entity_id: null,
+    dimension_role: null,
+    dimension_member: null,
+    metrics: metaMetrics,
+    row_count: rowsScanned,
+  } satisfies RollupInsertRow);
+  if (insErr) throw new Error(`summary_rollups meta insert: ${insErr.message}`);
+  // Guarded/non-blocking like the success path: a failed insight pass never masks the meta write.
+  try {
+    const ir = await generateRevenueInsights(sb, tenantId);
+    t(`revenue-insights-done written=${ir.written}${ir.error ? ` error=${ir.error}` : ''}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[Revenue Materializer] REVENUE INSIGHTS FAILED (meta-only state written; stale insights may persist until next run): ${msg}`);
+    t(`revenue-insights-FAILED ${msg}`);
+  }
+}
+
+/**
  * Materialize the tenant's revenue rollups from committed_data into summary_rollups.
  * Idempotent: a re-run over unchanged data is a detected noop (no delete/insert). Fail-loud:
- * an unresolved measure writes ONLY the meta row (a readable named absence) and returns ok:false;
- * any storage error throws.
+ * an unresolved measure or ambiguous measure provenance clears the revenue namespaces, writes
+ * ONLY the meta row (a readable named absence) and returns ok:false; any storage error throws.
  */
 export async function materializeRevenueRollups(
   sb: SupabaseClient,
@@ -148,29 +189,14 @@ export async function materializeRevenueRollups(
 
   if (roles.measure.status === 'unresolved') {
     // FAIL LOUD (C2): no rollups without a measure -- but the ABSENCE itself is materialized as the
-    // meta row so the serving layer renders the named reason instead of a silent blank.
+    // meta row so the serving layer renders the named reason instead of a silent blank. Stale
+    // period/entity/dimension rollups AND stale insights are cleared, never served past the fault.
     const metaMetrics: RevenueMetaMetrics = {
       roles,
       attribution: { rows_scanned: 0, rows_with_measure: 0, rows_attributed_to_period: 0, rows_unattributed: 0 },
       materializer_version: REVENUE_MATERIALIZER_VERSION,
     };
-    const { error: delErr } = await sb
-      .from('summary_rollups')
-      .delete()
-      .eq('tenant_id', tenantId)
-      .eq('data_type', REVENUE_ROLLUP_TYPES.meta);
-    if (delErr) throw new Error(`summary_rollups meta delete: ${delErr.message}`);
-    const { error: insErr } = await sb.from('summary_rollups').insert({
-      tenant_id: tenantId,
-      period_id: null,
-      data_type: REVENUE_ROLLUP_TYPES.meta,
-      entity_id: null,
-      dimension_role: null,
-      dimension_member: null,
-      metrics: metaMetrics,
-      row_count: 0,
-    } satisfies RollupInsertRow);
-    if (insErr) throw new Error(`summary_rollups meta insert: ${insErr.message}`);
+    await writeMetaOnlyState(sb, tenantId, metaMetrics, 0, t);
     return {
       ok: false,
       roles,
@@ -228,6 +254,9 @@ export async function materializeRevenueRollups(
   let rowsAttributed = 0;
   let rowsUnattributed = 0;
   let rowsWithoutEntity = 0;
+  // Measure provenance: measure-bearing rows counted per committed_data.data_type. Values are
+  // grouped by equality only -- data_type is open vocabulary (AP-26), never a hardcoded list.
+  const measureByDataType = new Map<string, number>();
 
   // period_id wins when set and known; else the first period whose date range contains
   // source_date; else unattributable (counted, skipped -- never guessed).
@@ -242,13 +271,15 @@ export async function materializeRevenueRollups(
     return null;
   };
 
-  await scanCommittedData(sb, tenantId, 'entity_id, period_id, source_date, row_data', (rows) => {
+  await scanCommittedData(sb, tenantId, 'entity_id, period_id, source_date, data_type, row_data', (rows) => {
     rowsScanned += rows.length;
     for (const r of rows) {
       const rowData = (r.row_data ?? {}) as Record<string, unknown>;
       const measure = toFiniteNumber(rowData[measureField]);
       if (measure === null) continue; // not a measure-bearing row
       rowsWithMeasure++;
+      const dt = typeof r.data_type === 'string' ? r.data_type : String(r.data_type ?? '');
+      measureByDataType.set(dt, (measureByDataType.get(dt) ?? 0) + 1);
       const pid = attributePeriod(r.period_id, r.source_date);
       if (!pid) {
         rowsUnattributed++;
@@ -298,6 +329,38 @@ export async function materializeRevenueRollups(
   });
   t(`revenue-pass2 scanned=${rowsScanned} withMeasure=${rowsWithMeasure} attributed=${rowsAttributed} unattributed=${rowsUnattributed}`);
 
+  // (d2) Measure-provenance discipline (C2): the measure field may carry numeric values in MORE
+  // THAN ONE committed_data row class (e.g. an actuals class AND a quota/target class) -- summing
+  // across classes silently inflates revenue. Ambiguity is architect disposition, never a keyword
+  // choice; the fault state is materialized exactly like the unresolved-measure branch.
+  const measureProvenance = Array.from(measureByDataType.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dataType, count]) => ({ data_type: dataType, rows: count }));
+  if (measureByDataType.size > 1) {
+    const list = measureProvenance.map((p) => p.data_type).join(', ');
+    const metaMetrics: RevenueMetaMetrics = {
+      roles,
+      attribution: {
+        rows_scanned: rowsScanned,
+        rows_with_measure: rowsWithMeasure,
+        rows_attributed_to_period: rowsAttributed,
+        rows_unattributed: rowsUnattributed,
+      },
+      measure_provenance: measureProvenance,
+      materializer_version: REVENUE_MATERIALIZER_VERSION,
+    };
+    await writeMetaOnlyState(sb, tenantId, metaMetrics, rowsScanned, t);
+    return {
+      ok: false,
+      roles,
+      rowsScanned,
+      rollupsWritten: { period: 0, entityPeriod: 0, dimensionPeriod: 0 },
+      durationMs: Date.now() - t0,
+      noop: false,
+      error: `revenue measure field is present in multiple row classes (${list}) - ambiguous provenance; architect disposition required`,
+    };
+  }
+
   // (e) Candidate rollup rows -- sums rounded to 2dp so a re-run is byte-stable for the compare.
   const candidates: RollupInsertRow[] = [];
   for (const [pid, pa] of Array.from(perPeriod.entries())) {
@@ -344,6 +407,8 @@ export async function materializeRevenueRollups(
       rows_attributed_to_period: rowsAttributed,
       rows_unattributed: rowsUnattributed,
     },
+    // exactly one row class carried the measure (the d2 gate) -- recorded for auditability
+    ...(measureProvenance.length === 1 ? { measure_provenance: measureProvenance[0] } : {}),
     materializer_version: REVENUE_MATERIALIZER_VERSION,
     rows_without_entity: rowsWithoutEntity, // measure rows summed at period grain but un-keyable per entity
   };
@@ -365,24 +430,19 @@ export async function materializeRevenueRollups(
 
   // (f) Idempotency/noop: compare canonicalized candidate rows against the existing namespace rows.
   // Identical -> return noop WITHOUT deleting/inserting (the re-run evidence PG-2 reads).
-  const existing: RollupInsertRow[] = [];
-  {
-    let offset = 0;
-    for (;;) {
-      const { data, error } = await sb
+  let existing: RollupInsertRow[];
+  try {
+    existing = await pagedRows<RollupInsertRow>((from, to) =>
+      sb
         .from('summary_rollups')
         .select('data_type, period_id, entity_id, dimension_role, dimension_member, metrics, row_count')
         .eq('tenant_id', tenantId)
         .in('data_type', allTypes)
         .order('id', { ascending: true })
-        .range(offset, offset + PAGE - 1);
-      if (error) throw new Error(`summary_rollups read: ${error.message}`);
-      const rows = (data ?? []) as unknown as RollupInsertRow[];
-      if (rows.length === 0) break;
-      existing.push(...rows);
-      if (rows.length < PAGE) break;
-      offset += PAGE;
-    }
+        .range(from, to),
+    );
+  } catch (err) {
+    throw new Error(`summary_rollups read: ${err instanceof Error ? err.message : String(err)}`);
   }
   const noop = canonicalizeRollups(existing) === canonicalizeRollups(candidates);
 
@@ -396,6 +456,8 @@ export async function materializeRevenueRollups(
       .eq('tenant_id', tenantId)
       .in('data_type', allTypes);
     if (delErr) throw new Error(`summary_rollups delete: ${delErr.message}`);
+    // uq_summary_rollups_grain is the concurrency guard: a concurrent run racing this delete-then-
+    // insert fails LOUDLY here instead of silently doubling every rollup; the idempotent re-run heals.
     for (let i = 0; i < candidates.length; i += INSERT_CHUNK) {
       const { error: insErr } = await sb.from('summary_rollups').insert(candidates.slice(i, i + INSERT_CHUNK));
       if (insErr) throw new Error(`summary_rollups insert: ${insErr.message}`);

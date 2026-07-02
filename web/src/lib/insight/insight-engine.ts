@@ -193,9 +193,10 @@ export async function generateInsights(
   } catch { /* novelty is best-effort; never blocks generation */ }
 
   // idempotent (Constraint 8): replace this tenant's artifacts
-  // OB-257: wipe scoped to THIS writer's source — the Revenue insight writer (source='revenue-insight')
-  // shares the table; behavior-neutral today (all pre-existing live rows carry source='insight-engine').
-  if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId).eq('source', 'insight-engine');
+  // OB-257: wipe scoped to THIS writer's rows — source='insight-engine' plus legacy NULL-source rows
+  // (this engine's pre-source era; without the null arm they are immortal). The Revenue insight
+  // writer (source='revenue-insight') is the only other writer today and is never touched.
+  if (!opts.dryRun) await sb.from('intelligence_artifacts').delete().eq('tenant_id', tenantId).or('source.eq.insight-engine,source.is.null');
 
   const byType: Record<string, number> = {};
   const failures: string[] = [];

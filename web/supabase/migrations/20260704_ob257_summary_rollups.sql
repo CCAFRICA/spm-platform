@@ -37,6 +37,18 @@ create index if not exists idx_summary_rollups_tenant_period
 create index if not exists idx_summary_rollups_tenant_entity
   on public.summary_rollups (tenant_id, entity_id) where entity_id is not null;
 
+-- Concurrency guard: concurrent materializer runs (finalize-import / entitlement toggle / activate)
+-- race delete-then-insert -- without this, the second writer silently DOUBLES every rollup a reader
+-- sums. The unique grain makes the second inserter fail LOUDLY instead; the idempotent re-run heals.
+-- coalesce() folds the nullable grain columns to sentinels so NULL <> NULL cannot admit duplicates.
+create unique index if not exists uq_summary_rollups_grain
+  on public.summary_rollups (
+    tenant_id, data_type,
+    coalesce(period_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    coalesce(entity_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    coalesce(dimension_role, ''), coalesce(dimension_member, '')
+  );
+
 alter table public.summary_rollups enable row level security;
 
 -- Tenant-isolation + platform/vl_admin full access — mirrors 20260622_ob232_intelligence_artifacts_recovery.sql.

@@ -18,7 +18,7 @@
  * patterns need at least two points) — never a one-point trend or empty chart.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import {
   Area,
@@ -43,6 +43,7 @@ import {
 } from '@/components/insights/ds003';
 import { useCurrency } from '@/contexts/tenant-context';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { loadPatterns } from '@/lib/revenue/revenue-data-service';
 import type { PatternsResponse } from '@/lib/revenue/types';
 
@@ -88,9 +89,14 @@ export default function RevenuePatternsPage() {
   const [data, setData] = useState<PatternsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { scope } = usePersona();
+  // SR-39 fail-closed: non-admin sends an EXPLICIT scope (even empty) so the server serves only
+  // scoped entity-grain data instead of falling open to the whole tenant.
+  const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
+
   useEffect(() => {
     let cancelled = false;
-    loadPatterns()
+    loadPatterns({ scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res); // previous render held until this lands (no skeleton flash)
@@ -103,7 +109,7 @@ export default function RevenuePatternsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeEntityIds]);
 
   const t = (en: string, es: string) => (isSpanish ? es : en);
 

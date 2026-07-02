@@ -23,7 +23,9 @@ import type {
   GeographyResponse,
 } from '@/lib/revenue/types';
 
-/** Optional per-mode parameters (bridge/mix drill) — the non-mode half of RevenueRequest. */
+/** Optional shared parameters (bridge/mix drill + SR-39 scopeEntityIds) — the non-mode half of
+ *  RevenueRequest. scopeEntityIds is forwarded only when defined: non-admins send an EXPLICIT
+ *  scope (even empty = fail-closed); admins send none. */
 export type RevenueLoadOpts = Omit<RevenueRequest, 'mode'>;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -66,8 +68,8 @@ async function fetchRevenueData<T>(mode: RevenueMode, opts?: RevenueLoadOpts): P
 // Loader functions — 1 API call each, typed per mode
 // ═══════════════════════════════════════════════════════════════════
 
-export async function loadPulse(): Promise<PulseResponse> {
-  return fetchRevenueData<PulseResponse>('pulse');
+export async function loadPulse(opts?: RevenueLoadOpts): Promise<PulseResponse> {
+  return fetchRevenueData<PulseResponse>('pulse', opts);
 }
 
 export async function loadBridge(opts?: RevenueLoadOpts): Promise<BridgeResponse> {
@@ -78,22 +80,22 @@ export async function loadMix(opts?: RevenueLoadOpts): Promise<MixResponse> {
   return fetchRevenueData<MixResponse>('mix', opts);
 }
 
-export async function loadSellers(): Promise<SellersResponse> {
-  return fetchRevenueData<SellersResponse>('sellers');
+export async function loadSellers(opts?: RevenueLoadOpts): Promise<SellersResponse> {
+  return fetchRevenueData<SellersResponse>('sellers', opts);
 }
 
-export async function loadConcentration(): Promise<ConcentrationResponse> {
-  return fetchRevenueData<ConcentrationResponse>('concentration');
+export async function loadConcentration(opts?: RevenueLoadOpts): Promise<ConcentrationResponse> {
+  return fetchRevenueData<ConcentrationResponse>('concentration', opts);
 }
 
-export async function loadYield(): Promise<YieldResponse> {
-  return fetchRevenueData<YieldResponse>('yield');
+export async function loadYield(opts?: RevenueLoadOpts): Promise<YieldResponse> {
+  return fetchRevenueData<YieldResponse>('yield', opts);
 }
 
-export async function loadPatterns(): Promise<PatternsResponse> {
-  return fetchRevenueData<PatternsResponse>('patterns');
+export async function loadPatterns(opts?: RevenueLoadOpts): Promise<PatternsResponse> {
+  return fetchRevenueData<PatternsResponse>('patterns', opts);
 }
 
-export async function loadGeography(): Promise<GeographyResponse> {
-  return fetchRevenueData<GeographyResponse>('geography');
+export async function loadGeography(opts?: RevenueLoadOpts): Promise<GeographyResponse> {
+  return fetchRevenueData<GeographyResponse>('geography', opts);
 }

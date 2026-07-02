@@ -33,6 +33,7 @@ import { StructuredAbsence } from '@/components/revenue/StructuredAbsence';
 import { loadMix } from '@/lib/revenue/revenue-data-service';
 import type { MixResponse } from '@/lib/revenue/types';
 import { useLocale, isSpanishLocale } from '@/contexts/locale-context';
+import { usePersona } from '@/contexts/persona-context';
 import { useCurrency } from '@/contexts/tenant-context';
 import {
   AXIS_TICK,
@@ -71,10 +72,15 @@ export default function RevenueMixPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const { scope } = usePersona();
+  // SR-39 fail-closed: non-admin sends an EXPLICIT scope (even empty) so the server serves only
+  // scoped entity-grain data instead of falling open to the whole tenant.
+  const scopeEntityIds = useMemo(() => (scope.canSeeAll ? undefined : scope.entityIds), [scope]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    loadMix()
+    loadMix({ scopeEntityIds })
       .then((res) => {
         if (!cancelled) {
           setData(res);
@@ -90,7 +96,7 @@ export default function RevenueMixPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeEntityIds]);
 
   const periodLabel = (pid: string): string => data?.periods.find((p) => p.periodId === pid)?.label ?? pid;
 

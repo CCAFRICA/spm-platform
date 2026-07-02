@@ -149,19 +149,6 @@ export async function POST(req: NextRequest) {
     await markJobsByProposal(supabase, tenantId, proposalId, { status: 'finalized', phase: 'completed', completedAt: true });
     trace('import-complete (insights follow off the critical path)');
 
-    // 4.5 OB-257: revenue rollup materialization -- entitlement-gated, OFF the import critical path
-    //     (the import is already complete above, same pattern as the insights step below). A revenue
-    //     failure is loud in the log but never blocks or fails the finalize; the activation endpoint
-    //     (/api/revenue/activate) re-runs the same idempotent materializer.
-    if (await isRevenueEnabledForTenant(tenantId)) {
-      try {
-        const rm = await materializeRevenueRollups(supabase, tenantId, trace);
-        trace(`revenue-materializer-done ok=${rm.ok} noop=${rm.noop} period=${rm.rollupsWritten.period} entity=${rm.rollupsWritten.entityPeriod} dim=${rm.rollupsWritten.dimensionPeriod}`);
-      } catch (err) {
-        console.error('[SCI Finalize] REVENUE MATERIALIZER FAILED (import already complete; revenue rollups stale until next finalize):', err instanceof Error ? err.message : err);
-      }
-    }
-
     // 5. OB-232: generate insights from the freshly-computed summaries (Insight Engine, DS-028 P2).
     //    LLM recognizes patterns; deterministic validator + shape enforce the Decision-158 boundary.
     //    HF-372 Phase D: AFTER completeFinalize — an insight failure can no longer hold the import
@@ -177,6 +164,18 @@ export async function POST(req: NextRequest) {
       insights = { stored: 0, failed: 0, error: msg };
       console.error(`[SCI Finalize] INSIGHT ENGINE FAILED (import already complete; insights missing until next finalize): ${msg}`);
     }
+
+    // 6. OB-257: revenue rollup materialization -- entitlement-gated, fire-and-forget (the flywheel
+    //    idiom below). Revenue rollups are eventually-consistent post-import: the materializer's two
+    //    whole-tenant committed_data scans must not spend the finalize's 300s budget (at 86K-row
+    //    scale they can starve the steps above); /api/revenue/activate is the deterministic re-run
+    //    path. Failure is loud in the log, never blocks or fails the finalize.
+    trace('revenue-materializer-dispatched (fire-and-forget; /api/revenue/activate is the deterministic re-run)');
+    void (async () => {
+      if (!(await isRevenueEnabledForTenant(tenantId))) return;
+      const rm = await materializeRevenueRollups(supabase, tenantId, trace);
+      trace(`revenue-materializer-done ok=${rm.ok} noop=${rm.noop} period=${rm.rollupsWritten.period} entity=${rm.rollupsWritten.entityPeriod} dim=${rm.rollupsWritten.dimensionPeriod}`);
+    })().catch(err => console.error('[SCI Finalize] REVENUE MATERIALIZER FAILED (import already complete; revenue rollups stale until next finalize):', err instanceof Error ? err.message : err));
 
     // HF-372 Phase F (EPG-0.8 §4): flywheel aggregation was CLIENT-ONLY (page.tsx fire) — a
     // navigate-away import got finalize (waitUntil/sweep) but never aggregation. Server-side
