@@ -33,8 +33,11 @@ export interface CleanSlateCategory {
 // subset (the reference_data NO-ACTION chain, `periods` with its inbound period_id FKs) and the
 // deliberately-preserved `import_batches` are dispositioned in TENANT_SCOPED_DISPOSITION below and, per
 // SR-44 (destructive scope = architect sign-off), are NOT auto-added to this selectable wipe here.
+// OB-257: summary_rollups (the domain-agnostic MSP rollup store, summary_artifacts family) is a
+// tenant-scoped leaf of DERIVED data — cleared with the calc layer and re-materialized by the next
+// import finalize / activation. Not FK-hazardous (all FKs outbound ON DELETE CASCADE, no inbound).
 export const CLEAN_SLATE_CATEGORIES: readonly CleanSlateCategory[] = [
-  { key: 'calc', label: 'Calculation layer', tables: ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'calculation_batches'] },
+  { key: 'calc', label: 'Calculation layer', tables: ['calculation_traces', 'calculation_results', 'entity_period_outcomes', 'summary_artifacts', 'summary_rollups', 'calculation_batches'] },
   { key: 'plan', label: 'Plan / assignment layer', tables: ['rule_set_assignments', 'rule_set_lifecycle_events', 'plan_interpretation_runs', 'rule_sets'] },
   { key: 'entity', label: 'Entity layer', tables: ['entity_relationships', 'entities'] },
   // OB-251 (P-D2): the Data layer also clears in-flight async ingestion state — processing_jobs
@@ -298,7 +301,7 @@ export const DELETE_TENANT_TABLES: readonly string[] = [
   // periods
   'periods',
   // platform/usage + live-only (skip-if-missing)
-  'usage_metering', 'profile_scope', 'summary_artifacts', 'agent_inbox', 'user_journey',
+  'usage_metering', 'profile_scope', 'summary_artifacts', 'summary_rollups', 'agent_inbox', 'user_journey',
   // people (deleted last among dependents — Delete Tenant removes profiles too)
   'profiles',
 ] as const;

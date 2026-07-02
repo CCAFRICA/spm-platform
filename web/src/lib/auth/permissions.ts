@@ -363,6 +363,9 @@ export const WORKSPACE_FEATURES: ReadonlyArray<{ prefix: string; feature: string
   // non-Finance tenant cannot reach any /financial route by direct URL. Default-OFF (DEFAULT_FEATURES
   // .financial=false) so existing non-Finance tenants are byte-identical.
   { prefix: '/financial', feature: 'financial' },
+  // OB-257: Revenue agent — server-side deep-link gate for the licensable Revenue workspace (the
+  // /financial precedent exactly; the whole /revenue subtree is Revenue-exclusive). Default-OFF.
+  { prefix: '/revenue', feature: 'revenue_enabled' },
 
   // OB-252 Phase 3 (review closure): server-side deep-link gates for the two DEFAULT-ON agents, using
   // the DEDICATED entitlement keys (Compensation='compensation_enabled', Intelligence=

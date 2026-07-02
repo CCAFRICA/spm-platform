@@ -51,6 +51,11 @@ export interface TenantFeatures {
   // Compensation AGENT. A platform admin can still toggle these per tenant via the new key.
   intelligence_enabled: boolean; // gates the Intelligence (decide) workspace
   compensation_enabled: boolean; // gates the Compensation (calculate) workspace
+  // OB-257: AGENT-ENTITLEMENT gate for the Revenue agent (the CRO revenue-intelligence workspace).
+  // DEDICATED key, DECOUPLED from any billing key (the OB-252 precedent) — in particular it must
+  // never be conflated with the half-dead billing `salesFinance` or the Finance module's `financial`.
+  // Licensable like `financial`/`prism_enabled`: default-OFF, a platform admin enables per tenant.
+  revenue_enabled: boolean; // gates the Revenue workspace
   /** Lifecycle pipeline config: 'launch' (simplified) or 'production' (full) */
   lifecyclePipeline?: string;
 }
@@ -71,6 +76,7 @@ export const DEFAULT_FEATURES: TenantFeatures = {
   prism_enabled: false, // OB-250: PRISM off by default — platform admin enables per tenant
   intelligence_enabled: true, // OB-252: core agent — entitled by default (absent key → shown)
   compensation_enabled: true, // OB-252: core agent — entitled by default (absent key → shown)
+  revenue_enabled: false, // OB-257: Revenue agent — licensable, default OFF, platform admin enables per tenant
 };
 
 export interface TenantTerminology {

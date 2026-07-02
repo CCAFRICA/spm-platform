@@ -36,8 +36,9 @@ test('isFeatureEnabled: default-ON core agents (absent key → entitled), defaul
 
 test('PG-7/PG-13: toggleable agents derive structurally from workspace featureFlags; Platform Core excluded', () => {
   const keys = toggleableFeatureKeys().sort();
-  assert.deepEqual(keys, ['compensation_enabled', 'financial', 'intelligence_enabled', 'prism_enabled'].sort(),
-    'exactly the four agents that declare a featureFlag');
+  // OB-257: the Revenue agent declares featureFlag:'revenue_enabled' → appears here structurally.
+  assert.deepEqual(keys, ['compensation_enabled', 'financial', 'intelligence_enabled', 'prism_enabled', 'revenue_enabled'].sort(),
+    'exactly the five agents that declare a featureFlag');
   const agents = getToggleableAgents();
   // Platform Core has no featureFlag → never appears (PG-7: cannot be toggled off).
   assert.ok(!agents.some((a) => a.workspaceId === 'platform-core'), 'Platform Core not toggleable');
@@ -47,6 +48,7 @@ test('PG-7/PG-13: toggleable agents derive structurally from workspace featureFl
   assert.equal(byKey['compensation_enabled'], true);
   assert.equal(byKey['financial'], false);
   assert.equal(byKey['prism_enabled'], false);
+  assert.equal(byKey['revenue_enabled'], false); // OB-257: licensable, default-OFF
   assert.equal(isEntitledByDefault('intelligence_enabled'), true);
 });
 

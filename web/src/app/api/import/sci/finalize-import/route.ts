@@ -27,6 +27,8 @@ import { createMissingAssignments } from '@/lib/sci/assignment-creation';
 import { generateComprehension } from '@/lib/summary/comprehension-generator'; // OB-233
 import { runSummaryEngine } from '@/lib/summary/summary-engine'; // OB-229
 import { generateInsights } from '@/lib/insight/insight-engine'; // OB-232
+import { isRevenueEnabledForTenant } from '@/lib/revenue/tenant-feature'; // OB-257
+import { materializeRevenueRollups } from '@/lib/revenue/materializer'; // OB-257
 
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
@@ -162,6 +164,18 @@ export async function POST(req: NextRequest) {
       insights = { stored: 0, failed: 0, error: msg };
       console.error(`[SCI Finalize] INSIGHT ENGINE FAILED (import already complete; insights missing until next finalize): ${msg}`);
     }
+
+    // 6. OB-257: revenue rollup materialization -- entitlement-gated, fire-and-forget (the flywheel
+    //    idiom below). Revenue rollups are eventually-consistent post-import: the materializer's two
+    //    whole-tenant committed_data scans must not spend the finalize's 300s budget (at 86K-row
+    //    scale they can starve the steps above); /api/revenue/activate is the deterministic re-run
+    //    path. Failure is loud in the log, never blocks or fails the finalize.
+    trace('revenue-materializer-dispatched (fire-and-forget; /api/revenue/activate is the deterministic re-run)');
+    void (async () => {
+      if (!(await isRevenueEnabledForTenant(tenantId))) return;
+      const rm = await materializeRevenueRollups(supabase, tenantId, trace);
+      trace(`revenue-materializer-done ok=${rm.ok} noop=${rm.noop} period=${rm.rollupsWritten.period} entity=${rm.rollupsWritten.entityPeriod} dim=${rm.rollupsWritten.dimensionPeriod}`);
+    })().catch(err => console.error('[SCI Finalize] REVENUE MATERIALIZER FAILED (import already complete; revenue rollups stale until next finalize):', err instanceof Error ? err.message : err));
 
     // HF-372 Phase F (EPG-0.8 §4): flywheel aggregation was CLIENT-ONLY (page.tsx fire) — a
     // navigate-away import got finalize (waitUntil/sweep) but never aggregation. Server-side

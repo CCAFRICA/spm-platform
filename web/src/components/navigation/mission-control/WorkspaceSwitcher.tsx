@@ -22,6 +22,7 @@ import {
   Settings,
   Activity,
   Database,
+  LineChart,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -41,6 +42,7 @@ const WORKSPACE_ICONS: Record<WorkspaceId, React.ComponentType<{ className?: str
   'platform-core': Settings,
   finance: Activity,
   'data-operations': Database, // OB-250
+  revenue: LineChart, // OB-257
 };
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
