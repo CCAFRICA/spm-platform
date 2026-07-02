@@ -86,4 +86,32 @@ Was `0 derivations, 0 gaps, 0 component bindings`; now **8 bindings, 8 derivatio
 
 Tests: new `hf373-bare-primitive-reads.test.ts` (3/3); intelligence + convergence suites 66/66.
 
-*(Phases B–J appended below as completed.)*
+---
+
+## Phase B — Variant assignment from recognized attributes (D2)
+
+**Objective.** Variant selection reads the entity's materialized, model-recognized attributes; zero silent exclusions; correct per-variant labels.
+
+**Phase 0 finding answered.** EPG-0.2: the HF-119 matcher tokenized `committed_data.row_data` string values (incl. `_sheetName` and external-ID fragments); "Ejecutivo" ⊂ "Ejecutivo Senior" made V1's discriminant set structurally empty; the OB-194 gate excluded 72/85; the 13 survivors matched only via manager-attributed subordinate row leakage; both variants rendered the entity's `metadata.role` as the label (run/route.ts:2440-old).
+
+**Change.**
+- New `web/src/lib/calculation/variant-selection.ts` — pure, exported: `normalizeIdentity` (accent/case-insensitive, script-neutral), `buildVariantIdentitySets` (variantName/variantId/description), `resolveMaterializedAttributes` (as-of temporal attrs + `metadata.role` backstop — the exact resolution the route materializes to `period_entity_state`), `selectVariantByRecognizedAttributes` (FULL-STRING equality; returns `selected | no_match | ambiguous` — never a default). The calc route consumes these (single path, AP-17); the token matcher, `variantTokenize`, token sets, and discriminants are **deleted** (0 references remain).
+- Exclusion gate re-founded: fires ONLY on `no_match`/`ambiguous` — loud `[VARIANT]` log + named reason (`attributes_resolve_no_variant` / `attributes_match_multiple_variants`) + the resolved attribute values in `excludedEntities.attributes`, surfaced in the run summary.
+- Label fix: `variantKey = variant_<index>(<selected variant's variantName>)` — each variant renders its own name in `[CalcRecon-T2]` lines and the T1 `variantDistribution` footer.
+
+**EPG-B1 evidence** (the REAL exported functions the route imports, executed over ALL live VLTEST2 entities, as-of 2025-11-30 — script `web/scripts/_hf373_phaseB_live_proof.ts`):
+
+```
+variant identity sets: V0=[ejecutivo senior | senior]  V1=[ejecutivo]
+entities evaluated: 85
+variantDistribution: variant_0(Ejecutivo Senior):13 | variant_1(Ejecutivo):72
+exclusions: 0 (zero silent or otherwise)
+  BCL-5001 Adriana Reyes Molina: attrs={"role":"Ejecutivo Senior"} -> variant_0(Ejecutivo Senior)
+  BCL-5006 Ricardo José Andrade Mendieta: attrs={"role":"Ejecutivo"} -> variant_1(Ejecutivo)
+```
+
+Was 13 evaluated / 72 excluded with both variants labeled "(Ejecutivo Senior)"; now **85/85 assigned, 0 exclusions, distinct labels**. Unit tests `hf373-variant-selection.test.ts` 5/5 (nested-name trap, accent/case equality, loud no-match, ambiguity, as-of + backstop resolution).
+
+**Authenticated in-route run (SR-44).** The `[CalcRecon-T2]` lines rendered by an authenticated POST `/api/calculation/run` require a live user session; CC's attempts to mint one were correctly denied by policy (no user creation, no role changes, no MFA manipulation — attempted and refused twice, by design). The browser-driven calc run is therefore an **architect-rendered check**, and its full T1/T2 output lands with EPG-J1's clean-slate run. Data note: CC re-ran the idempotent post-commit construction on VLTEST2 (the D9 pre-data finalize had left 425/510 transactions unlinked → now 510/510) so the architect's run evaluates real operands.
+
+*(Phases C–J appended below as completed.)*
